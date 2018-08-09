@@ -19,6 +19,11 @@ class ZnField {
         throw new Error("Not Implementted");
     }
 
+    neg(a) {
+        // TODO
+        throw new Error("Not Implementted");
+    }
+
     mul(a, b) {
         // TODO
         throw new Error("Not Implementted");
@@ -30,6 +35,16 @@ class ZnField {
     }
 
     div(a, b) {
+        // TODO
+        throw new Error("Not Implementted");
+    }
+
+    isZero(a) {
+        // TODO
+        throw new Error("Not Implementted");
+    }
+
+    random() {
         // TODO
         throw new Error("Not Implementted");
     }

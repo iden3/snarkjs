@@ -37,6 +37,10 @@ class PolField {
         throw new Error("Not Implementted");
     }
 
+    eval(p, x) {
+        throw new Error("Not Implementted");
+    }
+
     lagrange(points) {
         throw new Error("Not Implementted");
     }

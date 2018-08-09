@@ -34,9 +34,9 @@ const circuit = new zkSnark.Circuit(circuitDef);
 ```
     // `signalId` can always be a number or an alias string
 
-    circuit.nConstrains; // number of constrains
-    circuit.nSignals; // number of signals
-    circuit.nPublic; // number of public signals (nOutputs + nPublicInputs)
+    circuit.m; // number of constrains
+    circuit.n; // number of signals
+    circuit.p; // number of public signals (nPublicInputs + nOutputs)
 
     // The array of signals is always sorted in this order:
     // [ outputs, publicInputs, privedInputs, internalSignals, constants]
