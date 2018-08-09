@@ -10,11 +10,11 @@ const pairing = require("./pairing");
 
 module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
-    let  full_pi_a = proof.pi_a;
     for (let s= 0; s< vk_verifier.nPublic; s++) {
-
         full_pi_a  = G1.add( full_pi_a, G1.mulEscalar( vk_verifier.A[s], publicSignals[s]));
     }
+
+    let  full_pi_a = G1.add(proof.pi_a, vk_verifier.A[vk_verifier.nPublic]);
 
     if (! Gt.equal(
         pairing( proof.pi_a , vk_verifier.vk_a ),

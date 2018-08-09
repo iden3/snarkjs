@@ -39,7 +39,7 @@ const circuit = new zkSnark.Circuit(circuitDef);
     circuit.nPublic; // number of public signals (nOutputs + nPublicInputs)
 
     // The array of signals is always sorted in this order:
-    // [ outputs, publicInputs, privedInputs, internalSignals, constants]
+    // [ outputs, publicInputs, 1, privedInputs, internalSignals, constants]
 
     // returns a,b and c coeficients of the `signalId` on a given `constrain`
     circuit.a(constrain, signalId)

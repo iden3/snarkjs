@@ -25,7 +25,8 @@ module.exports = function genProof(vk_proof, witness) {
     proof.pi_h = G1.zero();
 
 
-    for (let s= vk_proof.nPublic; s< vk_proof.nSignals; s++) {
+    // Skip public entries and the "1" signal that are forced by the verifier
+    for (let s= vk_proof.nPublic+1; s< vk_proof.nSignals; s++) {
 
         // pi_a  = pi_a  + A[s]  * witness[s];
         proof.pi_a  = G1.add( proof.pi_a, G1.mulEscalar( vk_proof.A[s], witness[s]));
