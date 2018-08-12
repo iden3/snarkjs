@@ -1,8 +1,8 @@
 
 
-class ZnField {
-    constructor(n) {
-        this.n = n;
+class F2Field {
+    constructor(p) {
+        this.p = n;
     }
 
     add(a, b) {
@@ -51,4 +51,4 @@ class ZnField {
 
 }
 
-module.exports = ZnField;
+module.exports = F2Field;
