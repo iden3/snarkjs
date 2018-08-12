@@ -1,54 +1,106 @@
-
+const bigInt = require("big-integer");
 
 class F2Field {
-    constructor(p) {
-        this.p = n;
+    constructor(F, nonResidue) {
+        this.F = F;
+        this.zero = [this.F.zero, this.F.zero];
+        this.one = [this.F.one, this.F.zero];
+        this.nonResidue = nonResidue;
+    }
+
+    e(c0, c1) {
+        return [bigInt(c0), bigInt(c1)];
+    }
+
+    copy(a) {
+        return [this.F.copy(a[0]), this.F.copy(a[1])];
     }
 
     add(a, b) {
-        const maxGrade = Math.max(a.length, b.length);
-        const res = new Array(maxGrade);
-        for (let i=0; i<maxGrade; i++) {
-            res[i] = this.F.add(a[i], b[i]);
-        }
-        return this._reduce(res);
+        return [
+            this.F.add(a[0], b[0]),
+            this.F.add(a[1], b[1])
+        ];
     }
 
     sub(a, b) {
-        // TODO
-        throw new Error("Not Implementted");
+        return [
+            this.F.sub(a[0], b[0]),
+            this.F.sub(a[1], b[1])
+        ];
     }
 
     neg(a) {
-        // TODO
-        throw new Error("Not Implementted");
+        return this.sub(this.zero, a);
     }
 
     mul(a, b) {
-        // TODO
-        throw new Error("Not Implementted");
+        const aA = this.F.mul(a[0] , b[0]);
+        const bB = this.F.mul(a[1] , b[1]);
+
+        return [
+            this.F.add( aA , this.F.mul(this.nonResidue , bB)),
+            this.F.sub(
+                this.F.mul(
+                    this.F.add(a[0], a[1]),
+                    this.F.add(b[0], b[1])),
+                this.F.add(aA, bB))];
     }
 
-    inverse(a, b) {
-        // TODO
-        throw new Error("Not Implementted");
+    inverse(a) {
+        const t0 = this.F.square(a[0]);
+        const t1 = this.F.square(a[1]);
+        const t2 = this.F.sub(t0, this.F.mul(this.nonResidue, t1));
+        const t3 = this.F.inverse(t2);
+        return [
+            this.F.mul(a[0], t3),
+            this.F.neg(this.F.mul( a[1], t3)) ];
     }
 
     div(a, b) {
-        // TODO
-        throw new Error("Not Implementted");
+        return this.mul(a, this.inverse(b));
+    }
+
+    square(a) {
+        const ab = this.F.mul(a[0] , a[1]);
+
+        /*
+        [
+            (a + b) * (a + non_residue * b) - ab - non_residue * ab,
+            ab + ab
+        ];
+        */
+
+        return [
+            this.F.sub(
+                this.F.mul(
+                    this.F.add(a[0], a[1]) ,
+                    this.F.add(
+                        a[0] ,
+                        this.F.mul(this.nonResidue , a[1]))),
+                this.F.add(
+                    ab,
+                    this.F.mul(this.nonResidue, ab))),
+            this.F.add(ab, ab)
+        ];
     }
 
     isZero(a) {
-        // TODO
-        throw new Error("Not Implementted");
+        return this.F.isZero(a[0]) && this.F.isZero(a[1]);
     }
 
-    random() {
-        // TODO
-        throw new Error("Not Implementted");
+    equals(a, b) {
+        return this.F.equals(a[0], b[0]) && this.F.equals(a[1], b[1]);
     }
 
+    affine(a) {
+        return [this.F.affine(a[0]), this.F.affine(a[1])];
+    }
+
+    toString(a) {
+        const cp = this.affine(a);
+        return `[ ${this.F.toString(cp[0])} , ${this.F.toString(cp[1])} ]`;
+    }
 }
 
 module.exports = F2Field;
