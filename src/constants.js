@@ -24,8 +24,10 @@ const C = {
             ]
         ],
 
-    f2nonResidue: bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582")
-
+    f2nonResidue: bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582"),
+    f6nonResidue: [ bigInt("9"), bigInt("1") ],
+    f12nonResidue: [
+    ]
 };
 
 const F1 = new F1Field(C.q);
@@ -35,7 +37,8 @@ C.two_inv= F1.inverse(bigInt(2));
 
 C.coef_b = bigInt(3);
 C.twist = [bigInt(9) , bigInt(1)];
-// C.twist_coeff_b = F2.mulEscalar(  F2.inverse(C.twist), C.coef_b  );
+C.twist_coeff_b = F2.mulEscalar(  F2.inverse(C.twist), C.coef_b  );
 
 
 module.exports = C;
+

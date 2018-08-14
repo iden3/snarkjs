@@ -1,4 +1,4 @@
-const bigInt = require("big-integer");
+const fUtils = require("./futils.js");
 
 class F2Field {
     constructor(F, nonResidue) {
@@ -8,8 +8,8 @@ class F2Field {
         this.nonResidue = nonResidue;
     }
 
-    e(c0, c1) {
-        return [bigInt(c0), bigInt(c1)];
+    _mulByNonResidue(a) {
+        return this.F.mul(this.nonResidue, a);
     }
 
     copy(a) {
@@ -21,6 +21,10 @@ class F2Field {
             this.F.add(a[0], b[0]),
             this.F.add(a[1], b[1])
         ];
+    }
+
+    double(a) {
+        return this.add(a,a);
     }
 
     sub(a, b) {
@@ -39,7 +43,7 @@ class F2Field {
         const bB = this.F.mul(a[1] , b[1]);
 
         return [
-            this.F.add( aA , this.F.mul(this.nonResidue , bB)),
+            this.F.add( aA , this._mulByNonResidue(bB)),
             this.F.sub(
                 this.F.mul(
                     this.F.add(a[0], a[1]),
@@ -50,7 +54,7 @@ class F2Field {
     inverse(a) {
         const t0 = this.F.square(a[0]);
         const t1 = this.F.square(a[1]);
-        const t2 = this.F.sub(t0, this.F.mul(this.nonResidue, t1));
+        const t2 = this.F.sub(t0, this._mulByNonResidue(t1));
         const t3 = this.F.inverse(t2);
         return [
             this.F.mul(a[0], t3),
@@ -77,10 +81,10 @@ class F2Field {
                     this.F.add(a[0], a[1]) ,
                     this.F.add(
                         a[0] ,
-                        this.F.mul(this.nonResidue , a[1]))),
+                        this._mulByNonResidue(a[1]))),
                 this.F.add(
                     ab,
-                    this.F.mul(this.nonResidue, ab))),
+                    this._mulByNonResidue(ab))),
             this.F.add(ab, ab)
         ];
     }
@@ -95,6 +99,14 @@ class F2Field {
 
     affine(a) {
         return [this.F.affine(a[0]), this.F.affine(a[1])];
+    }
+
+    mulEscalar(base, e) {
+        return fUtils.mulEscalar(this, base, e);
+    }
+
+    exp(base, e) {
+        return fUtils.exp(this, base, e);
     }
 
     toString(a) {

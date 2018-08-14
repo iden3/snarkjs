@@ -1,4 +1,5 @@
 const bigInt = require("big-integer");
+const fUtils = require("./futils.js");
 
 class F1Field {
     constructor(q) {
@@ -8,16 +9,16 @@ class F1Field {
         this.one = bigInt.one;
     }
 
-    e(a) {
-        return bigInt(a);
-    }
-
     copy(a) {
         return bigInt(a);
     }
 
     add(a, b) {
         return a.add(b);
+    }
+
+    double(a) {
+        return this.add(a,a);
     }
 
     sub(a, b) {
@@ -67,6 +68,14 @@ class F1Field {
             }
         }
         return aux;
+    }
+
+    mulEscalar(base, e) {
+        return fUtils.mulEscalar(this, base, e);
+    }
+
+    exp(base, e) {
+        return fUtils.exp(this, base, e);
     }
 
     toString(a) {

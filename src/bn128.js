@@ -1,21 +1,45 @@
-/*
-This module calculate the pairing of p1 and p2 where p1 in G1 and p2 in G2
- */
-
-const assert = require("assert");
 const bigInt = require("big-integer");
-const F1Field = require("./f1field");
-const F2Field = require("./f2field");
-const F3Field = require("./f3field");
-const GCurve = require("./gcurve");
-const constants = require("constants");
+const assert = require("assert");
 
-module.exports = new Pairing();
+const F1Field = require("./f1field.js");
+const F2Field = require("./f2field.js");
+const F3Field = require("./f3field.js");
+const GCurve = require("./gcurve.js");
 
+class BN128 {
 
-class Pairing {
+    constructor() {
 
-    constructor(curve) {
+        this.q = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+        this.r = bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+        this.g1 = [ bigInt(1), bigInt(2) ];
+        this.g2 = [
+            [
+                bigInt("10857046999023057135944570762232829481370756359578518086990519993285655852781"),
+                bigInt("11559732032986387107991004021392285783925812861821192530917403151452391805634")
+            ],
+            [
+                bigInt("8495653923123431417604973247489272438418190587263600148770280649306958101930"),
+                bigInt("4082367875863433681332203403145435568316851327593401208105741076214120093531")
+            ]
+        ];
+
+        this.F1 = new F1Field(this.q);
+        this.F2 = new F2Field(this.F1, bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582"));
+        this.G1 = new GCurve(this.F1, this.g1);
+        this.G2 = new GCurve(this.F2, this.g2);
+        this.F6 = new F3Field(this.F2, [ bigInt("9"), bigInt("1") ]);
+        this.F12 = new F2Field(this.F6, [ bigInt("9"), bigInt("1") ]);
+        const self = this;
+        this.F12._mulByNonResidue = function(a) {
+            return [self.F2.mul(this.nonResidue, a[2]), a[0], a[1]];
+        };
+
+        this._preparePairing();
+
+    }
+
+    _preparePairing() {
         this.loopCount = bigInt("29793968203157093288");// CONSTANT
 
         // Set loopCountNeg
@@ -34,26 +58,43 @@ class Pairing {
             lc = lc.shiftRight(1);
         }
 
-        this.F1 = curve.F1;
-        this.F2 = curve.F2;
-        this.G1 = curve.G1;
-        this.G2 = curve.G2;
-        this.F6 = curve.F6;
-        this.F12 = curve.F12;
+        this.two_inv = this.F1.inverse(bigInt(2));
+
+        this.coef_b = bigInt(3);
+        this.twist = [bigInt(9) , bigInt(1)];
+        this.twist_coeff_b = this.F2.mulEscalar(  this.F2.inverse(this.twist), this.coef_b  );
+
+        this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        this.twist_mul_by_q_X =
+            [
+                bigInt("21575463638280843010398324269430826099269044274347216827212613867836435027261"),
+                bigInt("10307601595873709700152284273816112264069230130616436755625194854815875713954")
+            ];
+        this.twist_mul_by_q_Y =
+            [
+                bigInt("2821565182194536844548159561693502659359617185244120367078079554186484126554"),
+                bigInt("3505843767911556378687030309984248845540243509899259641013678093033130930403")
+            ];
+
+        this.final_exponent = bigInt("552484233613224096312617126783173147097382103762957654188882734314196910839907541213974502761540629817009608548654680343627701153829446747810907373256841551006201639677726139946029199968412598804882391702273019083653272047566316584365559776493027495458238373902875937659943504873220554161550525926302303331747463515644711876653177129578303191095900909191624817826566688241804408081892785725967931714097716709526092261278071952560171111444072049229123565057483750161460024353346284167282452756217662335528813519139808291170539072125381230815729071544861602750936964829313608137325426383735122175229541155376346436093930287402089517426973178917569713384748081827255472576937471496195752727188261435633271238710131736096299798168852925540549342330775279877006784354801422249722573783561685179618816480037695005515426162362431072245638324744480");
+
     }
+
 
     pairing(p1, p2) {
 
-        const pre1 = this._precomputeG1(p1);
-        const pre2 = this._precomputeG2(p2);
+        const pre1 = this.precomputeG1(p1);
+        const pre2 = this.precomputeG2(p2);
 
-        const res = this._millerLoop(pre1, pre2);
+        const r1 = this.millerLoop(pre1, pre2);
+
+        const res = this.finalExponentiation(r1);
 
         return res;
     }
 
 
-    _precomputeG1(p) {
+    precomputeG1(p) {
         const Pcopy = this.G1.affine(p);
 
         const res = {};
@@ -63,7 +104,7 @@ class Pairing {
         return res;
     }
 
-    _precomputeG2(p) {
+    precomputeG2(p) {
 
         const Qcopy = this.G2.affine(p);
 
@@ -95,16 +136,16 @@ class Pairing {
             }
         }
 
-        const Q1 = this.G2.mul_by_q(Qcopy);  // TODO mul_by_q
-        assert(this.F2.equal(Q1[2], this.F2.one));
-        const Q2 = this.G2.mul_by_q(Q1);
-        assert(this.F2.equal(Q2[2], this.F2.one));
+        const Q1 = this.G2.affine(this._g2MulByQ(Qcopy));
+        assert(this.F2.equals(Q1[2], this.F2.one));
+        const Q2 = this.G2.affine(this._g2MulByQ(Q1));
+        assert(this.F2.equals(Q2[2], this.F2.one));
 
         if (this.loopCountNef)
         {
             R.Y = this.F2.neg(R.Y);
         }
-        Q2.Y = this.F2.neg(Q2.Y);
+        Q2[1] = this.F2.neg(Q2[1]);
 
         c = this._addStep(Q1, R);
         res.coeffs.push(c);
@@ -115,7 +156,7 @@ class Pairing {
         return res;
     }
 
-    _millerLoop(pre1, pre2) {
+    millerLoop(pre1, pre2) {
         let f = this.F12.one;
 
         let idx = 0;
@@ -135,8 +176,8 @@ class Pairing {
             f = this._mul_by_024(
                 f,
                 c.ell_0,
-                this.F2.mul(pre1.PY, c.ell_VW),
-                this.F2.mul(pre1.PX, c.ell_VV));
+                this.F2.mulEscalar(c.ell_VW , pre1.PY),
+                this.F2.mulEscalar(c.ell_VV , pre1.PX, ));
 
             if (bit)
             {
@@ -144,8 +185,8 @@ class Pairing {
                 f = this._mul_by_024(
                     f,
                     c.ell_0,
-                    this.F2.mul(pre1.PY, c.ell_VW),
-                    this.F2.mul(pre1.PX, c.ell_VV));
+                    this.F2.mulEscalar(c.ell_VW, pre1.PY, ),
+                    this.F2.mulEscalar(c.ell_VV, pre1.PX, ));
             }
 
         }
@@ -159,17 +200,25 @@ class Pairing {
         f = this._mul_by_024(
             f,
             c.ell_0,
-            this.F2.mul(pre1.PY, c.ell_VW),
-            this.F2.mul(pre1.PX, c.ell_VV));
+            this.F2.mulEscalar(c.ell_VW, pre1.PY),
+            this.F2.mulEscalar(c.ell_VV, pre1.PX));
 
         c = pre2.coeffs[idx++];
         f = this._mul_by_024(
             f,
             c.ell_0,
-            this.F2.mul(pre1.PY, c.ell_VW),
-            this.F2.mul(pre1.PX, c.ell_VV));
+            this.F2.mulEscalar(c.ell_VW, pre1.PY, ),
+            this.F2.mulEscalar(c.ell_VV, pre1.PX));
 
         return f;
+    }
+
+    finalExponentiation(elt) {
+        // TODO: There is an optimization in FF
+
+        const res = this.F12.exp(elt,this.final_exponent);
+
+        return res;
     }
 
     _doubleStep(current) {
@@ -177,16 +226,16 @@ class Pairing {
         const Y = current.Y;
         const Z = current.Z;
 
-        const A = this.F2.mulEscalar(this.F1.mul(X,Y), constants.two_inv);                     // A = X1 * Y1 / 2
+        const A = this.F2.mulEscalar(this.F2.mul(X,Y), this.two_inv);                     // A = X1 * Y1 / 2
         const B = this.F2.square(Y);                           // B = Y1^2
         const C = this.F2.square(Z);                           // C = Z1^2
-        const D = this.F2.add(C, this.F1.add(C,C));            // D = 3 * C
-        const E = this.F2.mul(constants.twist_coeff_b, D);     // E = twist_b * D
+        const D = this.F2.add(C, this.F2.add(C,C));            // D = 3 * C
+        const E = this.F2.mul(this.twist_coeff_b, D);     // E = twist_b * D
         const F = this.F2.add(E, this.F2.add(E,E));            // F = 3 * E
         const G =
             this.F2.mulEscalar(
-                this.F2.sum( B , F ),
-                constants.two_inv);                            // G = (B+F)/2
+                this.F2.add( B , F ),
+                this.two_inv);                            // G = (B+F)/2
         const H =
             this.F2.sub(
                 this.F2.square( this.F2.add(Y,Z) ),
@@ -202,7 +251,7 @@ class Pairing {
                 this.F2.add( E_squared , E_squared ));         // Y3 = G^2 - 3*E^2
         current.Z = this.F2.mul( B, H );                       // Z3 = B * H
         const c = {
-            ell_0 : this.F2.mul( I, constants.twist),          // ell_0 = xi * I
+            ell_0 : this.F2.mul( I, this.twist),          // ell_0 = xi * I
             ell_VW: this.F2.neg( H ),                          // ell_VW = - H (later: * yP)
             ell_VV: this.F2.add( J , this.F2.add(J,J) )        // ell_VV = 3*J (later: * xP)
         };
@@ -215,8 +264,8 @@ class Pairing {
         const X1 = current.X;
         const Y1 = current.Y;
         const Z1 = current.Z;
-        const x2 = base.X;
-        const y2 = base.Y;
+        const x2 = base[0];
+        const y2 = base[1];
 
         const D = this.F2.sub( X1, this.F2.mul(x2,Z1) );  // D = X1 - X2*Z1
         const E = this.F2.sub( Y1, this.F2.mul(y2,Z1) );  // E = Y1 - Y2*Z1
@@ -238,7 +287,7 @@ class Pairing {
         const c = {
             ell_0 :
                 this.F2.mul(
-                    constants.twist,
+                    this.twist,
                     this.F2.sub(
                         this.F2.mul(E , x2),
                         this.F2.mul(D , y2))),            // ell_0 = xi * (E * X2 - D * Y2)
@@ -260,4 +309,17 @@ class Pairing {
 
         // TODO There is a better version on libff. It should be ported.
     }
+
+    _g2MulByQ(p) {
+        const fmx = [p[0][0], this.F1.mul(p[0][1], this.frobenius_coeffs_c1_1 )];
+        const fmy = [p[1][0], this.F1.mul(p[1][1], this.frobenius_coeffs_c1_1 )];
+        const fmz = [p[2][0], this.F1.mul(p[2][1], this.frobenius_coeffs_c1_1 )];
+        return [
+            this.F2.mul(this.twist_mul_by_q_X , fmx),
+            this.F2.mul(this.twist_mul_by_q_Y , fmy),
+            fmz
+        ];
+    }
 }
+
+module.exports = BN128;

@@ -1,3 +1,4 @@
+const fUtils = require("./futils.js");
 
 class GCurve {
 
@@ -105,19 +106,7 @@ class GCurve {
     }
 
     mulEscalar(base, e) {
-        let res = this.zero;
-        let rem = e;
-        let exp = base;
-
-        while (! rem.isZero()) {
-            if (rem.isOdd()) {
-                res = this.add(res, exp);
-            }
-            exp = this.double(exp);
-            rem = rem.shiftRight(1);
-        }
-
-        return res;
+        return fUtils.mulEscalar(this, base, e);
     }
 
     affine(p) {
