@@ -24,12 +24,15 @@ class BN128 {
             ]
         ];
 
+        this.nonResidueF2 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        this.nonResidueF6 = [ bigInt("9"), bigInt("1") ];
+
         this.F1 = new F1Field(this.q);
-        this.F2 = new F2Field(this.F1, bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582"));
+        this.F2 = new F2Field(this.F1, this.nonResidueF2);
         this.G1 = new GCurve(this.F1, this.g1);
         this.G2 = new GCurve(this.F2, this.g2);
-        this.F6 = new F3Field(this.F2, [ bigInt("9"), bigInt("1") ]);
-        this.F12 = new F2Field(this.F6, [ bigInt("9"), bigInt("1") ]);
+        this.F6 = new F3Field(this.F2, this.nonResidueF6);
+        this.F12 = new F2Field(this.F6, this.nonResidueF6);
         const self = this;
         this.F12._mulByNonResidue = function(a) {
             return [self.F2.mul(this.nonResidue, a[2]), a[0], a[1]];
@@ -300,6 +303,8 @@ class BN128 {
 
     _mul_by_024(a, ell_0, ell_VW, ell_VV) {
 
+        //  Old implementation
+
         const b = [
             [ell_0, this.F2.zero, ell_VV],
             [this.F2.zero, ell_VW, this.F2.zero]
@@ -307,7 +312,91 @@ class BN128 {
 
         return this.F12.mul(a,b);
 
-        // TODO There is a better version on libff. It should be ported.
+        /*
+        // This is a new implementation,
+        //  But it does not look worthy
+        //  at least in javascript.
+
+        let z0 = a[0][0];
+        let z1 = a[0][1];
+        let z2 = a[0][2];
+        let z3 = a[1][0];
+        let z4 = a[1][1];
+        let z5 = a[1][2];
+
+        const x0 = ell_0;
+        const x2 = ell_VV;
+        const x4 = ell_VW;
+
+        const D0 = this.F2.mul(z0, x0);
+        const D2 = this.F2.mul(z2, x2);
+        const D4 = this.F2.mul(z4, x4);
+        const t2 = this.F2.add(z0, z4);
+        let t1 = this.F2.add(z0, z2);
+        const s0 = this.F2.add(this.F2.add(z1,z3),z5);
+
+        // For z.a_.a_ = z0.
+        let S1 = this.F2.mul(z1, x2);
+        let T3 = this.F2.add(S1, D4);
+        let T4 = this.F2.add( this.F2.mul(this.nonResidueF6, T3),D0);
+        z0 = T4;
+
+        // For z.a_.b_ = z1
+        T3 = this.F2.mul(z5, x4);
+        S1 = this.F2.add(S1, T3);
+        T3 = this.F2.add(T3, D2);
+        T4 = this.F2.mul(this.nonResidueF6, T3);
+        T3 = this.F2.mul(z1, x0);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.add(T4, T3);
+        z1 = T4;
+
+        // For z.a_.c_ = z2
+        let t0 = this.F2.add(x0, x2);
+        T3 = this.F2.sub(
+            this.F2.mul(t1, t0),
+            this.F2.add(D0, D2));
+        T4 = this.F2.mul(z3, x4);
+        S1 = this.F2.add(S1, T4);
+        T3 = this.F2.add(T3, T4);
+
+        // For z.b_.a_ = z3 (z3 needs z2)
+        t0 = this.F2.add(z2, z4);
+        z2 = T3;
+        t1 = this.F2.add(x2, x4);
+        T3 = this.F2.sub(
+            this.F2.mul(t0,t1),
+            this.F2.add(D2, D4));
+
+        T4 = this.F2.mul(this.nonResidueF6,  T3);
+        T3 = this.F2.mul(z3, x0);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.add(T4, T3);
+        z3 = T4;
+
+        // For z.b_.b_ = z4
+        T3 = this.F2.mul(z5, x2);
+        S1 = this.F2.add(S1, T3);
+        T4 = this.F2.mul(this.nonResidueF6, T3);
+        t0 = this.F2.add(x0, x4);
+        T3 = this.F2.sub(
+            this.F2.mul(t2,t0),
+            this.F2.add(D0, D4));
+        T4 = this.F2.add(T4, T3);
+        z4 = T4;
+
+        // For z.b_.c_ = z5.
+        t0 = this.F2.add(this.F2.add(x0, x2), x4);
+        T3 = this.F2.sub(this.F2.mul(s0, t0), S1);
+        z5 = T3;
+
+        return [
+            [z0, z1, z2],
+            [z3, z4, z5]
+        ];
+
+        */
+
     }
 
     _g2MulByQ(p) {
