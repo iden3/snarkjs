@@ -1,7 +1,7 @@
-const bigInt = require("big-integer");
+const bigInt = require("./bigint.js");
 const assert = require("assert");
 
-const F1Field = require("./f1field.js");
+const F1Field = require("./zqfield.js");
 const F2Field = require("./f2field.js");
 const F3Field = require("./f3field.js");
 const GCurve = require("./gcurve.js");

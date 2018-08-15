@@ -1,4 +1,4 @@
-const bigInt = require("big-integer");
+const bigInt = require("./bigint");
 const fUtils = require("./futils.js");
 
 class F1Field {

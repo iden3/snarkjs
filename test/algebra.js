@@ -1,6 +1,6 @@
 const chai = require("chai");
 
-const bigInt = require("big-integer");
+const bigInt = require("../src/bigint.js");
 const BN128 = require("../src/BN128.js");
 
 const assert = chai.assert;
@@ -148,4 +148,29 @@ describe("Pairing", () => {
         assert(bn128.F12.equals(res, bn128.F12.one));
     }).timeout(10000);
 
+    it("Should match pairing 2", () => {
+        const bn128 = new BN128();
+
+
+        const g1a = bn128.G1.mulEscalar(bn128.G1.g, 25);
+        const g2a = bn128.G2.mulEscalar(bn128.G2.g, 30);
+
+        const g1b = bn128.G1.mulEscalar(bn128.G1.g, 30);
+        const g2b = bn128.G2.mulEscalar(bn128.G2.g, 25);
+
+
+        const pre1a = bn128.precomputeG1(g1a);
+        const pre2a = bn128.precomputeG2(g2a);
+        const pre1b = bn128.precomputeG1(g1b);
+        const pre2b = bn128.precomputeG2(g2b);
+
+        const r1 = bn128.millerLoop(pre1a, pre2a);
+        const r2 = bn128.millerLoop(pre1b, pre2b);
+
+        const rbe = bn128.F12.mul(r1, bn128.F12.inverse(r2));
+
+        const res = bn128.finalExponentiation(rbe);
+
+        assert(bn128.F12.equals(res, bn128.F12.one));
+    }).timeout(10000);
 });

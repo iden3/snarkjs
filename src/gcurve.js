@@ -4,7 +4,7 @@ class GCurve {
 
     constructor(F, g) {
         this.F = F;
-        this.g = F.copy(g);
+        this.g = [F.copy(g[0]), F.copy(g[1])];
         if (this.g.length == 2) this.g[2] = this.F.one;
         this.zero = [this.F.zero, this.F.one, this.F.zero];
     }
