@@ -4,57 +4,26 @@ const fUtils = require("./futils.js");
 class ZqField {
     constructor(q) {
         this.q = q;
-        this.nq = bigInt.zero.minus(q);
         this.zero = bigInt.zero;
         this.one = bigInt.one;
+        this.add = bigInt.genAdd();
+        this.double = bigInt.genDouble();
+        this.sub = bigInt.genSub();
+        this.neg = bigInt.genNeg();
+        this.mul = bigInt.genMul(q);
+        this.inverse = bigInt.genInverse(q);
+        this.square = bigInt.genSquare(q);
+        this.equals = bigInt.genEquals(q);
+        this.affine = bigInt.genAffine(q);
+        this.isZero = bigInt.genIsZero(q);
     }
 
     copy(a) {
         return bigInt(a);
     }
 
-    add(a, b) {
-        return a.add(b);
-    }
-
-    double(a) {
-        return this.add(a,a);
-    }
-
-    sub(a, b) {
-        return a.minus(b);
-    }
-
-    neg(a) {
-        return bigInt.zero.minus(a);
-    }
-
-    mul(a, b) {
-        return a.mulMod(this.q, b);
-    }
-
-    inverse(a) {
-        return a.modInv(this.q);
-    }
-
     div(a, b) {
         return this.mul(a, this.inverse(b));
-    }
-
-    square(a) {
-        return a.square().mod(this.q);
-    }
-
-    isZero(a) {
-        return a.isZero();
-    }
-
-    equals(a, b) {
-        return this.affine(a).equals(this.affine(b));
-    }
-
-    affine(a) {
-        return a.affine(this.q);
     }
 
     mulEscalar(base, e) {
