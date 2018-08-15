@@ -7,6 +7,8 @@ console.log("XXX");
 
 if (typeof(BigInt) != "undefined") {
     wBigInt  = BigInt;
+    wBigInt.one = wBigInt(1);
+    wBigInt.zero = wBigInt(0);
 
     // Affine
     wBigInt.genAffine = (q) => {
@@ -118,14 +120,14 @@ if (typeof(BigInt) != "undefined") {
         if (q) {
             return (a) => (a.affine(q) == wBigInt.zero);
         } else {
-            return (a) =>  a != 0;
+            return (a) =>  a == wBigInt.zero;
         }
     };
 
 
     // Other minor functions
     wBigInt.prototype.isOdd = function() {
-        return (this & wBigInt.one) == 1;
+        return (this & wBigInt.one) == wBigInt(1);
     };
 
     wBigInt.prototype.isNegative = function() {
@@ -313,28 +315,26 @@ wBigInt.square = function(a, q) {
     return wBigInt.genSquare(q)(a);
 };
 
-wBigInt.prototype.square = function (a, q) {
-    return wBigInt.genSquare(q)(a);
+wBigInt.prototype.square = function (q) {
+    return wBigInt.genSquare(q)(this);
 };
 
 wBigInt.double = function(a, q) {
     return wBigInt.genDouble(q)(a);
 };
 
-wBigInt.prototype.double = function (a, q) {
-    return wBigInt.genDouble(q)(a);
+wBigInt.prototype.double = function (q) {
+    return wBigInt.genDouble(q)(this);
 };
 
 wBigInt.isZero = function(a, q) {
     return wBigInt.genIsZero(q)(a);
 };
 
-wBigInt.prototype.isZero = function (a, q) {
-    return wBigInt.genIsZero(q)(a);
+wBigInt.prototype.isZero = function (q) {
+    return wBigInt.genIsZero(q)(this);
 };
 
-wBigInt.one = wBigInt(1);
-wBigInt.zero = wBigInt(0);
 
 module.exports = wBigInt;
 
