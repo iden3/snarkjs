@@ -2,8 +2,30 @@ const chai = require("chai");
 
 const bigInt = require("../src/bigint.js");
 const BN128 = require("../src/BN128.js");
+const F1Field = require("../src/zqfield.js");
 
 const assert = chai.assert;
+
+
+describe("F1 testing", () => {
+    it("Should compute euclidean", () => {
+        const F = new F1Field(bigInt(7));
+        const res = F.inverse(bigInt(4));
+
+        assert(F.equals(res, bigInt(2)));
+    });
+
+    it("Should multiply and divide in F1", () => {
+        const bn128 = new BN128();
+        const a = bigInt("1");
+        const b = bn128.F1.affine(bigInt("-3"));
+        const c = bn128.F1.mul(a,b);
+        const d = bn128.F1.div(c,b);
+
+        assert(bn128.F1.equals(a, d));
+    });
+});
+
 
 describe("Curve G1 Test", () => {
     it("r*one == 0", () => {

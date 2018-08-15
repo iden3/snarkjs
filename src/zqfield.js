@@ -1,7 +1,7 @@
 const bigInt = require("./bigint");
 const fUtils = require("./futils.js");
 
-class F1Field {
+class ZqField {
     constructor(q) {
         this.q = q;
         this.nq = bigInt.zero.minus(q);
@@ -30,11 +30,11 @@ class F1Field {
     }
 
     mul(a, b) {
-        return a.times(b).mod(this.q);
+        return a.mulMod(this.q, b);
     }
 
     inverse(a) {
-        return this.affine(a).modInv(this.q);
+        return a.modInv(this.q);
     }
 
     div(a, b) {
@@ -54,20 +54,7 @@ class F1Field {
     }
 
     affine(a) {
-        let aux = a;
-        if (aux.isNegative()) {
-            if (aux.lesserOrEquals(this.nq)) {
-                aux = a.mod(this.q);
-            }
-            if (aux.isNegative()) {
-                aux = aux.add(this.q);
-            }
-        } else {
-            if (aux.greaterOrEquals(this.q)) {
-                aux = aux.mod(this.q);
-            }
-        }
-        return aux;
+        return a.affine(this.q);
     }
 
     mulEscalar(base, e) {
@@ -84,4 +71,5 @@ class F1Field {
     }
 }
 
-module.exports = F1Field;
+
+module.exports = ZqField;
