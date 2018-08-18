@@ -154,7 +154,6 @@ describe("Pairing", () => {
             const g1b = bn128.G1.mulEscalar(bn128.G1.g, 30);
             const g2b = bn128.G2.mulEscalar(bn128.G2.g, 25);
 
-
             const pre1a = bn128.precomputeG1(g1a);
             const pre2a = bn128.precomputeG2(g2a);
             const pre1b = bn128.precomputeG1(g1b);

@@ -96,8 +96,6 @@ class PolFieldZq {
         return this.reduce(this.affine(resn));
     }
 
-
-
     square(a) {
         return this.mul(a,a);
     }
@@ -109,9 +107,12 @@ class PolFieldZq {
             const z = new Array(n).fill(this.F.zero);
             return z.concat(p);
         } else {
-            if (-n >= p.length) return [];
             return p.slice(-n);
         }
+    }
+
+    div(a, b) {
+        throw new Error("Not Implementted");
     }
 
     eval(p, x) {
@@ -238,53 +239,17 @@ class PolFieldZq {
         // rec = x^(k - 2) / v* x^scaleV =>
         // rec = x^(k-2-scaleV)/ v
         //
-        // res = x^m/v = x^(m + (2*k-2 - scaleV) - (2*k-2 - scaleV)) /v =>
-        // res = rec * x^(m - (2*k-2 - scaleV)) =>
-        // res = rec * x^(m - 2*k + 2 + scaleV)
+        // res = x^m/v = x^(m +(2k-2-scaleV) -(2k-2-scaleV)) /v =>
+        // res = rec * x^(m - (2k-2-scaleV)) =>
+        // res = rec * x^(m - 2k +2 + scaleV)
 
         const rec = this._reciprocal(this.scaleX(v, scaleV), kbits);
-        const res = this.scaleX(rec, m - 2*k + 2 + scaleV);
+        const res = this.scaleX(rec, m - k*2 +2+scaleV);
 
         return res;
+
     }
 
-    div(_u, _v) {
-        if (_u.length < _v.length) return [];
-        const kbits = log2(_v.length-1)+1;
-        const k = 1 << kbits;
-
-        const u = this.scaleX(_u, k-_v.length);
-        const v = this.scaleX(_v, k-_v.length);
-
-        const n = v.length-1;
-        let m = u.length-1;
-
-        const s = this._reciprocal(v, kbits);
-        let t;
-        if (m>2*n) {
-            t = this.sub(this.scaleX([bigInt(1)], 2*n), this.mul(s, v));
-        }
-
-        let q = [];
-        let rem = u;
-        let us, ut;
-        let finish = false;
-
-        while (!finish) {
-            us = this.mul(rem, s);
-            q = this.add(q, this.scaleX(us, -2*n));
-
-            if ( m > 2*n ) {
-                ut = this.mul(rem, t);
-                rem = this.scaleX(ut, -2*n);
-                m = rem.length-1;
-            } else {
-                finish = true;
-            }
-        }
-
-        return q;
-    }
 }
 
 function log2( V )

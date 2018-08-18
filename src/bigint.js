@@ -3,8 +3,6 @@ const bigInt = require("big-integer");
 
 let wBigInt;
 
-console.log("XXX");
-
 if (typeof(BigInt) != "undefined") {
     wBigInt  = BigInt;
     wBigInt.one = wBigInt(1);

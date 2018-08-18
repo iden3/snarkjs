@@ -16,6 +16,8 @@ class ZqField {
         this.equals = bigInt.genEquals(q);
         this.affine = bigInt.genAffine(q);
         this.isZero = bigInt.genIsZero(q);
+        this.two = this.add(this.one, this.one);
+        this.twoinv = this.inverse(this.two);
     }
 
     copy(a) {
