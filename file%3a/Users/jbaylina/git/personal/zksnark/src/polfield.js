@@ -55,7 +55,7 @@ class PolFieldZq {
         return this.reduce(res);
     }
 
-    mulEscalar(a, b) {
+    mulScalar(a, b) {
         if (this.F.isZero(b)) return [];
         const res = new Array(a.length);
         for (let i=0; i<a.length; i++) {
@@ -67,8 +67,8 @@ class PolFieldZq {
     mul(a, b) {
         if (a.length == 0) return [];
         if (b.length == 0) return [];
-        if (a.length == 1) return this.mulEscalar(b, a[0]);
-        if (b.length == 1) return this.mulEscalar(a, b[0]);
+        if (a.length == 1) return this.mulScalar(b, a[0]);
+        if (b.length == 1) return this.mulScalar(a, b[0]);
 
         const longestN = Math.max(a.length, b.length);
         const bitsResult = log2(longestN-1)+2;

@@ -58,14 +58,14 @@ class BN128 {
         this.loop_count_bits = []; // Constant
         while (!lc.isZero()) {
             this.loop_count_bits.push( lc.isOdd() );
-            lc = lc.shiftRight(1);
+            lc = lc.shr(1);
         }
 
         this.two_inv = this.F1.inverse(bigInt(2));
 
         this.coef_b = bigInt(3);
         this.twist = [bigInt(9) , bigInt(1)];
-        this.twist_coeff_b = this.F2.mulEscalar(  this.F2.inverse(this.twist), this.coef_b  );
+        this.twist_coeff_b = this.F2.mulScalar(  this.F2.inverse(this.twist), this.coef_b  );
 
         this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
         this.twist_mul_by_q_X =
@@ -179,8 +179,8 @@ class BN128 {
             f = this._mul_by_024(
                 f,
                 c.ell_0,
-                this.F2.mulEscalar(c.ell_VW , pre1.PY),
-                this.F2.mulEscalar(c.ell_VV , pre1.PX, ));
+                this.F2.mulScalar(c.ell_VW , pre1.PY),
+                this.F2.mulScalar(c.ell_VV , pre1.PX, ));
 
             if (bit)
             {
@@ -188,8 +188,8 @@ class BN128 {
                 f = this._mul_by_024(
                     f,
                     c.ell_0,
-                    this.F2.mulEscalar(c.ell_VW, pre1.PY, ),
-                    this.F2.mulEscalar(c.ell_VV, pre1.PX, ));
+                    this.F2.mulScalar(c.ell_VW, pre1.PY, ),
+                    this.F2.mulScalar(c.ell_VV, pre1.PX, ));
             }
 
         }
@@ -203,15 +203,15 @@ class BN128 {
         f = this._mul_by_024(
             f,
             c.ell_0,
-            this.F2.mulEscalar(c.ell_VW, pre1.PY),
-            this.F2.mulEscalar(c.ell_VV, pre1.PX));
+            this.F2.mulScalar(c.ell_VW, pre1.PY),
+            this.F2.mulScalar(c.ell_VV, pre1.PX));
 
         c = pre2.coeffs[idx++];
         f = this._mul_by_024(
             f,
             c.ell_0,
-            this.F2.mulEscalar(c.ell_VW, pre1.PY, ),
-            this.F2.mulEscalar(c.ell_VV, pre1.PX));
+            this.F2.mulScalar(c.ell_VW, pre1.PY, ),
+            this.F2.mulScalar(c.ell_VV, pre1.PX));
 
         return f;
     }
@@ -229,14 +229,14 @@ class BN128 {
         const Y = current.Y;
         const Z = current.Z;
 
-        const A = this.F2.mulEscalar(this.F2.mul(X,Y), this.two_inv);                     // A = X1 * Y1 / 2
+        const A = this.F2.mulScalar(this.F2.mul(X,Y), this.two_inv);                     // A = X1 * Y1 / 2
         const B = this.F2.square(Y);                           // B = Y1^2
         const C = this.F2.square(Z);                           // C = Z1^2
         const D = this.F2.add(C, this.F2.add(C,C));            // D = 3 * C
         const E = this.F2.mul(this.twist_coeff_b, D);     // E = twist_b * D
         const F = this.F2.add(E, this.F2.add(E,E));            // F = 3 * E
         const G =
-            this.F2.mulEscalar(
+            this.F2.mulScalar(
                 this.F2.add( B , F ),
                 this.two_inv);                            // G = (B+F)/2
         const H =

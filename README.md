@@ -39,7 +39,7 @@ const circuit = new zkSnark.Circuit(circuitDef);
     circuit.nPublic; // number of public signals (nOutputs + nPublicInputs)
 
     // The array of signals is always sorted in this order:
-    // [ outputs, publicInputs, 1, privedInputs, internalSignals, constants]
+    // [ 1, outputs, publicInputs, privedInputs, internalSignals, constants]
 
     // returns a,b and c coeficients of the `signalId` on a given `constrain`
     circuit.a(constrain, signalId)
@@ -47,14 +47,19 @@ const circuit = new zkSnark.Circuit(circuitDef);
     circuit.c(constrain, signalId)
 
     circuit.nOutputs           // number of public outputs
-    circuit.nPublicInputs      // number of public inputs
-    circuit.nPrivateInputs     // number of private inputs
+    circuit.pubInputs          // number of public inputs
+    circuit.nPrvInputs         // number of private inputs
     circuit.nInputs            // number of inputs ( nPublicInputs + nPrivateInputs)
+    circuit.nVars              // number of variables ( not including constants (one is a variable) )
+    circuit.nSignals           // number of signals ( including constants )
 
     circuit.outputIdx(i)       // returns the index of the i'th output
     circuit.inputIdx(i)        // returns the index of the i'th input
-    circuit.inputPublicIdx(i)  // returns the index of the i'th public input
-    circuit.inputPrivateIdx(i) // returns the index of the i'th private input
+    circuit.pubInputIdx(i)     // returns the index of the i'th public input
+    circuit.prvInputIdx(i)     // returns the index of the i'th private input
+    circuit.varIdx(i)          // returns the index of the i'th variable
+    circuit.constantIdx(i)     // returns the index of the i'th constant
+    circuit.signalIdx(i)       // returns the index of the i'th signal
 
     // returns signal Idx given a signalId
     // if the idx >= n , it is a constant

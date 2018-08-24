@@ -37,7 +37,7 @@ C.two_inv= F1.inverse(bigInt(2));
 
 C.coef_b = bigInt(3);
 C.twist = [bigInt(9) , bigInt(1)];
-C.twist_coeff_b = F2.mulEscalar(  F2.inverse(C.twist), C.coef_b  );
+C.twist_coeff_b = F2.mulScalar(  F2.inverse(C.twist), C.coef_b  );
 
 
 module.exports = C;

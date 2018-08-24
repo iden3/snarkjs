@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 const bigInt = require("./bigint");
 const fUtils = require("./futils.js");
 
@@ -28,8 +30,8 @@ class ZqField {
         return this.mul(a, this.inverse(b));
     }
 
-    mulEscalar(base, e) {
-        return fUtils.mulEscalar(this, base, e);
+    mulScalar(base, e) {
+        return this.mul(base, bigInt(e));
     }
 
     exp(base, e) {
@@ -39,6 +41,16 @@ class ZqField {
     toString(a) {
         const ca = this.affine(a);
         return `"0x${ca.toString(16)}"`;
+    }
+
+    random() {
+        let res = bigInt(0);
+        let n = bigInt(this.q);
+        while (!n.isZero()) {
+            res = res.shl(8).add(bigInt(crypto.randomBytes(1)[0]));
+            n = n.shr(8);
+        }
+        return res;
     }
 }
 

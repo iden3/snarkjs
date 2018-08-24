@@ -1,6 +1,6 @@
-const bigInt = require("big-integer");
+const bigInt = require("./bigint.js");
 
-exports.mulEscalar = (F, base, e) =>{
+exports.mulScalar = (F, base, e) =>{
     let res = F.zero;
     let rem = bigInt(e);
     let exp = base;
@@ -10,7 +10,7 @@ exports.mulEscalar = (F, base, e) =>{
             res = F.add(res, exp);
         }
         exp = F.double(exp);
-        rem = rem.shiftRight(1);
+        rem = rem.shr(1);
     }
 
     return res;
@@ -27,7 +27,7 @@ exports.exp = (F, base, e) =>{
             res = F.mul(res, exp);
         }
         exp = F.square(exp);
-        rem = rem.shiftRight(1);
+        rem = rem.shr(1);
     }
 
     return res;

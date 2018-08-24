@@ -1,23 +1,23 @@
-const bigInt = require("big-integer");
+const bigInt = require("./bigint.js");
 
-const ZnField = require("./znfield.js");
+const BN128 = require("./BN128.js");
 const PolField = require("./polfield.js");
-const G1Curve = require("./g1curve");
-const G2Curve = require("./g2curve");
+const ZqField = require("./zqfield.js");
 
-const F = new ZnField(bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617"));
-const PolF = new PolField(F);
-const G1 = new G1Curve();
-const G2 = new G2Curve();
+const bn128 = new BN128();
+const G1 = bn128.G1;
+const G2 = bn128.G2;
+const PolF = new PolField(new ZqField(bn128.r));
+const F = new ZqField(bn128.r);
 
 module.exports = function setup(circuit) {
     const setup = {
         vk_proof : {
-            nSignals: circuit.nSignals,
-            nPublic: circuit.nPublic
+            nVars: circuit.nVars,
+            nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         vk_verifier: {
-            nPublic: circuit.nPublic
+            nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         toxic: {}
     };
@@ -26,6 +26,8 @@ module.exports = function setup(circuit) {
     setup.toxic.t = F.random();
     calculateEncriptedValuesAtT(setup, circuit);
     calculateHexps(setup, circuit);
+
+    return setup;
 };
 
 function calculatePolinomials(setup, circuit) {
@@ -33,7 +35,7 @@ function calculatePolinomials(setup, circuit) {
     const aPoints = [];
     const bPoints = [];
     const cPoints = [];
-    for (let s = 0; circuit.nSignals; s++) {
+    for (let s = 0; s<circuit.nSignals; s++) {
         aPoints[s] = [];
         bPoints[s] = [];
         cPoints[s] = [];
@@ -49,6 +51,7 @@ function calculatePolinomials(setup, circuit) {
     setup.vk_proof.polsB = [];
     setup.vk_proof.polsC = [];
     for (let s=0; s<circuit.nSignals; s++) {
+        console.log(`Caclcualte Pol ${s}/${circuit.nSignals}`);
         setup.vk_proof.polsA.push(PolF.lagrange( aPoints[s] ));
         setup.vk_proof.polsB.push(PolF.lagrange( bPoints[s] ));
         setup.vk_proof.polsC.push(PolF.lagrange( cPoints[s] ));
@@ -83,56 +86,64 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
     const gb = F.mul(setup.toxic.kbeta, setup.toxic.kgamma);
 
-    setup.vk_verifier.vk_a = G2.mulEscalar( G2.g, setup.toxic.ka);
-    setup.vk_verifier.vk_b = G1.mulEscalar( G1.g, setup.toxic.kb);
-    setup.vk_verifier.vk_c = G2.mulEscalar( G2.g, setup.toxic.kc);
-    setup.vk_verifier.vk_gb_1 = G1.mulEscalar( G1.g, gb);
-    setup.vk_verifier.vk_gb_2 = G2.mulEscalar( G2.g, gb);
-    setup.vk_verifier.vk_g = G2.mulEscalar( G2.g, setup.toxic.kgamma);
+    setup.vk_verifier.vk_a = G2.affine(G2.mulScalar( G2.g, setup.toxic.ka));
+    setup.vk_verifier.vk_b = G1.affine(G1.mulScalar( G1.g, setup.toxic.kb));
+    setup.vk_verifier.vk_c = G2.affine(G2.mulScalar( G2.g, setup.toxic.kc));
+    setup.vk_verifier.vk_gb_1 = G1.affine(G1.mulScalar( G1.g, gb));
+    setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
+    setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
 
     for (let s=0; s<circuit.nSignals; s++) {
 
         // A[i] = G1 * polA(t)
-        const A = G1.mulEscalar(
-            G1.g,
-            PolF.eval(setup.vk_proof.polsA[s], setup.vk_proof.t));
+        const at = PolF.eval(setup.vk_proof.polsA[s], setup.toxic.t);
+        const A = G1.affine(G1.mulScalar(G1.g, at));
+
         setup.vk_proof.A.push(A);
 
-        if (s < circuit.nPublicSignals) {
-            setup.vk_verifier.A.pusj(A);
+        if (s <= setup.vk_proof.nPublic) {
+            setup.vk_verifier.A.push(A);
         }
 
+
         // B1[i] = G1 * polB(t)
-        const B1 = G1.mulEscalar(
-            G1.g,
-            PolF.eval(setup.vk_proof.polsB[s], setup.vk_proof.t));
+        const bt = PolF.eval(setup.vk_proof.polsB[s], setup.toxic.t);
+        const B1 = G1.affine(G1.mulScalar(G1.g, bt));
 
         // B2[i] = G2 * polB(t)
-        const B2 = G2.mulEscalar(
-            G2.g,
-            PolF.eval(setup.vk_proof.polsB[s], setup.vk_proof.t));
+        const B2 = G2.affine(G2.mulScalar(G2.g, bt));
+
         setup.vk_proof.B.push(B2);
 
         // C[i] = G1 * polC(t)
-        const C = G1.mulEscalar(
-            G1.g,
-            PolF.eval(setup.vk_proof.polsC[s], setup.vk_proof.t));
+        const ct = PolF.eval(setup.vk_proof.polsC[s], setup.toxic.t);
+        const C = G1.affine(G1.mulScalar( G1.g, ct));
         setup.vk_proof.C.push (C);
 
         // K = G1 * (A+B+C)
-        const K = G1.mulEscalar(
-            G1.g,
-            G1.add(G1.add(A, B1), C));
 
-        setup.vk_proof.Ap.push(G1.mulEscalar(A, setup.toxic.ka));
-        setup.vk_proof.Bp.push(G1.mulEscalar(B1, setup.toxic.kb));
-        setup.vk_proof.Cp.push(G1.mulEscalar(C, setup.toxic.kc));
-        setup.vk_proof.Kp.push(G1.mulEscalar(K, setup.toxic.beta));
+        const kt = F.add(F.add(at, bt), ct);
+        const K = G1.affine(G1.mulScalar( G1.g, kt));
+
+
+
+        const Ktest = G1.affine(G1.add(G1.add(A, B1), C));
+
+        if (!G1.equals(K, Ktest)) {
+            console.log ("=====FAIL======");
+        }
+
+
+
+        setup.vk_proof.Ap.push(G1.affine(G1.mulScalar(A, setup.toxic.ka)));
+        setup.vk_proof.Bp.push(G1.affine(G1.mulScalar(B1, setup.toxic.kb)));
+        setup.vk_proof.Cp.push(G1.affine(G1.mulScalar(C, setup.toxic.kc)));
+        setup.vk_proof.Kp.push(G1.affine(G1.mulScalar(K, setup.toxic.kbeta)));
     }
 
-    setup.vk_verifier.vk_z = G2.mulEscalar(
+    setup.vk_verifier.vk_z = G2.affine(G2.mulScalar(
         G2.g,
-        PolF.eval(setup.vk_proof.polZ, setup.vk_proof.t));
+        PolF.eval(setup.vk_proof.polZ, setup.toxic.t)));
 }
 
 function calculateHexps(setup, circuit) {
@@ -140,9 +151,9 @@ function calculateHexps(setup, circuit) {
     let maxB = 0;
     let maxC = 0;
     for (let s=0; s<circuit.nSignals; s++) {
-        maxA = Math.max(maxA, setup.vk_proof.polsA[s]);
-        maxB = Math.max(maxB, setup.vk_proof.polsB[s]);
-        maxC = Math.max(maxC, setup.vk_proof.polsC[s]);
+        maxA = Math.max(maxA, setup.vk_proof.polsA[s].length);
+        maxB = Math.max(maxB, setup.vk_proof.polsB[s].length);
+        maxC = Math.max(maxC, setup.vk_proof.polsC[s].length);
     }
 
     let maxFull = Math.max(maxA * maxB - 1, maxC);
@@ -153,7 +164,7 @@ function calculateHexps(setup, circuit) {
     setup.vk_proof.hExps[0] = G1.g;
     let eT = setup.toxic.t;
     for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.mulEscalar(G1.g, eT);
+        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
         eT = F.mul(eT, setup.toxic.t);
     }
 }

@@ -141,8 +141,8 @@ class F3Field {
         return [this.F.affine(a[0]), this.F.affine(a[1]), this.F.affine(a[2])];
     }
 
-    mulEscalar(base, e) {
-        return fUtils.mulEscalar(this, base, e);
+    mulScalar(base, e) {
+        return fUtils.mulScalar(this, base, e);
     }
 
     exp(base, e) {

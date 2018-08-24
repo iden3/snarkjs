@@ -85,6 +85,20 @@ if (typeof(BigInt) != "undefined") {
         }
     };
 
+    // Shr
+    wBigInt.genShr = () => {
+        return (a,b) => a >> wBigInt(b);
+    };
+
+    // Shl
+    wBigInt.genShl = (q) => {
+        if (q) {
+            return (a,b) => (a << wBigInt(b)) % q;
+        } else {
+            return (a,b) => a << wBigInt(b);
+        }
+    };
+
     // Equals
     wBigInt.genEquals = (q) => {
         if (q) {
@@ -132,18 +146,40 @@ if (typeof(BigInt) != "undefined") {
         return this < wBigInt.zero;
     };
 
-    wBigInt.prototype.shiftRight = function(f) {
-        return this >> wBigInt(f);
+    wBigInt.prototype.and = function(m) {
+        return this & m;
+    };
+
+    wBigInt.prototype.mod = function(c) {
+        return this % c;
+    };
+
+    wBigInt.prototype.modPow = function(e, m) {
+        return this ** e % m;
     };
 
     wBigInt.prototype.greaterOrEquals = function(b) {
         return this >= b;
     };
 
+    wBigInt.prototype.greater = function(b) {
+        return this > b;
+    };
+    wBigInt.prototype.gt = wBigInt.prototype.greater;
+
     wBigInt.prototype.lesserOrEquals = function(b) {
         return this <= b;
     };
 
+    wBigInt.prototype.lesser = function(b) {
+        return this < b;
+    };
+    wBigInt.prototype.lt = wBigInt.prototype.lesser;
+
+    wBigInt.prototype.equals = function(b) {
+        return this.valueOf == b.valueOf;
+    };
+    wBigInt.prototype.eq = wBigInt.prototype.equals;
 
 } else {
 
@@ -211,6 +247,20 @@ if (typeof(BigInt) != "undefined") {
             return (a,b) => a.times(b).mod(q);
         } else {
             return (a,b) => a.times(b);
+        }
+    };
+
+    // Shr
+    wBigInt.genShr = () => {
+        return (a,b) => a.shiftRight(wBigInt(b).value);
+    };
+
+    // Shr
+    wBigInt.genShl = (q) => {
+        if (q) {
+            return (a,b) => a.shiftLeft(wBigInt(b).value).mod(q);
+        } else {
+            return (a,b) => a.shiftLeft(wBigInt(b).value);
         }
     };
 
@@ -299,6 +349,22 @@ wBigInt.mul = function(a, b, q) {
 
 wBigInt.prototype.mul = function (a, q) {
     return wBigInt.genMul(q)(this, a);
+};
+
+wBigInt.shr = function(a, b, q) {
+    return wBigInt.genShr(q)(a,b);
+};
+
+wBigInt.prototype.shr = function (a, q) {
+    return wBigInt.genShr(q)(this, a);
+};
+
+wBigInt.shl = function(a, b, q) {
+    return wBigInt.genShl(q)(a,b);
+};
+
+wBigInt.prototype.shl = function (a, q) {
+    return wBigInt.genShl(q)(this, a);
 };
 
 wBigInt.equals = function(a, b, q) {

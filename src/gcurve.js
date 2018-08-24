@@ -68,6 +68,14 @@ class GCurve {
         return res;
     }
 
+    neg(p) {
+        return [p[0], this.F.neg(p[1]), p[2]];
+    }
+
+    sub(a, b) {
+        return this.add(a, this.neg(b));
+    }
+
     double(p) {
         const res = new Array(3);
 
@@ -105,8 +113,8 @@ class GCurve {
         return res;
     }
 
-    mulEscalar(base, e) {
-        return fUtils.mulEscalar(this, base, e);
+    mulScalar(base, e) {
+        return fUtils.mulScalar(this, base, e);
     }
 
     affine(p) {

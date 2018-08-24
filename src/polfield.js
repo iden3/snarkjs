@@ -6,22 +6,24 @@
  */
 
 const bigInt = require("./bigInt");
-const ZqField = require("./zqfield");
 
 class PolFieldZq {
-    constructor (q) {
-        this.F = new ZqField(q);
+    constructor (F) {
+        this.F = F;
 
-        let rem = q.sub(bigInt(1));
+        const q = this.F.q;
+        let rem = q.sub(this.F.one);
         let s = 0;
         while (!rem.isOdd()) {
             s ++;
-            rem = rem.shiftRight(1);
+            rem = rem.shr(1);
         }
+
+        const five = this.F.add(this.F.add(this.F.two, this.F.two), this.F.one);
 
         this.w = new Array(s+1);
         this.wi = new Array(s+1);
-        this.w[s] = this.F.exp(bigInt(5), rem);
+        this.w[s] = this.F.exp(five, rem);
         this.wi[s] = this.F.inverse(this.w[s]);
 
         let n=s-1;
@@ -55,8 +57,9 @@ class PolFieldZq {
         return this.reduce(res);
     }
 
-    mulEscalar(a, b) {
+    mulScalar(a, b) {
         if (this.F.isZero(b)) return [];
+        if (this.F.equals(b, this.F.one)) return a;
         const res = new Array(a.length);
         for (let i=0; i<a.length; i++) {
             res[i] = this.F.mul(a[i], b);
@@ -64,12 +67,35 @@ class PolFieldZq {
         return res;
     }
 
+
+
     mul(a, b) {
         if (a.length == 0) return [];
         if (b.length == 0) return [];
-        if (a.length == 1) return this.mulEscalar(b, a[0]);
-        if (b.length == 1) return this.mulEscalar(a, b[0]);
+        if (a.length == 1) return this.mulScalar(b, a[0]);
+        if (b.length == 1) return this.mulScalar(a, b[0]);
 
+        if (b.length > a.length) {
+            [b, a] = [a, b];
+        }
+
+        if (b.length < log2(a.length)) {
+            return this.mulNormal(a,b);
+        } else {
+            return this.mulFFT(a,b);
+        }
+    }
+
+    mulNormal(a, b) {
+        let res = [];
+        b = this.affine(b);
+        for (let i=0; i<b.length; i++) {
+            res = this.add(res, this.scaleX(this.mulScalar(a, b[i]), i) );
+        }
+        return res;
+    }
+
+    mulFFT(a,b) {
         const longestN = Math.max(a.length, b.length);
         const bitsResult = log2(longestN-1)+2;
         const m = 1 << bitsResult;
@@ -87,7 +113,7 @@ class PolFieldZq {
 
         const res = this._fft(tres, bitsResult, 0, 1, true);
 
-        const twoinvm = this.F.inverse(bigInt(m));
+        const twoinvm = this.F.inverse( this.F.mulScalar(this.F.one, m) );
         const resn = new Array(m);
         for (let i=0; i<m; i++) {
             resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
@@ -125,7 +151,22 @@ class PolFieldZq {
     }
 
     lagrange(points) {
-        throw new Error("Not Implementted");
+        let sum = [];
+        for (let i=0; i<points.length; i++) {
+            let mpol = [this.F.one];
+            for (let j=0;j<points.length;j++) {
+                if (i!=j) {
+                    mpol = this.mul(mpol, [this.F.neg(points[j][0]), this.F.one]);
+                }
+            }
+            const factor =
+                this.F.mul(
+                    this.F.inverse(this.eval(mpol, points[i][0])),
+                    points[i][1]);
+            mpol = this.mulScalar(mpol, factor);
+            sum = this.add(sum, mpol);
+        }
+        return sum;
     }
 
     _fft(pall, bits, offset, step) {
@@ -141,7 +182,7 @@ class PolFieldZq {
 
         const out = new Array(n);
 
-        let m= bigInt(1);
+        let m= this.F.one;
         for (let i=0; i<ndiv2; i++) {
             out[i] = this.F.add(p1[i], this.F.mul(m, p2[i]));
             out[i+ndiv2] = this.F.sub(p1[i], this.F.mul(m, p2[i]));
@@ -262,7 +303,7 @@ class PolFieldZq {
         const s = this._reciprocal(v, kbits);
         let t;
         if (m>2*n) {
-            t = this.sub(this.scaleX([bigInt(1)], 2*n), this.mul(s, v));
+            t = this.sub(this.scaleX([this.F.one], 2*n), this.mul(s, v));
         }
 
         let q = [];

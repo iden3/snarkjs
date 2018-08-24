@@ -31,7 +31,7 @@ describe("Curve G1 Test", () => {
     it("r*one == 0", () => {
         const bn128 = new BN128();
 
-        const res = bn128.G1.mulEscalar(bn128.G1.g, bn128.r);
+        const res = bn128.G1.mulScalar(bn128.G1.g, bn128.r);
 
         assert(bn128.G1.equals(res, bn128.G1.zero), "G1 does not have range r");
     });
@@ -43,12 +43,12 @@ describe("Curve G1 Test", () => {
         const r1 = bigInt(33);
         const r2 = bigInt(44);
 
-        const gr1 = bn128.G1.mulEscalar(bn128.G1.g, r1);
-        const gr2 = bn128.G1.mulEscalar(bn128.G1.g, r2);
+        const gr1 = bn128.G1.mulScalar(bn128.G1.g, r1);
+        const gr2 = bn128.G1.mulScalar(bn128.G1.g, r2);
 
         const grsum1 = bn128.G1.add(gr1, gr2);
 
-        const grsum2 = bn128.G1.mulEscalar(bn128.G1.g, r1.add(r2));
+        const grsum2 = bn128.G1.mulScalar(bn128.G1.g, r1.add(r2));
 
         assert(bn128.G1.equals(grsum1, grsum2));
     });
@@ -58,7 +58,7 @@ describe("Curve G2 Test", () => {
     it ("r*one == 0", () => {
         const bn128 = new BN128();
 
-        const res = bn128.G2.mulEscalar(bn128.G2.g, bn128.r);
+        const res = bn128.G2.mulScalar(bn128.G2.g, bn128.r);
 
         assert(bn128.G2.equals(res, bn128.G2.zero), "G2 does not have range r");
     });
@@ -69,12 +69,12 @@ describe("Curve G2 Test", () => {
         const r1 = bigInt(33);
         const r2 = bigInt(44);
 
-        const gr1 = bn128.G2.mulEscalar(bn128.G2.g, r1);
-        const gr2 = bn128.G2.mulEscalar(bn128.G2.g, r2);
+        const gr1 = bn128.G2.mulScalar(bn128.G2.g, r1);
+        const gr2 = bn128.G2.mulScalar(bn128.G2.g, r2);
 
         const grsum1 = bn128.G2.add(gr1, gr2);
 
-        const grsum2 = bn128.G2.mulEscalar(bn128.G2.g, r1.add(r2));
+        const grsum2 = bn128.G2.mulScalar(bn128.G2.g, r1.add(r2));
 
         /*
         console.log(G2.toString(grsum1));
@@ -148,11 +148,11 @@ describe("Pairing", () => {
         for (let i=0; i<1; i++) {
             const bn128 = new BN128();
 
-            const g1a = bn128.G1.mulEscalar(bn128.G1.g, 25);
-            const g2a = bn128.G2.mulEscalar(bn128.G2.g, 30);
+            const g1a = bn128.G1.mulScalar(bn128.G1.g, 25);
+            const g2a = bn128.G2.mulScalar(bn128.G2.g, 30);
 
-            const g1b = bn128.G1.mulEscalar(bn128.G1.g, 30);
-            const g2b = bn128.G2.mulEscalar(bn128.G2.g, 25);
+            const g1b = bn128.G1.mulScalar(bn128.G1.g, 30);
+            const g2b = bn128.G2.mulScalar(bn128.G2.g, 25);
 
             const pre1a = bn128.precomputeG1(g1a);
             const pre2a = bn128.precomputeG2(g2a);
