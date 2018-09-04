@@ -5,14 +5,14 @@
     is represented by the array [ p0, p1, p2, p3, ...  ]
  */
 
-const bigInt = require("./bigInt");
+const bigInt = require("./bigint.js");
 
-class PolFieldZq {
+class PolField {
     constructor (F) {
         this.F = F;
 
         const q = this.F.q;
-        let rem = q.sub(this.F.one);
+        let rem = q.sub(bigInt(1));
         let s = 0;
         while (!rem.isOdd()) {
             s ++;
@@ -79,7 +79,7 @@ class PolFieldZq {
             [b, a] = [a, b];
         }
 
-        if (b.length < log2(a.length)) {
+        if ((b.length <= 2) || (b.length < log2(a.length))) {
             return this.mulNormal(a,b);
         } else {
             return this.mulFFT(a,b);
@@ -151,14 +151,14 @@ class PolFieldZq {
     }
 
     lagrange(points) {
+        let roots = [this.F.one];
+        for (let i=0; i<points.length; i++) {
+            roots = this.mul(roots, [this.F.neg(points[i][0]), this.F.one]);
+        }
+
         let sum = [];
         for (let i=0; i<points.length; i++) {
-            let mpol = [this.F.one];
-            for (let j=0;j<points.length;j++) {
-                if (i!=j) {
-                    mpol = this.mul(mpol, [this.F.neg(points[j][0]), this.F.one]);
-                }
-            }
+            let mpol = this.ruffini(roots, points[i][0]);
             const factor =
                 this.F.mul(
                     this.F.inverse(this.eval(mpol, points[i][0])),
@@ -224,6 +224,15 @@ class PolFieldZq {
         }
 
         return true;
+    }
+
+    ruffini(p, r) {
+        const res = new Array(p.length-1);
+        res[res.length-1] = p[p.length-1];
+        for (let i = res.length-2; i>=0; i--) {
+            res[i] = this.F.add(this.F.mul(res[i+1], r), p[i+1]);
+        }
+        return res;
     }
 
     _next2Power(v) {
@@ -333,4 +342,4 @@ function log2( V )
     return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
 }
 
-module.exports = PolFieldZq;
+module.exports = PolField;

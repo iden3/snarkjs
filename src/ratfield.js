@@ -1,6 +1,6 @@
 const fUtils = require("./futils.js");
 
-class RatZqField {
+class RatField {
     constructor(F) {
         this.F = F;
         this.zero = [F.zero, F.one];
@@ -105,4 +105,4 @@ class RatZqField {
 }
 
 
-module.exports = RatZqField;
+module.exports = RatField;

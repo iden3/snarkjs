@@ -17,8 +17,8 @@ if (typeof(BigInt) != "undefined") {
                 if (aux <= nq) {
                     aux = aux % q;
                 }
-                if (aux.isNegative()) {
-                    aux = aux.add(q);
+                if (aux < wBigInt.zero) {
+                    aux = aux + q;
                 }
             } else {
                 if (aux >= q) {

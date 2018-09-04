@@ -2,11 +2,11 @@ const chai = require("chai");
 
 const bigInt = require("../src/bigint.js");
 const ZqField = require("../src/zqfield.js");
-const RatZqField = require("../src/ratzqfield.js");
+const RatField = require("../src/ratfield.js");
 
 const q  = bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 const Z = new ZqField(q);
-const R = new RatZqField(Z);
+const R = new RatField(Z);
 
 const assert = chai.assert;
 

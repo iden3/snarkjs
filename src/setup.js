@@ -3,11 +3,13 @@ const bigInt = require("./bigint.js");
 const BN128 = require("./BN128.js");
 const PolField = require("./polfield.js");
 const ZqField = require("./zqfield.js");
+const RatField = require("./ratfield.js");
 
 const bn128 = new BN128();
 const G1 = bn128.G1;
 const G2 = bn128.G2;
 const PolF = new PolField(new ZqField(bn128.r));
+const RatPolF = new PolField(new RatField(new ZqField(bn128.r)));
 const F = new ZqField(bn128.r);
 
 module.exports = function setup(circuit) {
@@ -40,9 +42,9 @@ function calculatePolinomials(setup, circuit) {
         bPoints[s] = [];
         cPoints[s] = [];
         for (let c=0; c<circuit.nConstrains; c++) {
-            aPoints[s].push([bigInt(c), circuit.a(c, s)]);
-            bPoints[s].push([bigInt(c), circuit.b(c, s)]);
-            cPoints[s].push([bigInt(c), circuit.c(c, s)]);
+            aPoints[s].push([[bigInt(c), F.one], [circuit.a(c, s), F.one]]);
+            bPoints[s].push([[bigInt(c), F.one], [circuit.b(c, s), F.one]]);
+            cPoints[s].push([[bigInt(c), F.one], [circuit.c(c, s), F.one]]);
         }
     }
 
@@ -51,10 +53,15 @@ function calculatePolinomials(setup, circuit) {
     setup.vk_proof.polsB = [];
     setup.vk_proof.polsC = [];
     for (let s=0; s<circuit.nSignals; s++) {
-        console.log(`Caclcualte Pol ${s}/${circuit.nSignals}`);
-        setup.vk_proof.polsA.push(PolF.lagrange( aPoints[s] ));
-        setup.vk_proof.polsB.push(PolF.lagrange( bPoints[s] ));
-        setup.vk_proof.polsC.push(PolF.lagrange( cPoints[s] ));
+//        console.log(`Caclcualte Pol ${s}/${circuit.nSignals}`);
+        const pA = RatPolF.lagrange( aPoints[s] );
+        const pB = RatPolF.lagrange( bPoints[s] );
+        const pC = RatPolF.lagrange( cPoints[s] );
+
+        setup.vk_proof.polsA.push( unrat(pA) );
+        setup.vk_proof.polsB.push( unrat(pB) );
+        setup.vk_proof.polsC.push( unrat(pC) );
+
     }
 
     // Calculate Z polinomial
@@ -96,7 +103,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     for (let s=0; s<circuit.nSignals; s++) {
 
         // A[i] = G1 * polA(t)
-        const at = PolF.eval(setup.vk_proof.polsA[s], setup.toxic.t);
+        const at = F.affine(PolF.eval(setup.vk_proof.polsA[s], setup.toxic.t));
         const A = G1.affine(G1.mulScalar(G1.g, at));
 
         setup.vk_proof.A.push(A);
@@ -107,7 +114,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
 
         // B1[i] = G1 * polB(t)
-        const bt = PolF.eval(setup.vk_proof.polsB[s], setup.toxic.t);
+        const bt = F.affine(PolF.eval(setup.vk_proof.polsB[s], setup.toxic.t));
         const B1 = G1.affine(G1.mulScalar(G1.g, bt));
 
         // B2[i] = G2 * polB(t)
@@ -116,13 +123,13 @@ function calculateEncriptedValuesAtT(setup, circuit) {
         setup.vk_proof.B.push(B2);
 
         // C[i] = G1 * polC(t)
-        const ct = PolF.eval(setup.vk_proof.polsC[s], setup.toxic.t);
+        const ct = F.affine(PolF.eval(setup.vk_proof.polsC[s], setup.toxic.t));
         const C = G1.affine(G1.mulScalar( G1.g, ct));
         setup.vk_proof.C.push (C);
 
         // K = G1 * (A+B+C)
 
-        const kt = F.add(F.add(at, bt), ct);
+        const kt = F.affine(F.add(F.add(at, bt), ct));
         const K = G1.affine(G1.mulScalar( G1.g, kt));
 
 
@@ -167,5 +174,13 @@ function calculateHexps(setup, circuit) {
         setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
         eT = F.mul(eT, setup.toxic.t);
     }
+}
+
+function unrat(p) {
+    const res = new Array(p.length);
+    for (let i=0; i<p.length; i++) {
+        res[i] = RatPolF.F.toF(p[i]);
+    }
+    return res;
 }
 

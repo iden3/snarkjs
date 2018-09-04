@@ -141,5 +141,14 @@ describe("Polinomial field", () => {
             assert(PF.F.equals(v, points[i][1]));
         }
     });
+    it("Should test ruffini", () => {
+        const PF = new PolField(new ZqField(r));
+        const a = [bigInt(1), bigInt(2), bigInt(3), bigInt(4), bigInt(5),bigInt(6), bigInt(7)];
+
+        const b = PF.mul(a, [bigInt(-7), bigInt(1)]);
+        const c = PF.ruffini(b, bigInt(7));
+
+        assert(PF.equals(a, c));
+    });
 
 });
