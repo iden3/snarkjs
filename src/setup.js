@@ -53,6 +53,10 @@ module.exports = function setup(circuit) {
 
 function calculatePolinomials(setup, circuit) {
     // Calculate the points that must cross each polinomial
+
+    setup.toxic.aExtra = [];
+    setup.toxic.bExtra = [];
+    setup.toxic.cExtra = [];
     const aPoints = [];
     const bPoints = [];
     const cPoints = [];
@@ -65,7 +69,14 @@ function calculatePolinomials(setup, circuit) {
             bPoints[s].push([[bigInt(c), F.one], [circuit.b(c, s), F.one]]);
             cPoints[s].push([[bigInt(c), F.one], [circuit.c(c, s), F.one]]);
         }
-    }
+        // Add an extra point to avoid constant polinolials.
+/*        setup.toxic.aExtra[s] = F.random();
+        setup.toxic.bExtra[s] = F.random();
+        setup.toxic.cExtra[s] = F.random();
+        aPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
+        bPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
+        cPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
+*/    }
 
     // Calculate the polinomials using Lagrange
     setup.vk_proof.polsA = [];

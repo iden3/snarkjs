@@ -18,6 +18,7 @@
 */
 const chai = require("chai");
 const fs = require("fs");
+const path = require("path");
 
 const Circuit = require("../src/circuit.js");
 const BN128 = require("../src/BN128.js");
@@ -29,7 +30,7 @@ const assert = chai.assert;
 describe("Calculate witness", () => {
     it("Should calculate the witness of a sum circuit", () => {
 
-        const cirDef = JSON.parse(fs.readFileSync("../jaz/sum.json", "utf8"));
+        const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sum.json"), "utf8"));
         const cir = new Circuit(cirDef);
         const witness = cir.calculateWitness({"a": "33", "b": "34"});
 

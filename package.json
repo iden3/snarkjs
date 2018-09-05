@@ -22,7 +22,7 @@
     "url": "git+https://github.com/iden3/zksnark.git"
   },
   "dependencies": {
-    "big-integer": "^1.6.34",
+    "big-integer": "^1.6.35",
     "chai": "^4.1.2",
     "eslint": "^5.3.0"
   },

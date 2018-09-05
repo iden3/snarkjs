@@ -18,6 +18,7 @@
 */
 const chai = require("chai");
 const fs = require("fs");
+const path = require("path");
 const bigInt = require("../src/bigint.js");
 
 const Circuit = require("../src/circuit.js");
@@ -61,7 +62,7 @@ function unstringifyBigInts(o) {
 describe("zkSnark", () => {
     it("Load a circuit, create trusted setup, create a proof and validate", () => {
 
-        const cirDef = JSON.parse(fs.readFileSync("../jaz/sum.json", "utf8"));
+        const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sum.json"), "utf8"));
         const cir = new Circuit(cirDef);
 
         const setup = zkSnark.setup(cir);
