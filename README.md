@@ -72,7 +72,7 @@ const circuit = new zkSnark.Circuit(circuitDef);
     // input is a key value object where keys are the signal names
     //   of all the inputs (public and private)
     // returns an array of values that represent the witness
-    circuit.generateWitness(input)
+    circuit.calculateWitness(input)
 ```
 
 ### Trusted setup
@@ -93,7 +93,7 @@ const input = {
     "main.pubIn1": "123",
     "main.out1": "456"
 }
-const witness = circuit.generateWitness(input);
+const witness = circuit.calculateWitness(input);
 const vk_proof = JSON.parse(fs.readFileSync("myCircuit.vk_proof", "utf8"));
 
 const {proof, publicSignals} = zkSnark.genProof(vk_proof, witness);
