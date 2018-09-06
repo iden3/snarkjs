@@ -62,12 +62,8 @@ function unstringifyBigInts(o) {
 describe("zkSnark", () => {
     it("Load a circuit, create trusted setup, create a proof and validate", () => {
 
-        const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sum_old.json"), "utf8"));
+        const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sum.json"), "utf8"));
         const cir = new Circuit(cirDef);
-
-        console.log("Signals: " + cir.nSignals);
-        console.log("Vars: " + cir.nVars);
-        console.log("Constants: " + cir.nConstants);
 
         const setup = zkSnark.setup(cir);
         const strSetup = stringifyBigInts(setup);
