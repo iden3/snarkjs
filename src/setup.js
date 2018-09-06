@@ -60,7 +60,7 @@ function calculatePolinomials(setup, circuit) {
     const aPoints = [];
     const bPoints = [];
     const cPoints = [];
-    for (let s = 0; s<circuit.nSignals; s++) {
+    for (let s = 0; s<circuit.nVars; s++) {
         aPoints[s] = [];
         bPoints[s] = [];
         cPoints[s] = [];
@@ -82,8 +82,8 @@ function calculatePolinomials(setup, circuit) {
     setup.vk_proof.polsA = [];
     setup.vk_proof.polsB = [];
     setup.vk_proof.polsC = [];
-    for (let s=0; s<circuit.nSignals; s++) {
-//        console.log(`Caclcualte Pol ${s}/${circuit.nSignals}`);
+    for (let s=0; s<circuit.nVars; s++) {
+//        console.log(`Caclcualte Pol ${s}/${circuit.nVars}`);
         const pA = RatPolF.lagrange( aPoints[s] );
         const pB = RatPolF.lagrange( bPoints[s] );
         const pC = RatPolF.lagrange( cPoints[s] );
@@ -130,7 +130,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
     setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
 
-    for (let s=0; s<circuit.nSignals; s++) {
+    for (let s=0; s<circuit.nVars; s++) {
 
         // A[i] = G1 * polA(t)
         const at = F.affine(PolF.eval(setup.vk_proof.polsA[s], setup.toxic.t));
@@ -187,7 +187,7 @@ function calculateHexps(setup, circuit) {
     let maxA = 0;
     let maxB = 0;
     let maxC = 0;
-    for (let s=0; s<circuit.nSignals; s++) {
+    for (let s=0; s<circuit.nVars; s++) {
         maxA = Math.max(maxA, setup.vk_proof.polsA[s].length);
         maxB = Math.max(maxB, setup.vk_proof.polsB[s].length);
         maxC = Math.max(maxC, setup.vk_proof.polsC[s].length);
