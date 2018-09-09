@@ -95,7 +95,7 @@ module.exports = function genProof(vk_proof, witness) {
 
     const h = PolF.div(polFull, vk_proof.polZ );
 
-    console.log(h.length + "/" + vk_proof.hExps.length);
+    //    console.log(h.length + "/" + vk_proof.hExps.length);
 
     for (let i = 0; i < h.length; i++) {
         proof.pi_h = G1.add( proof.pi_h, G1.mulScalar( vk_proof.hExps[i], h[i]));

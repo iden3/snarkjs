@@ -54,6 +54,7 @@ module.exports = function setup(circuit) {
 function calculatePolynomials(setup, circuit) {
     // Calculate the points that must cross each polynomial
 
+/*
     setup.toxic.aExtra = [];
     setup.toxic.bExtra = [];
     setup.toxic.cExtra = [];
@@ -74,8 +75,8 @@ function calculatePolynomials(setup, circuit) {
         setup.toxic.bExtra[s] = F.random();
         setup.toxic.cExtra[s] = F.random();
         aPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
-        bPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
-        cPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
+        bPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.bExtra[s], F.one]]);
+        cPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.cExtra[s], F.one]]);
     }
 
     // Calculate the polynomials using Lagrange
@@ -93,6 +94,64 @@ function calculatePolynomials(setup, circuit) {
         setup.vk_proof.polsC.push( unrat(pC) );
 
     }
+*/
+
+    setup.toxic.aExtra = [];
+    setup.toxic.bExtra = [];
+    setup.toxic.cExtra = [];
+
+    let allZerosPol = [bigInt(1)];
+
+    for (let c=0; c<=circuit.nConstraints; c++) {
+        allZerosPol = PolF.mul(allZerosPol, [F.neg(bigInt(c)), F.one]);
+    }
+
+    setup.vk_proof.polsA = [];
+    setup.vk_proof.polsB = [];
+    setup.vk_proof.polsC = [];
+    for (let s = 0; s<circuit.nVars; s++) {
+        setup.vk_proof.polsA.push([]);
+        setup.vk_proof.polsB.push([]);
+        setup.vk_proof.polsC.push([]);
+    }
+
+    for (let c=0; c<circuit.nConstraints; c++) {
+        const mpol = PolF.ruffini(allZerosPol, bigInt(c));
+        const normalizer = PolF.F.inverse(PolF.eval(mpol, bigInt(c)));
+        for (let s = 0; s<circuit.nVars; s++) {
+            const factorA = PolF.F.mul(normalizer, circuit.a(c, s));
+            const spolA = PolF.mulScalar(mpol, factorA);
+            setup.vk_proof.polsA[s] = PolF.add(setup.vk_proof.polsA[s], spolA);
+
+            const factorB = PolF.F.mul(normalizer, circuit.b(c, s));
+            const spolB = PolF.mulScalar(mpol, factorB);
+            setup.vk_proof.polsB[s] = PolF.add(setup.vk_proof.polsB[s], spolB);
+
+            const factorC = PolF.F.mul(normalizer, circuit.c(c, s));
+            const spolC = PolF.mulScalar(mpol, factorC);
+            setup.vk_proof.polsC[s] = PolF.add(setup.vk_proof.polsC[s], spolC);
+        }
+    }
+    const mpol = PolF.ruffini(allZerosPol, bigInt(circuit.nConstraints));
+    const normalizer = PolF.F.inverse(PolF.eval(mpol, bigInt(circuit.nConstraints)));
+    for (let s = 0; s<circuit.nVars; s++) {
+        setup.toxic.aExtra[s] = F.random();
+        const factorA = PolF.F.mul(normalizer, setup.toxic.aExtra[s]);
+        const spolA = PolF.mulScalar(mpol, factorA);
+        setup.vk_proof.polsA[s] = PolF.add(setup.vk_proof.polsA[s], spolA);
+
+        setup.toxic.bExtra[s] = F.random();
+        const factorB = PolF.F.mul(normalizer, setup.toxic.bExtra[s]);
+        const spolB = PolF.mulScalar(mpol, factorB);
+        setup.vk_proof.polsB[s] = PolF.add(setup.vk_proof.polsB[s], spolB);
+
+        setup.toxic.cExtra[s] = F.random();
+        const factorC = PolF.F.mul(normalizer, setup.toxic.cExtra[s]);
+        const spolC = PolF.mulScalar(mpol, factorC);
+        setup.vk_proof.polsC[s] = PolF.add(setup.vk_proof.polsC[s], spolC);
+    }
+
+
 
     // Calculate Z polynomial
     // Z = 1
@@ -193,7 +252,7 @@ function calculateHexps(setup, circuit) {
         maxC = Math.max(maxC, setup.vk_proof.polsC[s].length);
     }
 
-    let maxFull = Math.max(maxA * maxB - 1, maxC);
+    let maxFull = Math.max(maxA + maxB - 1, maxC);
 
     const maxH = maxFull - setup.vk_proof.polZ.length + 1;
 
@@ -205,7 +264,7 @@ function calculateHexps(setup, circuit) {
         eT = F.mul(eT, setup.toxic.t);
     }
 }
-
+/*
 function unrat(p) {
     const res = new Array(p.length);
     for (let i=0; i<p.length; i++) {
@@ -213,4 +272,4 @@ function unrat(p) {
     }
     return res;
 }
-
+*/
