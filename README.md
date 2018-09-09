@@ -34,17 +34,17 @@ const circuit = new zkSnark.Circuit(circuitDef);
 ```
     // `signalId` can always be a number or an alias string
 
-    circuit.nConstrains; // number of constrains
+    circuit.nConstraints; // number of constraints
     circuit.nSignals; // number of signals
     circuit.nPublic; // number of public signals (nOutputs + nPublicInputs)
 
     // The array of signals is always sorted in this order:
-    // [ 1, outputs, publicInputs, privedInputs, internalSignals, constants]
+    // [ 1, outputs, publicInputs, privateInputs, internalSignals, constants]
 
-    // returns a,b and c coeficients of the `signalId` on a given `constrain`
-    circuit.a(constrain, signalId)
-    circuit.b(constrain, signalId)
-    circuit.c(constrain, signalId)
+    // returns a,b and c coeficients of the `signalId` on a given `constraint`
+    circuit.a(constraint, signalId)
+    circuit.b(constraint, signalId)
+    circuit.c(constraint, signalId)
 
     circuit.nOutputs           // number of public outputs
     circuit.pubInputs          // number of public inputs

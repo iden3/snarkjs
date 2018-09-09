@@ -43,7 +43,7 @@ module.exports = function setup(circuit) {
         toxic: {}
     };
 
-    calculatePolinomials(setup, circuit);
+    calculatePolynomials(setup, circuit);
     setup.toxic.t = F.random();
     calculateEncriptedValuesAtT(setup, circuit);
     calculateHexps(setup, circuit);
@@ -51,8 +51,8 @@ module.exports = function setup(circuit) {
     return setup;
 };
 
-function calculatePolinomials(setup, circuit) {
-    // Calculate the points that must cross each polinomial
+function calculatePolynomials(setup, circuit) {
+    // Calculate the points that must cross each polynomial
 
     setup.toxic.aExtra = [];
     setup.toxic.bExtra = [];
@@ -64,7 +64,7 @@ function calculatePolinomials(setup, circuit) {
         aPoints[s] = [];
         bPoints[s] = [];
         cPoints[s] = [];
-        for (let c=0; c<circuit.nConstrains; c++) {
+        for (let c=0; c<circuit.nConstraints; c++) {
             aPoints[s].push([[bigInt(c), F.one], [circuit.a(c, s), F.one]]);
             bPoints[s].push([[bigInt(c), F.one], [circuit.b(c, s), F.one]]);
             cPoints[s].push([[bigInt(c), F.one], [circuit.c(c, s), F.one]]);
@@ -73,12 +73,12 @@ function calculatePolinomials(setup, circuit) {
         setup.toxic.aExtra[s] = F.random();
         setup.toxic.bExtra[s] = F.random();
         setup.toxic.cExtra[s] = F.random();
-        aPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
-        bPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
-        cPoints[s].push([[bigInt(circuit.nConstrains), F.one], [setup.toxic.aExtra[s], F.one]]);
+        aPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
+        bPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
+        cPoints[s].push([[bigInt(circuit.nConstraints), F.one], [setup.toxic.aExtra[s], F.one]]);
     }
 
-    // Calculate the polinomials using Lagrange
+    // Calculate the polynomials using Lagrange
     setup.vk_proof.polsA = [];
     setup.vk_proof.polsB = [];
     setup.vk_proof.polsC = [];
@@ -94,10 +94,10 @@ function calculatePolinomials(setup, circuit) {
 
     }
 
-    // Calculate Z polinomial
+    // Calculate Z polynomial
     // Z = 1
     setup.vk_proof.polZ = [bigInt(1)];
-    for (let c=0; c<circuit.nConstrains; c++) {
+    for (let c=0; c<circuit.nConstraints; c++) {
         // Z = Z * (x - p_c)
         setup.vk_proof.polZ = PolF.mul(
             setup.vk_proof.polZ,

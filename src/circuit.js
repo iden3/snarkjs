@@ -32,13 +32,13 @@ module.exports = class Circuit {
         this.nSignals = circuitDef.nSignals;
         this.nConstants = circuitDef.nConstants;
 
-        this.nConstrains = circuitDef.constrains.length;
+        this.nConstraints = circuitDef.constraints.length;
 
         this.signalName2Idx = circuitDef.signalName2Idx;
         this.components = circuitDef.components;
         this.componentName2Idx = circuitDef.componentName2Idx;
         this.signals = circuitDef.signals;
-        this.constrains = circuitDef.constrains;
+        this.constraints = circuitDef.constraints;
 
         this.templates = {};
         for (let t in circuitDef.templates) {
@@ -110,15 +110,15 @@ module.exports = class Circuit {
         return this.signals[ this.getSignalIdx(i) ].names.join(", ");
     }
 
-    a(constrain, signalIdx) {
-        return bigInt(this.constrains[constrain][0][signalIdx] || 0 );
+    a(constraint, signalIdx) {
+        return bigInt(this.constraints[constraint][0][signalIdx] || 0 );
     }
 
-    b(constrain, signalIdx) {
-        return bigInt(this.constrains[constrain][1][signalIdx] || 0);
+    b(constraint, signalIdx) {
+        return bigInt(this.constraints[constraint][1][signalIdx] || 0);
     }
 
-    c(constrain, signalIdx) {
-        return bigInt(this.constrains[constrain][2][signalIdx] || 0);
+    c(constraint, signalIdx) {
+        return bigInt(this.constraints[constraint][2][signalIdx] || 0);
     }
 };

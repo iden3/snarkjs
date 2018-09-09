@@ -26,7 +26,7 @@ const assert = chai.assert;
 
 const r  = bigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
-describe("Polinomial field", () => {
+describe("Polynomial field", () => {
     it("Should compute a multiplication", () => {
         const PF = new PolField(new ZqField(r));
 

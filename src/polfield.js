@@ -18,7 +18,7 @@
 */
 
 /*
-    This library do operations on polinomials where their coefficients are in field F
+    This library do operations on polynomials where their coefficients are in field F
 
     The polynomial P(x) = p0 + p1 * x + p2 * x^2 + p3 * x^3, ...
     is represented by the array [ p0, p1, p2, p3, ...  ]

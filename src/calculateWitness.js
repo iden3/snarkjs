@@ -221,7 +221,7 @@ class RTCtx {
         const ba = bigInt(a);
         const bb = bigInt(b);
         if (!ba.equals(bb)) {
-            throw new Error("Constrain doesn't match: " + ba.toString() + " != " + bb.toString());
+            throw new Error("Constraint doesn't match: " + ba.toString() + " != " + bb.toString());
         }
     }
 }
