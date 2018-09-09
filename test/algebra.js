@@ -19,7 +19,7 @@
 const chai = require("chai");
 
 const bigInt = require("../src/bigint.js");
-const BN128 = require("../src/BN128.js");
+const BN128 = require("../src/bn128.js");
 const F1Field = require("../src/zqfield.js");
 
 const assert = chai.assert;

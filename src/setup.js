@@ -19,7 +19,7 @@
 
 const bigInt = require("./bigint.js");
 
-const BN128 = require("./BN128.js");
+const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
 const ZqField = require("./zqfield.js");
 const RatField = require("./ratfield.js");
