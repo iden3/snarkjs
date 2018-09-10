@@ -1,7 +1,7 @@
 {
   "name": "zksnark",
   "version": "0.0.5",
-  "description": "zkSnark implementation in javascript",
+  "description": "zkSNARKs implementation in JavaScript",
   "main": "index.js",
   "scripts": {
     "test": "mocha"

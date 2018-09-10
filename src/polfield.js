@@ -1,27 +1,27 @@
 /*
-    Copyright 2018 0kims association
+    Copyright 2018 0kims association.
 
-    This file is part of zksnark javascript library.
+    This file is part of zksnark JavaScript library.
 
-    zksnark javascript library is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+    zksnark JavaScript library is a free software: you can redistribute it and/or 
+    modify it under the terms of the GNU General Public License as published by the 
+    Free Software Foundation, either version 3 of the License, or (at your option) 
+    any later version.
 
-    zksnark javascript library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+    zksnark JavaScript library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for 
+    more details.
 
-    You should have received a copy of the GNU General Public License
-    along with zksnark javascript library.  If not, see <https://www.gnu.org/licenses/>.
+    You should have received a copy of the GNU General Public License along with 
+    zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
 /*
-    This library do operations on polynomials where their coefficients are in field F
+    This library does operations on polynomials with coefficients in a field F.
 
-    The polynomial P(x) = p0 + p1 * x + p2 * x^2 + p3 * x^3, ...
-    is represented by the array [ p0, p1, p2, p3, ...  ]
+    A polynomial P(x) = p0 + p1 * x + p2 * x^2 + ... + pn * x^n  is represented 
+    by the array [ p0, p1, p2, ... , pn ].
  */
 
 const bigInt = require("./bigint.js");
