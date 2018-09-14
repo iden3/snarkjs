@@ -64,10 +64,10 @@ const circuit = new zkSnark.Circuit(circuitDef);
     // returns signal Idx given a signalId
     // if the idx >= n , it is a constant
     // if the idx == -1, the signal does not exist
-    circuit.signalId2idx(signalId);
+    circuit.getSignalIdx(name);
 
-    // returns an array aliases names for a given signalId
-    circuit.signalNames(signalId)
+    // returns an array aliases names of the i'th signal
+    circuit.signalNames(i)
 
     // input is a key value object where keys are the signal names
     //   of all the inputs (public and private)
