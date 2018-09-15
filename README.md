@@ -79,8 +79,8 @@ const circuit = new zkSnark.Circuit(circuitDef);
 
 ```js
 const setup = zkSnark.setup(circuit);
-fs.writeFileSink("myCircuit.vk_proof", JSON.stringify(setup.vk_proof), "utf8");
-fs.writeFileSink("myCircuit.vk_verifier", JSON.stringify(setup.vk_verifier), "utf8");
+fs.writeFileSync("myCircuit.vk_proof", JSON.stringify(setup.vk_proof), "utf8");
+fs.writeFileSync("myCircuit.vk_verifier", JSON.stringify(setup.vk_verifier), "utf8");
 setup.toxic  // Must be discarded.
 ```
 
