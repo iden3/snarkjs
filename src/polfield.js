@@ -3,28 +3,29 @@
 
     This file is part of zksnark JavaScript library.
 
-    zksnark JavaScript library is a free software: you can redistribute it and/or 
-    modify it under the terms of the GNU General Public License as published by the 
-    Free Software Foundation, either version 3 of the License, or (at your option) 
+    zksnark JavaScript library is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
     any later version.
 
     zksnark JavaScript library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for 
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
     more details.
 
-    You should have received a copy of the GNU General Public License along with 
+    You should have received a copy of the GNU General Public License along with
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
 /*
     This library does operations on polynomials with coefficients in a field F.
 
-    A polynomial P(x) = p0 + p1 * x + p2 * x^2 + ... + pn * x^n  is represented 
+    A polynomial P(x) = p0 + p1 * x + p2 * x^2 + ... + pn * x^n  is represented
     by the array [ p0, p1, p2, ... , pn ].
  */
 
 const bigInt = require("./bigint.js");
+const assert = require("assert");
 
 class PolField {
     constructor (F) {
@@ -52,6 +53,35 @@ class PolField {
             n--;
         }
 
+
+        this.roots = [];
+/*        for (let i=0; i<16; i++) {
+            let r = this.F.one;
+            n = 1 << i;
+            const rootsi = new Array(n);
+            for (let j=0; j<n; j++) {
+                rootsi[j] = r;
+                r = this.F.mul(r, this.w[i]);
+            }
+
+            this.roots.push(rootsi);
+        }
+    */
+        this._setRoots(15);
+    }
+
+    _setRoots(n) {
+        for (let i=n; (i>=0) && (!this.roots[i]); i--) {
+            let r = this.F.one;
+            const nroots = 1 << i;
+            const rootsi = new Array(nroots);
+            for (let j=0; j<nroots; j++) {
+                rootsi[j] = r;
+                r = this.F.mul(r, this.w[i]);
+            }
+
+            this.roots[i] = rootsi;
+        }
     }
 
     add(a, b) {
@@ -117,12 +147,14 @@ class PolField {
     mulFFT(a,b) {
         const longestN = Math.max(a.length, b.length);
         const bitsResult = log2(longestN-1)+2;
+        this._setRoots(bitsResult);
+
         const m = 1 << bitsResult;
         const ea = this.extend(a,m);
         const eb = this.extend(b,m);
 
-        const ta = this._fft(ea, bitsResult, 0, 1, false);
-        const tb = this._fft(eb, bitsResult, 0, 1, false);
+        const ta = __fft(this, ea, bitsResult, 0, 1, false);
+        const tb = __fft(this, eb, bitsResult, 0, 1, false);
 
         const tres = new Array(m);
 
@@ -130,7 +162,7 @@ class PolField {
             tres[i] = this.F.mul(ta[i], tb[i]);
         }
 
-        const res = this._fft(tres, bitsResult, 0, 1, true);
+        const res = __fft(this, tres, bitsResult, 0, 1, true);
 
         const twoinvm = this.F.inverse( this.F.mulScalar(this.F.one, m) );
         const resn = new Array(m);
@@ -159,7 +191,7 @@ class PolField {
         }
     }
 
-    eval(p, x) {
+    eval2(p, x) {
         let v = this.F.zero;
         let ix = this.F.one;
         for (let i=0; i<p.length; i++) {
@@ -167,6 +199,26 @@ class PolField {
             ix = this.F.mul(ix, x);
         }
         return v;
+    }
+
+    eval(p,x) {
+        const F = this.F;
+        if (p.length == 0) return F.zero;
+        const m = this._next2Power(p.length);
+        const ep = this.extend(p, m);
+
+        return _eval(ep, x, 0, 1, m);
+
+        function _eval(p, x, offset, step, n) {
+            if (n==1) return p[offset];
+            const newX = F.square(x);
+            const res= F.add(
+                _eval(p, newX, offset, step << 1, n >> 1),
+                F.mul(
+                    x,
+                    _eval(p, newX, offset+step , step << 1, n >> 1)));
+            return res;
+        }
     }
 
     lagrange(points) {
@@ -187,6 +239,38 @@ class PolField {
         }
         return sum;
     }
+
+
+    fft(p) {
+        if (p.length <= 1) return p;
+        const bits = log2(p.length-1)+1;
+        this._setRoots(bits);
+
+        const m = 1 << bits;
+        const ep = this.extend(p, m);
+        const res = __fft(this, ep, bits, 0, 1);
+        return res;
+    }
+
+    ifft(p) {
+
+        if (p.length <= 1) return p;
+        const bits = log2(p.length-1)+1;
+        this._setRoots(bits);
+        const m = 1 << bits;
+        const ep = this.extend(p, m);
+        const res =  __fft(this, ep, bits, 0, 1);
+
+        const twoinvm = this.F.inverse( this.F.mulScalar(this.F.one, m) );
+        const resn = new Array(m);
+        for (let i=0; i<m; i++) {
+            resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
+        }
+
+        return resn;
+
+    }
+
 
     _fft(pall, bits, offset, step) {
 
@@ -354,11 +438,94 @@ class PolField {
 
         return q;
     }
+
+
+    // returns the ith nth-root of one
+    oneRoot(n, i) {
+        let nbits = log2(n-1)+1;
+        let res = this.F.one;
+        let r = i;
+
+        assert(i<n);
+        assert(1<<nbits === n);
+
+        while (r>0) {
+            if (r & 1 == 1) {
+                res = this.F.mul(res, this.w[nbits]);
+            }
+            r = r >> 1;
+            nbits --;
+        }
+        return res;
+    }
+
+    computeVanishingPolinomial(bits, t) {
+        const m = 1 << bits;
+        return this.F.sub(this.F.exp(t, bigInt(m)), this.F.one);
+    }
+
+    evaluateLagrangePolynomials(bits, t) {
+        const m= 1 << bits;
+        const tm = this.F.exp(t, bigInt(m));
+        const u= new Array(m).fill(this.F.zero);
+        this._setRoots(bits);
+        const omega = this.w[bits];
+
+        if (this.F.equals(tm, this.F.one)) {
+            for (let i = 0; i < m; i++) {
+                if (this.F.equals(this.roots[bits][0],t)) { // i.e., t equals omega^i
+                    u[i] = this.F.one;
+                    return u;
+                }
+            }
+        }
+
+        const z = this.F.sub(tm, this.F.one);
+//        let l = this.F.mul(z,  this.F.exp(this.F.twoinv, m));
+        let l = this.F.mul(z,  this.F.inverse(bigInt(m)));
+        for (let i = 0; i < m; i++) {
+            u[i] = this.F.mul(l, this.F.inverse(this.F.sub(t,this.roots[bits][i])));
+            l = this.F.mul(l, omega);
+        }
+
+        return u;
+    }
+
+    log2(V) {
+        return log2(V);
+    }
 }
 
 function log2( V )
 {
     return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
 }
+
+
+function __fft(PF, pall, bits, offset, step) {
+
+    const n = 1 << bits;
+    if (n==1) {
+        return [ pall[offset] ];
+    } else if (n==2) {
+        return [
+            PF.F.add(pall[offset], pall[offset + step]),
+            PF.F.sub(pall[offset], pall[offset + step])];
+    }
+
+    const ndiv2 = n >> 1;
+    const p1 = __fft(PF, pall, bits-1, offset, step*2);
+    const p2 = __fft(PF, pall, bits-1, offset+step, step*2);
+
+    const out = new Array(n);
+
+    for (let i=0; i<ndiv2; i++) {
+        out[i] = PF.F.add(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
+        out[i+ndiv2] = PF.F.sub(p1[i], PF.F.mul(PF.roots[bits][i], p2[i]));
+    }
+
+    return out;
+}
+
 
 module.exports = PolField;

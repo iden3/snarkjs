@@ -3,17 +3,17 @@
 
     This file is part of zksnark JavaScript library.
 
-    zksnark JavaScript library is a free software: you can redistribute it and/or 
-    modify it under the terms of the GNU General Public License as published by the 
-    Free Software Foundation, either version 3 of the License, or (at your option) 
+    zksnark JavaScript library is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
     any later version.
 
     zksnark JavaScript library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for 
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
     more details.
 
-    You should have received a copy of the GNU General Public License along with 
+    You should have received a copy of the GNU General Public License along with
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
@@ -128,6 +128,12 @@ describe("Polynomial field", () => {
         const v = PF.eval(p, bigInt(2));
         assert(PF.F.equals(v, bigInt(0)));
     });
+    it("Should evaluate bigger number", () => {
+        const PF = new PolField(new ZqField(r));
+        const p = [bigInt(1), bigInt(2), bigInt(3)];
+        const v = PF.eval(p, bigInt(2));
+        assert(PF.F.equals(v, bigInt(17)));
+    });
     it("Should create lagrange polynomial minmal", () => {
         const PF = new PolField(new ZqField(r));
 
@@ -167,6 +173,45 @@ describe("Polynomial field", () => {
         const c = PF.ruffini(b, bigInt(7));
 
         assert(PF.equals(a, c));
+    });
+    it("Should test roots", () => {
+        const PF = new PolField(new ZqField(r));
+        let rt;
+
+
+        rt = PF.oneRoot(256, 16);
+        for (let i=0; i<8; i++) {
+            rt = PF.F.mul(rt, rt);
+        }
+        assert(rt.equals(PF.F.one));
+
+        rt = PF.oneRoot(256, 15);
+        for (let i=0; i<8; i++) {
+            rt = PF.F.mul(rt, rt);
+        }
+        assert(rt.equals(PF.F.one));
+
+        rt = PF.oneRoot(8, 3);
+        for (let i=0; i<3; i++) {
+            rt = PF.F.mul(rt, rt);
+        }
+        assert(rt.equals(PF.F.one));
+
+        rt = PF.oneRoot(8, 0);
+        assert(rt.equals(PF.F.one));
+
+    });
+    it("Should create a polynomial with values at roots with fft", () => {
+        const PF = new PolField(new ZqField(r));
+        const a = [bigInt(1), bigInt(2), bigInt(3), bigInt(4), bigInt(5),bigInt(6), bigInt(7)];
+
+        const p = PF.ifft(a);
+
+        for (let i=0; i<a.length; i++) {
+            const s = PF.F.affine(PF.eval(p, PF.oneRoot(8,i)));
+            assert(s.equals(a[i]));
+        }
+
     });
 
 });

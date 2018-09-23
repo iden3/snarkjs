@@ -3,17 +3,17 @@
 
     This file is part of zksnark JavaScript library.
 
-    zksnark JavaScript library is a free software: you can redistribute it and/or 
-    modify it under the terms of the GNU General Public License as published by the 
-    Free Software Foundation, either version 3 of the License, or (at your option) 
+    zksnark JavaScript library is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
     any later version.
 
     zksnark JavaScript library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for 
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
     more details.
 
-    You should have received a copy of the GNU General Public License along with 
+    You should have received a copy of the GNU General Public License along with
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
@@ -50,6 +50,14 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         return false;
 
     if (! bn128.F12.equals(
+        bn128.F12.mul(
+            bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
+            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b ),
+        ),
+        bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
+        return false;
+
+    if (! bn128.F12.equals(
         bn128.pairing( full_pi_a , proof.pi_b  ),
         bn128.F12.mul(
             bn128.pairing( proof.pi_h , vk_verifier.vk_z ),
@@ -57,13 +65,6 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         )))
         return false;
 
-    if (! bn128.F12.equals(
-        bn128.F12.mul(
-            bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
-            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b ),
-        ),
-        bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
-        return false;
 
 
 
