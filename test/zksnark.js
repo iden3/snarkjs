@@ -203,14 +203,14 @@ describe("zkSnark", () => {
         console.log("Start setup: "+Date().toString());
         const setup = zkSnark.setup(cir);
         const strSetup = stringifyBigInts(setup);
-        fs.writeFileSync("vk_proof.json", JSON.stringify(strSetup.vk_proof), "utf-8");
-        fs.writeFileSync("vk_verifier.json", JSON.stringify(strSetup.vk_verifier), "utf-8");
+        fs.writeFileSync("sha256_2_vk_proof.json", JSON.stringify(strSetup.vk_proof), "utf-8");
+        fs.writeFileSync("sha256_2_vk_verifier.json", JSON.stringify(strSetup.vk_verifier), "utf-8");
 
-/*
-        const setup = {};
-        setup.vk_proof = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_proof.json", "utf8")));
-        setup.vk_verifier = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_verifier.json", "utf8")));
-*/
+
+//        const setup = {};
+//        setup.vk_proof = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_proof.json", "utf8")));
+//        setup.vk_verifier = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_verifier.json", "utf8")));
+
         const witness = cir.calculateWitness({"a": "1", "b": "2"});
 
 //        assert.equal(witness[cir.getSignalIdx("main.out")].toString(), "67");
@@ -221,4 +221,6 @@ describe("zkSnark", () => {
         console.log("Start verifiying: "+ Date().toString());
         assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
+
+
 });

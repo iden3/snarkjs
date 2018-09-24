@@ -106,12 +106,12 @@ class PolField {
         return this.reduce(res);
     }
 
-    mulScalar(a, b) {
+    mulScalar(p, b) {
         if (this.F.isZero(b)) return [];
-        if (this.F.equals(b, this.F.one)) return a;
-        const res = new Array(a.length);
-        for (let i=0; i<a.length; i++) {
-            res[i] = this.F.mul(a[i], b);
+        if (this.F.equals(b, this.F.one)) return p;
+        const res = new Array(p.length);
+        for (let i=0; i<p.length; i++) {
+            res[i] = this.F.mul(p[i], b);
         }
         return res;
     }

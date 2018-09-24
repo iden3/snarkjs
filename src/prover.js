@@ -30,6 +30,11 @@ module.exports = function genProof(vk_proof, witness) {
 
     const proof = {};
 
+
+    const d1 = PolF.F.random();
+    const d2 = PolF.F.random();
+    const d3 = PolF.F.random();
+
     proof.pi_a = G1.zero;
     proof.pi_ap = G1.zero;
     proof.pi_b = G2.zero;
@@ -67,6 +72,19 @@ module.exports = function genProof(vk_proof, witness) {
         proof.pi_kp = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[s], witness[s]));
     }
 
+    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[vk_proof.nVars], d1));
+    proof.pi_ap  = G1.add( proof.pi_ap, G1.mulScalar( vk_proof.Ap[vk_proof.nVars], d1));
+
+    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B[vk_proof.nVars], d2));
+    proof.pi_bp  = G1.add( proof.pi_bp, G1.mulScalar( vk_proof.Bp[vk_proof.nVars], d2));
+
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[vk_proof.nVars], d3));
+    proof.pi_cp  = G1.add( proof.pi_cp, G1.mulScalar( vk_proof.Cp[vk_proof.nVars], d3));
+
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars  ], d1));
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+1], d2));
+    proof.pi_kp  = G1.add( proof.pi_kp, G1.mulScalar( vk_proof.Kp[vk_proof.nVars+2], d3));
+
 /*
     let polA = [];
     let polB = [];
@@ -98,7 +116,7 @@ module.exports = function genProof(vk_proof, witness) {
     const h = PolF.div(polFull, vk_proof.polZ );
 */
 
-    const h = calculateH(vk_proof, witness);
+    const h = calculateH(vk_proof, witness, d1, d2, d3);
 
     console.log(h.length + "/" + vk_proof.hExps.length);
 
@@ -123,7 +141,7 @@ module.exports = function genProof(vk_proof, witness) {
 };
 
 
-function calculateH(vk_proof, witness) {
+function calculateH(vk_proof, witness, d1, d2, d3) {
 
     const F = PolF.F;
     const m = vk_proof.domainSize;
@@ -156,7 +174,7 @@ function calculateH(vk_proof, witness) {
     polZ_S[m] = F.one;
     polZ_S[0] = F.neg(F.one);
 
-    const H_S = PolF.div(polABC_S, polZ_S);
+    let H_S = PolF.div(polABC_S, polZ_S);
 /*
     const H2S = PolF.mul(H_S, polZ_S);
 
@@ -166,5 +184,25 @@ function calculateH(vk_proof, witness) {
         console.log("ERROR: Not divisible!");
     }
 */
+
+    /* add coefficients of the polynomial (d2*A + d1*B - d3) + d1*d2*Z */
+
+    H_S = PolF.extend(H_S, m+1);
+
+    for (let i=0; i<m; i++) {
+        const d2A = PolF.F.mul(d2, polA_S[i]);
+        const d1B = PolF.F.mul(d1, polB_S[i]);
+        H_S[i] = PolF.F.add(H_S[i], PolF.F.add(d2A, d1B));
+    }
+
+    H_S[0] = PolF.F.sub(H_S[0], d3);
+
+    // Z = x^m -1
+    const d1d2 = PolF.F.mul(d1, d2);
+    H_S[m] = PolF.F.add(H_S[m], d1d2);
+    H_S[0] = PolF.F.sub(H_S[0], d1d2);
+
+    H_S = PolF.reduce(PolF.affine(H_S));
+
     return H_S;
 }

@@ -65,8 +65,5 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         )))
         return false;
 
-
-
-
     return true;
 };
