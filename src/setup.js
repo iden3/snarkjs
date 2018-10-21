@@ -126,7 +126,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_proof.Bp = new Array(circuit.nVars+1);
     setup.vk_proof.Cp = new Array(circuit.nVars+1);
     setup.vk_proof.Kp = new Array(circuit.nVars+3);
-    setup.vk_verifier.A = new Array(circuit.nVars);
+    setup.vk_verifier.A = new Array(circuit.nPublic);
 
     setup.toxic.ka = F.random();
     setup.toxic.kb = F.random();

@@ -118,7 +118,7 @@ module.exports = function genProof(vk_proof, witness) {
 
     const h = calculateH(vk_proof, witness, d1, d2, d3);
 
-    console.log(h.length + "/" + vk_proof.hExps.length);
+//    console.log(h.length + "/" + vk_proof.hExps.length);
 
     for (let i = 0; i < h.length; i++) {
         proof.pi_h = G1.add( proof.pi_h, G1.mulScalar( vk_proof.hExps[i], h[i]));
@@ -133,7 +133,7 @@ module.exports = function genProof(vk_proof, witness) {
     proof.pi_kp = G1.affine(proof.pi_kp);
     proof.pi_h = G1.affine(proof.pi_h);
 
-    proof.h=h;
+//    proof.h=h;
 
     const publicSignals = witness.slice(1, vk_proof.nPublic+1);
 

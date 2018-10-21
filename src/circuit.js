@@ -59,6 +59,58 @@ module.exports = class Circuit {
         return calculateWitness(this, input, log);
     }
 
+    checkWitness(w) {
+        const evalLC = (lc, w) => {
+            let acc = bigInt(0);
+            for (let k in lc) {
+                acc=  acc.add(bigInt(w[k]).mul(bigInt(lc[k]))).mod(__P__);
+            }
+            return acc;
+        }
+
+        const checkConstraint = (ct, w) => {
+            const a=evalLC(ct[0],w);
+            const b=evalLC(ct[1],w);
+            const c=evalLC(ct[2],w);
+            const res = (a.mul(b).sub(c)).affine(__P__);
+            if (!res.isZero()) return false;
+            return true;
+        }
+
+
+        for (let i=0; i<this.constraints.length; i++) {
+            if (!checkConstraint(this.constraints[i], w)) {
+                this.printCostraint(this.constraints[i]);
+                return false;
+            }
+        }
+
+        return true;
+
+    }
+
+    printCostraint(c) {
+        const lc2str = (lc) => {
+            let S = "";
+            for (let k in lc) {
+                const name = this.signals[k].names[0];
+                let v = bigInt(lc[k]);
+                let vs;
+                if (!v.lesserOrEquals(__P__.shr(bigInt(1)))) {
+                    v = __P__.sub(v);
+                    vs = "-"+v.toString();
+                } else {
+                    vs = "+"+v.toString();
+                }
+
+                S= S + " " + vs + name;
+            }
+            return S;
+        }
+        const S = `[ ${lc2str(c[0])} ] * [ ${lc2str(c[1])} ] - [ ${lc2str(c[2])} ]`;
+        console.log(S);
+    }
+
     getSignalIdx(name) {
         if (typeof(this.signalName2Idx[name]) != "undefined") return this.signalName2Idx[name];
         if (!isNaN(name)) return Number(name);

@@ -339,7 +339,7 @@ wBigInt.inverse = function(a, q) {
 };
 
 wBigInt.prototype.inverse = function (q) {
-    return wBigInt.genInverse(this, q);
+    return wBigInt.genInverse(q)(this);
 };
 
 wBigInt.add = function(a, b, q) {

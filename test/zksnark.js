@@ -27,6 +27,9 @@ const zkSnark = require("../index.js");
 const BN128 = require("../src/bn128.js");
 const PolField = require("../src/polfield.js");
 const ZqField = require("../src/zqfield.js");
+
+const {stringifyBigInts, unstringifyBigInts} = require("../src/stringifybigint.js");
+
 const bn128 = new BN128();
 const PolF = new PolField(new ZqField(bn128.r));
 const G1 = bn128.G1;
@@ -35,37 +38,7 @@ const G2 = bn128.G2;
 const assert = chai.assert;
 
 
-function stringifyBigInts(o) {
-    if ((typeof(o) == "bigint") || (o instanceof bigInt))  {
-        return o.toString(10);
-    } else if (Array.isArray(o)) {
-        return o.map(stringifyBigInts);
-    } else if (typeof o == "object") {
-        const res = {};
-        for (let k in o) {
-            res[k] = stringifyBigInts(o[k]);
-        }
-        return res;
-    } else {
-        return o;
-    }
-}
 
-function unstringifyBigInts(o) {
-    if ((typeof(o) == "string") && (/^[0-9]+$/.test(o) ))  {
-        return bigInt(o);
-    } else if (Array.isArray(o)) {
-        return o.map(unstringifyBigInts);
-    } else if (typeof o == "object") {
-        const res = {};
-        for (let k in o) {
-            res[k] = unstringifyBigInts(o[k]);
-        }
-        return res;
-    } else {
-        return o;
-    }
-}
 
 
 describe("zkSnark", () => {

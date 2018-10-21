@@ -154,7 +154,7 @@ class RTCtx {
         if (typeof(this.witness[sId]) == "undefined") {
             firstInit = true;
         }
-        this.witness[sId] = value;
+        this.witness[sId] = bigInt(value);
         const callComponents = [];
         for (let i=0; i<this.circuit.signals[sId].triggerComponents.length; i++) {
             var idCmp = this.circuit.signals[sId].triggerComponents[i];
@@ -164,7 +164,7 @@ class RTCtx {
         callComponents.map( (c) => {
             if (this.notInitSignals[c] == 0) this.triggerComponent(c);
         });
-        return value;
+        return this.witness[sId];
     }
 
     setVar(name, sels, value) {
