@@ -167,7 +167,7 @@ describe("zkSnark", () => {
 */
         assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
-
+/*
     it("validate sha256_2", () => {
 
         const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sha256_2.json"), "utf8"));
@@ -194,6 +194,6 @@ describe("zkSnark", () => {
         console.log("Start verifiying: "+ Date().toString());
         assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
-
+*/
 
 });
