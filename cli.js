@@ -340,6 +340,8 @@ try {
 
         console.log(S);
         process.exit(0);
+    } else {
+        throw new Error("Invalid Command");
     }
 } catch(err) {
     console.log("ERROR: " + err);
