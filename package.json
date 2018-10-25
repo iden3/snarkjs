@@ -1,6 +1,6 @@
 {
   "name": "snarkjs",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "index.js",
   "scripts": {
