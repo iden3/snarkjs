@@ -206,7 +206,17 @@ if (typeof(BigInt) != "undefined") {
 
 } else {
 
-    wBigInt = bigInt;
+    var oldProto = bigInt.prototype;
+    wBigInt = function(a) {
+        if ((typeof a == "string") && (a.slice(0,2) == "0x")) {
+            return bigInt(a.slice(2), 16);
+        } else {
+            return bigInt(a);
+        }
+    };
+    wBigInt.one = bigInt.one;
+    wBigInt.zero = bigInt.zero;
+    wBigInt.prototype = oldProto;
 
     // Affine
     wBigInt.genAffine = (q) => {
