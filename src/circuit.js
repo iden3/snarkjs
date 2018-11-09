@@ -128,7 +128,7 @@ module.exports = class Circuit {
     getSignalIdx(name) {
         if (typeof(this.signalName2Idx[name]) != "undefined") return this.signalName2Idx[name];
         if (!isNaN(name)) return Number(name);
-        throw new Error("Invalid signal identifier: ", name);
+        throw new Error("Invalid signal identifier: "+ name);
     }
 
     // returns the index of the i'th output
