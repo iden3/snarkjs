@@ -66,7 +66,7 @@ class BN128 {
 
         // Set loopCountNeg
         if (this.loopCount.isNegative()) {
-            this.loopCount = this.neg();
+            this.loopCount = this.loopCount.neg();
             this.loopCountNeg = true;
         } else {
             this.loopCountNeg = false;
