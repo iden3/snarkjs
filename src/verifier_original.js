@@ -25,9 +25,9 @@ const G2 = bn128.G2;
 
 module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
-    let full_pi_a = vk_verifier.A[0];
+    let full_pi_a = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
-        full_pi_a  = G1.add( full_pi_a, G1.mulScalar( vk_verifier.A[s+1], publicSignals[s]));
+        full_pi_a  = G1.add( full_pi_a, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 
     full_pi_a  = G1.add( full_pi_a, proof.pi_a);

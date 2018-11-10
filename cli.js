@@ -59,6 +59,12 @@ setup command
 
         Default: verification_key.json
 
+    --protocol [original|groth]
+
+        Defines withc variant of snark you want to use
+
+        Default: original
+
 calculate witness command
 =========================
 
@@ -144,6 +150,7 @@ verify command
 
         Default: public.json
 
+
 generate solidity verifier command
 ==================================
 
@@ -162,6 +169,7 @@ generate solidity verifier command
         Output file with a solidity smart contract that verifies a zero knowlage proof.
 
         Default: verifier.sol
+
 
 generate call parameters
 ========================
@@ -233,7 +241,8 @@ const inputName = (argv.input) ? argv.input : "input.json";
 const witnessName = (argv.witness) ? argv.witness : "witness.json";
 const proofName = (argv.proof) ? argv.proof : "proof.json";
 const publicName = (argv.public) ? argv.public : "public.json";
-const verifierName = (argv.public) ? argv.public : "verifier.sol";
+const verifierName = (argv.verifier) ? argv.verifier : "verifier.sol";
+const protocol = (argv.protocol) ? argv.protocol : "original";
 
 function p256(n) {
     let nstr = n.toString(16);
@@ -262,7 +271,9 @@ try {
     } else if (argv._[0].toUpperCase() == "SETUP") {
         const cirDef = JSON.parse(fs.readFileSync(circuitName, "utf8"));
         const cir = new zkSnark.Circuit(cirDef);
-        const setup = zkSnark.setup(cir);
+
+        if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+        const setup = zkSnark[protocol].setup(cir);
 
         fs.writeFileSync(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
         fs.writeFileSync(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
@@ -280,7 +291,9 @@ try {
         const witness = unstringifyBigInts(JSON.parse(fs.readFileSync(witnessName, "utf8")));
         const provingKey = unstringifyBigInts(JSON.parse(fs.readFileSync(provingKeyName, "utf8")));
 
-        const {proof, publicSignals} = zkSnark.genProof(provingKey, witness);
+        const protocol = provingKey.protocol;
+        if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+        const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness);
 
         fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
         fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
@@ -289,7 +302,11 @@ try {
         const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
         const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
         const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
-        const isValid = zkSnark.isValid(verificationKey, proof, public);
+
+        const protocol = verificationKey.protocol;
+        if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+
+        const isValid = zkSnark[protocol].isValid(verificationKey, proof, public);
 
         if (isValid) {
             console.log("OK");
@@ -301,60 +318,17 @@ try {
     } else if (argv._[0].toUpperCase() == "GENERATEVERIFIER") {
 
         const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-        let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier.sol"), "utf-8");
 
-        const vka_str = `[${verificationKey.vk_a[0][1].toString()},`+
-                         `${verificationKey.vk_a[0][0].toString()}], `+
-                        `[${verificationKey.vk_a[1][1].toString()},` +
-                         `${verificationKey.vk_a[1][0].toString()}]`;
-        template = template.replace("<%vk_a%>", vka_str);
-
-        const vkb_str = `${verificationKey.vk_b[0].toString()},`+
-                        `${verificationKey.vk_b[1].toString()}`;
-        template = template.replace("<%vk_b%>", vkb_str);
-
-        const vkc_str = `[${verificationKey.vk_c[0][1].toString()},`+
-                         `${verificationKey.vk_c[0][0].toString()}], `+
-                        `[${verificationKey.vk_c[1][1].toString()},` +
-                         `${verificationKey.vk_c[1][0].toString()}]`;
-        template = template.replace("<%vk_c%>", vkc_str);
-
-        const vkg_str = `[${verificationKey.vk_g[0][1].toString()},`+
-                         `${verificationKey.vk_g[0][0].toString()}], `+
-                        `[${verificationKey.vk_g[1][1].toString()},` +
-                         `${verificationKey.vk_g[1][0].toString()}]`;
-        template = template.replace("<%vk_g%>", vkg_str);
-
-        const vkgb1_str = `${verificationKey.vk_gb_1[0].toString()},`+
-                          `${verificationKey.vk_gb_1[1].toString()}`;
-        template = template.replace("<%vk_gb1%>", vkgb1_str);
-
-        const vkgb2_str = `[${verificationKey.vk_gb_2[0][1].toString()},`+
-                           `${verificationKey.vk_gb_2[0][0].toString()}], `+
-                          `[${verificationKey.vk_gb_2[1][1].toString()},` +
-                           `${verificationKey.vk_gb_2[1][0].toString()}]`;
-        template = template.replace("<%vk_gb2%>", vkgb2_str);
-
-        const vkz_str = `[${verificationKey.vk_z[0][1].toString()},`+
-                         `${verificationKey.vk_z[0][0].toString()}], `+
-                        `[${verificationKey.vk_z[1][1].toString()},` +
-                         `${verificationKey.vk_z[1][0].toString()}]`;
-        template = template.replace("<%vk_z%>", vkz_str);
-
-        // The points
-
-        template = template.replace("<%vk_input_length%>", (verificationKey.A.length-1).toString());
-        template = template.replace("<%vk_ic_length%>", verificationKey.A.length.toString());
-        let vi = "";
-        for (let i=0; i<verificationKey.A.length; i++) {
-            if (vi != "") vi = vi + "        ";
-            vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.A[i][0].toString()},`+
-                                                    `${verificationKey.A[i][1].toString()});\n`;
+        let verifierCode;
+        if (verificationKey.protocol == "original") {
+            verifierCode = generateVerifier_original(verificationKey);
+        } else if (verificationKey.protocol == "groth") {
+            verifierCode = generateVerifier_groth(verificationKey);
+        } else {
+            throw new Error("InvalidProof");
         }
-        template = template.replace("<%vk_ic_pts%>", vi);
 
-
-        fs.writeFileSync(verifierName, template, "utf-8");
+        fs.writeFileSync(verifierName, verifierCode, "utf-8");
         process.exit(0);
 
     } else if (argv._[0].toUpperCase() == "GENERATECALL") {
@@ -368,15 +342,25 @@ try {
             inputs = inputs + p256(public[i]);
         }
 
-        const S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-                `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
-                `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-                `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
-                `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-                `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
-                `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
-                `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
-                `[${inputs}]` ;
+        let S;
+        if ((typeof proof.protocol === "undefined") || (proof.protocol == "original")) {
+            S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+              `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
+              `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+              `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
+              `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+              `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
+              `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
+              `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
+              `[${inputs}]`;
+        } else if (proof.protocol == "groth") {
+            S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+              `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+              `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+              `[${inputs}]`;
+        } else {
+            throw new Error("InvalidProof");
+        }
 
         console.log(S);
         process.exit(0);
@@ -384,11 +368,109 @@ try {
         throw new Error("Invalid Command");
     }
 } catch(err) {
+    console.log(err.stack);
     console.log("ERROR: " + err);
     process.exit(1);
 }
 
 
+function generateVerifier_original(verificationKey) {
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_original.sol"), "utf-8");
+
+    const vka_str = `[${verificationKey.vk_a[0][1].toString()},`+
+                     `${verificationKey.vk_a[0][0].toString()}], `+
+                    `[${verificationKey.vk_a[1][1].toString()},` +
+                     `${verificationKey.vk_a[1][0].toString()}]`;
+    template = template.replace("<%vk_a%>", vka_str);
+
+    const vkb_str = `${verificationKey.vk_b[0].toString()},`+
+                    `${verificationKey.vk_b[1].toString()}`;
+    template = template.replace("<%vk_b%>", vkb_str);
+
+    const vkc_str = `[${verificationKey.vk_c[0][1].toString()},`+
+                     `${verificationKey.vk_c[0][0].toString()}], `+
+                    `[${verificationKey.vk_c[1][1].toString()},` +
+                     `${verificationKey.vk_c[1][0].toString()}]`;
+    template = template.replace("<%vk_c%>", vkc_str);
+
+    const vkg_str = `[${verificationKey.vk_g[0][1].toString()},`+
+                     `${verificationKey.vk_g[0][0].toString()}], `+
+                    `[${verificationKey.vk_g[1][1].toString()},` +
+                     `${verificationKey.vk_g[1][0].toString()}]`;
+    template = template.replace("<%vk_g%>", vkg_str);
+
+    const vkgb1_str = `${verificationKey.vk_gb_1[0].toString()},`+
+                      `${verificationKey.vk_gb_1[1].toString()}`;
+    template = template.replace("<%vk_gb1%>", vkgb1_str);
+
+    const vkgb2_str = `[${verificationKey.vk_gb_2[0][1].toString()},`+
+                       `${verificationKey.vk_gb_2[0][0].toString()}], `+
+                      `[${verificationKey.vk_gb_2[1][1].toString()},` +
+                       `${verificationKey.vk_gb_2[1][0].toString()}]`;
+    template = template.replace("<%vk_gb2%>", vkgb2_str);
+
+    const vkz_str = `[${verificationKey.vk_z[0][1].toString()},`+
+                     `${verificationKey.vk_z[0][0].toString()}], `+
+                    `[${verificationKey.vk_z[1][1].toString()},` +
+                     `${verificationKey.vk_z[1][0].toString()}]`;
+    template = template.replace("<%vk_z%>", vkz_str);
+
+    // The points
+
+    template = template.replace("<%vk_input_length%>", (verificationKey.IC.length-1).toString());
+    template = template.replace("<%vk_ic_length%>", verificationKey.IC.length.toString());
+    let vi = "";
+    for (let i=0; i<verificationKey.IC.length; i++) {
+        if (vi != "") vi = vi + "        ";
+        vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.IC[i][0].toString()},`+
+                                                `${verificationKey.IC[i][1].toString()});\n`;
+    }
+    template = template.replace("<%vk_ic_pts%>", vi);
+
+    return template;
+}
+
+
+function generateVerifier_groth(verificationKey) {
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
+
+
+    const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
+                        `${verificationKey.vk_alfa_1[1].toString()}`;
+    template = template.replace("<%vk_alfa1%>", vkalfa1_str);
+
+    const vkbeta2_str = `[${verificationKey.vk_beta_2[0][1].toString()},`+
+                         `${verificationKey.vk_beta_2[0][0].toString()}], `+
+                        `[${verificationKey.vk_beta_2[1][1].toString()},` +
+                         `${verificationKey.vk_beta_2[1][0].toString()}]`;
+    template = template.replace("<%vk_beta2%>", vkbeta2_str);
+
+    const vkgamma2_str = `[${verificationKey.vk_gamma_2[0][1].toString()},`+
+                          `${verificationKey.vk_gamma_2[0][0].toString()}], `+
+                         `[${verificationKey.vk_gamma_2[1][1].toString()},` +
+                          `${verificationKey.vk_gamma_2[1][0].toString()}]`;
+    template = template.replace("<%vk_gamma2%>", vkgamma2_str);
+
+    const vkdelta2_str = `[${verificationKey.vk_delta_2[0][1].toString()},`+
+                          `${verificationKey.vk_delta_2[0][0].toString()}], `+
+                         `[${verificationKey.vk_delta_2[1][1].toString()},` +
+                          `${verificationKey.vk_delta_2[1][0].toString()}]`;
+    template = template.replace("<%vk_delta2%>", vkdelta2_str);
+
+    // The points
+
+    template = template.replace("<%vk_input_length%>", (verificationKey.IC.length-1).toString());
+    template = template.replace("<%vk_ic_length%>", verificationKey.IC.length.toString());
+    let vi = "";
+    for (let i=0; i<verificationKey.IC.length; i++) {
+        if (vi != "") vi = vi + "        ";
+        vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.IC[i][0].toString()},`+
+                                                `${verificationKey.IC[i][1].toString()});\n`;
+    }
+    template = template.replace("<%vk_ic_pts%>", vi);
+
+    return template;
+}
 
 
 

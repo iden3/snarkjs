@@ -1,6 +1,7 @@
 # snarkjs: JavaScript implementation of zkSNARKs.
 
-This is a JavaScript implementation of zkSNARK schemes.
+This is a JavaScript implementation of zkSNARK schemes. It allows the original 8points protocol
+and the Groth Protocol (3 point only and 3 pairings)
 
 This library allows to do the trusted setup, generate proofs and verify the proofs.
 

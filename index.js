@@ -18,7 +18,14 @@
 */
 
 exports.Circuit = require("./src/circuit.js");
-exports.setup = require("./src/setup.js");
-exports.genProof = require("./src/prover.js");
-exports.isValid = require("./src/verifier.js");
+exports.original = {
+    setup: require("./src/setup_original.js"),
+    genProof: require("./src/prover_original.js"),
+    isValid: require("./src/verifier_original.js")
+};
+exports.groth = {
+    setup: require("./src/setup_groth.js"),
+    genProof: require("./src/prover_groth.js"),
+    isValid: require("./src/verifier_groth.js")
+};
 exports.bigInt = require("./src/bigint.js");

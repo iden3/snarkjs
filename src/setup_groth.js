@@ -17,6 +17,8 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+/* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+
 const bigInt = require("./bigint.js");
 
 const BN128 = require("./bn128.js");
@@ -32,10 +34,12 @@ const F = new ZqField(bn128.r);
 module.exports = function setup(circuit) {
     const setup = {
         vk_proof : {
+            protocol: "groth",
             nVars: circuit.nVars,
             nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         vk_verifier: {
+            protocol: "groth",
             nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         toxic: {}
@@ -48,7 +52,6 @@ module.exports = function setup(circuit) {
     calculatePolinomials(setup, circuit);
     setup.toxic.t = F.random();
     calculateEncriptedValuesAtT(setup, circuit);
-    calculateHexps(setup, circuit);
 
     return setup;
 };
@@ -119,116 +122,90 @@ function calculateValuesAtT(setup, circuit) {
 function calculateEncriptedValuesAtT(setup, circuit) {
 
     const v = calculateValuesAtT(setup, circuit);
-    setup.vk_proof.A = new Array(circuit.nVars+1);
-    setup.vk_proof.B = new Array(circuit.nVars+1);
-    setup.vk_proof.C = new Array(circuit.nVars+1);
-    setup.vk_proof.Ap = new Array(circuit.nVars+1);
-    setup.vk_proof.Bp = new Array(circuit.nVars+1);
-    setup.vk_proof.Cp = new Array(circuit.nVars+1);
-    setup.vk_proof.Kp = new Array(circuit.nVars+3);
-    setup.vk_verifier.A = new Array(circuit.nPublic);
+    setup.vk_proof.A = new Array(circuit.nVars);
+    setup.vk_proof.B1 = new Array(circuit.nVars);
+    setup.vk_proof.B2 = new Array(circuit.nVars);
+    setup.vk_proof.C = new Array(circuit.nVars);
+    setup.vk_verifier.IC = new Array(circuit.nPublic);
 
-    setup.toxic.ka = F.random();
-    setup.toxic.kb = F.random();
-    setup.toxic.kc = F.random();
-    setup.toxic.ra = F.random();
-    setup.toxic.rb = F.random();
-    setup.toxic.rc = F.mul(setup.toxic.ra, setup.toxic.rb);
+    setup.toxic.kalfa = F.random();
     setup.toxic.kbeta = F.random();
     setup.toxic.kgamma = F.random();
+    setup.toxic.kdelta = F.random();
 
-    const gb = F.mul(setup.toxic.kbeta, setup.toxic.kgamma);
+    let invDelta = F.inverse(setup.toxic.kdelta);
+    let invGamma = F.inverse(setup.toxic.kgamma);
 
-    setup.vk_verifier.vk_a = G2.affine(G2.mulScalar( G2.g, setup.toxic.ka));
-    setup.vk_verifier.vk_b = G1.affine(G1.mulScalar( G1.g, setup.toxic.kb));
-    setup.vk_verifier.vk_c = G2.affine(G2.mulScalar( G2.g, setup.toxic.kc));
-    setup.vk_verifier.vk_gb_1 = G1.affine(G1.mulScalar( G1.g, gb));
-    setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
-    setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
+    setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
+
+    setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+    setup.vk_proof.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+
+
+    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+
+    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
+    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+
+    setup.vk_verifier.vk_alfabeta_12 = bn128.F12.affine(bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 ));
 
     for (let s=0; s<circuit.nVars; s++) {
 
-        // A[i] = G1 * polA(t)
-        const raat = F.mul(setup.toxic.ra, v.a_t[s]);
-        const A = G1.affine(G1.mulScalar(G1.g, raat));
+        const A = G1.affine(G1.mulScalar(G1.g, v.a_t[s]));
 
         setup.vk_proof.A[s] = A;
 
-        if (s <= setup.vk_proof.nPublic) {
-            setup.vk_verifier.A[s]=A;
-        }
+        const B1 = G1.affine(G1.mulScalar(G1.g, v.b_t[s]));
 
+        setup.vk_proof.B1[s] = B1;
 
-        // B1[i] = G1 * polB(t)
-        const rbbt = F.mul(setup.toxic.rb, v.b_t[s]);
-        const B1 = G1.affine(G1.mulScalar(G1.g, rbbt));
+        const B2 = G2.affine(G2.mulScalar(G2.g, v.b_t[s]));
 
-        // B2[i] = G2 * polB(t)
-        const B2 = G2.affine(G2.mulScalar(G2.g, rbbt));
-
-        setup.vk_proof.B[s]=B2;
-
-        // C[i] = G1 * polC(t)
-        const rcct = F.mul(setup.toxic.rc, v.c_t[s]);
-        const C = G1.affine(G1.mulScalar( G1.g, rcct));
-        setup.vk_proof.C[s] =C;
-
-        // K = G1 * (A+B+C)
-
-        const kt = F.affine(F.add(F.add(raat, rbbt), rcct));
-        const K = G1.affine(G1.mulScalar( G1.g, kt));
-
-        /*
-        // Comment this lines to improve the process
-                const Ktest = G1.affine(G1.add(G1.add(A, B1), C));
-
-                if (!G1.equals(K, Ktest)) {
-                    console.log ("=====FAIL======");
-                }
-        */
-
-
-        setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
-        setup.vk_proof.Bp[s] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
-        setup.vk_proof.Cp[s] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
-        setup.vk_proof.Kp[s] = G1.affine(G1.mulScalar(K, setup.toxic.kbeta));
+        setup.vk_proof.B2[s] = B2;
     }
 
-    // Extra coeficients
-    const A = G1.mulScalar( G1.g, F.mul(setup.toxic.ra, v.z_t));
-    setup.vk_proof.A[circuit.nVars] = G1.affine(A);
-    setup.vk_proof.Ap[circuit.nVars] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+    for (let s=0; s<=setup.vk_proof.nPublic; s++) {
+        let ps =
+            F.mul(
+                invGamma,
+                F.add(
+                    F.add(
+                        F.mul(v.a_t[s], setup.toxic.kbeta),
+                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                    v.c_t[s]));
 
-    const B1 = G1.mulScalar( G1.g, F.mul(setup.toxic.rb, v.z_t));
-    const B2 = G2.mulScalar( G2.g, F.mul(setup.toxic.rb, v.z_t));
-    setup.vk_proof.B[circuit.nVars] = G2.affine(B2);
-    setup.vk_proof.Bp[circuit.nVars] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
+        const IC = G1.affine(G1.mulScalar(G1.g, ps));
+        setup.vk_verifier.IC[s]=IC;
+    }
 
-    const C = G1.mulScalar( G1.g, F.mul(setup.toxic.rc, v.z_t));
-    setup.vk_proof.C[circuit.nVars] = G1.affine(C);
-    setup.vk_proof.Cp[circuit.nVars] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
+    for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
+        let ps =
+            F.mul(
+                invDelta,
+                F.add(
+                    F.add(
+                        F.mul(v.a_t[s], setup.toxic.kbeta),
+                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                    v.c_t[s]));
+        const C = G1.affine(G1.mulScalar(G1.g, ps));
+        setup.vk_proof.C[s]=C;
+    }
 
-    setup.vk_proof.Kp[circuit.nVars  ] = G1.affine(G1.mulScalar(A, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+1] = G1.affine(G1.mulScalar(B1, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+2] = G1.affine(G1.mulScalar(C, setup.toxic.kbeta));
-
-//    setup.vk_verifier.A[0] = G1.affine(G1.add(setup.vk_verifier.A[0], setup.vk_proof.A[circuit.nVars]));
-
-    // vk_z
-    setup.vk_verifier.vk_z = G2.affine(G2.mulScalar(
-        G2.g,
-        F.mul(setup.toxic.rc, v.z_t)));
-}
-
-function calculateHexps(setup) {
+    // Calculate HExps
 
     const maxH = setup.vk_proof.domainSize+1;
 
     setup.vk_proof.hExps = new Array(maxH);
-    setup.vk_proof.hExps[0] = G1.g;
+
+    const zod = F.mul(invDelta, v.z_t);
+
+    setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
     let eT = setup.toxic.t;
     for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
+        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, F.mul(eT, zod)));
         eT = F.mul(eT, setup.toxic.t);
     }
 }

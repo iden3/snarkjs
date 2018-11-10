@@ -135,6 +135,8 @@ module.exports = function genProof(vk_proof, witness) {
 
 //    proof.h=h;
 
+    proof.protocol = "original";
+
     const publicSignals = witness.slice(1, vk_proof.nPublic+1);
 
     return {proof, publicSignals};

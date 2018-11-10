@@ -23,7 +23,7 @@ const path = require("path");
 const bigInt = require("../src/bigint.js");
 
 const Circuit = require("../src/circuit.js");
-const zkSnark = require("../index.js");
+const zkSnark = require("../index.js").original;
 const BN128 = require("../src/bn128.js");
 const PolField = require("../src/polfield.js");
 const ZqField = require("../src/zqfield.js");
@@ -38,10 +38,7 @@ const G2 = bn128.G2;
 const assert = chai.assert;
 
 
-
-
-
-describe("zkSnark", () => {
+describe("zkSnark original", () => {
     it("Load a circuit, create trusted setup, create a proof and validate it", () => {
 
 
