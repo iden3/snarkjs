@@ -29,3 +29,7 @@ exports.groth = {
     isValid: require("./src/verifier_groth.js")
 };
 exports.bigInt = require("./src/bigint.js");
+exports.ZqField = require("./src/zqfield.js");
+
+const Bn128 = require("./src/bn128.js");
+exports.bn128 = new Bn128();

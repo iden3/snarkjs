@@ -24,9 +24,10 @@ const fUtils = require("./futils.js");
 
 class ZqField {
     constructor(q) {
-        this.q = q;
+        this.q = bigInt(q);
         this.zero = bigInt.zero;
         this.one = bigInt.one;
+        this.minusone = this.q.sub(this.one);
         this.add = bigInt.genAdd();
         this.double = bigInt.genDouble();
         this.sub = bigInt.genSub();
@@ -39,6 +40,24 @@ class ZqField {
         this.isZero = bigInt.genIsZero(q);
         this.two = this.add(this.one, this.one);
         this.twoinv = this.inverse(this.two);
+
+        const e = this.minusone.shr(this.one);
+        this.nqr = this.two;
+        let r = this.exp(this.nqr, e);
+        while (!r.equals(this.minusone)) {
+            this.nqr = this.nqr.add(this.one);
+            r = this.exp(this.nqr, e);
+        }
+
+        this.s = this.zero;
+        this.t = this.minusone;
+
+        while (!this.t.isOdd()) {
+            this.s = this.s.add(this.one);
+            this.t = this.t.shr(this.one);
+        }
+
+        this.nqr_to_t = this.exp(this.nqr, this.t);
     }
 
     copy(a) {
@@ -71,6 +90,47 @@ class ZqField {
         }
         return res;
     }
+
+    sqrt(n) {
+
+        n = this.affine(n);
+
+        if (n.equals(this.zero)) return this.zero;
+
+        // Test that have solution
+        const res = this.exp(n, this.minusone.shr(this.one));
+        if (!res.equals(this.one)) return null;
+
+        let m = parseInt(this.s);
+        let c = this.nqr_to_t;
+        let t = this.exp(n, this.t);
+        let r = this.exp(n, this.add(this.t, this.one).shr(this.one) );
+
+        while (!t.equals(this.one)) {
+            let sq = this.square(t);
+            let i = 1;
+            while (!sq.equals(this.one)) {
+                i++;
+                sq = this.square(sq);
+            }
+
+            // b = c ^ m-i-1
+            let b = c;
+            for (let j=0; j< m-i-1; j ++) b = this.square(b);
+
+            m = i;
+            c = this.square(b);
+            t = this.mul(t, c);
+            r = this.mul(r, b);
+        }
+
+        if (r.greater(this.q.shr(this.one))) {
+            r = this.neg(r);
+        }
+
+        return r;
+    }
+
 }
 
 

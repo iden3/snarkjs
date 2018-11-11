@@ -52,6 +52,7 @@ class BN128 {
         this.G2 = new GCurve(this.F2, this.g2);
         this.F6 = new F3Field(this.F2, this.nonResidueF6);
         this.F12 = new F2Field(this.F6, this.nonResidueF6);
+        this.Fr = new F1Field(this.r);
         const self = this;
         this.F12._mulByNonResidue = function(a) {
             return [self.F2.mul(this.nonResidue, a[2]), a[0], a[1]];

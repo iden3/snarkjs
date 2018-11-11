@@ -3,17 +3,17 @@
 
     This file is part of zksnark JavaScript library.
 
-    zksnark JavaScript library is a free software: you can redistribute it and/or 
-    modify it under the terms of the GNU General Public License as published by the 
-    Free Software Foundation, either version 3 of the License, or (at your option) 
+    zksnark JavaScript library is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
     any later version.
 
     zksnark JavaScript library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for 
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
     more details.
 
-    You should have received a copy of the GNU General Public License along with 
+    You should have received a copy of the GNU General Public License along with
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
@@ -42,6 +42,28 @@ describe("F1 testing", () => {
         const d = bn128.F1.div(c,b);
 
         assert(bn128.F1.equals(a, d));
+    });
+
+    it("Should compute sqrts", () => {
+        const bn128 = new BN128();
+        const F = new F1Field(bn128.r);
+        const a = bigInt("4");
+        let b = F.sqrt(a);
+        assert(F.equals(bigInt(0), F.sqrt(bigInt("0"))));
+        assert(F.equals(b, bigInt("2")));
+        assert(F.sqrt(F.nqr) === null);
+    });
+
+    it("Should compute sqrt of 100 random numbers", () => {
+        const bn128 = new BN128();
+        const F = new F1Field(bn128.r);
+        for (let j=0;j<100; j++) {
+            let a = F.random();
+            let s = F.sqrt(a);
+            if (s != null) {
+                assert(F.equals(F.square(s), a));
+            }
+        }
     });
 });
 
