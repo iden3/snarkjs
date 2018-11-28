@@ -52,7 +52,7 @@ function calculateWitness(circuit, inputSignals, log) {
     for (let i=0; i<circuit.nInputs; i++) {
         const idx = circuit.inputIdx(i);
         if (typeof(ctx.witness[idx]) == "undefined") {
-            throw new Error("Input Signal not assigned: " + circuit.signalNames(i));
+            throw new Error("Input Signal not assigned: " + circuit.signalNames(idx));
         }
     }
 

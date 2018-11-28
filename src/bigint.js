@@ -169,12 +169,26 @@ if (typeof(BigInt) != "undefined") {
         return this & m;
     };
 
+    wBigInt.prototype.div = function(c) {
+        return this / c;
+    };
+
     wBigInt.prototype.mod = function(c) {
         return this % c;
     };
 
     wBigInt.prototype.modPow = function(e, m) {
-        return this ** e % m;
+        let acc = wBigInt.one;
+        let exp = this;
+        let rem = e;
+        while (rem) {
+            if (rem & wBigInt.one) {
+                acc = (acc * exp) %m;
+            }
+            exp = (exp * exp) % m;
+            rem = rem >> wBigInt.one;
+        }
+        return acc;
     };
 
     wBigInt.prototype.greaterOrEquals = function(b) {
@@ -217,6 +231,10 @@ if (typeof(BigInt) != "undefined") {
     wBigInt.one = bigInt.one;
     wBigInt.zero = bigInt.zero;
     wBigInt.prototype = oldProto;
+
+    wBigInt.prototype.div = function(c) {
+        return this.divide(c);
+    };
 
     // Affine
     wBigInt.genAffine = (q) => {
@@ -430,6 +448,29 @@ wBigInt.isZero = function(a, q) {
 
 wBigInt.prototype.isZero = function (q) {
     return wBigInt.genIsZero(q)(this);
+};
+
+wBigInt.leBuff2int = function(buff) {
+    let res = wBigInt.zero;
+    for (let i=0; i<buff.length; i++) {
+        const n = wBigInt(buff[i]);
+        res = res.add(n.shl(i*8));
+    }
+    return res;
+};
+
+wBigInt.leInt2Buff = function(n, len) {
+    let r = n;
+    let o =0;
+    const buff = Buffer.alloc(len);
+    while ((r.greater(wBigInt.zero))&&(o<buff.length)) {
+        let c = Number(r.and(wBigInt("255")));
+        buff[o] = c;
+        o++;
+        r = r.shr(8);
+    }
+    if (r.greater(wBigInt.zero)) throw new Error("Number does not feed in buffer");
+    return buff;
 };
 
 
