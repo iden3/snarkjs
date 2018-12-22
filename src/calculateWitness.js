@@ -45,7 +45,6 @@ function calculateWitness(circuit, inputSignals, log) {
     for (let s in inputSignals) {
         ctx.currentComponent = "main";
         iterateSelector(inputSignals[s], [], function(selector, value) {
-            console.log("xxxx");
             if (typeof(value) == "undefined") throw new Error("Signal not defined:" + s);
             ctx.setSignal(s, selector, bigInt(value));
         });
