@@ -473,6 +473,10 @@ wBigInt.leInt2Buff = function(n, len) {
     return buff;
 };
 
+wBigInt.prototype.leInt2Buff = function (len) {
+    return wBigInt.leInt2Buff(this,len);
+};
+
 
 module.exports = wBigInt;
 
