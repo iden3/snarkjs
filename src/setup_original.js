@@ -189,8 +189,9 @@ function calculateEncriptedValuesAtT(setup, circuit) {
                 }
         */
 
-
-        setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+        if (s > setup.vk_proof.nPublic) {
+            setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+        }
         setup.vk_proof.Bp[s] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
         setup.vk_proof.Cp[s] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
         setup.vk_proof.Kp[s] = G1.affine(G1.mulScalar(K, setup.toxic.kbeta));
