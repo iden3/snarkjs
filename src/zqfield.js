@@ -17,10 +17,24 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const crypto = require("crypto");
-
 const bigInt = require("./bigint");
 const fUtils = require("./futils.js");
+
+function getRandomByte() {
+    if (typeof window !== "undefined") { // Browser
+        if (typeof window.crypto !== "undefined") { // Supported
+            let array = new Uint8Array(1);
+            window.crypto.getRandomValues(array);
+            return array[0];
+        }
+        else { // fallback
+            return Math.floor(Math.random() * 256);
+        }
+    }
+    else { // NodeJS
+        return module.require("crypto").randomBytes(1)[0];
+    }
+}
 
 class ZqField {
     constructor(q) {
@@ -85,7 +99,7 @@ class ZqField {
         let res = bigInt(0);
         let n = bigInt(this.q);
         while (!n.isZero()) {
-            res = res.shl(8).add(bigInt(crypto.randomBytes(1)[0]));
+            res = res.shl(8).add(bigInt(getRandomByte()));
             n = n.shr(8);
         }
         return res;
