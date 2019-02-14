@@ -205,7 +205,7 @@ class BN128 {
                 f,
                 c.ell_0,
                 this.F2.mulScalar(c.ell_VW , pre1.PY),
-                this.F2.mulScalar(c.ell_VV , pre1.PX, ));
+                this.F2.mulScalar(c.ell_VV , pre1.PX));
 
             if (bit)
             {
@@ -213,8 +213,8 @@ class BN128 {
                 f = this._mul_by_024(
                     f,
                     c.ell_0,
-                    this.F2.mulScalar(c.ell_VW, pre1.PY, ),
-                    this.F2.mulScalar(c.ell_VV, pre1.PX, ));
+                    this.F2.mulScalar(c.ell_VW, pre1.PY),
+                    this.F2.mulScalar(c.ell_VV, pre1.PX));
             }
 
         }
@@ -235,7 +235,7 @@ class BN128 {
         f = this._mul_by_024(
             f,
             c.ell_0,
-            this.F2.mulScalar(c.ell_VW, pre1.PY, ),
+            this.F2.mulScalar(c.ell_VW, pre1.PY),
             this.F2.mulScalar(c.ell_VV, pre1.PX));
 
         return f;

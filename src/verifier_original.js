@@ -50,7 +50,7 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
     if (! bn128.F12.equals(
         bn128.F12.mul(
             bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
-            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b ),
+            bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b )
         ),
         bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
         return false;
@@ -59,7 +59,7 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         bn128.pairing( full_pi_a , proof.pi_b  ),
         bn128.F12.mul(
             bn128.pairing( proof.pi_h , vk_verifier.vk_z ),
-            bn128.pairing( proof.pi_c , G2.g  ),
+            bn128.pairing( proof.pi_c , G2.g  )
         )))
         return false;
 
