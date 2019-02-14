@@ -18,7 +18,6 @@
 */
 
 const bigInt = require("./bigint.js");
-const assert = require("assert");
 
 const F1Field = require("./zqfield.js");
 const F2Field = require("./f2field.js");
@@ -160,9 +159,15 @@ class BN128 {
         }
 
         const Q1 = this.G2.affine(this._g2MulByQ(Qcopy));
-        assert(this.F2.equals(Q1[2], this.F2.one));
+        if (!this.F2.equals(Q1[2], this.F2.one))
+        {
+            throw new Error("Expected values are not equal");
+        }
         const Q2 = this.G2.affine(this._g2MulByQ(Q1));
-        assert(this.F2.equals(Q2[2], this.F2.one));
+        if (!this.F2.equals(Q2[2], this.F2.one))
+        {
+            throw new Error("Expected values are not equal");
+        }
 
         if (this.loopCountNef)
         {

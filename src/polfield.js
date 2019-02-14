@@ -25,7 +25,6 @@
  */
 
 const bigInt = require("./bigint.js");
-const assert = require("assert");
 
 class PolField {
     constructor (F) {
@@ -446,8 +445,12 @@ class PolField {
         let res = this.F.one;
         let r = i;
 
-        assert(i<n);
-        assert(1<<nbits === n);
+        if(i>=n) {
+            throw new Error("Given 'i' should be lower than 'n'");
+        }
+        else if (1<<nbits !== n) {
+            throw new Error(`Internal errlr: ${n} should equal ${1<<nbits}`);
+        }
 
         while (r>0) {
             if (r & 1 == 1) {
