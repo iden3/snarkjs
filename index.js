@@ -33,3 +33,8 @@ exports.ZqField = require("./src/zqfield.js");
 
 const Bn128 = require("./src/bn128.js");
 exports.bn128 = new Bn128();
+exports.generateCall = require('./src/generate_call');
+exports.generateVerifier = require('./src/generate_verifier');
+exports.stringifyBigInts = require("./src/stringifybigint.js").stringifyBigInts;
+exports.unstringifyBigInts = require("./src/stringifybigint.js").unstringifyBigInts;
+
