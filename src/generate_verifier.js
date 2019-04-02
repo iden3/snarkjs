@@ -1,5 +1,6 @@
 const { stringifyBigInts, unstringifyBigInts } = require("./stringifybigint.js");
 const path = require("path");
+const fs = require("fs");
 
 
 const generateVerifier = (vk) => {
