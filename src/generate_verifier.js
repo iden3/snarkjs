@@ -18,7 +18,7 @@ const generateVerifier = (vk) => {
 }
 
 const generateVerifier_original = (verificationKey) => {
-	let template = fs.readFileSync(path.join(__dirname, "templates", "verifier_original.sol"), "utf-8");
+	let template = fs.readFileSync(path.join(__dirname, "../templates", "verifier_original.sol"), "utf-8");
 
 	const vka_str = `[${verificationKey.vk_a[0][1].toString()},` +
 		`${verificationKey.vk_a[0][0].toString()}], ` +
@@ -74,7 +74,7 @@ const generateVerifier_original = (verificationKey) => {
 }
 
 const generateVerifier_groth = (verificationKey) => {
-	let template = fs.readFileSync(path.join(__dirname, "templates", "verifier_groth.sol"), "utf-8");
+	let template = fs.readFileSync(path.join(__dirname, "..templates", "verifier_groth.sol"), "utf-8");
 
 
 	const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},` +
