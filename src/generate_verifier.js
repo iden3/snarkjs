@@ -1,4 +1,5 @@
 const { stringifyBigInts, unstringifyBigInts } = require("./stringifybigint.js");
+const path = require("path");
 
 
 const generateVerifier = (vk) => {
@@ -16,7 +17,7 @@ const generateVerifier = (vk) => {
 }
 
 const generateVerifier_original = (verificationKey) => {
-	let template = require('../templates/verifier_original.js');
+	let template = fs.readFileSync(path.join(__dirname, "templates", "verifier_original.sol"), "utf-8");
 
 	const vka_str = `[${verificationKey.vk_a[0][1].toString()},` +
 		`${verificationKey.vk_a[0][0].toString()}], ` +
