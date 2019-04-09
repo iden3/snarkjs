@@ -69,9 +69,7 @@ module.exports = function genProof(vk_proof, witness) {
     pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
     pib1 = G1.add( pib1, G1.mulScalar( vk_proof.vk_delta_1, s ));
 
-    const h = calculateH(vk_proof, witness, PolF.F.zero, PolF.F.zero, PolF.F.zero);
-
-//    console.log(h.length + "/" + vk_proof.hExps.length);
+    const h = calculateH(vk_proof, witness);
 
     for (let i = 0; i < h.length; i++) {
         proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
@@ -92,10 +90,11 @@ module.exports = function genProof(vk_proof, witness) {
     proof.protocol = "groth";
 
     return {proof, publicSignals};
+
 };
 
 
-function calculateH(vk_proof, witness, d1, d2, d3) {
+function calculateH(vk_proof, witness) {
 
     const F = PolF.F;
     const m = vk_proof.domainSize;
@@ -124,39 +123,7 @@ function calculateH(vk_proof, witness, d1, d2, d3) {
 
     const polABC_S = PolF.sub(polAB_S, polC_S);
 
-    const polZ_S = new Array(m+1).fill(F.zero);
-    polZ_S[m] = F.one;
-    polZ_S[0] = F.neg(F.one);
-
-    let H_S = PolF.div(polABC_S, polZ_S);
-/*
-    const H2S = PolF.mul(H_S, polZ_S);
-
-    if (PolF.equals(H2S, polABC_S)) {
-        console.log("Is Divisible!");
-    } else {
-        console.log("ERROR: Not divisible!");
-    }
-*/
-
-    /* add coefficients of the polynomial (d2*A + d1*B - d3) + d1*d2*Z */
-
-    H_S = PolF.extend(H_S, m+1);
-
-    for (let i=0; i<m; i++) {
-        const d2A = PolF.F.mul(d2, polA_S[i]);
-        const d1B = PolF.F.mul(d1, polB_S[i]);
-        H_S[i] = PolF.F.add(H_S[i], PolF.F.add(d2A, d1B));
-    }
-
-    H_S[0] = PolF.F.sub(H_S[0], d3);
-
-    // Z = x^m -1
-    const d1d2 = PolF.F.mul(d1, d2);
-    H_S[m] = PolF.F.add(H_S[m], d1d2);
-    H_S[0] = PolF.F.sub(H_S[0], d1d2);
-
-    H_S = PolF.reduce(PolF.affine(H_S));
+    const H_S = polABC_S.slice(m);
 
     return H_S;
 }

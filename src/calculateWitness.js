@@ -64,8 +64,8 @@ function calculateWitness(circuit, inputSignals, log) {
         }
         log(circuit.signalNames(i) + " --> " + ctx.witness[i].toString());
     }
-//    return ctx.witness.slice(0, circuit.nVars);
-    return ctx.witness;
+    return ctx.witness.slice(0, circuit.nVars);
+//    return ctx.witness;
 }
 
 class RTCtx {
