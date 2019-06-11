@@ -61,7 +61,7 @@ setup command
 
     --protocol [original|groth]
 
-        Defines withc variant of snark you want to use
+        Defines which variant of snark you want to use
 
         Default: original
 
@@ -84,7 +84,7 @@ calculate witness command
 
         Default: input.json
 
-        Example of for a circuit with tow inputs a and b:
+        Example of a circuit with two inputs a and b:
 
             {"a": "22", "b": "33"}
 
