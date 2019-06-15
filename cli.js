@@ -59,7 +59,7 @@ setup command
 
         Default: verification_key.json
 
-    --protocol [original|groth]
+    --protocol [original|groth|kimleeoh]
 
         Defines withc variant of snark you want to use
 
@@ -93,6 +93,23 @@ calculate witness command
         Output filename with the generated witness.
 
         Default: witness.json
+
+    --lo or --logoutput
+
+        Output all the Output signals
+
+    --lg or --logget
+
+        Output GET access to the signals
+
+    --ls or --logset
+
+        Output SET access to the signal
+
+    --lt or --logtrigger
+
+        Output when a subcomponent is triggered and when finished
+
 
 generate a proof command
 ========================
@@ -225,8 +242,13 @@ print constraints
     .alias("i", "input")
     .alias("pub", "public")
     .alias("v", "verifier")
+    .alias("lo", "logoutput")
+    .alias("lg", "logget")
+    .alias("ls", "logset")
+    .alias("lt", "logtrigger")
     .help("h")
     .alias("h", "help")
+
     .epilogue(`Copyright (C) 2018  0kims association
     This program comes with ABSOLUTELY NO WARRANTY;
     This is free software, and you are welcome to redistribute it
@@ -283,7 +305,12 @@ try {
         const cir = new zkSnark.Circuit(cirDef);
         const input = unstringifyBigInts(JSON.parse(fs.readFileSync(inputName, "utf8")));
 
-        const witness = cir.calculateWitness(input);
+        const witness = cir.calculateWitness(input, {
+            logOutput: argv.logoutput,
+            logSet: argv.logset,
+            logGet: argv.logget,
+            logTrigger: argv.logtrigger
+        });
 
         fs.writeFileSync(witnessName, JSON.stringify(stringifyBigInts(witness), null, 1), "utf-8");
         process.exit(0);
@@ -324,6 +351,8 @@ try {
             verifierCode = generateVerifier_original(verificationKey);
         } else if (verificationKey.protocol == "groth") {
             verifierCode = generateVerifier_groth(verificationKey);
+        } else if (verificationKey.protocol == "kimleeoh") {
+            verifierCode = generateVerifier_kimleeoh(verificationKey);
         } else {
             throw new Error("InvalidProof");
         }
@@ -353,7 +382,7 @@ try {
               `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
               `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
               `[${inputs}]`;
-        } else if (proof.protocol == "groth") {
+        } else if ((proof.protocol == "groth")||(proof.protocol == "kimleeoh")) {
             S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
               `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
               `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
@@ -394,7 +423,7 @@ function generateVerifier_original(verificationKey) {
     template = template.replace("<%vk_c%>", vkc_str);
 
     const vkg_str = `[${verificationKey.vk_g[0][1].toString()},`+
-                     `${verificationKey.vk_g[0][0].toString()}], `+
+                      `${verificationKey.vk_g[0][0].toString()}], `+
                     `[${verificationKey.vk_g[1][1].toString()},` +
                      `${verificationKey.vk_g[1][0].toString()}]`;
     template = template.replace("<%vk_g%>", vkg_str);
@@ -472,5 +501,44 @@ function generateVerifier_groth(verificationKey) {
     return template;
 }
 
+function generateVerifier_kimleeoh(verificationKey) {
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
 
+
+    const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
+                        `${verificationKey.vk_alfa_1[1].toString()}`;
+    template = template.replace("<%vk_alfa1%>", vkalfa1_str);
+
+    const vkbeta2_str = `[${verificationKey.vk_beta_2[0][1].toString()},`+
+                         `${verificationKey.vk_beta_2[0][0].toString()}], `+
+                        `[${verificationKey.vk_beta_2[1][1].toString()},` +
+                         `${verificationKey.vk_beta_2[1][0].toString()}]`;
+    template = template.replace("<%vk_beta2%>", vkbeta2_str);
+
+    const vkgamma2_str = `[${verificationKey.vk_gamma_2[0][1].toString()},`+
+                          `${verificationKey.vk_gamma_2[0][0].toString()}], `+
+                         `[${verificationKey.vk_gamma_2[1][1].toString()},` +
+                          `${verificationKey.vk_gamma_2[1][0].toString()}]`;
+    template = template.replace("<%vk_gamma2%>", vkgamma2_str);
+
+    const vkdelta2_str = `[${verificationKey.vk_delta_2[0][1].toString()},`+
+                          `${verificationKey.vk_delta_2[0][0].toString()}], `+
+                         `[${verificationKey.vk_delta_2[1][1].toString()},` +
+                          `${verificationKey.vk_delta_2[1][0].toString()}]`;
+    template = template.replace("<%vk_delta2%>", vkdelta2_str);
+
+    // The points
+
+    template = template.replace("<%vk_input_length%>", (verificationKey.IC.length-1).toString());
+    template = template.replace("<%vk_ic_length%>", verificationKey.IC.length.toString());
+    let vi = "";
+    for (let i=0; i<verificationKey.IC.length; i++) {
+        if (vi != "") vi = vi + "        ";
+        vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.IC[i][0].toString()},`+
+                                                `${verificationKey.IC[i][1].toString()});\n`;
+    }
+    template = template.replace("<%vk_ic_pts%>", vi);
+
+    return template;
+}
 

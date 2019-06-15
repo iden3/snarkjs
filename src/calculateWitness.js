@@ -21,9 +21,10 @@ const bigInt = require("./bigint");
 
 module.exports = calculateWitness;
 
-function calculateWitness(circuit, inputSignals, log) {
-    log = log || (() => {});
-    const ctx = new RTCtx(circuit, log);
+function calculateWitness(circuit, inputSignals, options) {
+    options = options || {};
+    if (!options.logFunction) options.logFunction = console.log;
+    const ctx = new RTCtx(circuit, options);
 
     function iterateSelector(values, sels, cb) {
         if (!Array.isArray(values)) {
@@ -62,15 +63,15 @@ function calculateWitness(circuit, inputSignals, log) {
         if (typeof(ctx.witness[i]) == "undefined") {
             throw new Error("Signal not assigned: " + circuit.signalNames(i));
         }
-        log(circuit.signalNames(i) + " --> " + ctx.witness[i].toString());
+        if (options.logOutput) options.logFunction(circuit.signalNames(i) + " --> " + ctx.witness[i].toString());
     }
     return ctx.witness.slice(0, circuit.nVars);
 //    return ctx.witness;
 }
 
 class RTCtx {
-    constructor(circuit, log) {
-        this.log = log || function() {};
+    constructor(circuit, options) {
+        this.options = options;
         this.scopes = [];
         this.circuit = circuit;
         this.witness = new Array(circuit.nSignals);
@@ -104,8 +105,7 @@ class RTCtx {
     }
 
     triggerComponent(c) {
-        this.log("Component Treiggered: " + this.circuit.components[c].name);
-//        console.log("Start Component Treiggered: " + this.circuit.components[c].name);
+        if (this.options.logTrigger) this.options.logFunction("Component Treiggered: " + this.circuit.components[c].name);
 
         // Set notInitSignals to -1 to not initialize again
         this.notInitSignals[c] --;
@@ -126,7 +126,8 @@ class RTCtx {
         this.circuit.templates[template](this);
         this.scopes = oldScope;
         this.currentComponent = oldComponent;
-//        console.log("End Component Treiggered: " + this.circuit.components[c].name);
+
+        if (this.options.logTrigger)  this.options.logFunction("End Component Treiggered: " + this.circuit.components[c].name);
     }
 
     callFunction(functionName, params) {
@@ -149,7 +150,7 @@ class RTCtx {
     }
 
     setSignalFullName(fullName, value) {
-        this.log("set " + fullName + " <-- " + value.toString());
+        if (this.options.logSet) this.options.logFunction("set " + fullName + " <-- " + value.toString());
         const sId = this.circuit.getSignalIdx(fullName);
         let firstInit =false;
         if (typeof(this.witness[sId]) == "undefined") {
@@ -218,7 +219,7 @@ class RTCtx {
         if (typeof(this.witness[sId]) == "undefined") {
             throw new Error("Signal not initialized: "+fullName);
         }
-        this.log("get --->" + fullName + " = " + this.witness[sId].toString() );
+        if (this.options.logGet) this.options.logFunction("get --->" + fullName + " = " + this.witness[sId].toString() );
         return this.witness[sId];
     }
 

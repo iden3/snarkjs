@@ -28,6 +28,11 @@ exports.groth = {
     genProof: require("./src/prover_groth.js"),
     isValid: require("./src/verifier_groth.js")
 };
+exports.kimleeoh = {
+    setup: require("./src/setup_kimleeoh.js"),
+    genProof: require("./src/prover_kimleeoh.js"),
+    isValid: require("./src/verifier_kimleeoh.js")
+};
 exports.bigInt = require("./src/bigint.js");
 exports.ZqField = require("./src/zqfield.js");
 

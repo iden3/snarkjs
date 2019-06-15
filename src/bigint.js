@@ -478,5 +478,32 @@ wBigInt.prototype.leInt2Buff = function (len) {
 };
 
 
+wBigInt.beBuff2int = function(buff) {
+    let res = wBigInt.zero;
+    for (let i=0; i<buff.length; i++) {
+        const n = wBigInt(buff[buff.length - i - 1]);
+        res = res.add(n.shl(i*8));
+    }
+    return res;
+};
+
+wBigInt.beInt2Buff = function(n, len) {
+    let r = n;
+    let o =len-1;
+    const buff = Buffer.alloc(len);
+    while ((r.greater(wBigInt.zero))&&(o>=0)) {
+        let c = Number(r.and(wBigInt("255")));
+        buff[o] = c;
+        o--;
+        r = r.shr(8);
+    }
+    if (r.greater(wBigInt.zero)) throw new Error("Number does not feed in buffer");
+    return buff;
+};
+
+wBigInt.prototype.beInt2Buff = function (len) {
+    return wBigInt.beInt2Buff(this,len);
+};
+
 module.exports = wBigInt;
 
