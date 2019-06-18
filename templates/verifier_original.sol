@@ -10,8 +10,7 @@
 //      added requiere error messages
 //
 pragma solidity ^0.5.0;
-contract <%contractName%>  {
-    
+library Pairing {
     struct G1Point {
         uint X;
         uint Y;
@@ -149,58 +148,60 @@ contract <%contractName%>  {
         p2[3] = d2;
         return pairing(p1, p2);
     }
-
+}
+contract Verifier {
+    using Pairing for *;
     struct VerifyingKey {
-        G2Point A;
-        G1Point B;
-        G2Point C;
-        G2Point gamma;
-        G1Point gammaBeta1;
-        G2Point gammaBeta2;
-        G2Point Z;
-        G1Point[] IC;
+        Pairing.G2Point A;
+        Pairing.G1Point B;
+        Pairing.G2Point C;
+        Pairing.G2Point gamma;
+        Pairing.G1Point gammaBeta1;
+        Pairing.G2Point gammaBeta2;
+        Pairing.G2Point Z;
+        Pairing.G1Point[] IC;
     }
     struct Proof {
-        G1Point A;
-        G1Point A_p;
-        G2Point B;
-        G1Point B_p;
-        G1Point C;
-        G1Point C_p;
-        G1Point K;
-        G1Point H;
+        Pairing.G1Point A;
+        Pairing.G1Point A_p;
+        Pairing.G2Point B;
+        Pairing.G1Point B_p;
+        Pairing.G1Point C;
+        Pairing.G1Point C_p;
+        Pairing.G1Point K;
+        Pairing.G1Point H;
     }
     function verifyingKey() internal pure returns (VerifyingKey memory vk) {
-        vk.A = G2Point(<%vk_a%>);
-        vk.B = G1Point(<%vk_b%>);
-        vk.C = G2Point(<%vk_c%>);
-        vk.gamma = G2Point(<%vk_g%>);
-        vk.gammaBeta1 = G1Point(<%vk_gb1%>);
-        vk.gammaBeta2 = G2Point(<%vk_gb2%>);
-        vk.Z = G2Point(<%vk_z%>);
-        vk.IC = new G1Point[](<%vk_ic_length%>);
+        vk.A = Pairing.G2Point(<%vk_a%>);
+        vk.B = Pairing.G1Point(<%vk_b%>);
+        vk.C = Pairing.G2Point(<%vk_c%>);
+        vk.gamma = Pairing.G2Point(<%vk_g%>);
+        vk.gammaBeta1 = Pairing.G1Point(<%vk_gb1%>);
+        vk.gammaBeta2 = Pairing.G2Point(<%vk_gb2%>);
+        vk.Z = Pairing.G2Point(<%vk_z%>);
+        vk.IC = new Pairing.G1Point[](<%vk_ic_length%>);
         <%vk_ic_pts%>
     }
     function verify(uint[] memory input, Proof memory proof) internal view returns (uint) {
         VerifyingKey memory vk = verifyingKey();
         require(input.length + 1 == vk.IC.length,"verifier-bad-input");
         // Compute the linear combination vk_x
-        G1Point memory vk_x = G1Point(0, 0);
+        Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
         for (uint i = 0; i < input.length; i++)
-            vk_x = addition(vk_x, scalar_mul(vk.IC[i + 1], input[i]));
-        vk_x = addition(vk_x, vk.IC[0]);
-        if (!pairingProd2(proof.A, vk.A, negate(proof.A_p), P2())) return 1;
-        if (!pairingProd2(vk.B, proof.B, negate(proof.B_p), P2())) return 2;
-        if (!pairingProd2(proof.C, vk.C, negate(proof.C_p), P2())) return 3;
-        if (!pairingProd3(
+            vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i + 1], input[i]));
+        vk_x = Pairing.addition(vk_x, vk.IC[0]);
+        if (!Pairing.pairingProd2(proof.A, vk.A, Pairing.negate(proof.A_p), Pairing.P2())) return 1;
+        if (!Pairing.pairingProd2(vk.B, proof.B, Pairing.negate(proof.B_p), Pairing.P2())) return 2;
+        if (!Pairing.pairingProd2(proof.C, vk.C, Pairing.negate(proof.C_p), Pairing.P2())) return 3;
+        if (!Pairing.pairingProd3(
             proof.K, vk.gamma,
-            negate(addition(vk_x, addition(proof.A, proof.C))), vk.gammaBeta2,
-            negate(vk.gammaBeta1), proof.B
+            Pairing.negate(Pairing.addition(vk_x, Pairing.addition(proof.A, proof.C))), vk.gammaBeta2,
+            Pairing.negate(vk.gammaBeta1), proof.B
         )) return 4;
-        if (!pairingProd3(
-                addition(vk_x, proof.A), proof.B,
-                negate(proof.H), vk.Z,
-                negate(proof.C), P2()
+        if (!Pairing.pairingProd3(
+                Pairing.addition(vk_x, proof.A), proof.B,
+                Pairing.negate(proof.H), vk.Z,
+                Pairing.negate(proof.C), Pairing.P2()
         )) return 5;
         return 0;
     }
@@ -216,14 +217,14 @@ contract <%contractName%>  {
             uint[<%vk_input_length%>] memory input
         ) view public returns (bool r) {
         Proof memory proof;
-        proof.A = G1Point(a[0], a[1]);
-        proof.A_p = G1Point(a_p[0], a_p[1]);
-        proof.B = G2Point([b[0][0], b[0][1]], [b[1][0], b[1][1]]);
-        proof.B_p = G1Point(b_p[0], b_p[1]);
-        proof.C = G1Point(c[0], c[1]);
-        proof.C_p = G1Point(c_p[0], c_p[1]);
-        proof.H = G1Point(h[0], h[1]);
-        proof.K = G1Point(k[0], k[1]);
+        proof.A = Pairing.G1Point(a[0], a[1]);
+        proof.A_p = Pairing.G1Point(a_p[0], a_p[1]);
+        proof.B = Pairing.G2Point([b[0][0], b[0][1]], [b[1][0], b[1][1]]);
+        proof.B_p = Pairing.G1Point(b_p[0], b_p[1]);
+        proof.C = Pairing.G1Point(c[0], c[1]);
+        proof.C_p = Pairing.G1Point(c_p[0], c_p[1]);
+        proof.H = Pairing.G1Point(h[0], h[1]);
+        proof.K = Pairing.G1Point(k[0], k[1]);
         uint[] memory inputValues = new uint[](input.length);
         for(uint i = 0; i < input.length; i++){
             inputValues[i] = input[i];
