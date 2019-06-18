@@ -318,12 +318,14 @@ try {
     } else if (argv._[0].toUpperCase() == "GENERATEVERIFIER") {
 
         const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
+        let contractName = path.parse(verifierName).name
+        contractName = contractName.charAt(0).toUpperCase() + contractName.slice(1)
 
         let verifierCode;
         if (verificationKey.protocol == "original") {
-            verifierCode = generateVerifier_original(verificationKey);
+            verifierCode = generateVerifier_original(contractName,verificationKey);
         } else if (verificationKey.protocol == "groth") {
-            verifierCode = generateVerifier_groth(verificationKey);
+            verifierCode = generateVerifier_groth(contractName,verificationKey);
         } else {
             throw new Error("InvalidProof");
         }
@@ -374,8 +376,10 @@ try {
 }
 
 
-function generateVerifier_original(verificationKey) {
+function generateVerifier_original(contractName, verificationKey) {
     let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_original.sol"), "utf-8");
+
+    template = template.replace("<%contractName%>", contractName);
 
     const vka_str = `[${verificationKey.vk_a[0][1].toString()},`+
                      `${verificationKey.vk_a[0][0].toString()}], `+
@@ -422,7 +426,7 @@ function generateVerifier_original(verificationKey) {
     let vi = "";
     for (let i=0; i<verificationKey.IC.length; i++) {
         if (vi != "") vi = vi + "        ";
-        vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.IC[i][0].toString()},`+
+        vi = vi + `vk.IC[${i}] = G1Point(${verificationKey.IC[i][0].toString()},`+
                                                 `${verificationKey.IC[i][1].toString()});\n`;
     }
     template = template.replace("<%vk_ic_pts%>", vi);
@@ -431,9 +435,10 @@ function generateVerifier_original(verificationKey) {
 }
 
 
-function generateVerifier_groth(verificationKey) {
+function generateVerifier_groth(contractName,verificationKey) {
     let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
 
+    template = template.replace("<%contractName%>", contractName);
 
     const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
                         `${verificationKey.vk_alfa_1[1].toString()}`;
@@ -464,7 +469,7 @@ function generateVerifier_groth(verificationKey) {
     let vi = "";
     for (let i=0; i<verificationKey.IC.length; i++) {
         if (vi != "") vi = vi + "        ";
-        vi = vi + `vk.IC[${i}] = Pairing.G1Point(${verificationKey.IC[i][0].toString()},`+
+        vi = vi + `vk.IC[${i}] = G1Point(${verificationKey.IC[i][0].toString()},`+
                                                 `${verificationKey.IC[i][1].toString()});\n`;
     }
     template = template.replace("<%vk_ic_pts%>", vi);
