@@ -173,7 +173,7 @@ class BN128 {
             throw new Error("Expected values are not equal");
         }
 
-        if (this.loopCountNef)
+        if (this.loopCountNeg)
         {
             R.Y = this.F2.neg(R.Y);
         }
