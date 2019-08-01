@@ -282,6 +282,7 @@ class BN128 {
                 this.F2.sub( this.F2.square(G) , E_squared ),
                 this.F2.add( E_squared , E_squared ));         // Y3 = G^2 - 3*E^2
         current.Z = this.F2.mul( B, H );                       // Z3 = B * H
+
         const c = {
             ell_0 : this.F2.mul( I, this.twist),          // ell_0 = xi * I
             ell_VW: this.F2.neg( H ),                          // ell_VW = - H (later: * yP)
@@ -300,6 +301,9 @@ class BN128 {
         const y2 = base[1];
 
         const D = this.F2.sub( X1, this.F2.mul(x2,Z1) );  // D = X1 - X2*Z1
+
+//        console.log("Y: "+ A[0].affine(this.q).toString(16));
+
         const E = this.F2.sub( Y1, this.F2.mul(y2,Z1) );  // E = Y1 - Y2*Z1
         const F = this.F2.square(D);                      // F = D^2
         const G = this.F2.square(E);                      // G = E^2
@@ -333,15 +337,15 @@ class BN128 {
     _mul_by_024(a, ell_0, ell_VW, ell_VV) {
 
         //  Old implementation
-
+/*
         const b = [
             [ell_0, this.F2.zero, ell_VV],
             [this.F2.zero, ell_VW, this.F2.zero]
         ];
 
         return this.F12.mul(a,b);
+*/
 
-        /*
         // This is a new implementation,
         //  But it does not look worthy
         //  at least in javascript.
@@ -387,11 +391,10 @@ class BN128 {
             this.F2.add(D0, D2));
         T4 = this.F2.mul(z3, x4);
         S1 = this.F2.add(S1, T4);
-        T3 = this.F2.add(T3, T4);
 
         // For z.b_.a_ = z3 (z3 needs z2)
         t0 = this.F2.add(z2, z4);
-        z2 = T3;
+        z2 = this.F2.add(T3, T4);
         t1 = this.F2.add(x2, x4);
         T3 = this.F2.sub(
             this.F2.mul(t0,t1),
@@ -424,7 +427,6 @@ class BN128 {
             [z3, z4, z5]
         ];
 
-        */
 
     }
 
