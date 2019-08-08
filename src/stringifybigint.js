@@ -23,7 +23,7 @@ module.exports.stringifyBigInts = stringifyBigInts;
 module.exports.unstringifyBigInts = unstringifyBigInts;
 
 function stringifyBigInts(o) {
-    if ((typeof(o) == "bigint") || (o instanceof bigInt))  {
+    if ((typeof(o) == "bigint") || o.isZero !== undefined)  {
         return o.toString(10);
     } else if (Array.isArray(o)) {
         return o.map(stringifyBigInts);
