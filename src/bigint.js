@@ -177,6 +177,14 @@ if (typeof(BigInt) != "undefined") {
         return this % c;
     };
 
+    wBigInt.prototype.pow = function(c) {
+        return this ** c;
+    };
+
+    wBigInt.prototype.abs = function() {
+        return (this > wBigInt.zero) ? this : -this;
+    };
+
     wBigInt.prototype.modPow = function(e, m) {
         let acc = wBigInt.one;
         let exp = this;
