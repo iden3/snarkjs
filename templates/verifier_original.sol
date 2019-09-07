@@ -238,6 +238,18 @@ contract Verifier {
             return false;
         }
     }
+    function verifyProof(uint[18] memory proof, uint[<%vk_input_length%>] memory inputs) public view returns (bool r) {
+        return verifyProof(
+            [proof[0], proof[1]],
+            [proof[2], proof[3]],
+            [[proof[4], proof[5]], [proof[6], proof[7]]],
+            [proof[8], proof[9]],
+            [proof[10], proof[11]],
+            [proof[12], proof[13]],
+            [proof[14], proof[15]],
+            [proof[16], proof[17]],
+            inputs);
+    }
 }
 
 
