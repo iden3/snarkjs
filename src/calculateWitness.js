@@ -223,11 +223,11 @@ class RTCtx {
         return this.witness[sId];
     }
 
-    assert(a,b) {
+    assert(a, b, location = '') {
         const ba = bigInt(a);
         const bb = bigInt(b);
         if (!ba.equals(bb)) {
-            throw new Error("Constraint doesn't match: " + ba.toString() + " != " + bb.toString());
+            throw new Error("Constraint doesn't match: " + ba.toString() + " != " + bb.toString() + (location ? " (" + location + ")" : ""));
         }
     }
 }
