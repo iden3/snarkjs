@@ -226,6 +226,11 @@ if (typeof(BigInt) != "undefined") {
         return this != b;
     };
 
+    wBigInt.prototype.toJSNumber = function() {
+        return Number(this);
+    };
+
+
 } else {
 
     var oldProto = bigInt.prototype;
