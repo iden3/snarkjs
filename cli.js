@@ -489,6 +489,9 @@ function generateVerifier_groth(verificationKey) {
     // The points
 
     template = template.replace("<%vk_input_length%>", (verificationKey.IC.length-1).toString());
+
+    // this replace() is repeated as it appears twice in the template
+    template = template.replace("<%vk_ic_length%>", (verificationKey.IC.length).toString());
     template = template.replace("<%vk_ic_length%>", verificationKey.IC.length.toString());
     let vi = "";
     for (let i=0; i<verificationKey.IC.length; i++) {

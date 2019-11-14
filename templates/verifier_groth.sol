@@ -35,36 +35,16 @@ library Pairing {
     }
 
     /*
-     * @return The generator of G1
-     */
-    function P1() internal pure returns (G1Point memory) {
-        return G1Point(1, 2);
-    }
-
-    /*
-     * @return The generator of G2
-     */
-    function P2() internal pure returns (G2Point memory) {
-
-        // Original code point
-        return G2Point(
-            [11559732032986387107991004021392285783925812861821192530917403151452391805634,
-             10857046999023057135944570762232829481370756359578518086990519993285655852781],
-            [4082367875863433681332203403145435568316851327593401208105741076214120093531,
-             8495653923123431417604973247489272438418190587263600148770280649306958101930]
-        );
-
-    }
-
-    /*
      * @return The negation of p, i.e. p.plus(p.negate()) should be zero. 
      */
     function negate(G1Point memory p) internal pure returns (G1Point memory) {
 
         // The prime q in the base field F_q for G1
-        if (p.X == 0 && p.Y == 0)
+        if (p.X == 0 && p.Y == 0) {
             return G1Point(0, 0);
-        return G1Point(p.X, PRIME_Q - (p.Y % PRIME_Q));
+        } else {
+            return G1Point(p.X, PRIME_Q - (p.Y % PRIME_Q));
+        }
     }
 
     /*
@@ -119,16 +99,23 @@ library Pairing {
      *         pairing([P1(), P1().negate()], [P2(), P2()]) should return true.
      */
     function pairing(
-        G1Point[] memory p1,
-        G2Point[] memory p2
+        G1Point memory a1,
+        G2Point memory a2,
+        G1Point memory b1,
+        G2Point memory b2,
+        G1Point memory c1,
+        G2Point memory c2,
+        G1Point memory d1,
+        G2Point memory d2
     ) internal view returns (bool) {
 
-        require(p1.length == p2.length,"pairing-lengths-failed");
-        uint256 elements = p1.length;
-        uint256 inputSize = elements * 6;
+        G1Point[4] memory p1 = [a1, b1, c1, d1];
+        G2Point[4] memory p2 = [a2, b2, c2, d2];
+
+        uint256 inputSize = 4 * 6;
         uint256[] memory input = new uint256[](inputSize);
-        for (uint256 i = 0; i < elements; i++)
-        {
+
+        for (uint256 i = 0; i < 4; i++) {
             uint256 j = i * 6;
             input[j + 0] = p1[i].X;
             input[j + 1] = p1[i].Y;
@@ -152,30 +139,6 @@ library Pairing {
 
         return out[0] != 0;
     }
-
-    /*
-     * A convenience method for a pairing check for three pairs.
-     */
-    function pairingProd4(
-            G1Point memory a1, G2Point memory a2,
-            G1Point memory b1, G2Point memory b2,
-            G1Point memory c1, G2Point memory c2,
-            G1Point memory d1, G2Point memory d2
-    ) internal view returns (bool) {
-
-        G1Point[] memory p1 = new G1Point[](4);
-        G2Point[] memory p2 = new G2Point[](4);
-        p1[0] = a1;
-        p1[1] = b1;
-        p1[2] = c1;
-        p1[3] = d1;
-        p2[0] = a2;
-        p2[1] = b2;
-        p2[2] = c2;
-        p2[3] = d2;
-
-        return pairing(p1, p2);
-    }
 }
 
 contract Verifier {
@@ -189,7 +152,7 @@ contract Verifier {
         Pairing.G2Point beta2;
         Pairing.G2Point gamma2;
         Pairing.G2Point delta2;
-        Pairing.G1Point[] IC;
+        Pairing.G1Point[<%vk_ic_length%>] IC;
     }
 
     struct Proof {
@@ -203,7 +166,6 @@ contract Verifier {
         vk.beta2 = Pairing.G2Point(<%vk_beta2%>);
         vk.gamma2 = Pairing.G2Point(<%vk_gamma2%>);
         vk.delta2 = Pairing.G2Point(<%vk_delta2%>);
-        vk.IC = new Pairing.G1Point[](<%vk_ic_length%>);
         <%vk_ic_pts%>
     }
     
@@ -215,7 +177,7 @@ contract Verifier {
         uint256[2] memory a,
         uint256[2][2] memory b,
         uint256[2] memory c,
-        uint256[4] memory input
+        uint256[<%vk_input_length%>] memory input
     ) public view returns (bool r) {
 
         Proof memory proof;
@@ -225,24 +187,23 @@ contract Verifier {
 
         VerifyingKey memory vk = verifyingKey();
 
-        // TODO: hardcode `input.length` as a compile-time constant
-        require(input.length + 1 == vk.IC.length, "verifier-invalid-input-length");
+        require(<%vk_ic_length%> == vk.IC.length, "verifier-invalid-input-length");
 
         // Compute the linear combination vk_x
         Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
 
         // Make sure that proof.A, B, and C are each less than the snark scalar field
-        require(proof.A.X < SNARK_SCALAR_FIELD, "verifier-aX-gte-snark-scalar-field");
-        require(proof.A.Y < SNARK_SCALAR_FIELD, "verifier-aY-gte-snark-scalar-field");
+        require(proof.A.X < PRIME_Q, "verifier-aX-gte-prime-q");
+        require(proof.A.Y < PRIME_Q, "verifier-aY-gte-prime-q");
 
-        require(proof.B.X[0] < SNARK_SCALAR_FIELD, "verifier-cX0-gte-snark-scalar-field");
-        require(proof.B.Y[0] < SNARK_SCALAR_FIELD, "verifier-cY0-gte-snark-scalar-field");
+        require(proof.B.X[0] < PRIME_Q, "verifier-cX0-gte-prime-q");
+        require(proof.B.Y[0] < PRIME_Q, "verifier-cY0-gte-prime-q");
 
-        require(proof.B.X[1] < SNARK_SCALAR_FIELD, "verifier-cX1-gte-snark-scalar-field");
-        require(proof.B.Y[1] < SNARK_SCALAR_FIELD, "verifier-cY1-gte-snark-scalar-field");
+        require(proof.B.X[1] < PRIME_Q, "verifier-cX1-gte-prime-q");
+        require(proof.B.Y[1] < PRIME_Q, "verifier-cY1-gte-prime-q");
 
-        require(proof.C.X < SNARK_SCALAR_FIELD, "verifier-cX-gte-snark-scalar-field");
-        require(proof.C.Y < SNARK_SCALAR_FIELD, "verifier-cY-gte-snark-scalar-field");
+        require(proof.C.X < PRIME_Q, "verifier-cX-gte-prime-q");
+        require(proof.C.Y < PRIME_Q, "verifier-cY-gte-prime-q");
 
         // Make sure that every input is less than the snark scalar field
         for (uint256 i = 0; i < input.length; i++) {
@@ -252,7 +213,7 @@ contract Verifier {
 
         vk_x = Pairing.plus(vk_x, vk.IC[0]);
 
-        return Pairing.pairingProd4(
+        return Pairing.pairing(
             Pairing.negate(proof.A),
             proof.B,
             vk.alfa1,
