@@ -146,6 +146,7 @@ contract Verifier {
     using Pairing for *;
 
     uint256 constant SNARK_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 constant PRIME_Q = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
 
     struct VerifyingKey {
         Pairing.G1Point alfa1;
@@ -192,7 +193,7 @@ contract Verifier {
         // Compute the linear combination vk_x
         Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
 
-        // Make sure that proof.A, B, and C are each less than the snark scalar field
+        // Make sure that proof.A, B, and C are each less than the prime q
         require(proof.A.X < PRIME_Q, "verifier-aX-gte-prime-q");
         require(proof.A.Y < PRIME_Q, "verifier-aY-gte-prime-q");
 
