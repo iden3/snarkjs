@@ -95,9 +95,9 @@ const circuit = new zkSnark.Circuit(circuitDef);
 ### Trusted setup.
 
 ```js
-const setup = zkSnark.setup(circuit);
-fs.writeFileSync("myCircuit.vk_proof", JSON.stringify(setup.vk_proof), "utf8");
-fs.writeFileSync("myCircuit.vk_verifier", JSON.stringify(setup.vk_verifier), "utf8");
+const setup = zkSnark.original.setup(circuit);
+fs.writeFileSync("myCircuit.vk_proof", JSON.stringify(zkSnark.stringifyBigInts(setup.vk_proof)), "utf8");
+fs.writeFileSync("myCircuit.vk_verifier", JSON.stringify(zkSnark.stringifyBigInts(setup.vk_verifier)), "utf8");
 setup.toxic  // Must be discarded.
 ```
 
@@ -111,17 +111,17 @@ const input = {
     "main.out1": "456"
 }
 const witness = circuit.calculateWitness(input);
-const vk_proof = JSON.parse(fs.readFileSync("myCircuit.vk_proof", "utf8"));
+const vk_proof = zkSnark.unstringifyBigInts(JSON.parse(fs.readFileSync("myCircuit.vk_proof", "utf8")));
 
-const {proof, publicSignals} = zkSnark.genProof(vk_proof, witness);
+const {proof, publicSignals} = zkSnark.original.genProof(vk_proof, witness);
 ```
 
 ### Verifier.
 
 ```js
-const vk_verifier = JSON.parse(fs.readFileSync("myCircuit.vk_verifier", "utf8"));
+const vk_verifier = zkSnark.unstringifyBigInts(JSON.parse(fs.readFileSync("myCircuit.vk_verifier", "utf8")));
 
-if (zkSnark.isValid(vk_verifier, proof, publicSignals)) {
+if (zkSnark.original.isValid(vk_verifier, proof, publicSignals)) {
     console.log("The proof is valid");
 } else {
     console.log("The proof is not valid");
