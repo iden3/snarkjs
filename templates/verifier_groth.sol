@@ -113,7 +113,7 @@ library Pairing {
         G2Point[4] memory p2 = [a2, b2, c2, d2];
 
         uint256 inputSize = 24;
-        uint256[24] memory input;
+        uint256[] memory input = new uint256[](inputSize);
 
         for (uint256 i = 0; i < 4; i++) {
             uint256 j = i * 6;
