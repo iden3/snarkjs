@@ -34,12 +34,12 @@ const F = new ZqField(bn128.r);
 module.exports = function setup(circuit) {
     const setup = {
         vk_proof : {
-            protocol: "groth",
+            protocol: "kimleeoh",
             nVars: circuit.nVars,
             nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         vk_verifier: {
-            protocol: "groth",
+            protocol: "kimleeoh",
             nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         toxic: {}
