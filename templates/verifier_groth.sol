@@ -188,8 +188,6 @@ contract Verifier {
 
         VerifyingKey memory vk = verifyingKey();
 
-        require(<%vk_ic_length%> == vk.IC.length, "verifier-invalid-input-length");
-
         // Compute the linear combination vk_x
         Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
 
@@ -197,11 +195,11 @@ contract Verifier {
         require(proof.A.X < PRIME_Q, "verifier-aX-gte-prime-q");
         require(proof.A.Y < PRIME_Q, "verifier-aY-gte-prime-q");
 
-        require(proof.B.X[0] < PRIME_Q, "verifier-cX0-gte-prime-q");
-        require(proof.B.Y[0] < PRIME_Q, "verifier-cY0-gte-prime-q");
+        require(proof.B.X[0] < PRIME_Q, "verifier-bX0-gte-prime-q");
+        require(proof.B.Y[0] < PRIME_Q, "verifier-bY0-gte-prime-q");
 
-        require(proof.B.X[1] < PRIME_Q, "verifier-cX1-gte-prime-q");
-        require(proof.B.Y[1] < PRIME_Q, "verifier-cY1-gte-prime-q");
+        require(proof.B.X[1] < PRIME_Q, "verifier-bX1-gte-prime-q");
+        require(proof.B.Y[1] < PRIME_Q, "verifier-bY1-gte-prime-q");
 
         require(proof.C.X < PRIME_Q, "verifier-cX-gte-prime-q");
         require(proof.C.Y < PRIME_Q, "verifier-cY-gte-prime-q");
