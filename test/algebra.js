@@ -184,7 +184,6 @@ describe("F12 testing", () => {
 });
 
 describe("Pairing", () => {
-/*
     it("Should match pairing", () => {
         for (let i=0; i<1; i++) {
             const bn128 = new BN128();
@@ -210,7 +209,6 @@ describe("Pairing", () => {
             assert(bn128.F12.equals(res, bn128.F12.one));
         }
     }).timeout(10000);
-*/
     it("Should generate another pairing pairing", () => {
         for (let i=0; i<1; i++) {
             const bn128 = new BN128();
@@ -239,18 +237,18 @@ describe("Pairing", () => {
             console.log("FE1: " ,r2[0][0][0].affine(bn128.q).toString(16));
             console.log("ML2: " ,r3[0][0][0].affine(bn128.q).toString(16));
             console.log("FE2: " ,r4[0][0][0].affine(bn128.q).toString(16));
-            /*
+            */
 
             assert(bn128.F12.equals(r2, r4));
 
 
-/*            const r2 = bn128.millerLoop(pre1b, pre2b);
+            const r5 = bn128.millerLoop(pre1b, pre2b);
 
-            const rbe = bn128.F12.mul(r1, bn128.F12.inverse(r2));
+            const rbe = bn128.F12.mul(r1, bn128.F12.inverse(r5));
 
             const res = bn128.finalExponentiation(rbe);
 
-            assert(bn128.F12.equals(res, bn128.F12.one)); */
+            assert(bn128.F12.equals(res, bn128.F12.one)); 
         }
     }).timeout(10000);
 });

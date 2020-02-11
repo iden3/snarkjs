@@ -313,7 +313,7 @@ class BN128 {
          * (.)^(q^i) are q^i-Frobenius powers in F12 for i in {1,2,3}
          */
 
-        this.neg_z = bigInt("4965661367192848881");
+        this.seed = bigInt("4965661367192848881");
 
         /* easy part */
         // conjugate
@@ -344,16 +344,18 @@ class BN128 {
         ];
 
         const E = this.F12.mul(D, C);
-        
-      
+
         /* hard part */
-        const F = this.F12.exp(E, this.neg_z);
+        const FF = this.F12.exp(E, this.seed);
+        const F = this.F12.inverse(FF);
         const G = this.F12.square(F);
         const H = this.F12.square(G);
         const I = this.F12.mul(G, H);
-        const J = this.F12.exp(I, this.neg_z);
+        const JJ = this.F12.exp(I, this.seed);
+        const J = this.F12.inverse(JJ);
         const K = this.F12.square(J); 
-        const L = this.F12.exp(K, this.neg_z);
+        const LL = this.F12.exp(K, this.seed);
+        const L = this.F12.inverse(LL);
         const M = 
         [
             I[0], 
