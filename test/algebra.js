@@ -268,11 +268,18 @@ describe("Pairing", () => {
 
         const r = bn128.millerLoop(pre1, pre2);
 
+        // naive FE
+        console.time("\t⏱  naive final exponentiation takes");
+        const res_naive = bn128.F12.exp(r, final_exponent);
+        console.timeEnd("\t⏱  naive final exponentiation takes");
+        const res_naive_cofac = bn128.F12.exp(res_naive, cofactor);
+
+        // optimized FE
+        console.time("\t⏱  optimized final exponentiation takes");
         const res_opt = bn128.finalExponentiation(r);
+        console.timeEnd("\t⏱  optimized final exponentiation takes");
 
-        const res_naive = bn128.F12.exp(bn128.F12.exp(r, final_exponent), cofactor);
-
-        assert(bn128.F12.equals(res_opt, res_naive));
+        assert(bn128.F12.equals(res_opt, res_naive_cofac));
 
     }).timeout(10000);
 
