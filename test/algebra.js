@@ -234,10 +234,12 @@ describe("Pairing", () => {
             const r4 = bn128.finalExponentiation(r3);
 
 
+            /*
             console.log("ML1: " ,r1[0][0][0].affine(bn128.q).toString(16));
             console.log("FE1: " ,r2[0][0][0].affine(bn128.q).toString(16));
             console.log("ML2: " ,r3[0][0][0].affine(bn128.q).toString(16));
             console.log("FE2: " ,r4[0][0][0].affine(bn128.q).toString(16));
+            /*
 
             assert(bn128.F12.equals(r2, r4));
 

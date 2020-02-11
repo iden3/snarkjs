@@ -90,7 +90,54 @@ class BN128 {
         this.twist = [bigInt(9) , bigInt(1)];
         this.twist_coeff_b = this.F2.mulScalar(  this.F2.inverse(this.twist), this.coef_b  );
 
-        this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        // Frobenius powers
+        this.F2_frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
+        this.F6_frobenius_coeffs_c1_1 = 
+            [
+                bigInt("21575463638280843010398324269430826099269044274347216827212613867836435027261"),
+                bigInt("10307601595873709700152284273816112264069230130616436755625194854815875713954")
+            ];
+        this.F6_frobenius_coeffs_c1_2 = 
+            [
+                bigInt("21888242871839275220042445260109153167277707414472061641714758635765020556616"),
+                bigInt(0)
+            ];
+        this.F6_frobenius_coeffs_c1_3 = 
+            [
+                bigInt("3772000881919853776433695186713858239009073593817195771773381919316419345261"),
+                bigInt("2236595495967245188281701248203181795121068902605861227855261137820944008926")
+            ];
+        this.F6_frobenius_coeffs_c2_1 = 
+            [
+                bigInt("2581911344467009335267311115468803099551665605076196740867805258568234346338"),
+                bigInt("19937756971775647987995932169929341994314640652964949448313374472400716661030")
+            ];
+        this.F6_frobenius_coeffs_c2_2 = 
+            [
+                bigInt("2203960485148121921418603742825762020974279258880205651966"),
+                bigInt(0)
+            ];
+        this.F6_frobenius_coeffs_c2_3 = 
+            [
+                bigInt("5324479202449903542726783395506214481928257762400643279780343368557297135718"),
+                bigInt("16208900380737693084919495127334387981393726419856888799917914180988844123039")
+            ];
+        this.F12_frobenius_coeffs_c1_1 = 
+            [
+                bigInt("8376118865763821496583973867626364092589906065868298776909617916018768340080"),
+                bigInt("16469823323077808223889137241176536799009286646108169935659301613961712198316")
+            ];
+        this.F12_frobenius_coeffs_c1_2 = 
+            [
+                bigInt("21888242871839275220042445260109153167277707414472061641714758635765020556617"),
+                bigInt(0)
+            ];
+        this.F12_frobenius_coeffs_c1_3 = 
+            [
+                bigInt("11697423496358154304825782922584725312912383441159505038794027105778954184319"),
+                bigInt("303847389135065887422783454877609941456349188919719272345083954437860409601")
+            ];
+
         this.twist_mul_by_q_X =
             [
                 bigInt("21575463638280843010398324269430826099269044274347216827212613867836435027261"),
@@ -102,8 +149,7 @@ class BN128 {
                 bigInt("3505843767911556378687030309984248845540243509899259641013678093033130930403")
             ];
 
-        this.final_exponent = bigInt("552484233613224096312617126783173147097382103762957654188882734314196910839907541213974502761540629817009608548654680343627701153829446747810907373256841551006201639677726139946029199968412598804882391702273019083653272047566316584365559776493027495458238373902875937659943504873220554161550525926302303331747463515644711876653177129578303191095900909191624817826566688241804408081892785725967931714097716709526092261278071952560171111444072049229123565057483750161460024353346284167282452756217662335528813519139808291170539072125381230815729071544861602750936964829313608137325426383735122175229541155376346436093930287402089517426973178917569713384748081827255472576937471496195752727188261435633271238710131736096299798168852925540549342330775279877006784354801422249722573783561685179618816480037695005515426162362431072245638324744480");
-
+        // this.final_exponent = bigInt("552484233613224096312617126783173147097382103762957654188882734314196910839907541213974502761540629817009608548654680343627701153829446747810907373256841551006201639677726139946029199968412598804882391702273019083653272047566316584365559776493027495458238373902875937659943504873220554161550525926302303331747463515644711876653177129578303191095900909191624817826566688241804408081892785725967931714097716709526092261278071952560171111444072049229123565057483750161460024353346284167282452756217662335528813519139808291170539072125381230815729071544861602750936964829313608137325426383735122175229541155376346436093930287402089517426973178917569713384748081827255472576937471496195752727188261435633271238710131736096299798168852925540549342330775279877006784354801422249722573783561685179618816480037695005515426162362431072245638324744480");
     }
 
 
@@ -246,9 +292,198 @@ class BN128 {
     }
 
     finalExponentiation(elt) {
-        // TODO: There is an optimization in FF
+        /*
+         * elt^final_exponent = elt^((q^6-1)*(q^2+1)) * elt^((q^4-q^2+1)/r)
+         *                           "easy part"           "hard part"
+         * 
+         * "easy part":
+         * elt^((q^6-1)*(q^2+1)) = (elt^(q^6) * elt^(-1))^(q^2) * (elt^(q^6) * elt^(-1)) 
+         * where:
+         * (.)^(q^6) is a conjugate and (.)^(q^2) a q^2-Frobenius power in F12
+         *
+         * "hard part":
+         * We raise to a multiple of the exponent and decompose it in a q(z)-base (LLL algorithm)
+         * where z in the bn curve seed.
+         * (Laura Fuentes-Castaneda et al. "Faster hashing to G2")
+         * elt^( 2z * ( 6z^2 + 3z + 1 ) * (q^4 - q^2 + 1)/r ) = elt^(q^3 * (12*z^3 + 6z^2 + 4z - 1) +
+         *                                                           q^2 * (12*z^3 + 6z^2 + 6z) +
+         *                                                           q   * (12*z^3 + 6z^2 + 4z) +
+         *                                                           1   * (12*z^3 + 12z^2 + 6z + 1)) 
+         * where:
+         * (.)^(q^i) are q^i-Frobenius powers in F12 for i in {1,2,3}
+         */
 
-        const res = this.F12.exp(elt,this.final_exponent);
+        this.neg_z = bigInt("4965661367192848881");
+
+        /* easy part */
+        // conjugate
+        const A = 
+        [
+            elt[0], 
+            [
+                this.F2.neg(elt[1][0]),
+                this.F2.neg(elt[1][1]),
+                this.F2.neg(elt[1][2])
+            ]
+        ];
+        const B = this.F12.inverse(elt);
+        const C = this.F12.mul(A, B);
+        // q^2-Frobenius in F12
+        const D = 
+        [
+            [
+                C[0][0],
+                this.F2.mul(this.F6_frobenius_coeffs_c1_2, C[0][1]),
+                this.F2.mul(this.F6_frobenius_coeffs_c2_2, C[0][2])
+            ],
+            [
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, C[1][0]),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, this.F2.mul(this.F6_frobenius_coeffs_c1_2, C[1][1])),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, this.F2.mul(this.F6_frobenius_coeffs_c2_2, C[1][2])),
+            ],
+        ];
+
+        const E = this.F12.mul(D, C);
+        
+      
+        /* hard part */
+        const F = this.F12.exp(E, this.neg_z);
+        const G = this.F12.square(F);
+        const H = this.F12.square(G);
+        const I = this.F12.mul(G, H);
+        const J = this.F12.exp(I, this.neg_z);
+        const K = this.F12.square(J); 
+        const L = this.F12.exp(K, this.neg_z);
+        const M = 
+        [
+            I[0], 
+            [
+                this.F2.neg(I[1][0]),
+                this.F2.neg(I[1][1]),
+                this.F2.neg(I[1][2])
+            ]
+        ];
+        const N = 
+        [
+            L[0], 
+            [
+                this.F2.neg(L[1][0]),
+                this.F2.neg(L[1][1]),
+                this.F2.neg(L[1][2])
+            ]
+        ];
+        const O = this.F12.mul(N, J);
+        const P = this.F12.mul(O, M);
+        const Q = this.F12.mul(P, G);
+        const R = this.F12.mul(P, J);
+        const S = this.F12.mul(R, E);
+        // q-Frobenius in F12
+        const T = 
+        [
+            [
+                [
+                    Q[0][0][0],
+                    this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[0][0][1])
+                ],
+                this.F2.mul(this.F6_frobenius_coeffs_c1_1,
+                    [
+                        Q[0][1][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[0][1][1])
+                    ]),
+                this.F2.mul(this.F6_frobenius_coeffs_c2_1,
+                    [
+                        Q[0][2][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[0][2][1])
+                    ])
+            ],
+            [
+                this.F2.mul(this.F12_frobenius_coeffs_c1_1,
+                    [
+                        Q[1][0][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[1][0][1])
+                    ]),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_1,
+                    this.F2.mul(this.F6_frobenius_coeffs_c1_1,
+                        [
+                            Q[1][1][0],
+                            this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[1][1][1])
+                        ])),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_1,
+                    this.F2.mul(this.F6_frobenius_coeffs_c2_1,
+                        [
+                            Q[1][2][0],
+                            this.F1.mul(this.F2_frobenius_coeffs_c1_1, Q[1][2][1])
+                        ]))
+            ]
+        ];
+        const U = this.F12.mul(T, S);
+        // q^2-Frobenius in F12
+        const V = 
+        [
+            [
+                P[0][0],
+                this.F2.mul(this.F6_frobenius_coeffs_c1_2, P[0][1]),
+                this.F2.mul(this.F6_frobenius_coeffs_c2_2, P[0][2])
+            ],
+            [
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, P[1][0]),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, this.F2.mul(this.F6_frobenius_coeffs_c1_2, P[1][1])),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_2, this.F2.mul(this.F6_frobenius_coeffs_c2_2, P[1][2])),
+            ],
+        ];
+        const W = this.F12.mul(V, U);
+        const X = 
+        [
+            E[0], 
+            [
+                this.F2.neg(E[1][0]),
+                this.F2.neg(E[1][1]),
+                this.F2.neg(E[1][2])
+            ]
+        ];
+        const Y = this.F12.mul(X, Q);
+        // q^3-Frobenius in F12
+        const Z = 
+        [
+            [
+                [
+                    Y[0][0][0],
+                    this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[0][0][1])
+                ],
+                this.F2.mul(this.F6_frobenius_coeffs_c1_3,
+                    [
+                        Y[0][1][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[0][1][1])
+                    ]),
+                this.F2.mul(this.F6_frobenius_coeffs_c2_3,
+                    [
+                        Y[0][2][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[0][2][1])
+                    ]),
+            ],
+            [
+                this.F2.mul(this.F12_frobenius_coeffs_c1_3,
+                    [
+                        Y[1][0][0],
+                        this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[1][0][1])
+                    ]),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_3,
+                    this.F2.mul(this.F6_frobenius_coeffs_c1_3,
+                        [
+                            Y[1][1][0],
+                            this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[1][1][1])
+                        ])),
+                this.F2.mul(this.F12_frobenius_coeffs_c1_3,
+                    this.F2.mul(this.F6_frobenius_coeffs_c2_3,
+                        [
+                            Y[1][2][0],
+                            this.F1.mul(this.F2_frobenius_coeffs_c1_1, Y[1][2][1])
+                        ])),
+            ]
+        ];
+        const res = this.F12.mul(Z, W);
+
+        // const res = this.F12.exp(elt,this.final_exponent);
 
         return res;
     }
@@ -302,7 +537,7 @@ class BN128 {
 
         const D = this.F2.sub( X1, this.F2.mul(x2,Z1) );  // D = X1 - X2*Z1
 
-//        console.log("Y: "+ A[0].affine(this.q).toString(16));
+        //        console.log("Y: "+ A[0].affine(this.q).toString(16));
 
         const E = this.F2.sub( Y1, this.F2.mul(y2,Z1) );  // E = Y1 - Y2*Z1
         const F = this.F2.square(D);                      // F = D^2
@@ -337,7 +572,7 @@ class BN128 {
     _mul_by_024(a, ell_0, ell_VW, ell_VV) {
 
         //  Old implementation
-/*
+        /*
         const b = [
             [ell_0, this.F2.zero, ell_VV],
             [this.F2.zero, ell_VW, this.F2.zero]
@@ -431,9 +666,9 @@ class BN128 {
     }
 
     _g2MulByQ(p) {
-        const fmx = [p[0][0], this.F1.mul(p[0][1], this.frobenius_coeffs_c1_1 )];
-        const fmy = [p[1][0], this.F1.mul(p[1][1], this.frobenius_coeffs_c1_1 )];
-        const fmz = [p[2][0], this.F1.mul(p[2][1], this.frobenius_coeffs_c1_1 )];
+        const fmx = [p[0][0], this.F1.mul(p[0][1], this.F2_frobenius_coeffs_c1_1 )];
+        const fmy = [p[1][0], this.F1.mul(p[1][1], this.F2_frobenius_coeffs_c1_1 )];
+        const fmz = [p[2][0], this.F1.mul(p[2][1], this.F2_frobenius_coeffs_c1_1 )];
         return [
             this.F2.mul(this.twist_mul_by_q_X , fmx),
             this.F2.mul(this.twist_mul_by_q_Y , fmy),
