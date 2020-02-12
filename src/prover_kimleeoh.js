@@ -107,8 +107,8 @@ module.exports = function genProof(vk_proof, witness) {
 //    const h1 = PolF.F.zero;
 //    const h2 = PolF.F.zero;
 
-    console.log(h1.toString());
-    console.log(h2.toString());
+    // console.log(h1.toString());
+    // console.log(h2.toString());
 
     const h = calculateH(vk_proof, witness);
 

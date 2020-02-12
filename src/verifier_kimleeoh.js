@@ -51,24 +51,26 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
     const h2 = bigInt.beBuff2int(h2buff);
 
 
-//    const h1 = bigInt.zero;
-//    const h2 = bigInt.zero;
+    //    const h1 = bigInt.zero;
+    //    const h2 = bigInt.zero;
 
+    /*
     console.log(h1.toString());
     console.log(h2.toString());
+    */
 
 
     if (! bn128.F12.equals(
-        bn128.pairing(
-            G1.add(proof.pi_a, G1.mulScalar(G1.g, h1)),
-            G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))
-        ),
-        bn128.F12.mul(
-            vk_verifier.vk_alfabeta_12,
+        vk_verifier.vk_alfabeta_12,
+        bn128.finalExponentiation(
             bn128.F12.mul(
-                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
-                bn128.pairing( proof.pi_c , G2.g )
-            ))))
+                bn128.millerLoop(
+                    bn128.precomputeG1(G1.add(proof.pi_a, G1.mulScalar(G1.g, h1))),
+                    bn128.precomputeG2(G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2)))
+                ),
+                bn128.conj_F12(
+                    bn128.double_millerLoop( bn128.precomputeG1(cpub) , bn128.precomputeG2(vk_verifier.vk_gamma_2), bn128.precomputeG1(proof.pi_c) , bn128.precomputeG2(G2.g )),
+                )))))
         return false;
 
     return true;
