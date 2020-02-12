@@ -291,6 +291,18 @@ class BN128 {
         return f;
     }
 
+    conj_F12(elt) {
+        let conj_elt = [
+            elt[0], 
+            [
+                this.F2.neg(elt[1][0]),
+                this.F2.neg(elt[1][1]),
+                this.F2.neg(elt[1][2])
+            ]
+        ];
+        return conj_elt;
+    }
+
     finalExponentiation(elt) {
         /*
          * elt^final_exponent = elt^((q^6-1)*(q^2+1)) * elt^((q^4-q^2+1)/r)
@@ -317,15 +329,7 @@ class BN128 {
 
         /* easy part */
         // conjugate
-        const A = 
-        [
-            elt[0], 
-            [
-                this.F2.neg(elt[1][0]),
-                this.F2.neg(elt[1][1]),
-                this.F2.neg(elt[1][2])
-            ]
-        ];
+        const A = this.conj_F12(elt);
         const B = this.F12.inverse(elt);
         const C = this.F12.mul(A, B);
         // q^2-Frobenius in F12
@@ -356,24 +360,8 @@ class BN128 {
         const K = this.F12.square(J); 
         const LL = this.F12.exp(K, this.seed);
         const L = this.F12.inverse(LL);
-        const M = 
-        [
-            I[0], 
-            [
-                this.F2.neg(I[1][0]),
-                this.F2.neg(I[1][1]),
-                this.F2.neg(I[1][2])
-            ]
-        ];
-        const N = 
-        [
-            L[0], 
-            [
-                this.F2.neg(L[1][0]),
-                this.F2.neg(L[1][1]),
-                this.F2.neg(L[1][2])
-            ]
-        ];
+        const M = this.conj_F12(I);
+        const N = this.conj_F12(L); 
         const O = this.F12.mul(N, J);
         const P = this.F12.mul(O, M);
         const Q = this.F12.mul(P, G);
