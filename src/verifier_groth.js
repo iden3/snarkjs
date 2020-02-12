@@ -33,13 +33,13 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
     }
 
     if (! bn128.F12.equals(
-        bn128.pairing( proof.pi_a , proof.pi_b ),
-        bn128.F12.mul(
-            vk_verifier.vk_alfabeta_12,
+        vk_verifier.vk_alfabeta_12,
+        bn128.finalExponentiation(
             bn128.F12.mul(
-                bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
-                bn128.pairing( proof.pi_c , vk_verifier.vk_delta_2 )
-            ))))
+                bn128.millerLoop( bn128.precomputeG1(proof.pi_a) , bn128.precomputeG2(proof.pi_b) ),
+                bn128.conj_F12(
+                    bn128.double_millerLoop( bn128.precomputeG1(cpub) , bn128.precomputeG2(vk_verifier.vk_gamma_2), bn128.precomputeG1(proof.pi_c) , bn128.precomputeG2(vk_verifier.vk_delta_2) )
+                )))))
         return false;
 
     return true;

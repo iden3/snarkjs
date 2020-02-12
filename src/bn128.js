@@ -291,6 +291,96 @@ class BN128 {
         return f;
     }
 
+    double_millerLoop(pre1, pre2, pre3, pre4) {
+        let f = this.F12.one;
+
+        let idx = 0;
+
+        let c1;
+        let c2;
+
+        for (let i = this.loop_count_bits.length-2; i >= 0; --i)
+        {
+            const bit = this.loop_count_bits[i];
+
+            /* code below gets executed for all bits (EXCEPT the MSB itself) of
+               alt_bn128_param_p (skipping leading zeros) in MSB to LSB
+               order */
+
+            c1 = pre2.coeffs[idx];
+            c2 = pre4.coeffs[idx];
+            ++idx;
+            f = this.F12.square(f);
+            f = this._mul_by_024(
+                f,
+                c1.ell_0,
+                this.F2.mulScalar(c1.ell_VW , pre1.PY),
+                this.F2.mulScalar(c1.ell_VV , pre1.PX));
+
+            f = this._mul_by_024(
+                f,
+                c2.ell_0,
+                this.F2.mulScalar(c2.ell_VW , pre3.PY),
+                this.F2.mulScalar(c2.ell_VV , pre3.PX));
+
+            if (bit)
+            {
+                c1 = pre2.coeffs[idx];
+                c2 = pre4.coeffs[idx];
+                ++idx;
+                f = this._mul_by_024(
+                    f,
+                    c1.ell_0,
+                    this.F2.mulScalar(c1.ell_VW , pre1.PY),
+                    this.F2.mulScalar(c1.ell_VV , pre1.PX));
+
+                f = this._mul_by_024(
+                    f,
+                    c2.ell_0,
+                    this.F2.mulScalar(c2.ell_VW , pre3.PY),
+                    this.F2.mulScalar(c2.ell_VV , pre3.PX));
+            }
+
+        }
+
+        if (this.loopCountNeg)
+        {
+            f = this.F12.inverse(f);
+        }
+
+        c1 = pre2.coeffs[idx];
+        c2 = pre4.coeffs[idx];
+        ++idx;
+        f = this._mul_by_024(
+            f,
+            c1.ell_0,
+            this.F2.mulScalar(c1.ell_VW , pre1.PY),
+            this.F2.mulScalar(c1.ell_VV , pre1.PX));
+
+        f = this._mul_by_024(
+            f,
+            c2.ell_0,
+            this.F2.mulScalar(c2.ell_VW , pre3.PY),
+            this.F2.mulScalar(c2.ell_VV , pre3.PX));
+
+        c1 = pre2.coeffs[idx];
+        c2 = pre4.coeffs[idx];
+        ++idx;
+        f = this._mul_by_024(
+            f,
+            c1.ell_0,
+            this.F2.mulScalar(c1.ell_VW , pre1.PY),
+            this.F2.mulScalar(c1.ell_VV , pre1.PX));
+
+        f = this._mul_by_024(
+            f,
+            c2.ell_0,
+            this.F2.mulScalar(c2.ell_VW , pre3.PY),
+            this.F2.mulScalar(c2.ell_VV , pre3.PX));
+
+        return f;
+    }
+
     conj_F12(elt) {
         let conj_elt = [
             elt[0], 
