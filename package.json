@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "eslint-plugin-mocha": "^5.3.0",
+    "lodash": "^4.17.15",
     "mocha": "^5.2.0"
   }
 }
