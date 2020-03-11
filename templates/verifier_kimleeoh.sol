@@ -3,7 +3,8 @@
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 // The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-pragma solidity ^0.4.17;
+
+pragma solidity ^0.6.0;
 library Pairing {
     struct G1Point {
         uint X;
@@ -15,11 +16,11 @@ library Pairing {
         uint[2] Y;
     }
     /// @return the generator of G1
-    function P1() pure internal returns (G1Point) {
+    function P1() internal pure returns (G1Point memory) {
         return G1Point(1, 2);
     }
     /// @return the generator of G2
-    function P2() pure internal returns (G2Point) {
+    function P2() internal pure returns (G2Point memory) {
         // Original code point
         return G2Point(
             [11559732032986387107991004021392285783925812861821192530917403151452391805634,
@@ -39,49 +40,51 @@ library Pairing {
 */
     }
     /// @return the negation of p, i.e. p.addition(p.negate()) should be zero.
-    function negate(G1Point p) pure internal returns (G1Point) {
+    function negate(G1Point memory p) internal pure returns (G1Point memory) {
         // The prime q in the base field F_q for G1
         uint q = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
         if (p.X == 0 && p.Y == 0)
             return G1Point(0, 0);
         return G1Point(p.X, q - (p.Y % q));
     }
-    /// @return the sum of two points of G1
-    function addition(G1Point p1, G1Point p2) view internal returns (G1Point r) {
+    /// @return r -- the sum of two points of G1
+    function addition(G1Point memory p1, G1Point memory p2) internal view returns (G1Point memory r) {
         uint[4] memory input;
         input[0] = p1.X;
         input[1] = p1.Y;
         input[2] = p2.X;
         input[3] = p2.Y;
         bool success;
+        // solium-disable-next-line security/no-inline-assembly
         assembly {
-            success := staticcall(sub(gas, 2000), 6, input, 0xc0, r, 0x60)
+            success := staticcall(sub(gas(), 2000), 6, input, 0xc0, r, 0x60)
             // Use "invalid" to make gas estimation work
             switch success case 0 { invalid() }
         }
-        require(success);
+        require(success,"pairing-add-failed");
     }
-    /// @return the product of a point on G1 and a scalar, i.e.
+    /// @return r -- the product of a point on G1 and a scalar, i.e.
     /// p == p.scalar_mul(1) and p.addition(p) == p.scalar_mul(2) for all points p.
-    function scalar_mul(G1Point p, uint s) view internal returns (G1Point r) {
+    function scalar_mul(G1Point memory p, uint s) internal view returns (G1Point memory r) {
         uint[3] memory input;
         input[0] = p.X;
         input[1] = p.Y;
         input[2] = s;
         bool success;
+        // solium-disable-next-line security/no-inline-assembly
         assembly {
-            success := staticcall(sub(gas, 2000), 7, input, 0x80, r, 0x60)
+            success := staticcall(sub(gas(), 2000), 7, input, 0x80, r, 0x60)
             // Use "invalid" to make gas estimation work
             switch success case 0 { invalid() }
         }
-        require (success);
+        require (success,"pairing-mul-failed");
     }
     /// @return the result of computing the pairing check
     /// e(p1[0], p2[0]) *  .... * e(p1[n], p2[n]) == 1
     /// For example pairing([P1(), P1().negate()], [P2(), P2()]) should
     /// return true.
-    function pairing(G1Point[] p1, G2Point[] p2) view internal returns (bool) {
-        require(p1.length == p2.length);
+    function pairing(G1Point[] memory p1, G2Point[] memory p2) internal view returns (bool) {
+        require(p1.length == p2.length,"pairing-lengths-failed");
         uint elements = p1.length;
         uint inputSize = elements * 6;
         uint[] memory input = new uint[](inputSize);
@@ -96,16 +99,17 @@ library Pairing {
         }
         uint[1] memory out;
         bool success;
+        // solium-disable-next-line security/no-inline-assembly
         assembly {
-            success := staticcall(sub(gas, 2000), 8, add(input, 0x20), mul(inputSize, 0x20), out, 0x20)
+            success := staticcall(sub(gas(), 2000), 8, add(input, 0x20), mul(inputSize, 0x20), out, 0x20)
             // Use "invalid" to make gas estimation work
             switch success case 0 { invalid() }
         }
-        require(success);
+        require(success,"pairing-opcode-failed");
         return out[0] != 0;
     }
     /// Convenience method for a pairing check for two pairs.
-    function pairingProd2(G1Point a1, G2Point a2, G1Point b1, G2Point b2) view internal returns (bool) {
+    function pairingProd2(G1Point memory a1, G2Point memory a2, G1Point memory b1, G2Point memory b2) internal view returns (bool) {
         G1Point[] memory p1 = new G1Point[](2);
         G2Point[] memory p2 = new G2Point[](2);
         p1[0] = a1;
@@ -116,10 +120,10 @@ library Pairing {
     }
     /// Convenience method for a pairing check for three pairs.
     function pairingProd3(
-            G1Point a1, G2Point a2,
-            G1Point b1, G2Point b2,
-            G1Point c1, G2Point c2
-    ) view internal returns (bool) {
+            G1Point memory a1, G2Point memory a2,
+            G1Point memory b1, G2Point memory b2,
+            G1Point memory c1, G2Point memory c2
+    ) internal view returns (bool) {
         G1Point[] memory p1 = new G1Point[](3);
         G2Point[] memory p2 = new G2Point[](3);
         p1[0] = a1;
@@ -132,11 +136,11 @@ library Pairing {
     }
     /// Convenience method for a pairing check for four pairs.
     function pairingProd4(
-            G1Point a1, G2Point a2,
-            G1Point b1, G2Point b2,
-            G1Point c1, G2Point c2,
-            G1Point d1, G2Point d2
-    ) view internal returns (bool) {
+            G1Point memory a1, G2Point memory a2,
+            G1Point memory b1, G2Point memory b2,
+            G1Point memory c1, G2Point memory c2,
+            G1Point memory d1, G2Point memory d2
+    ) internal view returns (bool) {
         G1Point[] memory p1 = new G1Point[](4);
         G2Point[] memory p2 = new G2Point[](4);
         p1[0] = a1;
@@ -164,7 +168,7 @@ contract Verifier {
         Pairing.G2Point B;
         Pairing.G1Point C;
     }
-    function verifyingKey() pure internal returns (VerifyingKey vk) {
+    function verifyingKey() internal pure returns (VerifyingKey memory vk) {
         vk.alfa1 = Pairing.G1Point(<%vk_alfa1%>);
         vk.beta2 = Pairing.G2Point(<%vk_beta2%>);
         vk.gamma2 = Pairing.G2Point(<%vk_gamma2%>);
@@ -172,10 +176,10 @@ contract Verifier {
         vk.IC = new Pairing.G1Point[](<%vk_ic_length%>);
         <%vk_ic_pts%>
     }
-    function verify(uint[] input, Proof proof) view internal returns (uint) {
+    function verify(uint[] memory input, Proof memory proof) internal view returns (uint) {
         uint256 snark_scalar_field = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         VerifyingKey memory vk = verifyingKey();
-        require(input.length + 1 == vk.IC.length);
+        require(input.length + 1 == vk.IC.length,"verifier-bad-input");
         // Compute the linear combination vk_x
         Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
         for (uint i = 0; i < input.length; i++) {
@@ -192,11 +196,11 @@ contract Verifier {
         return 0;
     }
     function verifyProof(
-            uint[2] a,
-            uint[2][2] b,
-            uint[2] c,
-            uint[<%vk_input_length%>] input
-        ) view public returns (bool r) {
+            uint[2] memory a,
+            uint[2][2] memory b,
+            uint[2] memory c,
+            uint[<%vk_input_length%>] memory input
+        ) public view returns (bool r) {
         Proof memory proof;
         proof.A = Pairing.G1Point(a[0], a[1]);
         proof.B = Pairing.G2Point([b[0][0], b[0][1]], [b[1][0], b[1][1]]);

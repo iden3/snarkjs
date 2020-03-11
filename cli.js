@@ -502,7 +502,7 @@ function generateVerifier_groth(verificationKey) {
 }
 
 function generateVerifier_kimleeoh(verificationKey) {
-    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_kimleeoh.sol"), "utf-8");
 
 
     const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
