@@ -42,6 +42,3 @@ exports.unstringifyBigInts = require("./src/stringifybigint.js").unstringifyBigI
 
 const Bn128 = require("./src/bn128.js");
 exports.bn128 = new Bn128();
-
-exports.parseR1cs = require("./src/r1cs_parser.js").loadR1cs;
-exports.parseR1csSync = require("./src/r1cs_parser.js").loadR1csSynch;

@@ -30,9 +30,11 @@
   "dependencies": {
     "big-integer": "^1.6.43",
     "chai": "^4.2.0",
+    "circom_runtime": "0.0.1",
     "escape-string-regexp": "^1.0.5",
     "eslint": "^5.16.0",
     "keccak": "^2.0.0",
+    "r1csfile": "0.0.1",
     "yargs": "^12.0.5"
   },
   "devDependencies": {

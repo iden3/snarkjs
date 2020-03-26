@@ -147,7 +147,7 @@ async function loadR1cs(fileName) {
     }
 }
 
-function loadR1csSync(fileName) {
+async function loadR1cs(fileName) {
     const res = {};
     const fd = fs.openSync(fileName, "r");
 
@@ -167,11 +167,9 @@ function loadR1csSync(fileName) {
     let pConstraints;
     let headerSize;
     let constraintsSize;
-    let pMap;
-    let mapSize;
     for (let i=0; i<nSections; i++) {
         let ht = readU32();
-        let hl = readDouble64();
+        let hl = readU64();
         if (ht == 1) {
             if (typeof pHeader != "undefined") assert(false, "File has two headder sections");
             pHeader = p;
@@ -180,17 +178,26 @@ function loadR1csSync(fileName) {
             if (typeof pConstraints != "undefined") assert(false, "File has two constraints sections");
             pConstraints = p;
             constraintsSize = hl;
-        } else if (ht==3) {
-            pMap = p;
-            mapSize = hl;
         }
         p += hl;
     }
 
-    if (typeof pHeader == "undefined") assert(false, "File has two header");
+    if (typeof pHeader == "undefined") assert(false, "File has no header");
 
     // Read Header
     p = pHeader;
+
+    const n8 = await readU32();
+    res.prime = await readBigInt();
+
+    res.nWires = await readU32();
+    res.nPubOuts = await readU32();
+    res.nPubIns = await readU32();
+    res.nPrvIns = await readU32();
+    res.nLabels = await readU64();
+    res.nConstraints = await readU32();
+
+
     const fieldDefSize = readU32();
     const pFieldDef = p;
 

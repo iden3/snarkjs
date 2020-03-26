@@ -107,7 +107,7 @@ module.exports = class Circuit {
                         vs = "";
                     }
                     if (vs!="1") {
-                        vs = vs + v.toString();;
+                        vs = vs + v.toString();
                     }
                 }
 
