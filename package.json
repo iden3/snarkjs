@@ -1,6 +1,6 @@
 {
   "name": "snarkjs",
-  "version": "0.2.0",
+  "version": "0.1.20",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "index.js",
   "scripts": {
@@ -30,7 +30,7 @@
   "dependencies": {
     "big-integer": "^1.6.43",
     "chai": "^4.2.0",
-    "circom_runtime": "0.0.1",
+    "circom_runtime": "0.0.3",
     "escape-string-regexp": "^1.0.5",
     "eslint": "^5.16.0",
     "keccak": "^2.0.0",
