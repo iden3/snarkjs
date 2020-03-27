@@ -68,7 +68,7 @@ setup command
 
         Defines which variant of snark you want to use
 
-        Default: original
+        Default: groth
 
 calculate witness command
 =========================
