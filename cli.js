@@ -60,13 +60,13 @@ setup command
 
     --vk or --verificationkey <verificationKeyFile>
 
-        Output Filename where the verification key will be stored.
+        Output filename where the verification key will be stored.
 
         Default: verification_key.json
 
     --protocol [original|groth|kimleeoh]
 
-        Defines which variant of snark you want to use
+        Defines which variant of the zk-SNARK protocol you want to use.
 
         Default: original
 
@@ -101,15 +101,15 @@ calculate witness command
 
     --lg or --logget
 
-        Output GET access to the signals
+        Output GET access to the signals.
 
     --ls or --logset
 
-        Output SET access to the signal
+        Output SET access to the signal.
 
     --lt or --logtrigger
 
-        Output when a subcomponent is triggered and when finished
+        Output when a subcomponent is triggered and when finished.
 
     --s or --sanitycheck
 
@@ -133,7 +133,7 @@ generate a proof command
 
     -p or --proof
 
-        Output filenam with the zero knowlage proof.
+        Output filename with the zero-knowledge proof.
 
         Default: proof.json
 
@@ -154,13 +154,13 @@ verify command
 
     --vk or --verificationkey <verificationKeyFile>
 
-        Input Filename with the verification key (generated during the setup).
+        Input filename with the verification key (generated during the setup).
 
         Default: verification_key.json
 
     -p or --proof
 
-        Input filenam with the zero knowlage proof you want to verify
+        Input filename with the zero-knowledge proof you want to verify.
 
         Default: proof.json
 
@@ -176,17 +176,17 @@ generate solidity verifier command
 
     snarkjs generateverifier <options>
 
-    Generates a solidity smart contract that verifies the zero knowlage proof.
+    Generates a solidity smart contract that verifies the zero-knowledge proof.
 
     --vk or --verificationkey <verificationKeyFile>
 
-        Input Filename with the verification key (generated during the setup).
+        Input filename with the verification key (generated during the setup).
 
         Default: verification_key.json
 
     -v or --verifier
 
-        Output file with a solidity smart contract that verifies a zero knowlage proof.
+        Output file with a solidity smart contract that verifies a zero-knowledge proof.
 
         Default: verifier.sol
 
@@ -201,7 +201,7 @@ generate call parameters
 
     -p or --proof
 
-        Input filename with the zero knowlage proof you want to use
+        Input filename with the zero-knowledge proof you want to use.
 
         Default: proof.json
 
@@ -216,7 +216,7 @@ circuit info
 
     snarkjs info <options>
 
-    Print statistics of a circuit
+    Print statistics of a circuit.
 
     -r or --r1cs <r1csFile>
 
@@ -229,7 +229,7 @@ print constraints
 
     snarkjs printconstraints <options>
 
-    Print all the constraints of a given circuit
+    Print all the constraints of a given circuit.
 
     -r or --r1cs <r1csFile>
 
