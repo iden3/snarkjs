@@ -8,7 +8,7 @@ module.exports = function printR1cs(r1cs, syms) {
         const lc2str = (lc) => {
             let S = "";
             for (let k in lc) {
-                let name = syms[k];
+                let name = syms.varIdx2Name[k];
                 if (name == "one") name = "";
                 let v = bigInt(lc[k]);
                 let vs;
