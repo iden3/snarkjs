@@ -17,16 +17,47 @@
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const chai = require("chai");
 const fs = require("fs");
 const path = require("path");
-const bigInt = require("../src/bigint.js");
+const loadR1cs = require("r1csfile").load;
+
+const zkSnark = require("../index.js");
+const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
+
+const assert = chai.assert;
+
+describe("zkSnark Groth", () => {
+    it("Load a circuit, create trusted setup, create a proof and validate it", async () => {
+        const cir = await loadR1cs(path.join(__dirname, "circuit", "circuit.r1cs"), true);
+
+        const setup = zkSnark.original.setup(cir);
+
+        const wasm = await fs.promises.readFile(path.join(__dirname, "circuit", "circuit.wasm"));
+
+        const wc = await WitnessCalculatorBuilder(wasm, {sanityCheck: true});
+
+        const witness = await wc.calculateWitness({"a": "33", "b": "34"});
+
+        const {proof, publicSignals} = zkSnark.original.genProof(setup.vk_proof, witness);
+
+        assert( zkSnark.original.isValid(setup.vk_verifier, proof, publicSignals));
+    }).timeout(10000000);
+});
+
+/*
+
+const chai = require("chai");
+const fs = require("fs");
+const path = require("path");
+const bigInt = require("big-integer");
 
 const Circuit = require("../src/circuit.js");
 const zkSnark = require("../index.js").original;
 const BN128 = require("../src/bn128.js");
 const PolField = require("../src/polfield.js");
-const ZqField = require("../src/zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 
 const {stringifyBigInts, unstringifyBigInts} = require("../src/stringifybigint.js");
 
@@ -65,12 +96,12 @@ describe("zkSnark original", () => {
         const setup = {};
         setup.vk_proof = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_proof.json", "utf8")));
         setup.vk_verifier = unstringifyBigInts(JSON.parse(fs.readFileSync("vk_verifier.json", "utf8")));
-*/
+* /
         const witness = cir.calculateWitness({"a": "33", "b": "34"});
 
         const {proof, publicSignals} = zkSnark.genProof(setup.vk_proof, witness);
 
-/*
+/ *
         const polA = new Array(cir.nVars);
         const polB = new Array(cir.nVars);
         const polC = new Array(cir.nVars);
@@ -161,10 +192,10 @@ describe("zkSnark original", () => {
         assert(G2.equals(gB, proof.pi_b));
         assert(G1.equals(gC, proof.pi_c));
 //        assert(G1.equals(gA, proof.pi_a));
-*/
+* /
         assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
-/*
+/ *
     it("validate sha256_2", () => {
 
         const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sha256_2.json"), "utf8"));
@@ -191,6 +222,8 @@ describe("zkSnark original", () => {
         console.log("Start verifiying: "+ Date().toString());
         assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
-*/
+* /
 
 });
+
+*/

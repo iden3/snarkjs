@@ -19,9 +19,9 @@
 
 const chai = require("chai");
 
-const bigInt = require("../src/bigint.js");
+const bigInt = require("big-integer");
 const PolField = require("../src/polfield.js");
-const ZqField = require("../src/zqfield");
+const ZqField = require("ffjavascript").ZqField;
 
 const assert = chai.assert;
 

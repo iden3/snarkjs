@@ -32,7 +32,7 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing( proof.pi_a , proof.pi_b ),
         bn128.F12.mul(
             vk_verifier.vk_alfabeta_12,

@@ -17,7 +17,7 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint");
+const bigInt = require("big-integer");
 
 module.exports = calculateWitness;
 

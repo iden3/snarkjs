@@ -19,9 +19,9 @@
 
 const chai = require("chai");
 
-const bigInt = require("../src/bigint.js");
+const bigInt = require("big-integer");
 const BN128 = require("../src/bn128.js");
-const F1Field = require("../src/zqfield.js");
+const F1Field = require("ffjavascript").ZqField;
 
 const assert = chai.assert;
 
@@ -29,7 +29,7 @@ const assert = chai.assert;
 describe("F1 testing", () => {
     it("Should compute euclidean", () => {
         const F = new F1Field(bigInt(7));
-        const res = F.inverse(bigInt(4));
+        const res = F.inv(bigInt(4));
 
         assert(F.equals(res, bigInt(2)));
     });

@@ -313,9 +313,8 @@ async function run() {
             if (!zkSnark[protocol]) throw new Error("Invalid protocol");
             const setup = zkSnark[protocol].setup(cir);
 
-            fs.writeFileSync(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
-            fs.writeFileSync(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
-            process.exit(0);
+            await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
+            await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
         } else if (argv._[0].toUpperCase() == "CALCULATEWITNESS") {
             const wasm = await fs.promises.readFile(wasmName);
             const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
@@ -364,9 +363,8 @@ async function run() {
             if (!zkSnark[protocol]) throw new Error("Invalid protocol");
             const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness);
 
-            fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-            fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
-            process.exit(0);
+            await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+            await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
         } else if (argv._[0].toUpperCase() == "VERIFY") {
             const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
             const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));

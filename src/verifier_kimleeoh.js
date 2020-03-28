@@ -22,7 +22,7 @@
 
 const BN128 = require("./bn128.js");
 const createKeccakHash = require("keccak");
-const bigInt = require("./bigint");
+const utils = require("./utils");
 
 const bn128 = new BN128();
 const G1 = bn128.G1;
@@ -36,29 +36,29 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
     }
 
     const buff = Buffer.concat([
-        proof.pi_a[0].beInt2Buff(32),
-        proof.pi_a[1].beInt2Buff(32),
-        proof.pi_b[0][0].beInt2Buff(32),
-        proof.pi_b[0][1].beInt2Buff(32),
-        proof.pi_b[1][0].beInt2Buff(32),
-        proof.pi_b[1][1].beInt2Buff(32)
+        utils.beInt2Buff(proof.pi_a[0], 32),
+        utils.beInt2Buff(proof.pi_a[1], 32),
+        utils.beInt2Buff(proof.pi_b[0][0], 32),
+        utils.beInt2Buff(proof.pi_b[0][1], 32),
+        utils.beInt2Buff(proof.pi_b[1][0], 32),
+        utils.beInt2Buff(proof.pi_b[1][1], 32),
     ]);
 
     const h1buff = createKeccakHash("keccak256").update(buff).digest();
     const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
 
-    const h1 = bigInt.beBuff2int(h1buff);
-    const h2 = bigInt.beBuff2int(h2buff);
+    const h1 = utils.beBuff2int(h1buff);
+    const h2 = utils.beBuff2int(h2buff);
 
 
-//    const h1 = bigInt.zero;
-//    const h2 = bigInt.zero;
+    // const h1 = bigInt.zero;
+    // const h2 = bigInt.zero;
 
-    console.log(h1.toString());
-    console.log(h2.toString());
+    // console.log(h1.toString());
+    // console.log(h2.toString());
 
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing(
             G1.add(proof.pi_a, G1.mulScalar(G1.g, h1)),
             G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))

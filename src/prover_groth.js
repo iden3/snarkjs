@@ -21,7 +21,7 @@
 
 const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
-const ZqField = require("./zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 
 const bn128 = new BN128();
 const PolF = new PolField(new ZqField(bn128.r));
@@ -90,7 +90,7 @@ module.exports = function genProof(vk_proof, witness) {
 
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.affine(PolF.F.neg(PolF.F.mul(r,s) ))));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.neg(PolF.F.mul(r,s) )));
 
 
     const publicSignals = witness.slice(1, vk_proof.nPublic+1);

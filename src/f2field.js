@@ -70,18 +70,18 @@ class F2Field {
                 this.F.add(aA, bB))];
     }
 
-    inverse(a) {
+    inv(a) {
         const t0 = this.F.square(a[0]);
         const t1 = this.F.square(a[1]);
         const t2 = this.F.sub(t0, this._mulByNonResidue(t1));
-        const t3 = this.F.inverse(t2);
+        const t3 = this.F.inv(t2);
         return [
             this.F.mul(a[0], t3),
             this.F.neg(this.F.mul( a[1], t3)) ];
     }
 
     div(a, b) {
-        return this.mul(a, this.inverse(b));
+        return this.mul(a, this.inv(b));
     }
 
     square(a) {
@@ -112,12 +112,8 @@ class F2Field {
         return this.F.isZero(a[0]) && this.F.isZero(a[1]);
     }
 
-    equals(a, b) {
-        return this.F.equals(a[0], b[0]) && this.F.equals(a[1], b[1]);
-    }
-
-    affine(a) {
-        return [this.F.affine(a[0]), this.F.affine(a[1])];
+    eq(a, b) {
+        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]);
     }
 
     mulScalar(base, e) {

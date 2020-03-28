@@ -17,28 +17,32 @@
     zksnark JavaScript library. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const chai = require("chai");
 const fs = require("fs");
 const path = require("path");
+const loadR1cs = require("r1csfile").load;
 
-const Circuit = require("../src/circuit.js");
-const zkSnark = require("../index.js").kimleeoh;
+const zkSnark = require("../index.js");
+const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
 
 const assert = chai.assert;
 
-describe("zkSnark KimLeeOh", () => {
-    it("Load a circuit, create trusted setup, create a proof and validate it", () => {
+describe("zkSnark kimleeoh", () => {
+    it("Load a circuit, create trusted setup, create a proof and validate it", async () => {
+        const cir = await loadR1cs(path.join(__dirname, "circuit", "circuit.r1cs"), true);
 
+        const setup = zkSnark.kimleeoh.setup(cir);
 
-        const cirDef = JSON.parse(fs.readFileSync(path.join(__dirname, "circuit", "sum.json"), "utf8"));
-        const cir = new Circuit(cirDef);
+        const wasm = await fs.promises.readFile(path.join(__dirname, "circuit", "circuit.wasm"));
 
-        const setup = zkSnark.setup(cir);
+        const wc = await WitnessCalculatorBuilder(wasm, {sanityCheck: true});
 
-        const witness = cir.calculateWitness({"a": "33", "b": "34"});
+        const witness = await wc.calculateWitness({"a": "33", "b": "34"});
 
-        const {proof, publicSignals} = zkSnark.genProof(setup.vk_proof, witness);
+        const {proof, publicSignals} = zkSnark.kimleeoh.genProof(setup.vk_proof, witness);
 
-        assert( zkSnark.isValid(setup.vk_verifier, proof, publicSignals));
+        assert( zkSnark.kimleeoh.isValid(setup.vk_verifier, proof, publicSignals));
     }).timeout(10000000);
 });
+

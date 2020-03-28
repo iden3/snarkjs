@@ -32,22 +32,22 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
     full_pi_a  = G1.add( full_pi_a, proof.pi_a);
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing( proof.pi_a , vk_verifier.vk_a ),
         bn128.pairing( proof.pi_ap , G2.g )))
         return false;
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing( vk_verifier.vk_b,  proof.pi_b ),
         bn128.pairing( proof.pi_bp , G2.g )))
         return false;
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing( proof.pi_c , vk_verifier.vk_c ),
         bn128.pairing( proof.pi_cp , G2.g )))
         return false;
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.F12.mul(
             bn128.pairing( G1.add(full_pi_a, proof.pi_c) , vk_verifier.vk_gb_2 ),
             bn128.pairing( vk_verifier.vk_gb_1 , proof.pi_b )
@@ -55,7 +55,7 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
         bn128.pairing( proof.pi_kp , vk_verifier.vk_g )))
         return false;
 
-    if (! bn128.F12.equals(
+    if (! bn128.F12.eq(
         bn128.pairing( full_pi_a , proof.pi_b  ),
         bn128.F12.mul(
             bn128.pairing( proof.pi_h , vk_verifier.vk_z ),

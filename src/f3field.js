@@ -92,7 +92,7 @@ class F3Field {
                 bB)];                           // (a+c)*(A+C)-aA+bB-cC)
     }
 
-    inverse(a) {
+    inv(a) {
         const t0 = this.F.square(a[0]);             // t0 = a^2 ;
         const t1 = this.F.square(a[1]);             // t1 = b^2 ;
         const t2 = this.F.square(a[2]);             // t2 = c^2;
@@ -105,9 +105,9 @@ class F3Field {
         const c1 = this.F.sub(this._mulByNonResidue(t2), t3);
         const c2 = this.F.sub(t1, t4);              // c2 = t1-t4
 
-        // t6 = (a * c0 + non_residue * (c * c1 + b * c2)).inverse();
+        // t6 = (a * c0 + non_residue * (c * c1 + b * c2)).inv();
         const t6 =
-            this.F.inverse(
+            this.F.inv(
                 this.F.add(
                     this.F.mul(a[0], c0),
                     this._mulByNonResidue(
@@ -122,7 +122,7 @@ class F3Field {
     }
 
     div(a, b) {
-        return this.mul(a, this.inverse(b));
+        return this.mul(a, this.inv(b));
     }
 
     square(a) {
@@ -152,8 +152,8 @@ class F3Field {
         return this.F.isZero(a[0]) && this.F.isZero(a[1]) && this.F.isZero(a[2]);
     }
 
-    equals(a, b) {
-        return this.F.equals(a[0], b[0]) && this.F.equals(a[1], b[1]) && this.F.equals(a[2], b[2]);
+    eq(a, b) {
+        return this.F.eq(a[0], b[0]) && this.F.eq(a[1], b[1]) && this.F.eq(a[2], b[2]);
     }
 
     affine(a) {

@@ -17,7 +17,6 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-exports.Circuit = require("./src/circuit.js");
 exports.original = {
     setup: require("./src/setup_original.js"),
     genProof: require("./src/prover_original.js"),
@@ -33,8 +32,6 @@ exports.kimleeoh = {
     genProof: require("./src/prover_kimleeoh.js"),
     isValid: require("./src/verifier_kimleeoh.js")
 };
-exports.bigInt = require("./src/bigint.js");
-exports.ZqField = require("./src/zqfield.js");
 
 exports.stringifyBigInts = require("./src/stringifybigint.js").stringifyBigInts;
 exports.unstringifyBigInts = require("./src/stringifybigint.js").unstringifyBigInts;

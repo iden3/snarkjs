@@ -17,7 +17,7 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
 module.exports.stringifyBigInts = stringifyBigInts;
 module.exports.unstringifyBigInts = unstringifyBigInts;

@@ -17,7 +17,7 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint");
+const bigInt = require("big-integer");
 const fUtils = require("./futils.js");
 
 function getRandomByte() {

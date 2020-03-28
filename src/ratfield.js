@@ -71,7 +71,7 @@ class RatField {
         ];
     }
 
-    inverse(a) {
+    inv(a) {
         return [a[1], a[0]];
     }
 

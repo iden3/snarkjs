@@ -19,7 +19,7 @@
 
 const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
-const ZqField = require("./zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 
 const bn128 = new BN128();
 const PolF = new PolField(new ZqField(bn128.r));
@@ -204,7 +204,7 @@ function calculateH(vk_proof, witness, d1, d2, d3) {
     H_S[m] = PolF.F.add(H_S[m], d1d2);
     H_S[0] = PolF.F.sub(H_S[0], d1d2);
 
-    H_S = PolF.reduce(PolF.affine(H_S));
+    H_S = PolF.reduce(H_S);
 
     return H_S;
 }

@@ -24,26 +24,26 @@
     by the array [ p0, p1, p2, ... , pn ].
  */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
 class PolField {
     constructor (F) {
         this.F = F;
 
-        const q = this.F.q;
-        let rem = q.sub(bigInt(1));
+        const q = this.F.p;
+        let rem = q.minus(bigInt(1));
         let s = 0;
         while (!rem.isOdd()) {
             s ++;
-            rem = rem.shr(1);
+            rem = rem.shiftRight(1);
         }
 
         const five = this.F.add(this.F.add(this.F.two, this.F.two), this.F.one);
 
         this.w = new Array(s+1);
         this.wi = new Array(s+1);
-        this.w[s] = this.F.exp(five, rem);
-        this.wi[s] = this.F.inverse(this.w[s]);
+        this.w[s] = this.F.pow(five, rem);
+        this.wi[s] = this.F.inv(this.w[s]);
 
         let n=s-1;
         while (n>=0) {
@@ -106,8 +106,8 @@ class PolField {
     }
 
     mulScalar(p, b) {
-        if (this.F.isZero(b)) return [];
-        if (this.F.equals(b, this.F.one)) return p;
+        if (this.F.eq(b, this.F.zero)) return [];
+        if (this.F.eq(b, this.F.one)) return p;
         const res = new Array(p.length);
         for (let i=0; i<p.length; i++) {
             res[i] = this.F.mul(p[i], b);
@@ -163,13 +163,13 @@ class PolField {
 
         const res = __fft(this, tres, bitsResult, 0, 1, true);
 
-        const twoinvm = this.F.inverse( this.F.mulScalar(this.F.one, m) );
+        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
         const resn = new Array(m);
         for (let i=0; i<m; i++) {
             resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
         }
 
-        return this.reduce(this.affine(resn));
+        return this.reduce(resn);
     }
 
 
@@ -231,7 +231,7 @@ class PolField {
             let mpol = this.ruffini(roots, points[i][0]);
             const factor =
                 this.F.mul(
-                    this.F.inverse(this.eval(mpol, points[i][0])),
+                    this.F.inv(this.eval(mpol, points[i][0])),
                     points[i][1]);
             mpol = this.mulScalar(mpol, factor);
             sum = this.add(sum, mpol);
@@ -260,7 +260,7 @@ class PolField {
         const ep = this.extend(p, m);
         const res =  __fft(this, ep, bits, 0, 1);
 
-        const twoinvm = this.F.inverse( this.F.mulScalar(this.F.one, m) );
+        const twoinvm = this.F.inv( this.F.mulScalar(this.F.one, m) );
         const resn = new Array(m);
         for (let i=0; i<m; i++) {
             resn[i] = this.F.mul(res[(m-i)%m], twoinvm);
@@ -303,17 +303,10 @@ class PolField {
 
     reduce(p) {
         if (p.length == 0) return p;
-        if (! this.F.isZero(p[p.length-1]) ) return p;
+        if (! this.F.eq(p[p.length-1], this.F.zero) ) return p;
         let i=p.length-1;
-        while( i>0 && this.F.isZero(p[i]) ) i--;
+        while( i>0 && this.F.eq(p[i], this.F.zero) ) i--;
         return p.slice(0, i+1);
-    }
-
-    affine(p) {
-        for (let i=0; i<p.length; i++) {
-            p[i] = this.F.affine(p[i]);
-        }
-        return p;
     }
 
     equals(a, b) {
@@ -322,7 +315,7 @@ class PolField {
 
         if (pa.length != pb.length) return false;
         for (let i=0; i<pb.length; i++) {
-            if (!this.F.equals(pa[i], pb[i])) return false;
+            if (!this.F.eq(pa[i], pb[i])) return false;
         }
 
         return true;
@@ -352,7 +345,7 @@ class PolField {
         const ap = this.affine(p);
         let S = "";
         for (let i=ap.length-1; i>=0; i--) {
-            if (!this.F.isZero(p[i])) {
+            if (!this.F.eq(p[i], this.F.zero)) {
                 if (S!="") S += " + ";
                 S = S + p[i].toString(10);
                 if (i>0) {
@@ -370,7 +363,7 @@ class PolField {
     _reciprocal(p, bits) {
         const k = 1 << bits;
         if (k==1) {
-            return [ this.F.inverse(p[0]) ];
+            return [ this.F.inv(p[0]) ];
         }
         const np = this.scaleX(p, -k/2);
         const q = this._reciprocal(np, bits-1);
@@ -464,19 +457,19 @@ class PolField {
 
     computeVanishingPolinomial(bits, t) {
         const m = 1 << bits;
-        return this.F.sub(this.F.exp(t, bigInt(m)), this.F.one);
+        return this.F.sub(this.F.pow(t, bigInt(m)), this.F.one);
     }
 
     evaluateLagrangePolynomials(bits, t) {
         const m= 1 << bits;
-        const tm = this.F.exp(t, bigInt(m));
+        const tm = this.F.pow(t, bigInt(m));
         const u= new Array(m).fill(this.F.zero);
         this._setRoots(bits);
         const omega = this.w[bits];
 
-        if (this.F.equals(tm, this.F.one)) {
+        if (this.F.eq(tm, this.F.one)) {
             for (let i = 0; i < m; i++) {
-                if (this.F.equals(this.roots[bits][0],t)) { // i.e., t equals omega^i
+                if (this.F.eq(this.roots[bits][0],t)) { // i.e., t equals omega^i
                     u[i] = this.F.one;
                     return u;
                 }
@@ -484,10 +477,10 @@ class PolField {
         }
 
         const z = this.F.sub(tm, this.F.one);
-//        let l = this.F.mul(z,  this.F.exp(this.F.twoinv, m));
-        let l = this.F.mul(z,  this.F.inverse(bigInt(m)));
+//        let l = this.F.mul(z,  this.F.pow(this.F.twoinv, m));
+        let l = this.F.mul(z,  this.F.inv(bigInt(m)));
         for (let i = 0; i < m; i++) {
-            u[i] = this.F.mul(l, this.F.inverse(this.F.sub(t,this.roots[bits][i])));
+            u[i] = this.F.mul(l, this.F.inv(this.F.sub(t,this.roots[bits][i])));
             l = this.F.mul(l, omega);
         }
 

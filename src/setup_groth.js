@@ -19,11 +19,11 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
 const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
-const ZqField = require("./zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 
 const bn128 = new BN128();
 const G1 = bn128.G1;
@@ -126,15 +126,15 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_proof.B1 = new Array(circuit.nVars);
     setup.vk_proof.B2 = new Array(circuit.nVars);
     setup.vk_proof.C = new Array(circuit.nVars);
-    setup.vk_verifier.IC = new Array(circuit.nPublic);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
 
     setup.toxic.kalfa = F.random();
     setup.toxic.kbeta = F.random();
     setup.toxic.kgamma = F.random();
     setup.toxic.kdelta = F.random();
 
-    let invDelta = F.inverse(setup.toxic.kdelta);
-    let invGamma = F.inverse(setup.toxic.kgamma);
+    let invDelta = F.inv(setup.toxic.kdelta);
+    let invGamma = F.inv(setup.toxic.kgamma);
 
     setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
     setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
@@ -150,7 +150,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
     setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
 
-    setup.vk_verifier.vk_alfabeta_12 = bn128.F12.affine(bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 ));
+    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
 
     for (let s=0; s<circuit.nVars; s++) {
 

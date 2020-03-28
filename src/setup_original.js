@@ -17,11 +17,11 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
 const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
-const ZqField = require("./zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 
 const bn128 = new BN128();
 const G1 = bn128.G1;
@@ -128,7 +128,8 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_proof.Bp = new Array(circuit.nVars+1);
     setup.vk_proof.Cp = new Array(circuit.nVars+1);
     setup.vk_proof.Kp = new Array(circuit.nVars+3);
-    setup.vk_verifier.IC = new Array(circuit.nPublic);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs);
+    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
 
     setup.toxic.ka = F.random();
     setup.toxic.kb = F.random();
@@ -177,7 +178,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
         // K = G1 * (A+B+C)
 
-        const kt = F.affine(F.add(F.add(raat, rbbt), rcct));
+        const kt = F.add(F.add(raat, rbbt), rcct);
         const K = G1.affine(G1.mulScalar( G1.g, kt));
 
         /*

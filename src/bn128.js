@@ -17,9 +17,9 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
-const F1Field = require("./zqfield.js");
+const F1Field = require("ffjavascript").ZqField;
 const F2Field = require("./f2field.js");
 const F3Field = require("./f3field.js");
 const GCurve = require("./gcurve.js");
@@ -81,14 +81,14 @@ class BN128 {
         this.loop_count_bits = []; // Constant
         while (!lc.isZero()) {
             this.loop_count_bits.push( lc.isOdd() );
-            lc = lc.shr(1);
+            lc = lc.shiftRight(1);
         }
 
-        this.two_inv = this.F1.inverse(bigInt(2));
+        this.two_inv = this.F1.inv(bigInt(2));
 
         this.coef_b = bigInt(3);
         this.twist = [bigInt(9) , bigInt(1)];
-        this.twist_coeff_b = this.F2.mulScalar(  this.F2.inverse(this.twist), this.coef_b  );
+        this.twist_coeff_b = this.F2.mulScalar(  this.F2.inv(this.twist), this.coef_b  );
 
         this.frobenius_coeffs_c1_1 = bigInt("21888242871839275222246405745257275088696311157297823662689037894645226208582");
         this.twist_mul_by_q_X =
@@ -163,12 +163,12 @@ class BN128 {
         }
 
         const Q1 = this.G2.affine(this._g2MulByQ(Qcopy));
-        if (!this.F2.equals(Q1[2], this.F2.one))
+        if (!this.F2.eq(Q1[2], this.F2.one))
         {
             throw new Error("Expected values are not equal");
         }
         const Q2 = this.G2.affine(this._g2MulByQ(Q1));
-        if (!this.F2.equals(Q2[2], this.F2.one))
+        if (!this.F2.eq(Q2[2], this.F2.one))
         {
             throw new Error("Expected values are not equal");
         }

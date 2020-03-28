@@ -21,9 +21,10 @@
 
 const BN128 = require("./bn128.js");
 const PolField = require("./polfield.js");
-const ZqField = require("./zqfield.js");
+const ZqField = require("ffjavascript").ZqField;
 const createKeccakHash = require("keccak");
-const bigInt = require("./bigint");
+const utils = require("./utils");
+
 
 const bn128 = new BN128();
 const PolF = new PolField(new ZqField(bn128.r));
@@ -89,26 +90,25 @@ module.exports = function genProof(vk_proof, witness) {
     proof.pi_b = G2.affine(proof.pi_b);
 
     const buff = Buffer.concat([
-        proof.pi_a[0].beInt2Buff(32),
-        proof.pi_a[1].beInt2Buff(32),
-        proof.pi_b[0][0].beInt2Buff(32),
-        proof.pi_b[0][1].beInt2Buff(32),
-        proof.pi_b[1][0].beInt2Buff(32),
-        proof.pi_b[1][1].beInt2Buff(32)
+        utils.beInt2Buff(proof.pi_a[0],32),
+        utils.beInt2Buff(proof.pi_a[1],32),
+        utils.beInt2Buff(proof.pi_b[0][0],32),
+        utils.beInt2Buff(proof.pi_b[0][1],32),
+        utils.beInt2Buff(proof.pi_b[1][0],32),
+        utils.beInt2Buff(proof.pi_b[1][1],32)
     ]);
 
     const h1buff = createKeccakHash("keccak256").update(buff).digest();
     const h2buff = createKeccakHash("keccak256").update(h1buff).digest();
 
-    const h1 = bigInt.beBuff2int(h1buff);
-    const h2 = bigInt.beBuff2int(h2buff);
+    const h1 = utils.beBuff2int(h1buff);
+    const h2 = utils.beBuff2int(h2buff);
 
+    // const h1 = PolF.F.zero;
+    // const h2 = PolF.F.zero;
 
-//    const h1 = PolF.F.zero;
-//    const h2 = PolF.F.zero;
-
-    console.log(h1.toString());
-    console.log(h2.toString());
+    // console.log(h1.toString());
+    // console.log(h2.toString());
 
     const h = calculateH(vk_proof, witness);
 
@@ -125,7 +125,7 @@ module.exports = function genProof(vk_proof, witness) {
 
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( G1.g, PolF.F.affine(PolF.F.neg(PolF.F.mul(r,s) ))));
+    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( G1.g, PolF.F.neg(PolF.F.mul(r,s) )));
 
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( piadelta, h2 ));
     proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, h1 ));

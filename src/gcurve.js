@@ -23,21 +23,17 @@ class GCurve {
 
     constructor(F, g) {
         this.F = F;
-        this.g = [F.copy(g[0]), F.copy(g[1])];
+        this.g = g;
         if (this.g.length == 2) this.g[2] = this.F.one;
         this.zero = [this.F.zero, this.F.one, this.F.zero];
-    }
-
-    isZero(p) {
-        return this.F.isZero(p[2]);
     }
 
     add(p1, p2) {
 
         const F = this.F;
 
-        if (this.isZero(p1)) return p2;
-        if (this.isZero(p2)) return p1;
+        if (this.eq(p1, this.zero)) return p2;
+        if (this.eq(p2, this.zero)) return p1;
 
         const res = new Array(3);
 
@@ -53,7 +49,7 @@ class GCurve {
         const S1 = F.mul( p1[1] , Z2_cubed);  // S1 = Y1 * Z2 * Z2Z2
         const S2 = F.mul( p2[1] , Z1_cubed);  // S2 = Y2 * Z1 * Z1Z1
 
-        if (F.equals(U1,U2) && F.equals(S1,S2)) {
+        if (F.eq(U1,U2) && F.eq(S1,S2)) {
             return this.double(p1);
         }
 
@@ -102,7 +98,7 @@ class GCurve {
 
         const res = new Array(3);
 
-        if (this.isZero(p)) return p;
+        if (this.eq(p, this.zero)) return p;
 
         const A = F.square( p[0] );                    // A = X1^2
         const B = F.square( p[1] );                    // B = Y1^2
@@ -142,27 +138,27 @@ class GCurve {
 
     affine(p) {
         const F = this.F;
-        if (this.isZero(p)) {
+        if (this.eq(p, this.zero)) {
             return this.zero;
         } else {
-            const Z_inv = F.inverse(p[2]);
+            const Z_inv = F.inv(p[2]);
             const Z2_inv = F.square(Z_inv);
             const Z3_inv = F.mul(Z2_inv, Z_inv);
 
             const res = new Array(3);
-            res[0] = F.affine( F.mul(p[0],Z2_inv));
-            res[1] = F.affine( F.mul(p[1],Z3_inv));
+            res[0] = F.mul(p[0],Z2_inv);
+            res[1] = F.mul(p[1],Z3_inv);
             res[2] = F.one;
 
             return res;
         }
     }
 
-    equals(p1, p2) {
+    eq(p1, p2) {
         const F = this.F;
 
-        if (this.isZero(p1)) return this.isZero(p2);
-        if (this.isZero(p2)) return this.isZero(p1);
+        if (this.F.eq(p1[2], this.F.zero)) return this.F.eq(p2[2], this.F.zero);
+        if (this.F.eq(p2[2], this.F.zero)) return false;
 
         const Z1Z1 = F.square( p1[2] );
         const Z2Z2 = F.square( p2[2] );
@@ -176,7 +172,7 @@ class GCurve {
         const S1 = F.mul( p1[1] , Z2_cubed);
         const S2 = F.mul( p2[1] , Z1_cubed);
 
-        return (F.equals(U1,U2) && F.equals(S1,S2));
+        return (F.eq(U1,U2) && F.eq(S1,S2));
     }
 
     toString(p) {

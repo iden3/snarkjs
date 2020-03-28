@@ -17,7 +17,7 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("./bigint.js");
+const bigInt = require("big-integer");
 
 exports.mulScalar = (F, base, e) =>{
     let res = F.zero;
@@ -29,7 +29,7 @@ exports.mulScalar = (F, base, e) =>{
             res = F.add(res, exp);
         }
         exp = F.double(exp);
-        rem = rem.shr(1);
+        rem = rem.shiftRight(1);
     }
 
     return res;
@@ -46,7 +46,7 @@ exports.exp = (F, base, e) =>{
             res = F.mul(res, exp);
         }
         exp = F.square(exp);
-        rem = rem.shr(1);
+        rem = rem.shiftRight(1);
     }
 
     return res;
