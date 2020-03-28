@@ -17,9 +17,8 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const BN128 = require("./bn128.js");
+const bn128 = require("ffjavascript").bn128;
 
-const bn128 = new BN128();
 const G1 = bn128.G1;
 const G2 = bn128.G2;
 

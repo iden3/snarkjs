@@ -19,14 +19,13 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 
-const BN128 = require("./bn128.js");
-const PolField = require("./polfield.js");
+const bn128 = require("ffjavascript").bn128;
+const PolField = require("ffjavascript").PolField;
 const ZqField = require("ffjavascript").ZqField;
 const createKeccakHash = require("keccak");
 const utils = require("./utils");
 
 
-const bn128 = new BN128();
 const PolF = new PolField(new ZqField(bn128.r));
 const G1 = bn128.G1;
 const G2 = bn128.G2;

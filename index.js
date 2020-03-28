@@ -33,9 +33,6 @@ exports.kimleeoh = {
     isValid: require("./src/verifier_kimleeoh.js")
 };
 
-exports.stringifyBigInts = require("./src/stringifybigint.js").stringifyBigInts;
-exports.unstringifyBigInts = require("./src/stringifybigint.js").unstringifyBigInts;
+exports.stringifyBigInts = require("./src/utils.js").stringifyBigInts;
+exports.unstringifyBigInts = require("./src/utils.js").unstringifyBigInts;
 
-
-const Bn128 = require("./src/bn128.js");
-exports.bn128 = new Bn128();

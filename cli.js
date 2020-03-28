@@ -25,7 +25,7 @@ const fs = require("fs");
 const path = require("path");
 
 const zkSnark = require("./index.js");
-const {stringifyBigInts, unstringifyBigInts} = require("./src/stringifybigint.js");
+const {stringifyBigInts, unstringifyBigInts} = require("./src/utils.js");
 
 const loadR1cs = require("r1csfile").load;
 const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;

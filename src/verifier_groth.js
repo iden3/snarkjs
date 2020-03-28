@@ -20,9 +20,8 @@
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 
 
-const BN128 = require("./bn128.js");
+const bn128 = require("ffjavascript").bn128;
 
-const bn128 = new BN128();
 const G1 = bn128.G1;
 
 module.exports = function isValid(vk_verifier, proof, publicSignals) {
