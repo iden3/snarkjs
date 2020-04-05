@@ -105,6 +105,8 @@ module.exports = function genProof(vk_proof, witness) {
 };
 
 
+/*
+// Old Method.  (It's clear for academic understanding)
 function calculateH(vk_proof, witness) {
 
     const F = PolF.F;
@@ -120,9 +122,11 @@ function calculateH(vk_proof, witness) {
         for (let c in vk_proof.polsB[s]) {
             polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
         }
+
         for (let c in vk_proof.polsC[s]) {
             polC_T[c] = F.add(polC_T[c], F.mul(witness[s], vk_proof.polsC[s][c]));
         }
+
     }
 
     const polA_S = PolF.ifft(polA_T);
@@ -137,4 +141,50 @@ function calculateH(vk_proof, witness) {
     const H_S = polABC_S.slice(m);
 
     return H_S;
+}
+*/
+
+function calculateH(vk_proof, witness) {
+
+    const F = PolF.F;
+    const m = vk_proof.domainSize;
+    const polA_T = new Array(m).fill(PolF.F.zero);
+    const polB_T = new Array(m).fill(PolF.F.zero);
+
+    for (let s=0; s<vk_proof.nVars; s++) {
+        for (let c in vk_proof.polsA[s]) {
+            polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
+        }
+        for (let c in vk_proof.polsB[s]) {
+            polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
+        }
+    }
+
+    const polA_S = PolF.ifft(polA_T);
+    const polB_S = PolF.ifft(polB_T);
+
+    // F(wx) = [1, w, w^2, ...... w^(m-1)] in time is the same than shift in in frequency
+    const r = PolF.log2(m)+1;
+    PolF._setRoots(r);
+    for (let i=0; i<polA_S.length; i++) {
+        polA_S[i] = PolF.F.mul( polA_S[i], PolF.roots[r][i]);
+        polB_S[i] = PolF.F.mul( polB_S[i], PolF.roots[r][i]);
+    }
+
+    const polA_Todd = PolF.fft(polA_S);
+    const polB_Todd = PolF.fft(polB_S);
+
+    const polAB_T = new Array(polA_S.length*2);
+    for (let i=0; i<polA_S.length; i++) {
+        polAB_T[2*i] = PolF.F.mul( polA_T[i], polB_T[i]);
+        polAB_T[2*i+1] = PolF.F.mul( polA_Todd[i], polB_Todd[i]);
+    }
+
+    // We only need the to half of the fft, so we could optimize at least by m multiplications.
+    let H_S = PolF.ifft(polAB_T);
+
+    H_S = H_S.slice(m);
+
+    return H_S;
+
 }
