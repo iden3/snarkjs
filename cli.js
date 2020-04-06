@@ -70,6 +70,10 @@ setup command
 
         Default: groth
 
+    --verbose
+
+        Print verbose to screen
+
 calculate witness command
 =========================
 
@@ -311,7 +315,7 @@ async function run() {
             const cir = await loadR1cs(r1csName, true);
 
             if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-            const setup = zkSnark[protocol].setup(cir);
+            const setup = zkSnark[protocol].setup(cir, argv.verbose);
 
             await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
             await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");

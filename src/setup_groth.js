@@ -30,7 +30,7 @@ const G2 = bn128.G2;
 const PolF = new PolField(new ZqField(bn128.r));
 const F = new ZqField(bn128.r);
 
-module.exports = function setup(circuit) {
+module.exports = function setup(circuit, verbose) {
     const setup = {
         vk_proof : {
             protocol: "groth",
@@ -50,7 +50,7 @@ module.exports = function setup(circuit) {
 
     calculatePolinomials(setup, circuit);
     setup.toxic.t = F.random();
-    calculateEncriptedValuesAtT(setup, circuit);
+    calculateEncriptedValuesAtT(setup, circuit, verbose);
 
     return setup;
 };
@@ -118,7 +118,7 @@ function calculateValuesAtT(setup, circuit) {
 
 
 
-function calculateEncriptedValuesAtT(setup, circuit) {
+function calculateEncriptedValuesAtT(setup, circuit, verbose) {
 
     const v = calculateValuesAtT(setup, circuit);
     setup.vk_proof.A = new Array(circuit.nVars);
@@ -153,18 +153,21 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
     for (let s=0; s<circuit.nVars; s++) {
 
-        const A = G1.affine(G1.mulScalar(G1.g, v.a_t[s]));
+        const A = G1.mulScalar(G1.g, v.a_t[s]);
 
         setup.vk_proof.A[s] = A;
 
-        const B1 = G1.affine(G1.mulScalar(G1.g, v.b_t[s]));
+        const B1 = G1.mulScalar(G1.g, v.b_t[s]);
 
         setup.vk_proof.B1[s] = B1;
 
-        const B2 = G2.affine(G2.mulScalar(G2.g, v.b_t[s]));
+        const B2 = G2.mulScalar(G2.g, v.b_t[s]);
 
         setup.vk_proof.B2[s] = B2;
+
+        if ((verbose)&&(s%1000 == 1)) console.log("A, B1, B2: ", s);
     }
+
 
     for (let s=0; s<=setup.vk_proof.nPublic; s++) {
         let ps =
@@ -176,7 +179,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
                         F.mul(v.b_t[s], setup.toxic.kalfa)),
                     v.c_t[s]));
 
-        const IC = G1.affine(G1.mulScalar(G1.g, ps));
+        const IC = G1.mulScalar(G1.g, ps);
         setup.vk_verifier.IC[s]=IC;
     }
 
@@ -189,8 +192,11 @@ function calculateEncriptedValuesAtT(setup, circuit) {
                         F.mul(v.a_t[s], setup.toxic.kbeta),
                         F.mul(v.b_t[s], setup.toxic.kalfa)),
                     v.c_t[s]));
-        const C = G1.affine(G1.mulScalar(G1.g, ps));
+        const C = G1.mulScalar(G1.g, ps);
         setup.vk_proof.C[s]=C;
+
+        if ((verbose)&&(s%1000 == 1)) console.log("C: ", s);
+
     }
 
     // Calculate HExps
@@ -204,8 +210,20 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_proof.hExps[0] = G1.affine(G1.mulScalar(G1.g, zod));
     let eT = setup.toxic.t;
     for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, F.mul(eT, zod)));
+        setup.vk_proof.hExps[i] = G1.mulScalar(G1.g, F.mul(eT, zod));
         eT = F.mul(eT, setup.toxic.t);
+
+        if ((verbose)&&(i%1000 == 1)) console.log("Tau: ", i);
+
     }
+
+    G1.multiAffine(setup.vk_proof.A);
+    G1.multiAffine(setup.vk_proof.B1);
+    G2.multiAffine(setup.vk_proof.B2);
+    G1.multiAffine(setup.vk_proof.C);
+    G1.multiAffine(setup.vk_proof.hExps);
+
+    G1.multiAffine(setup.vk_verifier.IC);
+
 }
 
