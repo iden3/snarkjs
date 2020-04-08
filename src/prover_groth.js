@@ -27,7 +27,7 @@ const PolF = new PolField(new ZqField(bn128.r));
 const G1 = bn128.G1;
 const G2 = bn128.G2;
 
-module.exports = function genProof(vk_proof, witness) {
+module.exports = function genProof(vk_proof, witness, allow_delta_zero) {
 
     const proof = {};
 
@@ -46,6 +46,10 @@ module.exports = function genProof(vk_proof, witness) {
 
     let pib1 = G1.zero;
 
+
+    if (!allow_delta_zero && (G1.isZero(vk_proof.vk_delta_1) || G2.isZero(vk_proof.vk_delta_2))) {
+        throw new Error('delta1 or delta2 are zero, subverted CRS');
+    }
 
     // Skip public entries and the "1" signal that are forced by the verifier
 
