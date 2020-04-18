@@ -1,4 +1,3 @@
-const bigInt = require("big-integer");
 
 module.exports = function printR1cs(r1cs, syms) {
     for (let i=0; i<r1cs.constraints.length; i++) {
@@ -10,23 +9,13 @@ module.exports = function printR1cs(r1cs, syms) {
             for (let k in lc) {
                 let name = syms.varIdx2Name[k];
                 if (name == "one") name = "";
-                let v = bigInt(lc[k]);
-                let vs;
-                if (!v.lesserOrEquals(r1cs.prime.shiftRight(bigInt(1)))) {
-                    v = r1cs.prime.minus(v);
-                    vs = "-"+v.toString();
-                } else {
-                    if (S!="") {
-                        vs = "+"+v.toString();
-                    } else {
-                        vs = "";
-                    }
-                    if (vs!="1") {
-                        vs = vs + v.toString();
-                    }
-                }
 
-                S= S + " " + vs + name;
+                let vs = r1cs.Fr.toString(lc[k]);
+                if (vs == "1") vs = "";  // Do not show ones
+                if (vs == "-1") vs = "-";  // Do not show ones
+                if ((S!="")&&(vs[0]!="-")) vs = "+"+vs;
+                if (S!="") vs = " "+vs;
+                S= S + vs   + name;
             }
             return S;
         };

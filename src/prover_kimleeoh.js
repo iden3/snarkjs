@@ -23,7 +23,7 @@ const bn128 = require("ffjavascript").bn128;
 const PolField = require("ffjavascript").PolField;
 const ZqField = require("ffjavascript").ZqField;
 const createKeccakHash = require("keccak");
-const utils = require("./utils");
+const utils = require("ffjavascript").utils;
 
 
 const PolF = new PolField(new ZqField(bn128.r));

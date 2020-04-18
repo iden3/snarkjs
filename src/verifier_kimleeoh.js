@@ -22,7 +22,7 @@
 
 const bn128 = require("ffjavascript").bn128;
 const createKeccakHash = require("keccak");
-const utils = require("./utils");
+const utils = require("ffjavascript").utils;
 
 const G1 = bn128.G1;
 const G2 = bn128.G2;
@@ -50,8 +50,8 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
     const h2 = utils.beBuff2int(h2buff);
 
 
-    // const h1 = bigInt.zero;
-    // const h2 = bigInt.zero;
+    // const h1 = bn128.Fr.zero;
+    // const h2 = bn128.Fr.zero;
 
     // console.log(h1.toString());
     // console.log(h2.toString());

@@ -68,13 +68,13 @@ function calculatePolinomials(setup, circuit) {
     for (let c=0; c<circuit.nConstraints; c++) {
 
         for (let s in circuit.constraints[c][0]) {
-            setup.vk_proof.polsA[s][c] = bigInt(circuit.constraints[c][0][s]);
+            setup.vk_proof.polsA[s][c] = circuit.constraints[c][0][s];
         }
         for (let s in circuit.constraints[c][1]) {
-            setup.vk_proof.polsB[s][c] = bigInt(circuit.constraints[c][1][s]);
+            setup.vk_proof.polsB[s][c] = circuit.constraints[c][1][s];
         }
         for (let s in circuit.constraints[c][2]) {
-            setup.vk_proof.polsC[s][c] = bigInt(circuit.constraints[c][2][s]);
+            setup.vk_proof.polsC[s][c] = circuit.constraints[c][2][s];
         }
     }
 

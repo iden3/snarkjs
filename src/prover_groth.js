@@ -27,7 +27,7 @@ const PolF = new PolField(new ZqField(bn128.r));
 const G1 = bn128.G1;
 const G2 = bn128.G2;
 
-module.exports = function genProof(vk_proof, witness) {
+module.exports = function genProof(vk_proof, witness, verbose) {
 
     const proof = {};
 
@@ -57,12 +57,17 @@ module.exports = function genProof(vk_proof, witness) {
         proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
 
         pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
+
+        if ((verbose)&&(s%1000 == 1)) console.log("A, B1, B2: ", s);
+
     }
 
     for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
 
         // pi_a  = pi_a  + A[s]  * witness[s];
         proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
+
+        if ((verbose)&&(s%1000 == 1)) console.log("C: ", s);
     }
 
     proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
@@ -82,6 +87,8 @@ module.exports = function genProof(vk_proof, witness) {
     for (let i = 0; i < h.length; i++) {
         // console.log(i + "->" + h[i].toString());
         proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
+
+        if ((verbose)&&(i%1000 == 1)) console.log("H: ", i);
     }
 
     // proof.pi_c = G1.affine(proof.pi_c);
