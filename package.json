@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "chai": "^4.2.0",
-    "circom_runtime": "0.0.5",
+    "circom_runtime": "0.0.6",
     "escape-string-regexp": "^1.0.5",
     "ffjavascript": "0.1.0",
     "keccak": "^3.0.0",
