@@ -211,4 +211,11 @@ contract Verifier {
             return false;
         }
     }
+    function verifyProof(uint[8] memory proof, uint[<%vk_input_length%>] memory inputs) public view returns (bool r) {
+        return verifyProof(
+            [proof[0], proof[1]],
+            [[proof[2], proof[3]], [proof[4], proof[5]]],
+            [proof[6], proof[7]],
+            inputs);
+    }
 }
