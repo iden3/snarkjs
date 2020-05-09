@@ -158,6 +158,16 @@ function calculateH(vk_proof, witness) {
     const polA_T = new Array(m).fill(PolF.F.zero);
     const polB_T = new Array(m).fill(PolF.F.zero);
 
+    for (let i=0; i<vk_proof.ccoefs.length; i++) {
+        const coef = vk_proof.ccoefs[i];
+        if (coef.matrix == 0) {
+            polA_T[coef.constraint] = F.add( polA_T[coef.constraint], F.mul(witness[ coef.signal ], coef.value)  );
+        } else if (coef.matrix == 1) {
+            polB_T[coef.constraint] = F.add( polB_T[coef.constraint], F.mul(witness[ coef.signal ], coef.value)  );
+        }
+    }
+
+/*
     for (let s=0; s<vk_proof.nVars; s++) {
         for (let c in vk_proof.polsA[s]) {
             polA_T[c] = F.add(polA_T[c], F.mul(witness[s], vk_proof.polsA[s][c]));
@@ -166,6 +176,8 @@ function calculateH(vk_proof, witness) {
             polB_T[c] = F.add(polB_T[c], F.mul(witness[s], vk_proof.polsB[s][c]));
         }
     }
+*/
+
 
     const polA_S = PolF.ifft(polA_T);
     const polB_S = PolF.ifft(polB_T);

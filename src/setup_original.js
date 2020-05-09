@@ -17,11 +17,9 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bigInt = require("big-integer");
-
 const bn128 = require("ffjavascript").bn128;
 const PolField = require("ffjavascript").PolField;
-const ZqField = require("ffjavascript").ZqField;
+const ZqField = require("ffjavascript").F1Field;
 
 const G1 = bn128.G1;
 const G2 = bn128.G2;

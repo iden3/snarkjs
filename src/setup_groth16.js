@@ -19,8 +19,6 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 
-const bigInt = require("big-integer");
-
 const bn128 = require("ffjavascript").bn128;
 const PolField = require("ffjavascript").PolField;
 const ZqField = require("ffjavascript").ZqField;
@@ -33,24 +31,36 @@ const F = new ZqField(bn128.r);
 module.exports = function setup(circuit, verbose) {
     const setup = {
         vk_proof : {
-            protocol: "groth",
+            protocol: "groth16",
             nVars: circuit.nVars,
-            nPublic: circuit.nPubInputs + circuit.nOutputs
-        },
-        vk_verifier: {
-            protocol: "groth",
             nPublic: circuit.nPubInputs + circuit.nOutputs
         },
         toxic: {}
     };
 
-
+    setup.vk_proof.q = bn128.q;
+    setup.vk_proof.r = bn128.r;
     setup.vk_proof.domainBits = PolF.log2(circuit.nConstraints + circuit.nPubInputs + circuit.nOutputs +1 -1) +1;
     setup.vk_proof.domainSize = 1 << setup.vk_proof.domainBits;
 
     calculatePolinomials(setup, circuit);
     setup.toxic.t = F.random();
     calculateEncriptedValuesAtT(setup, circuit, verbose);
+
+    setup.vk_verifier = {
+        protocol: setup.vk_proof.protocol,
+        nPublic: setup.vk_proof.nPublic,
+        IC: setup.vk_proof.IC,
+
+
+        vk_alfa_1: setup.vk_proof.vk_alfa_1,
+
+        vk_beta_2: setup.vk_proof.vk_beta_2,
+        vk_gamma_2:  setup.vk_proof.vk_gamma_2,
+        vk_delta_2:  setup.vk_proof.vk_delta_2,
+
+        vk_alfabeta_12: bn128.pairing( setup.vk_proof.vk_alfa_1 , setup.vk_proof.vk_beta_2 )
+    };
 
     return setup;
 };
@@ -66,8 +76,22 @@ function calculatePolinomials(setup, circuit) {
         setup.vk_proof.polsB[i] = {};
         setup.vk_proof.polsC[i] = {};
     }
-    for (let c=0; c<circuit.nConstraints; c++) {
 
+    setup.vk_proof.ccoefs = [];
+    for (let m=0; m<2; m++) {
+        for (let c=0; c<circuit.nConstraints; c++) {
+            for (let s in circuit.constraints[c][m]) {
+                setup.vk_proof.ccoefs.push({
+                    matrix: m,
+                    constraint: c,
+                    signal: s,
+                    value: circuit.constraints[c][m][s]
+                });
+            }
+        }
+    }
+
+    for (let c=0; c<circuit.nConstraints; c++) {
         for (let s in circuit.constraints[c][0]) {
             setup.vk_proof.polsA[s][c] = circuit.constraints[c][0][s];
         }
@@ -87,6 +111,12 @@ function calculatePolinomials(setup, circuit) {
     for (let i = 0; i < circuit.nPubInputs + circuit.nOutputs + 1; ++i)
     {
         setup.vk_proof.polsA[i][circuit.nConstraints + i] = F.one;
+        setup.vk_proof.ccoefs.push({
+            matrix: 0,
+            constraint: circuit.nConstraints + i,
+            signal: i,
+            value: F.one
+        });
     }
 }
 
@@ -125,7 +155,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
     setup.vk_proof.B1 = new Array(circuit.nVars);
     setup.vk_proof.B2 = new Array(circuit.nVars);
     setup.vk_proof.C = new Array(circuit.nVars);
-    setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
+    setup.vk_proof.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
 
     setup.toxic.kalfa = F.random();
     setup.toxic.kbeta = F.random();
@@ -141,15 +171,8 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
 
     setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
     setup.vk_proof.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
+    setup.vk_proof.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
 
-
-    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
-
-    setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
-    setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
-    setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
-
-    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
 
     for (let s=0; s<circuit.nVars; s++) {
 
@@ -180,7 +203,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
                     v.c_t[s]));
 
         const IC = G1.mulScalar(G1.g, ps);
-        setup.vk_verifier.IC[s]=IC;
+        setup.vk_proof.IC[s]=IC;
     }
 
     for (let s=setup.vk_proof.nPublic+1; s<circuit.nVars; s++) {
@@ -222,8 +245,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
     G2.multiAffine(setup.vk_proof.B2);
     G1.multiAffine(setup.vk_proof.C);
     G1.multiAffine(setup.vk_proof.hExps);
-
-    G1.multiAffine(setup.vk_verifier.IC);
+    G1.multiAffine(setup.vk_proof.IC);
 
 }
 

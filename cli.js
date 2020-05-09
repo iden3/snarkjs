@@ -30,271 +30,161 @@ const {stringifyBigInts, unstringifyBigInts} = require("ffjavascript").utils;
 const loadR1cs = require("r1csfile").load;
 const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
 
-const version = require("./package").version;
+const zkeyFile = require("./src/zkeyfile");
+const wtnsFile = require("./src/wtnsfile");
 
 const loadSyms = require("./src/loadsyms");
 const printR1cs = require("./src/printr1cs");
 
-const argv = require("yargs")
-    .version(version)
-    .usage(`snarkjs <command> <options>
+const clProcessor = require("./src/clprocessor");
 
-setup command
+const powersOfTaw = require("./src/powersoftaw");
+
+const bn128 = require("ffjavascript").bn128;
+
+const commands = [
+    {
+        cmd: "r1cs info [circuit.r1cs]",
+        description: "Print statistiscs of a circuit",
+        alias: ["ri", "info -r|r1cs:circuit.r1cs"],
+        action: r1csInfo
+    },
+    {
+        cmd: "r1cs print [circuit.r1cs] [circuit.sym]",
+        description: "Print the constraints of a circuit",
+        alias: ["rp", "print -r|r1cs:circuit.r1cs -s|sym"],
+        action: r1csPrint
+    },
+    {
+        cmd: "witness calculate [circuit.wasm] [input.json] [witness.wtns]",
+        description: "Caclculate specific witness of a circuit given an input",
+        alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
+        action: witnessCalculate
+    },
+    {
+        cmd: "witness debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
+        description: "Calculate the witness with debug info.",
+        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-get|g -set|s -trigger|t",
+        alias: ["wd"],
+        action: witnessDebug
+    },
+    {
+        cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
+        description: "Run a simple setup for a circuit generating the proving key.",
+        alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
+        options: "-verbose|v -protocol",
+        action: zksnarkSetup
+    },
+    {
+        cmd: "zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a zk Proof",
+        alias: ["zp", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
+        options: "-verbose|v -protocol",
+        action: zksnarkProve
+    },
+    {
+        cmd: "zksnark verify [verification_key.json] [public.json] [proof.json]",
+        description: "Verify a zk Proof",
+        alias: ["zv", "verify -vk|verificationkey -pub|public -p|proof"],
+        action: zksnarkVerify
+    },
+    {
+        cmd: "solidity genverifier <verificationKey.json> <verifier.sol>",
+        description: "Creates a verifier in solidity",
+        alias: ["ks", "generateverifier -vk|verificationkey -v|verifier"],
+        action: solidityGenVerifier
+    },
+    {
+        cmd: "solidity gencall <public.json> <proof.json>",
+        description: "Generates call parameters ready to be called.",
+        alias: ["pc", "generatecall -pub|public -p|proof"],
+        action: solidityGenCall
+    },
+    {
+        cmd: "powersoftaw new <power> [powersoftaw_0000.ptaw]",
+        description: "Starts a powers of taw ceremony",
+        alias: ["ptn"],
+        options: "-verbose|v",
+        action: powersOfTawNew
+    },
+    {
+        cmd: "powersoftaw export challange <powersoftaw_0000.ptaw> [challange]",
+        description: "Creates a challange",
+        alias: ["pte"],
+        options: "-verbose|v",
+        action: powersOfTawExportChallange
+    },
+    {
+        cmd: "powersoftaw contribute <challange> [response]",
+        description: "Contribute to a challange",
+        alias: ["ptc"],
+        options: "-verbose|v -entropy|e",
+        action: powersOfTawContribute
+    },
+
+];
+
+
+
+clProcessor(commands).then( (res) => {
+    process.exit(res);
+}, (err) => {
+    console.log(err.stack);
+    console.log("ERROR: " + err);
+    process.exit(1);
+});
+
+/*
+
+TODO COMMANDS
 =============
 
-    snarkjs setup <option>
+    {
+        cmd: "r1cs export circomJSON [circuit.r1cs] [circuit.json]",
+        description: "Exports a R1CS to JSON file.",
+        alias: ["rj"],
+        action: r1csExportCircomJSON
+    },
+    {
+        cmd: "witness export json <witness.wtns> <witness.json>",
+        description: "Export witness file to json",
+        alias: ["wj"],
+        action: witnessExportJson
+    },
+
+    {
+        cmd: "zkey export vkey <circuit.zkey> <verification_key.json>",
+        description: "Exports a verification key to JSON",
+        alias: ["kv"],
+        action: zKeySolidity
+    },
+
+    {
+        cmd: "witness verify <circuit.r1cs> <witness.wtns>",
+        description: "Verify a witness agains a r1cs",
+        alias: ["wv"],
+        action: witnessVerify
+    },
+
+ptau new                                    Starts a ceremony with a new challange for the powes of Tau ceremony
+ptau contribute                             Contribute in the ceremony of powers of tau
+ptau beacon                                 Apply a beacon random to the ceremony
+ptau verify                                 Verify the powers of tau ceremony
+ptau preparePhase2                          Prepare Powers of Taus for a phase 2
+phase2 new                                  Starts a second phase ceremony for a given circuit with a first challange and a reference Hash.
+phase2 constribute                          Contribute in the seconf phase ceremony
+phase2 beacon                               Contribute in the seconf phase ceremony with a Powers of Tau
+phase2 verify                               Verify the Powers of tau
+zksnark setup                s              Run a simple setup for a circuit generating the proving key.
+zksnark prove                p              Generates a zk Proof
+zksnark verify               v              Verify a zk Proof
+zkey export pkJSON           pkjson         Exports a proving key to JSON
+zkey export vkJSON           vkjson         Exports a verification key to JSON
+zkey export vkSolidity       vksol          Creates a verifier in solidity
+proof callParameters         cp             Generates call parameters ready to be called.
+*/
 
-    Runs a setup for a circuit generating the proving and the verification key.
-
-    -r or --r1cs <r1csFile>
-
-        Filename of the compiled circuit file generated by circom.
-
-        Default: circuit.r1cs
-
-    --pk or --provingkey <provingKeyFile>
-
-        Output filename where the proving key will be stored.
-
-        Default: proving_key.json
-
-    --vk or --verificationkey <verificationKeyFile>
-
-        Output filename where the verification key will be stored.
-
-        Default: verification_key.json
-
-    --protocol [original|groth|kimleeoh]
-
-        Defines which variant of the zk-SNARK protocol you want to use.
-
-        Default: groth
-
-    --verbose
-
-        Print verbose to screen
-
-calculate witness command
-=========================
-
-    snarkjs calculatewitness <options>
-
-    Calculate the witness of a circuit given an input.
-
-    --ws --wasm <wasmFile>
-
-        Filename of the compiled circuit file generated by circom.
-
-        Default: circuit.r1cs
-
-    -i or --input <inputFile>
-
-        JSON file with the inputs of the circuit.
-
-        Default: input.json
-
-        Example of a circuit with two inputs a and b:
-
-            {"a": "22", "b": "33"}
-
-    --wt --witness
-
-        Output filename with the generated witness.
-
-        Default: witness.json
-
-    --lg or --logget
-
-        Output GET access to the signals.
-
-    --ls or --logset
-
-        Output SET access to the signal.
-
-    --lt or --logtrigger
-
-        Output when a subcomponent is triggered and when finished.
-
-    --s or --sanitycheck
-
-     -s or --sym <symFile>
-
-        Filename of the debuging symbols file generated by circom.
-
-        Default: circuit.sym
-
-generate a proof command
-========================
-
-    snarkjs proof <options>
-
-    --wt or --witness
-
-        Input filename used to calculate the proof.
-
-        Default: witness.json
-
-    --pk or --provingkey <provingKeyFile>
-
-        Input filename with the proving key (generated during the setup).
-
-        Default: proving_key.json
-
-    -p or --proof
-
-        Output filename with the zero-knowledge proof.
-
-        Default: proof.json
-
-    --pub or --public <publicFilename>
-
-        Output filename with the value of the public wires/signals.
-        This info will be needed to verify the proof.
-
-        Default: public.json
-
-    --verbose
-
-        Print verbose to screen
-
-verify command
-==============
-
-    snarkjs verify <options>
-
-    The command returns "OK" if the proof is valid
-    and  "INVALID" in case it is not a valid proof.
-
-    --vk or --verificationkey <verificationKeyFile>
-
-        Input filename with the verification key (generated during the setup).
-
-        Default: verification_key.json
-
-    -p or --proof
-
-        Input filename with the zero-knowledge proof you want to verify.
-
-        Default: proof.json
-
-    --pub or --public <publicFilename>
-
-        Input filename with the public wires/signals.
-
-        Default: public.json
-
-
-generate solidity verifier command
-==================================
-
-    snarkjs generateverifier <options>
-
-    Generates a solidity smart contract that verifies the zero-knowledge proof.
-
-    --vk or --verificationkey <verificationKeyFile>
-
-        Input filename with the verification key (generated during the setup).
-
-        Default: verification_key.json
-
-    -v or --verifier
-
-        Output file with a solidity smart contract that verifies a zero-knowledge proof.
-
-        Default: verifier.sol
-
-
-generate call parameters
-========================
-
-    snarkjs generatecall <options>
-
-    Outputs into the console the raw parameters to be used in 'verifyProof'
-    method of the solidity verifier function.
-
-    -p or --proof
-
-        Input filename with the zero-knowledge proof you want to use.
-
-        Default: proof.json
-
-    --pub or --public <publicFilename>
-
-        Input filename with the public wires/signals.
-
-        Default: public.json
-
-circuit info
-============
-
-    snarkjs info <options>
-
-    Print statistics of a circuit.
-
-    -r or --r1cs <r1csFile>
-
-        Filename of the compiled circuit file generated by circom.
-
-        Default: circuit.r1cs
-
-print constraints
-=================
-
-    snarkjs printconstraints <options>
-
-    Print all the constraints of a given circuit.
-
-    -r or --r1cs <r1csFile>
-
-        Filename of the compiled circuit file generated by circom.
-
-        Default: circuit.r1cs
-
-    -s or --sym <symFile>
-
-        Filename of the debuging symbols file generated by circom.
-
-        Default: circuit.sym
-        `)
-    .alias("r", "r1cs")
-    .alias("s", "sym")
-    .alias("pk", "provingkey")
-    .alias("vk", "verificationkey")
-    .alias("wt", "witness")
-    .alias("ws", "wasm")
-    .alias("p", "proof")
-    .alias("i", "input")
-    .alias("pub", "public")
-    .alias("v", "verifier")
-    .alias("lo", "logoutput")
-    .alias("lg", "logget")
-    .alias("ls", "logset")
-    .alias("lt", "logtrigger")
-    .help("h")
-    .alias("h", "help")
-
-    .epilogue(`Copyright (C) 2018  0kims association
-    This program comes with ABSOLUTELY NO WARRANTY;
-    This is free software, and you are welcome to redistribute it
-    under certain conditions; see the COPYING file in the official
-    repo directory at  https://github.com/iden3/circom `)
-    .argv;
-
-const r1csName = (argv.r1cs) ? argv.r1cs : "circuit.r1cs";
-const symName = (argv.sym) ? argv.sym : "circuit.sym";
-const provingKeyName = (argv.provingkey) ? argv.provingkey : "proving_key.json";
-const verificationKeyName = (argv.verificationkey) ? argv.verificationkey : "verification_key.json";
-const inputName = (argv.input) ? argv.input : "input.json";
-const wasmName = (argv.wasm) ? argv.wasm : "circuit.wasm";
-const witnessName = (argv.witness) ? argv.witness : "witness.json";
-const proofName = (argv.proof) ? argv.proof : "proof.json";
-const publicName = (argv.public) ? argv.public : "public.json";
-const verifierName = (argv.verifier) ? argv.verifier : "verifier.sol";
-const protocol = (argv.protocol) ? argv.protocol : "groth";
-
-run().then(() => {
-    process.exit();
-});
 
 function p256(n) {
     let nstr = n.toString(16);
@@ -303,157 +193,325 @@ function p256(n) {
     return nstr;
 }
 
-async function run() {
-    try {
-        if (argv._[0].toUpperCase() == "INFO") {
-            const cir = await loadR1cs(r1csName);
-
-            console.log(`# Wires: ${cir.nVars}`);
-            console.log(`# Constraints: ${cir.nConstraints}`);
-            console.log(`# Private Inputs: ${cir.nPrvInputs}`);
-            console.log(`# Public Inputs: ${cir.nPubInputs}`);
-            console.log(`# Outputs: ${cir.nOutputs}`);
-
-        } else if (argv._[0].toUpperCase() == "PRINTCONSTRAINTS") {
-            const cir = await loadR1cs(r1csName, true, true);
-
-            const sym = await loadSyms(symName);
-
-            printR1cs(cir, sym);
-        } else if (argv._[0].toUpperCase() == "SETUP") {
-            const cir = await loadR1cs(r1csName, true);
-
-            if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-            const setup = zkSnark[protocol].setup(cir, argv.verbose);
-
-            await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
-            await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
-        } else if (argv._[0].toUpperCase() == "CALCULATEWITNESS") {
-            const wasm = await fs.promises.readFile(wasmName);
-            const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
-
-
-            let options;
-            let sym;
-            if (argv.logset || argv.logget || argv.logtrigger || argv.sanitycheck) {
-                options = {
-                    sanityCheck: true
-                };
-                if (argv.logset) {
-                    if (!sym) sym = await loadSyms(symName);
-                    options.logSetSignal= function(labelIdx, value) {
-                        console.log("SET " + sym.labelIdx2Name[labelIdx] + " <-- " + value.toString());
-                    };
-                }
-                if (argv.logget) {
-                    if (!sym) sym = await loadSyms(symName);
-                    options.logGetSignal= function(varIdx, value) {
-                        console.log("GET " + sym.labelIdx2Name[varIdx] + " --> " + value.toString());
-                    };
-                }
-                if (argv.logtrigger) {
-                    if (!sym) sym = await loadSyms(symName);
-                    options.logStartComponent= function(cIdx) {
-                        console.log("START: " + sym.componentIdx2Name[cIdx]);
-                    };
-                    options.logFinishComponent= function(cIdx) {
-                        console.log("FINISH: " + sym.componentIdx2Name[cIdx]);
-                    };
-                }
-            }
-
-            const wc = await WitnessCalculatorBuilder(wasm, options);
-
-            const w = await wc.calculateWitness(input);
-
-            await fs.promises.writeFile(witnessName, JSON.stringify(stringifyBigInts(w), null, 1));
-
-        } else if (argv._[0].toUpperCase() == "PROOF") {
-            const witness = unstringifyBigInts(JSON.parse(fs.readFileSync(witnessName, "utf8")));
-            const provingKey = unstringifyBigInts(JSON.parse(fs.readFileSync(provingKeyName, "utf8")));
-
-            const protocol = provingKey.protocol;
-            if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-            const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness, argv.verbose);
-
-            await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-            await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
-        } else if (argv._[0].toUpperCase() == "VERIFY") {
-            const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
-            const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-            const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
-
-            const protocol = verificationKey.protocol;
-            if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-
-            const isValid = zkSnark[protocol].isValid(verificationKey, proof, public);
-
-            if (isValid) {
-                console.log("OK");
-                process.exit(0);
-            } else {
-                console.log("INVALID");
-                process.exit(1);
-            }
-        } else if (argv._[0].toUpperCase() == "GENERATEVERIFIER") {
-
-            const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-
-            let verifierCode;
-            if (verificationKey.protocol == "original") {
-                verifierCode = generateVerifier_original(verificationKey);
-            } else if (verificationKey.protocol == "groth") {
-                verifierCode = generateVerifier_groth(verificationKey);
-            } else if (verificationKey.protocol == "kimleeoh") {
-                verifierCode = generateVerifier_kimleeoh(verificationKey);
-            } else {
-                throw new Error("InvalidProof");
-            }
-
-            fs.writeFileSync(verifierName, verifierCode, "utf-8");
-            process.exit(0);
-
-        } else if (argv._[0].toUpperCase() == "GENERATECALL") {
-
-            const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
-            const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
-
-            let inputs = "";
-            for (let i=0; i<public.length; i++) {
-                if (inputs != "") inputs = inputs + ",";
-                inputs = inputs + p256(public[i]);
-            }
-
-            let S;
-            if ((typeof proof.protocol === "undefined") || (proof.protocol == "original")) {
-                S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-                  `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
-                  `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-                  `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
-                  `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-                  `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
-                  `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
-                  `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
-                  `[${inputs}]`;
-            } else if ((proof.protocol == "groth")||(proof.protocol == "kimleeoh")) {
-                S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-                  `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-                  `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-                  `[${inputs}]`;
-            } else {
-                throw new Error("InvalidProof");
-            }
-
-            console.log(S);
-            process.exit(0);
-        } else {
-            throw new Error("Invalid Command");
-        }
-    } catch(err) {
-        console.log(err.stack);
-        console.log("ERROR: " + err);
-        process.exit(1);
+function changeExt(fileName, newExt) {
+    let S = fileName;
+    while ((S.length>0) && (S[S.length-1] != ".")) S = S.slice(0, S.length-1);
+    if (S.length>0) {
+        return S + newExt;
+    } else {
+        return fileName+"."+newExt;
     }
+}
+
+// r1cs export circomJSON [circuit.r1cs] [circuit.json]
+async function r1csInfo(params, options) {
+    const r1csName = params[0] ||  "circuit.r1cs";
+
+    const cir = await loadR1cs(r1csName);
+
+    console.log(`# Wires: ${cir.nVars}`);
+    console.log(`# Constraints: ${cir.nConstraints}`);
+    console.log(`# Private Inputs: ${cir.nPrvInputs}`);
+    console.log(`# Public Inputs: ${cir.nPubInputs}`);
+    console.log(`# Outputs: ${cir.nOutputs}`);
+
+    return 0;
+}
+
+// r1cs print [circuit.r1cs] [circuit.sym]
+async function r1csPrint(params, options) {
+    const r1csName = params[0] || "circuit.r1cs";
+    const symName = params[2] || changeExt(r1csName, "sym");
+    const cir = await loadR1cs(r1csName, true, true);
+
+    const sym = await loadSyms(symName);
+
+    printR1cs(cir, sym);
+
+    return 0;
+}
+
+// witness calculate <circuit.wasm> <input.json> <witness.wtns>
+async function witnessCalculate(params, options) {
+    const wasmName = params[0] || "circuit.wasm";
+    const inputName = params[1] || "input.json";
+    const witnessName = params[2] || "witness.wtns";
+
+    const wasm = await fs.promises.readFile(wasmName);
+    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+
+    const wc = await WitnessCalculatorBuilder(wasm, options);
+
+    const w = await wc.calculateBinWitness(input);
+    await wtnsFile.writeBin(witnessName, w, wc.prime);
+/*
+    const w = await wc.calculateWitness(input);
+    await wtnsFile.write(witnessName, w, wc.prime);
+*/
+    // fs.promises.writeFile(witnessName, JSON.stringify(stringifyBigInts(w), null, 1));
+
+    return 0;
+}
+
+
+// witness debug <circuit.wasm> <input.json> <witness.wtns> <circuit.sym>
+// -get|g -set|s -trigger|t
+async function witnessDebug(params, options) {
+    const wasmName = params[0] || "circuit.wasm";
+    const inputName = params[1] || "input.json";
+    const witnessName = params[2] || "witness.wtns";
+    const symName = params[3] || changeExt(wasmName, "sym");
+
+    const wasm = await fs.promises.readFile(wasmName);
+    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+
+    let wcOps = {
+        sanityCheck: true
+    };
+    let sym = await loadSyms(symName);
+    if (options.set) {
+        if (!sym) sym = await loadSyms(symName);
+        wcOps.logSetSignal= function(labelIdx, value) {
+            console.log("SET " + sym.labelIdx2Name[labelIdx] + " <-- " + value.toString());
+        };
+    }
+    if (options.get) {
+        if (!sym) sym = await loadSyms(symName);
+        wcOps.logGetSignal= function(varIdx, value) {
+            console.log("GET " + sym.labelIdx2Name[varIdx] + " --> " + value.toString());
+        };
+    }
+    if (options.trigger) {
+        if (!sym) sym = await loadSyms(symName);
+        wcOps.logStartComponent= function(cIdx) {
+            console.log("START: " + sym.componentIdx2Name[cIdx]);
+        };
+        wcOps.logFinishComponent= function(cIdx) {
+            console.log("FINISH: " + sym.componentIdx2Name[cIdx]);
+        };
+    }
+
+    const wc = await WitnessCalculatorBuilder(wasm, wcOps);
+
+    const w = await wc.calculateWitness(input);
+
+    await wtnsFile.write(witnessName, w);
+
+    // await fs.promises.writeFile(witnessName, JSON.stringify(stringifyBigInts(w), null, 1));
+
+    return 0;
+}
+
+
+// zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
+async function zksnarkSetup(params, options) {
+
+    const r1csName = params[0] || "circuit.r1cs";
+    const zkeyName = params[1] || changeExt(r1csName, "zkey");
+    const verificationKeyName = params[2] || "verification_key.json";
+
+    const protocol = options.protocol || "groth16";
+
+    const cir = await loadR1cs(r1csName, true);
+
+    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+    const setup = zkSnark[protocol].setup(cir, options.verbose);
+
+    await zkeyFile.write(zkeyName, setup.vk_proof);
+    // await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
+
+    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
+
+    return 0;
+}
+
+
+// zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
+async function zksnarkProve(params, options) {
+
+    const zkeyName = params[0] || "circuit.zkey";
+    const witnessName = params[1] || "witness.wtns";
+    const proofName = params[2] || "proof.json";
+    const publicName = params[3] || "public.json";
+
+    const witness = await wtnsFile.read(witnessName);
+    // const witness = unstringifyBigInts(JSON.parse(fs.readFileSync(witnessName, "utf8")));
+
+    const provingKey = await zkeyFile.read(zkeyName);
+    // const provingKey = unstringifyBigInts(JSON.parse(fs.readFileSync(provingKeyName, "utf8")));
+
+    const protocol = provingKey.protocol;
+
+    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+    const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness, options.verbose);
+
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+
+    return 0;
+}
+
+// zksnark verify [verification_key.json] [public.json] [proof.json]
+async function zksnarkVerify(params, options) {
+
+    const verificationKeyName = params[0] || "verification_key.json";
+    const publicName = params[0] || "public.json";
+    const proofName = params[0] || "proof.json";
+
+    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
+    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
+    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+
+    const protocol = verificationKey.protocol;
+    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+
+    const isValid = zkSnark[protocol].isValid(verificationKey, proof, pub);
+
+    if (isValid) {
+        console.log("OK");
+        return 0;
+    } else {
+        console.log("INVALID");
+        return 1;
+    }
+}
+
+
+// solidity genverifier <verificationKey.json> <verifier.sol>
+async function solidityGenVerifier(params, options) {
+    let verificationKeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        verificationKeyName = "verification_key.json";
+    } else {
+        verificationKeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.sol";
+    } else {
+        verifierName = params[1];
+    }
+
+    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
+
+    let verifierCode;
+    if (verificationKey.protocol == "original") {
+        verifierCode = generateVerifier_original(verificationKey);
+    } else if (verificationKey.protocol == "groth16") {
+        verifierCode = generateVerifier_groth16(verificationKey);
+    } else if (verificationKey.protocol == "kimleeoh") {
+        verifierCode = generateVerifier_kimleeoh(verificationKey);
+    } else {
+        throw new Error("InvalidProof");
+    }
+
+    fs.writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
+
+// solidity gencall <public.json> <proof.json>
+async function solidityGenCall(params, options) {
+    let publicName;
+    let proofName;
+
+    if (params.length < 1) {
+        publicName = "public.json";
+    } else {
+        publicName = params[0];
+    }
+
+    if (params.length < 2) {
+        proofName = "proof.json";
+    } else {
+        proofName = params[1];
+    }
+
+
+    const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
+    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+
+    let inputs = "";
+    for (let i=0; i<public.length; i++) {
+        if (inputs != "") inputs = inputs + ",";
+        inputs = inputs + p256(public[i]);
+    }
+
+    let S;
+    if ((typeof proof.protocol === "undefined") || (proof.protocol == "original")) {
+        S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+          `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
+          `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+          `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
+          `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+          `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
+          `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
+          `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
+          `[${inputs}]`;
+    } else if ((proof.protocol == "groth16")||(proof.protocol == "kimleeoh")) {
+        S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+          `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+          `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+          `[${inputs}]`;
+    } else {
+        throw new Error("InvalidProof");
+    }
+
+    console.log(S);
+
+    return 0;
+}
+
+async function powersOfTawNew(params, options) {
+    let power;
+    let ptawName;
+
+    power = parseInt(params[0]);
+    if ((power<1) || (power>27)) {
+        throw new Error("Power must be between 1 and 27");
+    }
+
+    if (params.length < 2) {
+        ptawName = "powersOfTaw" + power + "_0000.ptaw";
+    } else {
+        ptawName = params[1];
+    }
+
+    return await powersOfTaw.newAccumulator(bn128, power, ptawName, options.verbose);
+}
+
+async function powersOfTawExportChallange(params, options) {
+    let ptawName;
+    let challangeName;
+
+    ptawName = params[0];
+
+    if (params.length < 2) {
+        challangeName = "challange";
+    } else {
+        challangeName = params[1];
+    }
+
+    return await powersOfTaw.exportChallange(ptawName, challangeName, options.verbose);
+}
+
+
+async function powersOfTawContribute(params, options) {
+    let challangeName;
+    let responseName;
+
+    challangeName = params[0];
+
+    if (params.length < 2) {
+        responseName = changeExt(challangeName, "response");
+    } else {
+        responseName = params[1];
+    }
+
+    return await powersOfTaw.contribute(bn128, challangeName, responseName, options.entropy, options.verbose);
 }
 
 
@@ -514,8 +572,8 @@ function generateVerifier_original(verificationKey) {
 }
 
 
-function generateVerifier_groth(verificationKey) {
-    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
+function generateVerifier_groth16(verificationKey) {
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth16.sol"), "utf-8");
 
 
     const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
@@ -556,7 +614,9 @@ function generateVerifier_groth(verificationKey) {
 }
 
 function generateVerifier_kimleeoh(verificationKey) {
-    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth.sol"), "utf-8");
+
+    assert(false); // Not implemented yet because it requires G2 exponentiation onchain.
+    let template = fs.readFileSync(path.join( __dirname,  "templates", "verifier_groth16.sol"), "utf-8");
 
 
     const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+

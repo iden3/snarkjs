@@ -28,8 +28,10 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
+    "blake2b": "^2.1.3",
     "chai": "^4.2.0",
     "circom_runtime": "0.0.6",
+    "commander": "^5.1.0",
     "escape-string-regexp": "^1.0.5",
     "ffjavascript": "0.1.0",
     "keccak": "^3.0.0",

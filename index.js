@@ -22,10 +22,10 @@ exports.original = {
     genProof: require("./src/prover_original.js"),
     isValid: require("./src/verifier_original.js")
 };
-exports.groth = {
-    setup: require("./src/setup_groth.js"),
-    genProof: require("./src/prover_groth.js"),
-    isValid: require("./src/verifier_groth.js")
+exports.groth16 = {
+    setup: require("./src/setup_groth16.js"),
+    genProof: require("./src/prover_groth16.js"),
+    isValid: require("./src/verifier_groth16.js")
 };
 exports.kimleeoh = {
     setup: require("./src/setup_kimleeoh.js"),
