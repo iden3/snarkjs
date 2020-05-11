@@ -40,5 +40,13 @@ function createKeyPair(curve, personalization, challangeHash, rng ) {
     return k;
 }
 
-module.exports.create = createKeyPair;
+function createPTauKey(curve, challangeHash, rng) {
+    const key = {};
+    key.tau = createKeyPair(curve, 0, challangeHash, rng);
+    key.alpha = createKeyPair(curve, 1, challangeHash, rng);
+    key.beta = createKeyPair(curve, 2, challangeHash, rng);
+    return key;
+}
+
+module.exports.createPTauKey = createPTauKey;
 module.exports.getG2sp = getG2sp;

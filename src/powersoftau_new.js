@@ -1,67 +1,65 @@
 /*
-Header
+Header(1)
     n8
     prime
     power
-    nContributions
-tauG1
-    [(1<<power)*2-1] G1
-tauG2
-    [1<<power] G2
-alfaTauG1
-    [1<<power] G1
-betaTauG1
-    [1<<power] G1
-betaG2
-    [1] G2
-contributions
-    [NContributions]
-    tauG1
-    tauG2
-    alphaTauG1
-    betaTauG1
-    betaG2
-    partialHash
-        state
-    tau_g1s
-    tau_g1sx
-    tau_g2spx
-    alfa_g1s
-    alfa_g1sx
-    alfa_g1spx
-    beta_g1s
-    beta_g1sx
-    beta_g1spx
+tauG1(2)
+    {(1<<power)*2-1} [
+        G1, tau*G1, tau^2 * G1, ....
+    ]
+tauG2(3)
+    {1<<power}[
+        G2, tau*G2, tau^2 * G2, ...
+    ]
+alfaTauG1(4)
+    {1<<power}[
+        alpha*G1, alpha*tau*G1, alpha*tau^2*G1,....
+    ]
+betaTauG1(5)
+    {1<<power} []
+        beta*G1, beta*tau*G1, beta*tau^2*G1, ....
+    ]
+betaG2(6)
+    {1}[
+        beta*G2
+    ]
+contributions(7)
+    NContributions
+    {NContributions}[
+        tau*G1
+        tau*G2
+        alpha*G1
+        beta*G1
+        beta*G2
+        pubKey
+            tau_g1s
+            tau_g1sx
+            tau_g2spx
+            alfa_g1s
+            alfa_g1sx
+            alfa_g1spx
+            beta_g1s
+            beta_g1sx
+            beta_g1spx
+        partialHash (216 bytes) See https://github.com/mafintosh/blake2b-wasm/blob/23bee06945806309977af802bc374727542617c7/blake2b.wat#L9
+        hashNewChallange
+    ]
  */
 
-const fastFile = require("fastfile");
-const Scalar = require("ffjavascript").Scalar;
+const ptauUtils = require("./powersoftau_utils");
 
 
 async function newAccumulator(curve, power, fileName, verbose) {
 
-    const fd = await fastFile.createOverride(fileName);
 
-    await fd.write(Buffer.from("ptau"), 0); // Magic "r1cs"
+    const fd = await ptauUtils.createBinFile(fileName, "ptau", 1, 7);
 
-    await fd.writeULE32(1); // Version
-    await fd.writeULE32(7); // Number of Sections
+    await ptauUtils.writePTauHeader(fd, curve, power, 0);
 
-    // Write the header
-    ///////////
-    await fd.writeULE32(1); // Header type
-    const pHeaderSize = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
-
-    const primeQ = curve.q;
-
-    await fd.writeULE32(curve.F1.n64*8);
-    await fd.write(Scalar.toRprLE(primeQ, curve.F1.n64*8));
-    await fd.writeULE32(power);                    // power
-    await fd.writeULE32(0);                       // Total number of public contributions
-
-    const headerSize = fd.pos - pHeaderSize - 8;
-
+    const buffG1 = new ArrayBuffer(curve.G1.F.n8*2);
+    const buffG2 = new ArrayBuffer(curve.G2.F.n8*2);
+    curve.G1.toRprLEM(buffG1, 0, curve.G1.g);
+    curve.G2.toRprLEM(buffG2, 0, curve.G2.g);
 
     // Write tauG1
     ///////////
@@ -70,7 +68,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     await fd.writeULE64(0); // Temporally set to 0 length
     const nTauG1 = (1 << power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
-        await fd.write(curve.G1.toRprLEM(curve.G1.g));
+        await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG1: " + i);
     }
     const tauG1Size  = fd.pos - pTauG1 -8;
@@ -82,7 +80,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     await fd.writeULE64(0); // Temporally set to 0 length
     const nTauG2 = (1 << power);
     for (let i=0; i< nTauG2; i++) {
-        await fd.write(curve.G2.toRprLEM(curve.G2.g));
+        await fd.write(buffG2);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG2: " + i);
     }
     const tauG2Size  = fd.pos - pTauG2 -8;
@@ -94,7 +92,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     await fd.writeULE64(0); // Temporally set to 0 length
     const nAlfaTauG1 = (1 << power);
     for (let i=0; i< nAlfaTauG1; i++) {
-        await fd.write(curve.G1.toRprLEM(curve.G1.g));
+        await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("alfaTauG1: " + i);
     }
     const alfaTauG1Size  = fd.pos - pAlfaTauG1 -8;
@@ -106,7 +104,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     await fd.writeULE64(0); // Temporally set to 0 length
     const nBetaTauG1 = (1 << power);
     for (let i=0; i< nBetaTauG1; i++) {
-        await fd.write(curve.G1.toRprLEM(curve.G1.g));
+        await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("betaTauG1: " + i);
     }
     const betaTauG1Size  = fd.pos - pBetaTauG1 -8;
@@ -116,18 +114,18 @@ async function newAccumulator(curve, power, fileName, verbose) {
     await fd.writeULE32(6); // betaG2
     const pBetaG2 = fd.pos;
     await fd.writeULE64(0); // Temporally set to 0 length
-    await fd.write(curve.G2.toRprLEM(curve.G2.g));
+    await fd.write(buffG2);
     const betaG2Size  = fd.pos - pBetaG2 -8;
 
     // Contributions
     ///////////
-    await fd.writeULE32(7); // betaG2
+    await fd.writeULE32(7); // Contributions
     const pContributions = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await fd.writeULE64(4); // Temporally set to 4 length
+    await fd.writeULE32(0); // 0 Contributions
     const contributionsSize  = fd.pos - pContributions -8;
 
     // Write sizes
-    await fd.writeULE64(headerSize, pHeaderSize);
     await fd.writeULE64(tauG1Size, pTauG1);
     await fd.writeULE64(tauG2Size, pTauG2);
     await fd.writeULE64(alfaTauG1Size, pAlfaTauG1);

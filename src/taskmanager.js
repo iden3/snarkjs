@@ -49,8 +49,7 @@ function thread(self, fn, modules) {
 
         if (res) {
             if (res.buff) {
-                res.buff = new Uint8Array(res.buff);
-                self.postMessage(res, [res.buff.buffer]);
+                self.postMessage(res, [res.buff]);
             } else {
                 self.postMessage(res);
             }
@@ -120,10 +119,6 @@ async function buildTaskManager(fn, mods, initTask) {
                 return;
             }
 
-            if (data.buff) {
-                data.buff = Buffer.from(data.buff);
-            }
-
             if (tm.workers[i].asyncCb) {
                 tm.workers[i].asyncCb(data).then(()=> {
                     finishTask();
@@ -140,12 +135,10 @@ async function buildTaskManager(fn, mods, initTask) {
 
         tm.workers[i].state = "WORKING";
         if (task.buff) {
-            task.buff = new Uint8Array(task.buff);
-            tm.workers[i].worker.postMessage(task, [task.buff.buffer]);
+            tm.workers[i].worker.postMessage(task, [task.buff]);
         } else {
             tm.workers[i].worker.postMessage(task);
         }
-
     }
 
     for (let i=0; i<concurrency; i++) {

@@ -18,11 +18,12 @@
 
 const fastFile = require("fastfile");
 const assert = require("assert");
-const blake2b = require("blake2b");
+const blake2b = require("blake2b-wasm");
 const readline = require("readline");
 const crypto = require("crypto");
 const ChaCha = require("ffjavascript").ChaCha;
 const fs = require("fs");
+const utils = require("./powersoftau_utils");
 
 
 const buildTaskManager = require("./taskmanager");
@@ -42,6 +43,8 @@ function askEntropy() {
 
 
 async function contribute(curve, challangeFilename, responesFileName, entropy, verbose) {
+    await blake2b.ready();
+
     const MAX_CHUNK_SIZE = 1024;
 
     let stats = await fs.promises.stat(challangeFilename);
@@ -75,19 +78,24 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
     for (let i=0; i<stats.size; i+= fdFrom.pageSize) {
         const s = Math.min(stats.size - i, fdFrom.pageSize);
         const buff = await fdFrom.read(s);
-        challangeHasher.update(buff);
+        challangeHasher.update(new Uint8Array(buff));
     }
 
-    const challangeHash = Buffer.from(challangeHasher.digest());
-    console.log("Challange Hash: " + challangeHash.toString("hex"));
+    const challangeHash = challangeHasher.digest();
+    console.log("Challange Hash: ");
+    console.log(utils.formatHash(challangeHash));
 
-    const claimedHash = await fdFrom.read(64, 0);
-    console.log("Claimed Hash: " + claimedHash.toString("hex"));
+    const claimedHash = new Uint8Array( await fdFrom.read(64, 0));
+    console.log("Claimed Hash: ");
+    console.log(utils.formatHash(claimedHash));
 
     const hasher = blake2b(64);
 
     hasher.update(crypto.randomBytes(64));
-    hasher.update(entropy);
+
+
+    const enc = new TextEncoder(); // always utf-8
+    hasher.update(enc.encode(entropy));
 
     const hash = Buffer.from(hasher.digest());
 
@@ -96,27 +104,26 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
         seed[i] = hash.readUInt32BE(i*4);
     }
 
-    // const rng = new ChaCha(seed);
-    const rng = new ChaCha();
+    const rng = new ChaCha(seed);
 
-
-    const kTau = keyPair.create(curve, 0, challangeHash, rng);
-    const kAlpha = keyPair.create(curve, 1, challangeHash, rng);
-    const kBeta = keyPair.create(curve, 2, challangeHash, rng);
+    const key = keyPair.createPTauKey(curve, challangeHash, rng);
 
     if (verbose) {
-        console.log("kTau.g1_s_x: " + kTau.g1_s[0].toString(16));
-        console.log("kTau.g1_s_y: " + kTau.g1_s[1].toString(16));
-        console.log("kTau.g1_sx_x: " + kTau.g1_sx[0].toString(16));
-        console.log("kTau.g1_sx_y: " + kTau.g1_sx[1].toString(16));
-        console.log("kTau.g2_sp_x_c0: " + kTau.g2_sp[0][0].toString(16));
-        console.log("kTau.g2_sp_x_c1: " + kTau.g2_sp[0][1].toString(16));
-        console.log("kTau.g2_sp_y_c0: " + kTau.g2_sp[1][0].toString(16));
-        console.log("kTau.g2_sp_y_c1: " + kTau.g2_sp[1][1].toString(16));
-        console.log("kTau.g2_spx_x_c0: " + kTau.g2_spx[0][0].toString(16));
-        console.log("kTau.g2_spx_x_c1: " + kTau.g2_spx[0][1].toString(16));
-        console.log("kTau.g2_spx_y_c0: " + kTau.g2_spx[1][0].toString(16));
-        console.log("kTau.g2_spx_y_c1: " + kTau.g2_spx[1][1].toString(16));
+        ["tau", "alpha", "beta"].forEach( (k) => {
+            console.log(k, ".g1_s_x: " + key[k].g1_s[0].toString(16));
+            console.log(k, ".g1_s_y: " + key[k].g1_s[1].toString(16));
+            console.log(k, ".g1_sx_x: " + key[k].g1_sx[0].toString(16));
+            console.log(k, ".g1_sx_y: " + key[k].g1_sx[1].toString(16));
+            console.log(k, ".g2_sp_x_c0: " + key[k].g2_sp[0][0].toString(16));
+            console.log(k, ".g2_sp_x_c1: " + key[k].g2_sp[0][1].toString(16));
+            console.log(k, ".g2_sp_y_c0: " + key[k].g2_sp[1][0].toString(16));
+            console.log(k, ".g2_sp_y_c1: " + key[k].g2_sp[1][1].toString(16));
+            console.log(k, ".g2_spx_x_c0: " + key[k].g2_spx[0][0].toString(16));
+            console.log(k, ".g2_spx_x_c1: " + key[k].g2_spx[0][1].toString(16));
+            console.log(k, ".g2_spx_y_c0: " + key[k].g2_spx[1][0].toString(16));
+            console.log(k, ".g2_spx_y_c1: " + key[k].g2_spx[1][1].toString(16));
+            console.log("");
+        });
     }
 
 
@@ -138,14 +145,14 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
         await taskManager.addTask({
             cmd: "MULG1",
             first: t,
-            inc: kTau.prvKey.toString(),
+            inc: key.tau.prvKey.toString(),
             buff: buff,
             n: n,
             writePos: writePointer
         }, async function(r) {
             return await fdTo.write(r.buff, r.writePos);
         });
-        t = curve.Fr.mul(t, curve.Fr.pow(kTau.prvKey, n));
+        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
         writePointer += n*scG1;
     }
 
@@ -158,19 +165,19 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
         await taskManager.addTask({
             cmd: "MULG2",
             first: t,
-            inc: kTau.prvKey.toString(),
+            inc: key.tau.prvKey.toString(),
             buff: buff,
             n: n,
             writePos: writePointer
         }, async function(r) {
             return await fdTo.write(r.buff, r.writePos);
         });
-        t = curve.Fr.mul(t, curve.Fr.pow(kTau.prvKey, n));
+        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
         writePointer += n*scG2;
     }
 
     // AlphaTauG1
-    t = curve.Fr.e(kAlpha.prvKey);
+    t = curve.Fr.e(key.alpha.prvKey);
     for (let i=0; i<domainSize; i += MAX_CHUNK_SIZE) {
         if ((verbose)&&i) console.log("AlfaTauG1: " + i);
         const n = Math.min(domainSize - i, MAX_CHUNK_SIZE);
@@ -178,19 +185,19 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
         await taskManager.addTask({
             cmd: "MULG1",
             first: t,
-            inc: kTau.prvKey.toString(),
+            inc: key.tau.prvKey.toString(),
             buff: buff,
             n: n,
             writePos: writePointer
         }, async function(r) {
             return await fdTo.write(r.buff, r.writePos);
         });
-        t = curve.Fr.mul(t, curve.Fr.pow(kTau.prvKey, n));
+        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
         writePointer += n*scG1;
     }
 
     // BetaTauG1
-    t = curve.Fr.e(kBeta.prvKey);
+    t = curve.Fr.e(key.beta.prvKey);
     for (let i=0; i<domainSize; i += MAX_CHUNK_SIZE) {
         if ((verbose)&&i) console.log("BetaTauG1: " + i);
         const n = Math.min(domainSize - i, MAX_CHUNK_SIZE);
@@ -198,47 +205,32 @@ async function contribute(curve, challangeFilename, responesFileName, entropy, v
         await taskManager.addTask({
             cmd: "MULG1",
             first: t,
-            inc: kTau.prvKey.toString(),
+            inc: key.tau.prvKey.toString(),
             buff: buff,
             n: n,
             writePos: writePointer
         }, async function(r) {
             return await fdTo.write(r.buff, r.writePos);
         });
-        t = curve.Fr.mul(t, curve.Fr.pow(kTau.prvKey, n));
+        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
         writePointer += n*scG1;
     }
 
     // BetaG2
     const buffOldBeta = await fdFrom.read(sG2);
     const oldBeta = curve.G2.fromRprBE(buffOldBeta);
-    const newBeta = curve.G2.mulScalar(oldBeta, kBeta.prvKey);
-    const buffNewBeta = curve.G2.toRprCompressed(newBeta);
+    const newBeta = curve.G2.mulScalar(oldBeta, key.beta.prvKey);
+    const buffNewBeta = new ArrayBuffer(curve.F2.n8*2);
+    curve.G2.toRprCompressed(buffNewBeta, 0, newBeta);
     await fdTo.write(buffNewBeta, writePointer);
     writePointer += scG2;
 
-    //Write Key
-
-    await fdTo.write(curve.G1.toRprBE(kTau.g1_s), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G1.toRprBE(kTau.g1_sx), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G1.toRprBE(kAlpha.g1_s), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G1.toRprBE(kAlpha.g1_sx), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G1.toRprBE(kBeta.g1_s), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G1.toRprBE(kBeta.g1_sx), writePointer);
-    writePointer += sG1;
-    await fdTo.write(curve.G2.toRprBE(kTau.g2_spx), writePointer);
-    writePointer += sG2;
-    await fdTo.write(curve.G2.toRprBE(kAlpha.g2_spx), writePointer);
-    writePointer += sG2;
-    await fdTo.write(curve.G2.toRprBE(kBeta.g2_spx), writePointer);
-    writePointer += sG2;
-
     await taskManager.finish();
+
+    //Write Key
+    fdTo.pos = writePointer;
+    await utils.writePtauPubKey(fdTo, curve, key);
+
 
     await fdTo.close();
     await fdFrom.close();
@@ -257,16 +249,13 @@ function contributeThread(ctx, task) {
     } else if (task.cmd == "MULG1") {
         const sG1 = ctx.curve.F1.n64*8*2;
         const scG1 = ctx.curve.F1.n64*8; // Compresed size
-        const buffDest = Buffer.allocUnsafe(scG1*task.n);
+        const buffDest = new ArrayBuffer(scG1*task.n);
         let t = ctx.curve.Fr.e(task.first);
         let inc = ctx.curve.Fr.e(task.inc);
         for (let i=0; i<task.n; i++) {
-            const slice = task.buff.slice(i*sG1, (i+1)*sG1);
-            const b = Buffer.from(slice);
-            const P = ctx.curve.G1.fromRprBE(b);
+            const P = ctx.curve.G1.fromRprBE(task.buff, i*sG1);
             const R = ctx.curve.G1.mulScalar(P, t);
-            const bR = ctx.curve.G1.toRprCompressed(R);
-            bR.copy(buffDest, i*scG1);
+            ctx.curve.G1.toRprCompressed(buffDest, i*scG1, R);
             t = ctx.curve.Fr.mul(t, inc);
         }
         return {
@@ -276,16 +265,13 @@ function contributeThread(ctx, task) {
     } else if (task.cmd == "MULG2") {
         const sG2 = ctx.curve.F2.n64*8*2;
         const scG2 = ctx.curve.F2.n64*8; // Compresed size
-        const buffDest = Buffer.allocUnsafe(scG2*task.n);
+        const buffDest = new ArrayBuffer(scG2*task.n);
         let t = ctx.curve.Fr.e(task.first);
         let inc = ctx.curve.Fr.e(task.inc);
         for (let i=0; i<task.n; i++) {
-            const slice = task.buff.slice(i*sG2, (i+1)*sG2);
-            const b = Buffer.from(slice);
-            const P = ctx.curve.G2.fromRprBE(b);
+            const P = ctx.curve.G2.fromRprBE(task.buff, i*sG2);
             const R = ctx.curve.G2.mulScalar(P, t);
-            const bR = ctx.curve.G2.toRprCompressed(R);
-            bR.copy(buffDest, i*scG2);
+            ctx.curve.G2.toRprCompressed(buffDest, i*scG2, R);
             t = ctx.curve.Fr.mul(t, inc);
         }
         return {

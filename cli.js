@@ -122,6 +122,20 @@ const commands = [
         options: "-verbose|v -entropy|e",
         action: powersOfTawContribute
     },
+    {
+        cmd: "powersoftaw import <powersoftaw_old.ptaw> <response> <<powersoftaw_new.ptaw>",
+        description: "import a response to a ptaw file",
+        alias: ["pti"],
+        options: "-verbose|v -nopoints -nocheck",
+        action: powersOfTawImport
+    },
+    {
+        cmd: "powersoftaw verify <powersoftaw.ptaw>",
+        description: "verifies a powers of tau file",
+        alias: ["ptv"],
+        options: "-verbose|v",
+        action: powersOfTawVerify
+    },
 
 ];
 
@@ -512,6 +526,42 @@ async function powersOfTawContribute(params, options) {
     }
 
     return await powersOfTaw.contribute(bn128, challangeName, responseName, options.entropy, options.verbose);
+}
+
+
+async function powersOfTawImport(params, options) {
+    let oldPtauName;
+    let response;
+    let newPtauName;
+    let importPoints = true;
+    let doCheck = true;
+
+    oldPtauName = params[0];
+    response = params[1];
+    newPtauName = params[2];
+
+    if (options.nopoints) importPoints = false;
+    if (options.nocheck) doCheck = false;
+
+    const res = await powersOfTaw.impoertResponse(oldPtauName, response, newPtauName, importPoints, options.verbose);
+
+    if (res) return res;
+    if (!doCheck) return;
+
+    // TODO Verify
+}
+
+async function powersOfTawVerify(params, options) {
+    let ptauName;
+
+    ptauName = params[0];
+
+    const res = await powersOfTaw.verify(ptauName, options.verbose);
+    if (res) {
+        console.log("Powers of tau OK!");
+    } else {
+        console.log("=======>INVALID Powers of tau<==========");
+    }
 }
 
 

@@ -7,71 +7,35 @@
 //     BetaG2 (uncompressed)
 
 const fastFile = require("fastfile");
-const Scalar = require("ffjavascript").Scalar;
 const assert = require("assert");
-const bn128 = require("ffjavascript").bn128;
-const blake2b = require("blake2b");
-const ptauUtils = require("./powersoftau_utils");
+const Blake2b = require("blake2b-wasm");
+const utils = require("./powersoftau_utils");
 
 
 async function exportChallange(pTauFilename, challangeFilename, verbose) {
+    await Blake2b.ready();
+    const {fd: fdFrom, sections} = await utils.readBinFile(pTauFilename, "ptau", 1);
 
-    const sections = ptauUtils.
-    const fdFrom = await fastFile.readExisting(pTauFilename);
+    const {curve, power} = await utils.readPTauHeader(fdFrom, sections);
 
-    const b = await fdFrom.read(4);
-
-    if (b.toString() != "ptau") assert(false, "Invalid File format");
-
-    let v = await fdFrom.readULE32();
-
-    if (v>1) assert(false, "Version not supported");
-
-    const nSections = await fdFrom.readULE32();
-
-    // Scan sections
-    let sections = [];
-    for (let i=0; i<nSections; i++) {
-        let ht = await fdFrom.readULE32();
-        let hl = await fdFrom.readULE64();
-        if (typeof sections[ht] == "undefined") sections[ht] = [];
-        sections[ht].push({
-            p: fdFrom.pos,
-            size: hl
-        });
-        fdFrom.pos += hl;
-    }
-
-    if (!sections[1])  assert(false, "File has no  header");
-    if (sections[1].length>1) assert(false, "File has more than one header");
-
-    fdFrom.pos = sections[1][0].p;
-    const n8 = await fdFrom.readULE32();
-    const qBuff = await fdFrom.read(n8);
-    const q = Scalar.fromRprLE(qBuff);
-    let curve;
-    if (Scalar.eq(q, bn128.q)) {
-        curve = bn128;
-    } else {
-        assert(false, "Curve not supported");
-    }
-    assert(curve.F1.n64*8 == n8, "Invalid size");
-
-    const power = await fdFrom.readULE32();
-    const nContributions = await fdFrom.readULE32();
-
+    const contributions = await utils.readContributions(fdFrom, curve, sections);
     let challangeHash;
-    if (nContributions == 0) {
-        challangeHash = Buffer.from(blake2b(64).digest());
+    if (contributions.length == 0) {
+        challangeHash = Blake2b(64).digest();
     } else {
-        assert(false, "Not implemented");
+        challangeHash = contributions[contributions.length-1].newChallange;
     }
 
     const fdTo = await fastFile.createOverride(challangeFilename);
 
-    const toHash = blake2b(64);
+    const toHash = Blake2b(64);
     fdTo.write(challangeHash);
     toHash.update(challangeHash);
+
+    const buffG1 = new ArrayBuffer(curve.F1.n8*2);
+    const buffG1v = new Uint8Array(buffG1);
+    const buffG2 = new ArrayBuffer(curve.F2.n8*2);
+    const buffG2v = new Uint8Array(buffG2);
 
     // Process tauG1
     if (!sections[2])  assert(false, "File has no tauG1 section");
@@ -136,26 +100,27 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
 
     console.log("Challange Hash: " +newChallangeHash);
 
+
     async function readG1() {
-        const pBuff = await fdFrom.read(curve.F1.n64*8*2);
+        const pBuff = await fdFrom.read(curve.F1.n8*2);
         return curve.G1.fromRprLEM( pBuff );
     }
 
     async function readG2() {
-        const pBuff = await fdFrom.read(curve.F1.n64*8*2*2);
+        const pBuff = await fdFrom.read(curve.F2.n8*2);
         return curve.G2.fromRprLEM( pBuff );
     }
 
     async function writeG1(p) {
-        const rpr = curve.G1.toRprBE(p);
-        await fdTo.write(rpr);
-        toHash.update(rpr);
+        curve.G1.toRprBE(buffG1, 0, p);
+        await fdTo.write(buffG1);
+        toHash.update(buffG1v);
     }
 
     async function writeG2(p) {
-        const rpr = curve.G2.toRprBE(p);
-        await fdTo.write(rpr);
-        toHash.update(rpr);
+        curve.G2.toRprBE(buffG2, 0, p);
+        await fdTo.write(buffG2);
+        toHash.update(buffG2v);
     }
 
 }
