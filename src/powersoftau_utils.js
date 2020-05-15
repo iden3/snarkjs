@@ -3,6 +3,9 @@ const assert = require("assert");
 const Scalar = require("ffjavascript").Scalar;
 const bn128 = require("ffjavascript").bn128;
 const Blake2b = require("blake2b-wasm");
+const ChaCha = require("ffjavascript").ChaCha;
+const keyPair = require("./keypair");
+const crypto = require("crypto");
 
 async function readBinFile(fileName, type, maxVersion) {
 
@@ -103,43 +106,6 @@ async function readPtauPubKey(fd, curve, montgomery) {
     const buff = await fd.read(curve.F1.n8*2*6 + curve.F2.n8*2*3);
 
     return fromPtauPubKeyRpr(buff, 0, curve, montgomery);
-/*
-    const key = {
-        tau: {},
-        alpha: {},
-        beta: {}
-    };
-
-    key.tau.g1_s = await readG1();
-    key.tau.g1_sx = await readG1();
-    key.alpha.g1_s = await readG1();
-    key.alpha.g1_sx = await readG1();
-    key.beta.g1_s = await readG1();
-    key.beta.g1_sx = await readG1();
-    key.tau.g2_spx = await readG2();
-    key.alpha.g2_spx = await readG2();
-    key.beta.g2_spx = await readG2();
-
-    return key;
-
-    async function readG1() {
-        const pBuff = await fd.read(curve.F1.n8*2);
-        if (montgomery) {
-            return curve.G1.fromRprLEM( pBuff );
-        } else {
-            return curve.G1.fromRprBE( pBuff );
-        }
-    }
-
-    async function readG2() {
-        const pBuff = await fd.read(curve.F2.n8*2);
-        if (montgomery) {
-            return curve.G2.fromRprLEM( pBuff );
-        } else {
-            return curve.G2.fromRprBE( pBuff );
-        }
-    }
-*/
 }
 
 function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
@@ -222,38 +188,6 @@ async function writePtauPubKey(fd, curve, key, montgomery) {
     const buff = new ArrayBuffer(curve.F1.n8*2*6 + curve.F2.n8*2*3);
     toPtauPubKeyRpr(buff, 0, curve, key, montgomery);
     await fd.write(buff);
-/*
-    const buffG1 = new ArrayBuffer(curve.F1.n8*2);
-    const buffG2 = new ArrayBuffer(curve.F2.n8*2);
-
-    await writeG1(key.tau.g1_s);
-    await writeG1(key.tau.g1_sx);
-    await writeG1(key.alpha.g1_s);
-    await writeG1(key.alpha.g1_sx);
-    await writeG1(key.beta.g1_s);
-    await writeG1(key.beta.g1_sx);
-    await writeG2(key.tau.g2_spx);
-    await writeG2(key.alpha.g2_spx);
-    await writeG2(key.beta.g2_spx);
-
-    async function writeG1(p) {
-        if (montgomery) {
-            curve.G1.toRprLEM(buffG1, 0, p);
-        } else {
-            curve.G1.toRprBE(buffG1, 0, p);
-        }
-        await fd.write(buffG1);
-    }
-
-    async function writeG2(p) {
-        if (montgomery) {
-            curve.G2.toRprLEM(buffG2, 0, p);
-        } else {
-            curve.G2.toRprBE(buffG2, 0, p);
-        }
-        await fd.write(buffG2);
-    }
-*/
 }
 
 async function readContribution(fd, curve) {
@@ -267,6 +201,32 @@ async function readContribution(fd, curve) {
     c.key = await readPtauPubKey(fd, curve, true);
     c.partialHash = new Uint8Array(await fd.read(216));
     c.nextChallange = new Uint8Array(await fd.read(64));
+    c.type = await fd.readULE32();
+
+    const paramLength = await fd.readULE32();
+    const curPos = fd.pos;
+    let lastType =0;
+    while (fd.pos-curPos < paramLength) {
+        const buffType = await readDV(1);
+        if (buffType[0]<= lastType) throw new Error("Parameters in the contribution must be sorted");
+        lastType = buffType[0];
+        if (buffType[0]==1) {     // Name
+            const buffLen = await readDV(1);
+            const buffStr = await readDV(buffLen[0]);
+            c.name = new TextDecoder().decode(buffStr);
+        } else if (buffType[0]==2) {
+            const buffExp = await readDV(1);
+            c.numIterationsExp = buffExp[0];
+        } else if (buffType[0]==3) {
+            const buffLen = await readDV(1);
+            c.beaconHash = await readDV(buffLen[0]);
+        } else {
+            throw new Error("Parameter not recognized");
+        }
+    }
+    if (fd.pos != curPos + paramLength) {
+        throw new Error("Parametes do not match");
+    }
 
     return c;
 
@@ -278,6 +238,11 @@ async function readContribution(fd, curve) {
     async function readG2() {
         const pBuff = await fd.read(curve.F2.n8*2);
         return curve.G2.fromRprLEM( pBuff );
+    }
+
+    async function readDV(n) {
+        const b = await fd.read(n);
+        return new Uint8Array(b);
     }
 }
 
@@ -311,6 +276,30 @@ async function writeContribution(fd, curve, contribution) {
     await writePtauPubKey(fd, curve, contribution.key, true);
     await fd.write(contribution.partialHash);
     await fd.write(contribution.nextChallange);
+    await fd.writeULE32(contribution.type || 0);
+
+    const params = [];
+    if (contribution.name) {
+        params.push(1);      // Param Name
+        const nameData = new TextEncoder("utf-8").encode(contribution.name.substring(0,64));
+        params.push(nameData.byteLength);
+        for (let i=0; i<nameData.byteLength; i++) params.push(nameData[i]);
+    }
+    if (contribution.type == 1) {
+        params.push(2);      // Param numIterationsExp
+        params.push(contribution.numIterationsExp);
+
+        params.push(3);      // Beacon Hash
+        params.push(contribution.beaconHash.byteLength);
+        for (let i=0; i<contribution.beaconHash.byteLength; i++) params.push(contribution.beaconHash[i]);
+    }
+    if (params.length>0) {
+        const paramsBuff = new Uint8Array(params);
+        await fd.writeULE32(paramsBuff.byteLength);
+        await fd.write(paramsBuff);
+    } else {
+        await fd.writeULE32(0);
+    }
 
 
     async function writeG1(p) {
@@ -352,7 +341,7 @@ function formatHash(b) {
         S += "\t\t";
         for (let j=0; j<4; j++) {
             if (j>0) S += " ";
-            S += a.getUint32(i*4+j).toString(16).padStart(8, "0");
+            S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
         }
     }
     return S;
@@ -394,6 +383,38 @@ function calculateFirstChallangeHash(curve, power) {
     return hasher.digest();
 }
 
+
+function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
+    let nIterationsInner;
+    let nIterationsOuter;
+    if (numIterationsExp<32) {
+        nIterationsInner = (1 << numIterationsExp) >>> 0;
+        nIterationsOuter = 1;
+    } else {
+        nIterationsInner = 0x100000000;
+        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
+    }
+
+    let curHash = beaconHash;
+    for (let i=0; i<nIterationsOuter; i++) {
+        for (let j=0; j<nIterationsInner; j++) {
+            curHash = crypto.createHash("sha256").update(curHash).digest();
+        }
+    }
+
+    const curHashV = new DataView(curHash.buffer);
+    const seed = [];
+    for (let i=0; i<8; i++) {
+        seed[i] = curHashV.getUint32(i*4, false);
+    }
+
+    const rng = new ChaCha(seed);
+
+    const key = keyPair.createPTauKey(curve, challangeHash, rng);
+
+    return key;
+}
+
 module.exports.readBinFile = readBinFile;
 module.exports.createBinFile = createBinFile;
 module.exports.readPTauHeader = readPTauHeader;
@@ -407,4 +428,5 @@ module.exports.hashIsEqual = hashIsEqual;
 module.exports.calculateFirstChallangeHash = calculateFirstChallangeHash;
 module.exports.toPtauPubKeyRpr = toPtauPubKeyRpr;
 module.exports.fromPtauPubKeyRpr = fromPtauPubKeyRpr;
+module.exports.keyFromBeacon = keyFromBeacon;
 

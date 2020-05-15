@@ -116,17 +116,17 @@ const commands = [
         action: powersOfTawExportChallange
     },
     {
-        cmd: "powersoftaw contribute <challange> [response]",
+        cmd: "powersoftaw challange contribute <challange> [response]",
         description: "Contribute to a challange",
-        alias: ["ptc"],
+        alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
-        action: powersOfTawContribute
+        action: powersOfTawChallangeContribute
     },
     {
         cmd: "powersoftaw import <powersoftaw_old.ptaw> <response> <<powersoftaw_new.ptaw>",
         description: "import a response to a ptaw file",
         alias: ["pti"],
-        options: "-verbose|v -nopoints -nocheck",
+        options: "-verbose|v -nopoints -nocheck -description|d -name|n",
         action: powersOfTawImport
     },
     {
@@ -135,6 +135,20 @@ const commands = [
         alias: ["ptv"],
         options: "-verbose|v",
         action: powersOfTawVerify
+    },
+    {
+        cmd: "powersoftaw beacon <old_powersoftaw.ptaw> <new_powersoftaw.ptaw> <beaconHash(Hex)> <numIterationsExp>",
+        description: "adds a beacon",
+        alias: ["ptb"],
+        options: "-verbose|v -name|n",
+        action: powersOfTawBeacon
+    },
+    {
+        cmd: "powersoftaw contribute <powersoftaw.ptaw> <new_powersoftaw.ptaw>",
+        description: "verifies a powers of tau file",
+        alias: ["ptc"],
+        options: "-verbose|v -name|n -entropy|e",
+        action: powersOfTawContribute
     },
 
 ];
@@ -513,7 +527,7 @@ async function powersOfTawExportChallange(params, options) {
 }
 
 
-async function powersOfTawContribute(params, options) {
+async function powersOfTawChallangeContribute(params, options) {
     let challangeName;
     let responseName;
 
@@ -525,7 +539,7 @@ async function powersOfTawContribute(params, options) {
         responseName = params[1];
     }
 
-    return await powersOfTaw.contribute(bn128, challangeName, responseName, options.entropy, options.verbose);
+    return await powersOfTaw.challangeContribute(bn128, challangeName, responseName, options.entropy, options.verbose);
 }
 
 
@@ -543,7 +557,7 @@ async function powersOfTawImport(params, options) {
     if (options.nopoints) importPoints = false;
     if (options.nocheck) doCheck = false;
 
-    const res = await powersOfTaw.impoertResponse(oldPtauName, response, newPtauName, importPoints, options.verbose);
+    const res = await powersOfTaw.impoertResponse(oldPtauName, response, newPtauName, options.name, importPoints, options.verbose);
 
     if (res) return res;
     if (!doCheck) return;
@@ -562,6 +576,30 @@ async function powersOfTawVerify(params, options) {
     } else {
         console.log("=======>INVALID Powers of tau<==========");
     }
+}
+
+async function powersOfTawBeacon(params, options) {
+    let oldPtauName;
+    let newPtauName;
+    let beaconHashStr;
+    let numIterationsExp;
+
+    oldPtauName = params[0];
+    newPtauName = params[1];
+    beaconHashStr = params[2];
+    numIterationsExp = params[3];
+
+    return await powersOfTaw.beacon(oldPtauName, newPtauName, options.name ,numIterationsExp, beaconHashStr, options.verbose);
+}
+
+async function powersOfTawContribute(params, options) {
+    let oldPtauName;
+    let newPtauName;
+
+    oldPtauName = params[0];
+    newPtauName = params[1];
+
+    return await powersOfTaw.contribute(oldPtauName, newPtauName, options.name , options.entropy, options.verbose);
 }
 
 

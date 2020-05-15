@@ -10,7 +10,49 @@ function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
 }
 
 function verifyContribution(curve, cur, prev) {
-    // TODO
+
+    if (cur.type == 1) {    // Verify the beacon.
+        const beaconKey = utils.keyFromBeacon(curve, prev.nextChallange, cur.beaconHash, cur.numIterationsExp);
+
+        if (!curve.G1.eq(cur.key.tau.g1_s, beaconKey.tau.g1_s)) {
+            console.log(`BEACON key (tauG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G1.eq(cur.key.tau.g1_sx, beaconKey.tau.g1_sx)) {
+            console.log(`BEACON key (tauG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G2.eq(cur.key.tau.g2_spx, beaconKey.tau.g2_spx)) {
+            console.log(`BEACON key (tauG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+
+        if (!curve.G1.eq(cur.key.alpha.g1_s, beaconKey.alpha.g1_s)) {
+            console.log(`BEACON key (alphaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G1.eq(cur.key.alpha.g1_sx, beaconKey.alpha.g1_sx)) {
+            console.log(`BEACON key (alphaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G2.eq(cur.key.alpha.g2_spx, beaconKey.alpha.g2_spx)) {
+            console.log(`BEACON key (alphaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+
+        if (!curve.G1.eq(cur.key.beta.g1_s, beaconKey.beta.g1_s)) {
+            console.log(`BEACON key (betaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G1.eq(cur.key.beta.g1_sx, beaconKey.beta.g1_sx)) {
+            console.log(`BEACON key (betaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+        if (!curve.G2.eq(cur.key.beta.g2_spx, beaconKey.beta.g2_spx)) {
+            console.log(`BEACON key (betaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            return false;
+        }
+    }
 
     cur.key.tau.g2_sp = keyPair.getG2sp(0, prev.nextChallange, cur.key.tau.g1_s, cur.key.tau.g1_sx);
     cur.key.alpha.g2_sp = keyPair.getG2sp(1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx);
@@ -32,22 +74,22 @@ function verifyContribution(curve, cur, prev) {
     }
 
     if (!sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx)) {
-        console.log("INVALID tau*G1. challange #"+cur.id+"It does not follow the previous contribution");
+        console.log("INVALID tau*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     if (!sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2,)) {
-        console.log("INVALID tau*G2. challange #"+cur.id+"It does not follow the previous contribution");
+        console.log("INVALID tau*G2. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     if (!sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx)) {
-        console.log("INVALID alpha*G1. challange #"+cur.id+"It does not follow the previous contribution");
+        console.log("INVALID alpha*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     if (!sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx)) {
-        console.log("INVALID beta*G1. challange #"+cur.id+"It does not follow the previous contribution");
+        console.log("INVALID beta*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
@@ -200,7 +242,7 @@ async function verify(tauFilename, verbose) {
 
     function printContribution(curContr, prevContr) {
         console.log("-----------------------------------------------------");
-        console.log(`Contribution #${curContr.id}:`);
+        console.log(`Contribution #${curContr.id}: ${curContr.name ||""}`);
         console.log("\tNext Challange");
         console.log(utils.formatHash(curContr.nextChallange));
 
@@ -405,13 +447,13 @@ function verifyThread(ctx, task) {
 
         function loadPage(p) {
             seed[0] = p;
-            const rng = new ctx.modules.ffjavascript.ChaCha(seed);
-            for (let i=0; i<16; i++) {
-                pages[nextLoad][i] = rng.nextU32();
-            }
             const c = nextLoad;
             nextLoad = (nextLoad+1) % nPages;
-            pageId[nextLoad] = p;
+            const rng = new ctx.modules.ffjavascript.ChaCha(seed);
+            for (let i=0; i<16; i++) {
+                pages[c][i] = rng.nextU32();
+            }
+            pageId[c] = p;
             return c;
         }
 
@@ -419,7 +461,7 @@ function verifyThread(ctx, task) {
             const page = n>>4;
             let idx = pageId.indexOf(page);
             if (idx < 0) idx = loadPage(page);
-            return pages[page][n & 0xF] % (NSet-1);
+            return pages[idx][n & 0xF] % (NSet-1);
         };
 
     }

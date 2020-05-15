@@ -1,33 +1,10 @@
-// Format of the output
-//      Hash of the last contribution  64 Bytes
-//      2^N*2-1 TauG1 Points (compressed)
-//      2^N TauG2 Points (compressed)
-//      2^N AlphaTauG1 Points (compressed)
-//      2^N BetaTauG1 Points (compressed)
-//      Public Key
-//          BetaG2 (compressed)
-//          G1*s (compressed)
-//          G1*s*tau (compressed)
-//          G1*t (compressed)
-//          G1*t*alpha (compressed)
-//          G1*u (compressed)
-//          G1*u*beta (compressed)
-//          G2*sp*tau (compressed)
-//          G2*tp*alpha (compressed)
-//          G2*up*beta (compressed)
-
-const fastFile = require("fastfile");
-const assert = require("assert");
-const blake2b = require("blake2b-wasm");
-const readline = require("readline");
-const crypto = require("crypto");
-const ChaCha = require("ffjavascript").ChaCha;
-const fs = require("fs");
+const Blake2b = require("blake2b-wasm");
 const utils = require("./powersoftau_utils");
-
-
-const buildTaskManager = require("./taskmanager");
+const wasmSnark = require("wasmsnark");
+const ChaCha = require("ffjavascript").ChaCha;
+const crypto = require("crypto");
 const keyPair = require("./keypair");
+const readline = require("readline");
 
 
 const rl = readline.createInterface({
@@ -41,245 +18,125 @@ function askEntropy() {
     });
 }
 
+async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbose) {
+    await Blake2b.ready();
 
-async function contribute(curve, challangeFilename, responesFileName, entropy, verbose) {
-    await blake2b.ready();
+    const {fd: fdOld, sections} = await utils.readBinFile(oldPtauFilename, "ptau", 1);
+    const {curve, power} = await utils.readPTauHeader(fdOld, sections);
+    if (curve.name == "bn128") {
+        wasmCurve = await wasmSnark.buildBn128();
+    } else {
+        throw new Error("Curve not supported");
+    }
+    const contributions = await utils.readContributions(fdOld, curve, sections);
+    const curContribution = {
+        name: name,
+        type: 0, // Beacon
+    };
 
-    const MAX_CHUNK_SIZE = 1024;
+    let lastChallangeHash;
 
-    let stats = await fs.promises.stat(challangeFilename);
-
-    const sG1 = curve.F1.n64*8*2;
-    const scG1 = curve.F1.n64*8; // Compresed size
-    const sG2 = curve.F2.n64*8*2;
-    const scG2 = curve.F2.n64*8; // Compresed size
-    const domainSize = (stats.size + sG1 - 64 - sG2) / (4*sG1 + sG2);
-    let e = domainSize;
-    let power = 0;
-    while (e>1) {
-        e = e /2;
-        power += 1;
+    if (contributions.length>0) {
+        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+    } else {
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power);
     }
 
-    assert(1<<power == domainSize, "Invalid file size");
-
-    const fdFrom = await fastFile.readExisting(challangeFilename);
-
-    const fdTo = await fastFile.createOverride(responesFileName);
-    let writePointer = 0;
-
+    // Generate a random key
     while (!entropy) {
         entropy = await askEntropy();
     }
-
-    // Calculate the hash
-    console.log("Hashing challange");
-    const challangeHasher = blake2b(64);
-    for (let i=0; i<stats.size; i+= fdFrom.pageSize) {
-        const s = Math.min(stats.size - i, fdFrom.pageSize);
-        const buff = await fdFrom.read(s);
-        challangeHasher.update(new Uint8Array(buff));
-    }
-
-    const challangeHash = challangeHasher.digest();
-    console.log("Challange Hash: ");
-    console.log(utils.formatHash(challangeHash));
-
-    const claimedHash = new Uint8Array( await fdFrom.read(64, 0));
-    console.log("Claimed Hash: ");
-    console.log(utils.formatHash(claimedHash));
-
-    const hasher = blake2b(64);
-
+    const hasher = Blake2b(64);
     hasher.update(crypto.randomBytes(64));
-
-
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
-
     const hash = Buffer.from(hasher.digest());
 
     const seed = [];
     for (let i=0;i<8;i++) {
         seed[i] = hash.readUInt32BE(i*4);
     }
-
-    const rng = new ChaCha(seed);
-
-    const key = keyPair.createPTauKey(curve, challangeHash, rng);
-
-    if (verbose) {
-        ["tau", "alpha", "beta"].forEach( (k) => {
-            console.log(k, ".g1_s_x: " + key[k].g1_s[0].toString(16));
-            console.log(k, ".g1_s_y: " + key[k].g1_s[1].toString(16));
-            console.log(k, ".g1_sx_x: " + key[k].g1_sx[0].toString(16));
-            console.log(k, ".g1_sx_y: " + key[k].g1_sx[1].toString(16));
-            console.log(k, ".g2_sp_x_c0: " + key[k].g2_sp[0][0].toString(16));
-            console.log(k, ".g2_sp_x_c1: " + key[k].g2_sp[0][1].toString(16));
-            console.log(k, ".g2_sp_y_c0: " + key[k].g2_sp[1][0].toString(16));
-            console.log(k, ".g2_sp_y_c1: " + key[k].g2_sp[1][1].toString(16));
-            console.log(k, ".g2_spx_x_c0: " + key[k].g2_spx[0][0].toString(16));
-            console.log(k, ".g2_spx_x_c1: " + key[k].g2_spx[0][1].toString(16));
-            console.log(k, ".g2_spx_y_c0: " + key[k].g2_spx[1][0].toString(16));
-            console.log(k, ".g2_spx_y_c1: " + key[k].g2_spx[1][1].toString(16));
-            console.log("");
-        });
-    }
+//    const rng = new ChaCha(seed);
+    const rng = new ChaCha();
+    curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
 
 
-    await fdTo.write(challangeHash);
-    writePointer += 64;
+    const newChallangeHasher = new Blake2b(64);
+    newChallangeHasher.update(lastChallangeHash);
 
-    const taskManager = await buildTaskManager(contributeThread, {
-        ffjavascript: "ffjavascript"
-    },{
-        curve: curve.name
-    });
+    const responseHasher = new Blake2b(64);
+    responseHasher.update(lastChallangeHash);
 
-    // TauG1
-    let t = curve.Fr.e(1);
-    for (let i=0; i<domainSize*2-1; i += MAX_CHUNK_SIZE) {
-        if ((verbose)&&i) console.log("TauG1: " + i);
-        const n = Math.min(domainSize*2-1 - i, MAX_CHUNK_SIZE);
-        const buff = await fdFrom.read(n*sG1);
-        await taskManager.addTask({
-            cmd: "MULG1",
-            first: t,
-            inc: key.tau.prvKey.toString(),
-            buff: buff,
-            n: n,
-            writePos: writePointer
-        }, async function(r) {
-            return await fdTo.write(r.buff, r.writePos);
-        });
-        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
-        writePointer += n*scG1;
-    }
+    const fdNew = await utils.createBinFile(newPTauFilename, "ptau", 1, 7);
+    await utils.writePTauHeader(fdNew, curve, power);
 
-    // TauG2
-    t = curve.Fr.e(1);
-    for (let i=0; i<domainSize; i += MAX_CHUNK_SIZE) {
-        if ((verbose)&&i) console.log("TauG2: " + i);
-        const n = Math.min(domainSize - i, MAX_CHUNK_SIZE);
-        const buff = await fdFrom.read(n*sG2);
-        await taskManager.addTask({
-            cmd: "MULG2",
-            first: t,
-            inc: key.tau.prvKey.toString(),
-            buff: buff,
-            n: n,
-            writePos: writePointer
-        }, async function(r) {
-            return await fdTo.write(r.buff, r.writePos);
-        });
-        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
-        writePointer += n*scG2;
-    }
+    let firstPoints;
+    firstPoints = await processSection(2, "G1",  (1<<power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1" );
+    curContribution.tauG1 = firstPoints[1];
+    firstPoints = await processSection(3, "G2",  (1<<power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2" );
+    curContribution.tauG2 = firstPoints[1];
+    firstPoints = await processSection(4, "G1",  (1<<power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1" );
+    curContribution.alphaG1 = firstPoints[0];
+    firstPoints = await processSection(5, "G1",  (1<<power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1" );
+    curContribution.betaG1 = firstPoints[0];
+    firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
+    curContribution.betaG2 = firstPoints[0];
 
-    // AlphaTauG1
-    t = curve.Fr.e(key.alpha.prvKey);
-    for (let i=0; i<domainSize; i += MAX_CHUNK_SIZE) {
-        if ((verbose)&&i) console.log("AlfaTauG1: " + i);
-        const n = Math.min(domainSize - i, MAX_CHUNK_SIZE);
-        const buff = await fdFrom.read(n*sG1);
-        await taskManager.addTask({
-            cmd: "MULG1",
-            first: t,
-            inc: key.tau.prvKey.toString(),
-            buff: buff,
-            n: n,
-            writePos: writePointer
-        }, async function(r) {
-            return await fdTo.write(r.buff, r.writePos);
-        });
-        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
-        writePointer += n*scG1;
-    }
+    curContribution.nextChallange = newChallangeHasher.digest();
+    curContribution.partialHash = responseHasher.getPartialHash();
 
-    // BetaTauG1
-    t = curve.Fr.e(key.beta.prvKey);
-    for (let i=0; i<domainSize; i += MAX_CHUNK_SIZE) {
-        if ((verbose)&&i) console.log("BetaTauG1: " + i);
-        const n = Math.min(domainSize - i, MAX_CHUNK_SIZE);
-        const buff = await fdFrom.read(n*sG1);
-        await taskManager.addTask({
-            cmd: "MULG1",
-            first: t,
-            inc: key.tau.prvKey.toString(),
-            buff: buff,
-            n: n,
-            writePos: writePointer
-        }, async function(r) {
-            return await fdTo.write(r.buff, r.writePos);
-        });
-        t = curve.Fr.mul(t, curve.Fr.pow(key.tau.prvKey, n));
-        writePointer += n*scG1;
-    }
+    const buffKey = new ArrayBuffer(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
-    // BetaG2
-    const buffOldBeta = await fdFrom.read(sG2);
-    const oldBeta = curve.G2.fromRprBE(buffOldBeta);
-    const newBeta = curve.G2.mulScalar(oldBeta, key.beta.prvKey);
-    const buffNewBeta = new ArrayBuffer(curve.F2.n8*2);
-    curve.G2.toRprCompressed(buffNewBeta, 0, newBeta);
-    await fdTo.write(buffNewBeta, writePointer);
-    writePointer += scG2;
+    utils.toPtauPubKeyRpr(buffKey, 0, curve, curContribution.key, false);
 
-    await taskManager.finish();
+    responseHasher.update(new Uint8Array(buffKey));
+    const hashResponse = responseHasher.digest();
 
-    //Write Key
-    fdTo.pos = writePointer;
-    await utils.writePtauPubKey(fdTo, curve, key);
+    console.log("Contribution Response Hash imported: ");
+    console.log(utils.formatHash(hashResponse));
 
+    contributions.push(curContribution);
 
-    await fdTo.close();
-    await fdFrom.close();
+    await utils.writeContributions(fdNew, curve, contributions);
 
-}
+    await fdOld.close();
+    await fdNew.close();
 
-function contributeThread(ctx, task) {
-    if (task.cmd == "INIT") {
-        ctx.assert = ctx.modules.assert;
-        if (task.curve == "bn128") {
-            ctx.curve = ctx.modules.ffjavascript.bn128;
-        } else {
-            ctx.assert(false, "curve not defined");
+    return;
+    async function processSection(sectionId, Gstr, NPoints, first, inc, sectionName) {
+        const res = [];
+        fdOld.pos = sections[sectionId][0].p;
+        await fdNew.writeULE32(sectionId); // tauG1
+        const pSection = fdNew.pos;
+        await fdNew.writeULE64(0); // Temporally set to 0 length
+
+        const G = curve[Gstr];
+        const sG = G.F.n8*2;
+        const chunkSize = (1<<27) / sG;   // 128Mb chunks
+        let t = first;
+        for (let i=0 ; i<NPoints ; i+= chunkSize) {
+            if ((verbose)&&i) console.log(`${sectionName}: ` + i);
+            const n= Math.min(NPoints-i, chunkSize );
+            const buffIn = await fdOld.read(n * sG);
+            const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
+            const promiseWrite = fdNew.write(buffOutLEM.buffer);
+            const buffOutU = await G.batchLEMtoU(buffOutLEM);
+            const buffOutC = await G.batchLEMtoC(buffOutLEM);
+
+            newChallangeHasher.update(buffOutU);
+            responseHasher.update(buffOutC);
+            await promiseWrite;
+            if (i==0)   // Return the 2 first points.
+                for (let j=0; j<Math.min(2, NPoints); j++)
+                    res.push(G.fromRprLEM(buffOutLEM.buffer, j*sG));
+            t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
         }
-        return {};
-    } else if (task.cmd == "MULG1") {
-        const sG1 = ctx.curve.F1.n64*8*2;
-        const scG1 = ctx.curve.F1.n64*8; // Compresed size
-        const buffDest = new ArrayBuffer(scG1*task.n);
-        let t = ctx.curve.Fr.e(task.first);
-        let inc = ctx.curve.Fr.e(task.inc);
-        for (let i=0; i<task.n; i++) {
-            const P = ctx.curve.G1.fromRprBE(task.buff, i*sG1);
-            const R = ctx.curve.G1.mulScalar(P, t);
-            ctx.curve.G1.toRprCompressed(buffDest, i*scG1, R);
-            t = ctx.curve.Fr.mul(t, inc);
-        }
-        return {
-            buff: buffDest,
-            writePos: task.writePos
-        };
-    } else if (task.cmd == "MULG2") {
-        const sG2 = ctx.curve.F2.n64*8*2;
-        const scG2 = ctx.curve.F2.n64*8; // Compresed size
-        const buffDest = new ArrayBuffer(scG2*task.n);
-        let t = ctx.curve.Fr.e(task.first);
-        let inc = ctx.curve.Fr.e(task.inc);
-        for (let i=0; i<task.n; i++) {
-            const P = ctx.curve.G2.fromRprBE(task.buff, i*sG2);
-            const R = ctx.curve.G2.mulScalar(P, t);
-            ctx.curve.G2.toRprCompressed(buffDest, i*scG2, R);
-            t = ctx.curve.Fr.mul(t, inc);
-        }
-        return {
-            buff: buffDest,
-            writePos: task.writePos
-        };
-    } else {
-        ctx.assert(false, "Op not implemented");
+
+        const sSize  = fdNew.pos - pSection -8;
+        const lastPos = fdNew.pos;
+        await fdNew.writeULE64(sSize, pSection);
+        fdNew.pos = lastPos;
+        return res;
     }
 
 }

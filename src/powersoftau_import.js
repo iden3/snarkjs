@@ -4,7 +4,7 @@ const Blake2b = require("blake2b-wasm");
 const fs = require("fs");
 const utils = require("./powersoftau_utils");
 
-async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, importPoints, verbose) {
+async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, verbose) {
 
     await Blake2b.ready();
 
@@ -81,6 +81,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
     await fdResponse.close();
     await fdNew.close();
+    await fdOld.close();
 
     async function processSection(fdFrom, fdTo, sectionId, n, G, name, contributionId) {
 

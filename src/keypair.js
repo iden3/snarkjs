@@ -30,9 +30,7 @@ function getG2sp(persinalization, challange, g1s, g1sx) {
 
 }
 
-function createKeyPair(curve, personalization, challangeHash, rng ) {
-    const k = {};
-    k.prvKey= curve.Fr.fromRng(rng);
+function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
     k.g1_s = curve.G1.affine(curve.G1.fromRng(rng));
     k.g1_sx = curve.G1.affine(curve.G1.mulScalar(k.g1_s, k.prvKey));
     k.g2_sp = curve.G2.affine(getG2sp(personalization, challangeHash, k.g1_s, k.g1_sx));
@@ -41,10 +39,17 @@ function createKeyPair(curve, personalization, challangeHash, rng ) {
 }
 
 function createPTauKey(curve, challangeHash, rng) {
-    const key = {};
-    key.tau = createKeyPair(curve, 0, challangeHash, rng);
-    key.alpha = createKeyPair(curve, 1, challangeHash, rng);
-    key.beta = createKeyPair(curve, 2, challangeHash, rng);
+    const key = {
+        tau: {},
+        alpha: {},
+        beta: {}
+    };
+    key.tau.prvKey = curve.Fr.fromRng(rng);
+    key.alpha.prvKey = curve.Fr.fromRng(rng);
+    key.beta.prvKey = curve.Fr.fromRng(rng);
+    calculatePubKey(key.tau, curve, 0, challangeHash, rng);
+    calculatePubKey(key.alpha, curve, 1, challangeHash, rng);
+    calculatePubKey(key.beta, curve, 2, challangeHash, rng);
     return key;
 }
 
