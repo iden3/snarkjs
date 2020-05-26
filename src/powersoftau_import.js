@@ -3,12 +3,13 @@ const fastFile = require("fastfile");
 const Blake2b = require("blake2b-wasm");
 const fs = require("fs");
 const utils = require("./powersoftau_utils");
+const binFileUtils = require("./binfileutils");
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, verbose) {
 
     await Blake2b.ready();
 
-    const {fd: fdOld, sections} = await utils.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdOld, sections);
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const currentContribution = {};
@@ -38,7 +39,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         lastChallangeHash = utils.calculateFirstChallangeHash(curve, power);
     }
 
-    const fdNew = await utils.createBinFile(newPTauFilename, "ptau", 1, 7);
+    const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
     await utils.writePTauHeader(fdNew, curve, power);
 
     const fdResponse = await fastFile.readExisting(contributionFilename);
@@ -48,18 +49,21 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         "Wrong contribution. this contribution is not based on the previus hash");
 
     const hasherResponse = new Blake2b(64);
-    hasherResponse.update(new Uint8Array(contributionPreviousHash));
+    hasherResponse.update(contributionPreviousHash);
 
-    const hasherNewChallange = new Blake2b(64);
-    hasherNewChallange.update(lastChallangeHash);
+    const startSections = [];
+    let res;
+    res = await processSection(fdResponse, fdNew, "G1", 2, (1 << power) * 2 -1, [1], "tauG1");
+    currentContribution.tauG1 = res[0];
+    res = await processSection(fdResponse, fdNew, "G2", 3, (1 << power)       , [1], "tauG2");
+    currentContribution.tauG2 = res[0];
+    res = await processSection(fdResponse, fdNew, "G1", 4, (1 << power)       , [0], "alphaG1");
+    currentContribution.alphaG1 = res[0];
+    res = await processSection(fdResponse, fdNew, "G1", 5, (1 << power)       , [0], "betaG1");
+    currentContribution.betaG1 = res[0];
+    res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
+    currentContribution.betaG2 = res[0];
 
-    await processSection(fdResponse, fdNew, 2, (1 << power) * 2 -1, "G1", "tauG1", 1);
-    await processSection(fdResponse, fdNew, 3, (1 << power)       , "G2", "tauG2", 1);
-    await processSection(fdResponse, fdNew, 4, (1 << power)       , "G1", "alphaG1", 0);
-    await processSection(fdResponse, fdNew, 5, (1 << power)       , "G1", "betaG1", 0);
-    await processSection(fdResponse, fdNew, 6, 1                  , "G2", "betaG2", 0);
-
-    currentContribution.nextChallange = hasherNewChallange.digest();
     currentContribution.partialHash = hasherResponse.getPartialHash();
 
 
@@ -70,10 +74,22 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     hasherResponse.update(new Uint8Array(buffKey));
     const hashResponse = hasherResponse.digest();
 
-    if (verbose) {
-        console.log("Contribution Response Hash imported: ");
-        console.log(utils.formatHash(hashResponse));
-    }
+    console.log("Contribution Response Hash imported: ");
+    console.log(utils.formatHash(hashResponse));
+
+    const nextChallangeHasher = new Blake2b(64);
+    nextChallangeHasher.update(hashResponse);
+
+    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
+    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
+    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1");
+    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
+    await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
+
+    currentContribution.nextChallange = nextChallangeHasher.digest();
+
+    console.log("Next Challange Hash: ");
+    console.log(utils.formatHash(currentContribution.nextChallange));
 
     contributions.push(currentContribution);
 
@@ -83,31 +99,67 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     await fdNew.close();
     await fdOld.close();
 
-    async function processSection(fdFrom, fdTo, sectionId, n, G, name, contributionId) {
+    async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
 
-        const buffU = new ArrayBuffer(curve[G].F.n8*2);
-        const buffUv = new Uint8Array(buffU);
-        const scG = curve[G].F.n8;
+        const G = curve[groupName];
+        const scG = G.F.n8;
+        const sG = G.F.n8*2;
 
-        await fdTo.writeULE32(sectionId); // tauG1
-        const pSection = fdTo.pos;
-        await fdTo.writeULE64(0); // Temporally set to 0 length
-        for (let i=0; i< n; i++) {
-            const buffC = await fdFrom.read(scG);
-            hasherResponse.update(new Uint8Array(buffC));
-            const P = curve[G].fromRprCompressed(buffC);
-            if (i==contributionId) currentContribution[name] = P;
-            curve[G].toRprBE(buffU, 0, P);
-            hasherNewChallange.update(buffUv);
-            curve[G].toRprLEM(buffU, 0, P);
-            await fdTo.write(buffU);
-            if ((verbose)&&((i%100000) == 0)&&i) console.log(name +": " + i);
+        const singularPoints = [];
+
+        await binFileUtils.startWriteSection(fdTo, sectionId);
+        const nPointsChunk = Math.floor((1<<27)/sG);
+
+        startSections[sectionId] = fdTo.pos;
+
+        for (let i=0; i< nPoints; i += nPointsChunk) {
+            if ((verbose)&&i) console.log(`Importing ${sectionName}: ` + i);
+            const n = Math.min(nPoints-i, nPointsChunk);
+
+            const buffC = await fdFrom.read(n * scG);
+            hasherResponse.update(buffC);
+
+            const buffLEM = await G.batchCtoLEM(buffC);
+
+            await fdTo.write(buffLEM);
+            for (let j=0; j<singularPointIndexes.length; j++) {
+                const sp = singularPointIndexes[j];
+                if ((sp >=i) && (sp < i+n)) {
+                    const P = G.fromRprLEM(buffLEM, (sp-i)*sG);
+                    singularPoints.push(P);
+                }
+            }
         }
-        const sSize  = fdTo.pos - pSection -8;
-        const lastPos = fdTo.pos;
-        await fdTo.writeULE64(sSize, pSection);
-        fdTo.pos = lastPos;
+
+        await binFileUtils.endWriteSection(fdTo);
+
+        return singularPoints;
     }
+
+
+    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
+
+        const G = curve[groupName];
+        const sG = G.F.n8*2;
+        const nPointsChunk = Math.floor((1<<27)/sG);
+
+        const oldPos = fdTo.pos;
+        fdTo.pos = startSections[sectionId];
+
+        for (let i=0; i< nPoints; i += nPointsChunk) {
+            if ((verbose)&&i) console.log(`Hashing ${sectionName}: ` + i);
+            const n = Math.min(nPoints-i, nPointsChunk);
+
+            const buffLEM = await fdTo.read(n * sG);
+
+            const buffU = await G.batchLEMtoU(buffLEM);
+
+            nextChallangeHasher.update(buffU);
+        }
+
+        fdTo.pos = oldPos;
+    }
+
 }
 
 module.exports = importResponse;

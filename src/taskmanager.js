@@ -49,7 +49,7 @@ function thread(self, fn, modules) {
 
         if (res) {
             if (res.buff) {
-                self.postMessage(res, [res.buff]);
+                self.postMessage(res, [res.buff.buffer]);
             } else {
                 self.postMessage(res);
             }
@@ -135,7 +135,7 @@ async function buildTaskManager(fn, mods, initTask) {
 
         tm.workers[i].state = "WORKING";
         if (task.buff) {
-            tm.workers[i].worker.postMessage(task, [task.buff]);
+            tm.workers[i].worker.postMessage(task, [task.buff.buffer]);
         } else {
             tm.workers[i].worker.postMessage(task);
         }

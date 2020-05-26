@@ -7,66 +7,22 @@ const ChaCha = require("ffjavascript").ChaCha;
 const keyPair = require("./keypair");
 const crypto = require("crypto");
 
-async function readBinFile(fileName, type, maxVersion) {
-
-    const fd = await fastFile.readExisting(fileName);
-
-    const b = await fd.read(4);
-    const bv = new Uint8Array(b);
-    let readedType = "";
-    for (let i=0; i<4; i++) readedType += String.fromCharCode(bv[i]);
-
-    if (readedType != type) assert(false, fileName + ": Invalid File format");
-
-    let v = await fd.readULE32();
-
-    if (v>maxVersion) assert(false, "Version not supported");
-
-    const nSections = await fd.readULE32();
-
-    // Scan sections
-    let sections = [];
-    for (let i=0; i<nSections; i++) {
-        let ht = await fd.readULE32();
-        let hl = await fd.readULE64();
-        if (typeof sections[ht] == "undefined") sections[ht] = [];
-        sections[ht].push({
-            p: fd.pos,
-            size: hl
-        });
-        fd.pos += hl;
-    }
-
-    return {fd, sections};
-}
-
-async function createBinFile(fileName, type, version, nSections) {
-
-    const fd = await fastFile.createOverride(fileName);
-
-    const buff = new Uint8Array(4);
-    for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
-    await fd.write(buff.buffer, 0); // Magic "r1cs"
-
-    await fd.writeULE32(version); // Version
-    await fd.writeULE32(nSections); // Number of Sections
-
-    return fd;
-}
-
-async function writePTauHeader(fd, curve, power) {
+async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
     ///////////
+
+    if (typeof(ceremonyPower) === "undefined") ceremonyPower = power;
     await fd.writeULE32(1); // Header type
     const pHeaderSize = fd.pos;
     await fd.writeULE64(0); // Temporally set to 0 length
 
     await fd.writeULE32(curve.F1.n64*8);
 
-    const buff = new ArrayBuffer(curve.F1.n8);
+    const buff = new Uint8Array(curve.F1.n8);
     Scalar.toRprLE(buff, 0, curve.q, curve.F1.n8);
     await fd.write(buff);
     await fd.writeULE32(power);                    // power
+    await fd.writeULE32(ceremonyPower);               // power
 
     const headerSize = fd.pos - pHeaderSize - 8;
 
@@ -94,10 +50,11 @@ async function readPTauHeader(fd, sections) {
     assert(curve.F1.n64*8 == n8, fd.fileName +": Invalid size");
 
     const power = await fd.readULE32();
+    const ceremonyPower = await fd.readULE32();
 
     assert.equal(fd.pos-sections[1][0].p, sections[1][0].size);
 
-    return {curve, power};
+    return {curve, power, ceremonyPower};
 }
 
 
@@ -185,7 +142,7 @@ function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
 }
 
 async function writePtauPubKey(fd, curve, key, montgomery) {
-    const buff = new ArrayBuffer(curve.F1.n8*2*6 + curve.F2.n8*2*3);
+    const buff = new Uint8Array(curve.F1.n8*2*6 + curve.F2.n8*2*3);
     toPtauPubKeyRpr(buff, 0, curve, key, montgomery);
     await fd.write(buff);
 }
@@ -199,9 +156,17 @@ async function readContribution(fd, curve) {
     c.betaG1 = await readG1();
     c.betaG2 = await readG2();
     c.key = await readPtauPubKey(fd, curve, true);
-    c.partialHash = new Uint8Array(await fd.read(216));
-    c.nextChallange = new Uint8Array(await fd.read(64));
+    c.partialHash = await fd.read(216);
+    c.nextChallange = await fd.read(64);
     c.type = await fd.readULE32();
+
+    const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
+    toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
+
+    const responseHasher = Blake2b(64);
+    responseHasher.setPartialHash(c.partialHash);
+    responseHasher.update(buffV);
+    c.responseHash = responseHasher.digest();
 
     const paramLength = await fd.readULE32();
     const curPos = fd.pos;
@@ -266,8 +231,8 @@ async function readContributions(fd, curve, sections) {
 
 async function writeContribution(fd, curve, contribution) {
 
-    const buffG1 = new ArrayBuffer(curve.F1.n8*2);
-    const buffG2 = new ArrayBuffer(curve.F2.n8*2);
+    const buffG1 = new Uint8Array(curve.F1.n8*2);
+    const buffG2 = new Uint8Array(curve.F2.n8*2);
     await writeG1(contribution.tauG1);
     await writeG2(contribution.tauG2);
     await writeG1(contribution.alphaG1);
@@ -361,12 +326,10 @@ function hashIsEqual(h1, h2) {
 function calculateFirstChallangeHash(curve, power) {
     const hasher = new Blake2b(64);
 
-    const buffG1 = new ArrayBuffer(curve.G1.F.n8*2);
-    const vG1 = new Uint8Array(buffG1);
-    const buffG2 = new ArrayBuffer(curve.G2.F.n8*2);
-    const vG2 = new Uint8Array(buffG2);
-    curve.G1.toRprBE(buffG1, 0, curve.G1.g);
-    curve.G2.toRprBE(buffG2, 0, curve.G2.g);
+    const vG1 = new Uint8Array(curve.G1.F.n8*2);
+    const vG2 = new Uint8Array(curve.G2.F.n8*2);
+    curve.G1.toRprBE(vG1, 0, curve.G1.g);
+    curve.G2.toRprBE(vG2, 0, curve.G2.g);
 
     const blankHasher = new Blake2b(64);
     hasher.update(blankHasher.digest());
@@ -415,8 +378,6 @@ function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
     return key;
 }
 
-module.exports.readBinFile = readBinFile;
-module.exports.createBinFile = createBinFile;
 module.exports.readPTauHeader = readPTauHeader;
 module.exports.writePTauHeader = writePTauHeader;
 module.exports.readPtauPubKey = readPtauPubKey;

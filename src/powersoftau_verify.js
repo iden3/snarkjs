@@ -4,8 +4,14 @@ const keyPair = require("./keypair");
 const assert = require("assert");
 const crypto = require("crypto");
 const buildTaskManager = require("./taskmanager");
+const binFileUtils = require("./binfileutils");
+const ChaCha = require("ffjavascript").ChaCha;
 
 function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
+    if (curve.G1.isZero(g1s)) return false;
+    if (curve.G1.isZero(g1sx)) return false;
+    if (curve.G2.isZero(g2s)) return false;
+    if (curve.G2.isZero(g2sx)) return false;
     return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
 }
 
@@ -104,8 +110,8 @@ function verifyContribution(curve, cur, prev) {
 async function verify(tauFilename, verbose) {
     await Blake2b.ready();
 
-    const {fd, sections} = await utils.readBinFile(tauFilename, "ptau", 1);
-    const {curve, power} = await utils.readPTauHeader(fd, sections);
+    const {fd, sections} = await binFileUtils.readBinFile(tauFilename, "ptau", 1);
+    const {curve, power, ceremonyPower} = await utils.readPTauHeader(fd, sections);
     const contrs = await utils.readContributions(fd, curve, sections);
 
     if (verbose) console.log("power: 2**" + power);
@@ -118,14 +124,14 @@ async function verify(tauFilename, verbose) {
         alphaG1: curve.G1.g,
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
-        nextChallange: utils.calculateFirstChallangeHash(curve, power)
+        nextChallange: utils.calculateFirstChallangeHash(curve, ceremonyPower),
+        responseHash: Blake2b(64).digest()
     };
 
     if (contrs.length == 0) {
         console.log("This file has no contribution! It cannot be used in production");
         return false;
     }
-
 
     let prevContr;
     if (contrs.length>1) {
@@ -140,7 +146,7 @@ async function verify(tauFilename, verbose) {
 
 
     const nextContributionHasher = Blake2b(64);
-    nextContributionHasher.update(prevContr.nextChallange);
+    nextContributionHasher.update(curContr.responseHash);
     const key = curContr.key;
 
     // Verify powers and compute nextChallangeHash
@@ -150,7 +156,7 @@ async function verify(tauFilename, verbose) {
     // Verify Section tau*G1
     if (verbose) console.log("Verifying powers in tau*G1 section");
     const rTau1 = await processSection(2, "G1", "tauG1", (1 << power)*2-1, [0, 1]);
-    if (!sameRatio(curve, rTau1.R1, rTau1.R2, key.tau.g2_sp, key.tau.g2_spx)) {
+    if (!sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2)) {
         console.log("tauG1 section. Powers do not match");
         return false;
     }
@@ -168,7 +174,7 @@ async function verify(tauFilename, verbose) {
     // Verify Section tau*G2
     if (verbose) console.log("Verifying powers in tau*G2 section");
     const rTau2 = await processSection(3, "G2", "tauG2", 1 << power, [0, 1]);
-    if (!sameRatio(curve, key.tau.g1_s, key.tau.g1_sx, rTau2.R1, rTau2.R2)) {
+    if (!sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2)) {
         console.log("tauG2 section. Powers do not match");
         return false;
     }
@@ -184,7 +190,7 @@ async function verify(tauFilename, verbose) {
     // Verify Section alpha*tau*G1
     if (verbose) console.log("Verifying powers in alpha*tau*G1 section");
     const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 1 << power, [0]);
-    if (!sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, key.tau.g2_sp, key.tau.g2_spx)) {
+    if (!sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2)) {
         console.log("alphaTauG1 section. Powers do not match");
         return false;
     }
@@ -196,7 +202,7 @@ async function verify(tauFilename, verbose) {
     // Verify Section beta*tau*G1
     if (verbose) console.log("Verifying powers in beta*tau*G1 section");
     const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 1 << power, [0]);
-    if (!sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, key.tau.g2_sp, key.tau.g2_spx)) {
+    if (!sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2)) {
         console.log("betaTauG1 section. Powers do not match");
         return false;
     }
@@ -211,14 +217,13 @@ async function verify(tauFilename, verbose) {
         console.log("betaG2 element in betaG2 section does not match the one in the contribution section");
         return false;
     }
-    await fd.close();
 
 
     const nextContributionHash = nextContributionHasher.digest();
 
     // Check the nextChallangeHash
     if (!utils.hashIsEqual(nextContributionHash,curContr.nextChallange)) {
-        console.log("Hash of the values does not math the next challange of the last contributor in the contributions section");
+        console.log("Hash of the values does not match the next challange of the last contributor in the contributions section");
         return false;
     }
 
@@ -230,7 +235,6 @@ async function verify(tauFilename, verbose) {
     // Verify Previous contributions
 
     printContribution(curContr, prevContr);
-
     for (let i = contrs.length-2; i>=0; i--) {
         const curContr = contrs[i];
         const prevContr =  (curContr>0) ? contrs[i-1] : initialContribution;
@@ -238,17 +242,34 @@ async function verify(tauFilename, verbose) {
         printContribution(curContr, prevContr);
     }
     console.log("-----------------------------------------------------");
+
+    if ((!sections[12]) || (!sections[13]) || (!sections[14]) || (!sections[15])) {
+        console.log("this file does not contain phase2 precalculated values. Please run: ");
+        console.log("   snarkjs \"powersoftau preparephase2\" to prepare this file to be used in the phase2 ceremony." );
+    } else {
+        let res;
+        res = await verifyLagrangeEvaluations("G1", 1 << power, 2, 12, "tauG1");
+        if (!res) return false;
+        res = await verifyLagrangeEvaluations("G2", 1 << power, 3, 13, "tauG2");
+        if (!res) return false;
+        res = await verifyLagrangeEvaluations("G1", 1 << power, 4, 14, "alphaTauG1");
+        if (!res) return false;
+        res = await verifyLagrangeEvaluations("G1", 1 << power, 5, 15, "betaTauG1");
+        if (!res) return false;
+    }
+
+    await fd.close();
+
     return true;
 
     function printContribution(curContr, prevContr) {
         console.log("-----------------------------------------------------");
         console.log(`Contribution #${curContr.id}: ${curContr.name ||""}`);
-        console.log("\tNext Challange");
-        console.log(utils.formatHash(curContr.nextChallange));
+        console.log("\tBased on challange");
+        console.log(utils.formatHash(prevContr.nextChallange));
 
-        const buff  = new ArrayBuffer(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
-        const buffV = new Uint8Array(buff);
-        utils.toPtauPubKeyRpr(buff, 0, curve, key, false);
+        const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
+        utils.toPtauPubKeyRpr(buffV, 0, curve, key, false);
 
         const responseHasher = Blake2b(64);
         responseHasher.setPartialHash(curContr.partialHash);
@@ -258,15 +279,14 @@ async function verify(tauFilename, verbose) {
         console.log("\tResponse Hash");
         console.log(utils.formatHash(responseHash));
 
-        console.log("\tBased on challange");
-        console.log(utils.formatHash(prevContr.nextChallange));
+        console.log("\tNext Challange");
+        console.log(utils.formatHash(curContr.nextChallange));
     }
 
     async function processSectionBetaG2() {
         const G = curve.G2;
         const sG = G.F.n8*2;
-        const buffU = new ArrayBuffer(sG);
-        const buffUv = new Uint8Array(buffU);
+        const buffUv = new Uint8Array(sG);
 
         if (!sections[6])  assert(false, "File has no BetaG2 section");
         if (sections[6].length>1) assert(false, "File has more than one GetaG2 section");
@@ -275,7 +295,7 @@ async function verify(tauFilename, verbose) {
         const buff = await fd.read(sG);
         const P = G.fromRprLEM(buff);
 
-        G.toRprBE(buffU, 0, P);
+        G.toRprBE(buffUv, 0, P);
         nextContributionHasher.update(buffUv);
 
         return P;
@@ -285,8 +305,7 @@ async function verify(tauFilename, verbose) {
         const MAX_CHUNK_SIZE = 1024;
         const G = curve[gName];
         const sG = G.F.n8*2;
-        const buffU = new ArrayBuffer(G.F.n8*2);
-        const buffUv = new Uint8Array(buffU);
+        const buffUv = new Uint8Array(G.F.n8*2);
 
         const singularPoints = [];
 
@@ -326,7 +345,7 @@ async function verify(tauFilename, verbose) {
             });
             for (let j=i; j<i+n; j++) {
                 const P = G.fromRprLEM(buff, (j-i)*sG);
-                G.toRprBE(buffU, 0, P);
+                G.toRprBE(buffUv, 0, P);
                 nextContributionHasher.update(buffUv);
                 if (singularPointIds.indexOf(j)>=0) singularPoints.push(P);
             }
@@ -342,38 +361,51 @@ async function verify(tauFilename, verbose) {
         };
     }
 
-    async function test() {
-        const NN=2;
+    async function verifyLagrangeEvaluations(gName, nPoints, tauSection, lagrangeSection, sectionName) {
 
-        fd.pos = sections[3][0].p + curve.G2.F.n8*2*6;
+        if (verbose) console.log(`Verifying phase2 calculated values ${sectionName}...`);
 
-        const buff = await fd.read(curve.G2.F.n8*2*NN);
+        const n8r = curve.Fr.n8;
+        let buff_r = new Uint8Array(nPoints * n8r);
+        let buffG;
+        const G = curve[gName];
+        const sG = G.F.n8*2;
 
-        const ctx= {
-            modules: {
-                ffjavascript: require("ffjavascript"),
-                assert: require("assert")
-            }
-        };
-        verifyThread(ctx, {cmd: "INIT", curve: "bn128", seed: [0,0,0,0,0,0,0,0]});
-
-        const r = verifyThread(ctx, {
-            cmd: "MUL",
-            G: "G2",
-            n: NN,
-            TotalPoints: NN,
-            buff: buff.slice(),
-            offset: 0
-        });
-
-        if (!sameRatio(curve, key.tau.g1_s, key.tau.g1_sx, r.R1, r.R2)) {
-            console.log("Test does not match");
-        } else {
-            console.log("!!!!!!TEST OK!!!!!!!");
+        const seed= new Array(8);
+        for (let i=0; i<8; i++) {
+            seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
         }
 
-    }
+        const rng = new ChaCha(seed);
 
+        for (let i=0; i<nPoints; i++) {
+            const e = curve.Fr.fromRng(rng);
+            curve.Fr.toRprLE(buff_r, i*n8r, e);
+        }
+
+        binFileUtils.startReadUniqueSection(fd, sections, tauSection);
+        buffG = await fd.read(nPoints*sG);
+        binFileUtils.endReadSection(fd, true);
+
+        const resTau = await G.multiExpAffine(buffG, buff_r);
+
+        buff_r = await curve.Fr.batchToMontgomery(buff_r);
+        buff_r = await curve.Fr.fft(buff_r);
+        buff_r = await curve.Fr.batchFromMontgomery(buff_r);
+
+        binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
+        buffG = await fd.read(nPoints*sG);
+        binFileUtils.endReadSection(fd, true);
+
+        const resLagrange = await G.multiExpAffine(buffG, buff_r);
+
+        if (!G.eq(resTau, resLagrange)) {
+            console.log("Phase2 caclutation does not match with powers of tau");
+            return false;
+        }
+
+        return true;
+    }
 }
 
 

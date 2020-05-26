@@ -1,10 +1,17 @@
+// Format of the output
+//      Hash of the last contribution  64 Bytes
+//      2^N*2-1 TauG1 Points (uncompressed)
+//      2^N TauG2 Points (uncompressed)
+//      2^N AlphaTauG1 Points (uncompressed)
+//      2^N BetaTauG1 Points (uncompressed)
+
 const Blake2b = require("blake2b-wasm");
 const utils = require("./powersoftau_utils");
-const wasmSnark = require("wasmsnark");
 const ChaCha = require("ffjavascript").ChaCha;
 const crypto = require("crypto");
 const keyPair = require("./keypair");
 const readline = require("readline");
+const binFileUtils = require("./binfileutils");
 
 
 const rl = readline.createInterface({
@@ -21,12 +28,13 @@ function askEntropy() {
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbose) {
     await Blake2b.ready();
 
-    const {fd: fdOld, sections} = await utils.readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power} = await utils.readPTauHeader(fdOld, sections);
-    if (curve.name == "bn128") {
-        wasmCurve = await wasmSnark.buildBn128();
-    } else {
-        throw new Error("Curve not supported");
+    const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
+    const {curve, power, ceremonyPower} = await utils.readPTauHeader(fdOld, sections);
+    if (power != ceremonyPower) {
+        throw new Error("This file has been reduced. You cannot contribute into a reduced file.");
+    }
+    if (sections[12]) {
+        console.log("WARNING: Contributing into a fle that has phase2 calculated. You will have to prepare phase2 again.");
     }
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const curContribution = {
@@ -56,8 +64,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     for (let i=0;i<8;i++) {
         seed[i] = hash.readUInt32BE(i*4);
     }
-//    const rng = new ChaCha(seed);
-    const rng = new ChaCha();
+    const rng = new ChaCha(seed);
     curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
 
 
@@ -67,7 +74,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     const responseHasher = new Blake2b(64);
     responseHasher.update(lastChallangeHash);
 
-    const fdNew = await utils.createBinFile(newPTauFilename, "ptau", 1, 7);
+    const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
     await utils.writePTauHeader(fdNew, curve, power);
 
     let firstPoints;
@@ -83,9 +90,13 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     curContribution.betaG2 = firstPoints[0];
 
     curContribution.nextChallange = newChallangeHasher.digest();
+
+    console.log("Next Challange Hash: ");
+    console.log(utils.formatHash(curContribution.nextChallange));
+
     curContribution.partialHash = responseHasher.getPartialHash();
 
-    const buffKey = new ArrayBuffer(curve.F1.n8*2*6+curve.F2.n8*2*3);
+    const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
     utils.toPtauPubKeyRpr(buffKey, 0, curve, curContribution.key, false);
 
@@ -103,23 +114,23 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     await fdNew.close();
 
     return;
-    async function processSection(sectionId, Gstr, NPoints, first, inc, sectionName) {
+    async function processSection(sectionId, groupName, NPoints, first, inc, sectionName) {
         const res = [];
         fdOld.pos = sections[sectionId][0].p;
         await fdNew.writeULE32(sectionId); // tauG1
         const pSection = fdNew.pos;
         await fdNew.writeULE64(0); // Temporally set to 0 length
 
-        const G = curve[Gstr];
+        const G = curve[groupName];
         const sG = G.F.n8*2;
-        const chunkSize = (1<<27) / sG;   // 128Mb chunks
+        const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
         let t = first;
         for (let i=0 ; i<NPoints ; i+= chunkSize) {
             if ((verbose)&&i) console.log(`${sectionName}: ` + i);
             const n= Math.min(NPoints-i, chunkSize );
             const buffIn = await fdOld.read(n * sG);
             const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
-            const promiseWrite = fdNew.write(buffOutLEM.buffer);
+            const promiseWrite = fdNew.write(buffOutLEM);
             const buffOutU = await G.batchLEMtoU(buffOutLEM);
             const buffOutC = await G.batchLEMtoC(buffOutLEM);
 
@@ -128,7 +139,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
             await promiseWrite;
             if (i==0)   // Return the 2 first points.
                 for (let j=0; j<Math.min(2, NPoints); j++)
-                    res.push(G.fromRprLEM(buffOutLEM.buffer, j*sG));
+                    res.push(G.fromRprLEM(buffOutLEM, j*sG));
             t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
         }
 

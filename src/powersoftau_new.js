@@ -47,17 +47,18 @@ contributions(7)
  */
 
 const ptauUtils = require("./powersoftau_utils");
+const binFileUtils = require("./binfileutils");
 
 
 async function newAccumulator(curve, power, fileName, verbose) {
 
 
-    const fd = await ptauUtils.createBinFile(fileName, "ptau", 1, 7);
+    const fd = await binFileUtils.createBinFile(fileName, "ptau", 1, 7);
 
     await ptauUtils.writePTauHeader(fd, curve, power, 0);
 
-    const buffG1 = new ArrayBuffer(curve.G1.F.n8*2);
-    const buffG2 = new ArrayBuffer(curve.G2.F.n8*2);
+    const buffG1 = new Uint8Array(curve.G1.F.n8*2);
+    const buffG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprLEM(buffG1, 0, curve.G1.g);
     curve.G2.toRprLEM(buffG2, 0, curve.G2.g);
 

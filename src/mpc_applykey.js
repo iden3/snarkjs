@@ -30,11 +30,9 @@ async function applyKey(params) {
 
     let res = [];
     const sG = G.F.n8*2;
-    const buffU = new ArrayBuffer(sG);
-    const buffUv = new Uint8Array(buffU);
+    const buffUv = new Uint8Array(sG);
     const scG = G.F.n8;
-    const buffC = new ArrayBuffer(scG);
-    const buffCv = new Uint8Array(buffC);
+    const buffCv = new Uint8Array(scG);
 
     const taskManager = await buildTaskManager(contributeThread, {
         ffjavascript: "ffjavascript"
@@ -79,9 +77,9 @@ async function applyKey(params) {
     for (let i=0; i<NPoints; i++) {
         const buff = await fdTo.read(sG);
         const P = G.fromRprLEM(buff, 0);
-        G.toRprBE(buffU, 0, P);
+        G.toRprBE(buffUv, 0, P);
         newChallangeHasher.update(buffUv);
-        G.toRprCompressed(buffC, 0, P);
+        G.toRprCompressed(buffCv, 0, P);
         responseHasher.update(buffCv);
         const idx = returnPoints.indexOf(i);
         if (idx>=0) res[idx] =  P;
@@ -103,7 +101,7 @@ function contributeThread(ctx, task) {
     } else if (task.cmd == "MUL") {
         const G = ctx.curve[task.G];
         const sG = G.F.n64*8*2;
-        const buffDest = new ArrayBuffer(sG*task.n);
+        const buffDest = new Uint8Array(sG*task.n);
         let t = ctx.curve.Fr.e(task.first);
         let inc = ctx.curve.Fr.e(task.inc);
         for (let i=0; i<task.n; i++) {

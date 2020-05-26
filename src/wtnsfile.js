@@ -1,155 +1,70 @@
 const Scalar = require("ffjavascript").Scalar;
-const fastFile = require("fastfile");
 const assert = require("assert");
+const binFileUtils = require("./binfileutils");
 
-module.exports.write = async function writeZKey(fileName, witness, prime) {
 
-    const fd = await fastFile.createOverride(fileName);
+module.exports.write = async function writeWtns(fileName, witness, prime) {
 
-    await fd.write(Buffer.from("wtns"), 0); // Magic "r1cs"
+    const fd = await binFileUtils.createOverride(fileName,"wtns", 2, 2);
 
-    let p = 4;
-    await writeU32(1); // Version
-
+    await binFileUtils.startWriteSection(fd, 1);
     const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
+    await fd.writeULE32(n8);
+    await binFileUtils.writeBigInt(fd, prime, n8);
+    await fd.writeULE32(witness.length);
+    await binFileUtils.endWriteSection(fd);
 
-    await writeU32(n8);
-    await writeBigInt(prime);
-
-    await writeU32(witness.length);
-
+    await binFileUtils.startWriteSection(fd, 2);
     for (let i=0; i<witness.length; i++) {
-        await writeBigInt(witness[i]);
+        await binFileUtils.writeBigInt(fd, witness[i], n8);
     }
+    await binFileUtils.endWriteSection(fd, 2);
 
     await fd.close();
 
-
-    async function writeU32(v, pos) {
-        let o = (typeof pos == "undefined") ? p : pos;
-
-        const b = Buffer.allocUnsafe(4);
-        b.writeInt32LE(v);
-
-        await fd.write(b, o);
-
-        if (typeof(pos) == "undefined") p += 4;
-    }
-
-
-    async function writeBigInt(n, pos) {
-
-        let o = (typeof pos == "undefined") ? p : pos;
-
-        const s = n.toString(16);
-        const b = Buffer.from(s.padStart(n8*2, "0"), "hex");
-        const buff = Buffer.allocUnsafe(b.length);
-        for (let i=0; i<b.length; i++) buff[i] = b[b.length-1-i];
-
-        await fd.write(buff, o);
-
-        if (typeof(pos) == "undefined") p += n8;
-    }
 };
 
-module.exports.writeBin = async function writeZKey(fileName, witnessBin, prime) {
+module.exports.writeBin = async function writeWtnsBin(fileName, witnessBin, prime) {
 
     witnessBin = Buffer.from(witnessBin);
 
-    const fd = await fastFile.createOverride(fileName);
+    const fd = await binFileUtils.createBinFile(fileName, "wtns", 2, 2);
 
-    await fd.write(Buffer.from("wtns"), 0); // Magic "r1cs"
-
-    let p = 4;
-    await writeU32(1); // Version
-
+    await binFileUtils.startWriteSection(fd, 1);
     const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
-
-    await writeU32(n8);
-    await writeBigInt(prime);
-
+    await fd.writeULE32(n8);
+    await binFileUtils.writeBigInt(fd, prime, n8);
     assert(witnessBin.length % n8 == 0);
+    await fd.writeULE32(witnessBin.byteLength / n8);
+    await binFileUtils.endWriteSection(fd);
 
-    await writeU32(witnessBin.length / n8);
 
-    await fd.write(witnessBin, p);
+    await binFileUtils.startWriteSection(fd, 2);
+    await fd.write(witnessBin);
+    await binFileUtils.endWriteSection(fd);
+
+    await fd.close();
+};
+
+module.exports.read = async function readWtns(fileName) {
+
+    const {fd, sections} = await binFileUtils.readBinFile(fileName, "wtns", 2);
+
+    await binFileUtils.startReadUniqueSection(fd, sections, 1);
+    const n8 = await fd.readULE32();
+    await binFileUtils.readBigInt(fd, n8);
+    const nWitness = await fd.readULE32();
+    await binFileUtils.endReadSection(fd);
+
+    await binFileUtils.startReadUniqueSection(fd, sections, 2);
+    const res = [];
+    for (let i=0; i<nWitness; i++) {
+        const v = await binFileUtils.readBigInt(fd, n8);
+        res.push(v);
+    }
+    await binFileUtils.endReadSection(fd);
 
     await fd.close();
 
-
-    async function writeU32(v, pos) {
-        let o = (typeof pos == "undefined") ? p : pos;
-
-        const b = Buffer.allocUnsafe(4);
-        b.writeInt32LE(v);
-
-        await fd.write(b, o);
-
-        if (typeof(pos) == "undefined") p += 4;
-    }
-
-    async function writeBigInt(n, pos) {
-
-        let o = (typeof pos == "undefined") ? p : pos;
-
-        const s = n.toString(16);
-        const b = Buffer.from(s.padStart(n8*2, "0"), "hex");
-        const buff = Buffer.allocUnsafe(b.length);
-        for (let i=0; i<b.length; i++) buff[i] = b[b.length-1-i];
-
-        await fd.write(buff, o);
-
-        if (typeof(pos) == "undefined") p += n8;
-    }
-};
-
-
-
-
-module.exports.read = async function writeZKey(fileName) {
-
-    const res = [];
-    const fd = await fastFile.readExisting(fileName);
-
-    const b = await fd.read(0, 4);
-
-    if (b.toString() != "wtns") assert(false, "Invalid File format");
-
-    let p=4;
-
-    let v = await readU32();
-
-    if (v>1) assert(false, "Version not supported");
-
-    const n8 = await readU32();
-    await readBigInt();
-
-    const nWitness = await readU32();
-
-    for (let i=0; i<nWitness; i++) {
-        const v = await readBigInt();
-        res.push(v);
-    }
-
     return res;
-
-
-    async function readU32() {
-        const b = await fd.read(p, 4);
-
-        p+=4;
-
-        return b.readUInt32LE(0);
-    }
-
-    async function readBigInt() {
-        const buff = await fd.read(p, n8);
-        assert(buff.length == n8);
-        const buffR = Buffer.allocUnsafe(n8);
-        for (let i=0; i<n8; i++) buffR[i] = buff[n8-1-i];
-
-        p += n8;
-
-        return Scalar.fromString(buffR.toString("hex"), 16);
-    }
 };

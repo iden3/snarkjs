@@ -146,7 +146,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     currentContribution.nextChallange = newChallangeHasher.digest();
     currentContribution.partialHash = responseHasher.getPartialHash();
 
-    const buffKey = new ArrayBuffer(curve.F1.n8*2*6+curve.F2.n8*2*3);
+    const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
     utils.toPtauPubKeyRpr(buffKey, 0, curve, currentContribution.key, false);
 
