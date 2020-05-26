@@ -61,10 +61,10 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<27)/sG);
+        const nPointsChunk = Math.floor((1<<24)/sG);
 
         await binFileUtils.startReadUniqueSection(fdFrom, sections, sectionId);
-        for (let i=0; i< nPointsChunk; i+= nPointsChunk) {
+        for (let i=0; i< nPoints; i+= nPointsChunk) {
             if ((verbose)&&i) console.log(`${sectionName}: ` + i);
             const n = Math.min(nPoints-i, nPointsChunk);
             let buff;
