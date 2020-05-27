@@ -507,8 +507,8 @@ async function powersOfTawNew(params, options) {
     let ptawName;
 
     power = parseInt(params[0]);
-    if ((power<1) || (power>27)) {
-        throw new Error("Power must be between 1 and 27");
+    if ((power<1) || (power>28)) {
+        throw new Error("Power must be between 1 and 28");
     }
 
     if (params.length < 2) {
