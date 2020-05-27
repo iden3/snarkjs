@@ -48,10 +48,12 @@ contributions(7)
 
 const ptauUtils = require("./powersoftau_utils");
 const binFileUtils = require("./binfileutils");
-
+const utils = require("./powersoftau_utils");
+const Blake2b = require("blake2b-wasm");
 
 async function newAccumulator(curve, power, fileName, verbose) {
 
+    await Blake2b.ready();
 
     const fd = await binFileUtils.createBinFile(fileName, "ptau", 1, 7);
 
@@ -64,77 +66,66 @@ async function newAccumulator(curve, power, fileName, verbose) {
 
     // Write tauG1
     ///////////
-    await fd.writeULE32(2); // tauG1
-    const pTauG1 = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await binFileUtils.startWriteSection(fd, 2);
     const nTauG1 = (1 << power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
         await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG1: " + i);
     }
-    const tauG1Size  = fd.pos - pTauG1 -8;
+    await binFileUtils.endWriteSection(fd);
 
     // Write tauG2
     ///////////
-    await fd.writeULE32(3); // tauG2
-    const pTauG2 = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await binFileUtils.startWriteSection(fd, 3);
     const nTauG2 = (1 << power);
     for (let i=0; i< nTauG2; i++) {
         await fd.write(buffG2);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG2: " + i);
     }
-    const tauG2Size  = fd.pos - pTauG2 -8;
+    await binFileUtils.endWriteSection(fd);
 
     // Write alfaTauG1
     ///////////
-    await fd.writeULE32(4); // alfaTauG1
-    const pAlfaTauG1 = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await binFileUtils.startWriteSection(fd, 4);
     const nAlfaTauG1 = (1 << power);
     for (let i=0; i< nAlfaTauG1; i++) {
         await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("alfaTauG1: " + i);
     }
-    const alfaTauG1Size  = fd.pos - pAlfaTauG1 -8;
+    await binFileUtils.endWriteSection(fd);
 
     // Write betaTauG1
     ///////////
-    await fd.writeULE32(5); // betaTauG1
-    const pBetaTauG1 = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await binFileUtils.startWriteSection(fd, 5);
     const nBetaTauG1 = (1 << power);
     for (let i=0; i< nBetaTauG1; i++) {
         await fd.write(buffG1);
         if ((verbose)&&((i%100000) == 0)&&i) console.log("betaTauG1: " + i);
     }
-    const betaTauG1Size  = fd.pos - pBetaTauG1 -8;
+    await binFileUtils.endWriteSection(fd);
 
     // Write betaG2
     ///////////
-    await fd.writeULE32(6); // betaG2
-    const pBetaG2 = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
+    await binFileUtils.startWriteSection(fd, 6);
     await fd.write(buffG2);
-    const betaG2Size  = fd.pos - pBetaG2 -8;
+    await binFileUtils.endWriteSection(fd);
 
     // Contributions
     ///////////
-    await fd.writeULE32(7); // Contributions
-    const pContributions = fd.pos;
-    await fd.writeULE64(4); // Temporally set to 4 length
+    await binFileUtils.startWriteSection(fd, 7);
     await fd.writeULE32(0); // 0 Contributions
-    const contributionsSize  = fd.pos - pContributions -8;
-
-    // Write sizes
-    await fd.writeULE64(tauG1Size, pTauG1);
-    await fd.writeULE64(tauG2Size, pTauG2);
-    await fd.writeULE64(alfaTauG1Size, pAlfaTauG1);
-    await fd.writeULE64(betaTauG1Size, pBetaTauG1);
-    await fd.writeULE64(betaG2Size, pBetaG2);
-    await fd.writeULE64(contributionsSize, pContributions);
+    await binFileUtils.endWriteSection(fd);
 
     await fd.close();
+
+    const firstChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
+
+    console.log("Blank Contribution Hash:");
+    console.log(utils.formatHash(Blake2b(64).digest()));
+
+    console.log("First Contribution Hash:");
+    console.log(utils.formatHash(firstChallangeHash));
+
 }
 
 module.exports = newAccumulator;

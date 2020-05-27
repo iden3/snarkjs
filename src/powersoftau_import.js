@@ -108,7 +108,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         const singularPoints = [];
 
         await binFileUtils.startWriteSection(fdTo, sectionId);
-        const nPointsChunk = Math.floor((1<<27)/sG);
+        const nPointsChunk = Math.floor((1<<24)/sG);
 
         startSections[sectionId] = fdTo.pos;
 
@@ -141,7 +141,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<27)/sG);
+        const nPointsChunk = Math.floor((1<<24)/sG);
 
         const oldPos = fdTo.pos;
         fdTo.pos = startSections[sectionId];

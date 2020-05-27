@@ -47,7 +47,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     if (contributions.length>0) {
         lastChallangeHash = contributions[contributions.length-1].nextChallange;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power);
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
     }
 
     // Generate a random key
@@ -68,14 +68,13 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
 
 
-    const newChallangeHasher = new Blake2b(64);
-    newChallangeHasher.update(lastChallangeHash);
-
     const responseHasher = new Blake2b(64);
     responseHasher.update(lastChallangeHash);
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
     await utils.writePTauHeader(fdNew, curve, power);
+
+    const startSections = [];
 
     let firstPoints;
     firstPoints = await processSection(2, "G1",  (1<<power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1" );
@@ -89,11 +88,6 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.nextChallange = newChallangeHasher.digest();
-
-    console.log("Next Challange Hash: ");
-    console.log(utils.formatHash(curContribution.nextChallange));
-
     curContribution.partialHash = responseHasher.getPartialHash();
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -106,6 +100,20 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     console.log("Contribution Response Hash imported: ");
     console.log(utils.formatHash(hashResponse));
 
+    const nextChallangeHasher = new Blake2b(64);
+    nextChallangeHasher.update(hashResponse);
+
+    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
+    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
+    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1");
+    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
+    await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
+
+    curContribution.nextChallange = nextChallangeHasher.digest();
+
+    console.log("Next Challange Hash: ");
+    console.log(utils.formatHash(curContribution.nextChallange));
+
     contributions.push(curContribution);
 
     await utils.writeContributions(fdNew, curve, contributions);
@@ -114,12 +122,14 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     await fdNew.close();
 
     return;
+
     async function processSection(sectionId, groupName, NPoints, first, inc, sectionName) {
         const res = [];
         fdOld.pos = sections[sectionId][0].p;
-        await fdNew.writeULE32(sectionId); // tauG1
-        const pSection = fdNew.pos;
-        await fdNew.writeULE64(0); // Temporally set to 0 length
+
+        await binFileUtils.startWriteSection(fdNew, sectionId);
+
+        startSections[sectionId] = fdNew.pos;
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
@@ -131,10 +141,8 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
             const buffIn = await fdOld.read(n * sG);
             const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
             const promiseWrite = fdNew.write(buffOutLEM);
-            const buffOutU = await G.batchLEMtoU(buffOutLEM);
             const buffOutC = await G.batchLEMtoC(buffOutLEM);
 
-            newChallangeHasher.update(buffOutU);
             responseHasher.update(buffOutC);
             await promiseWrite;
             if (i==0)   // Return the 2 first points.
@@ -143,12 +151,35 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
             t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
         }
 
-        const sSize  = fdNew.pos - pSection -8;
-        const lastPos = fdNew.pos;
-        await fdNew.writeULE64(sSize, pSection);
-        fdNew.pos = lastPos;
+        await binFileUtils.endWriteSection(fdNew);
+
         return res;
     }
+
+
+    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
+
+        const G = curve[groupName];
+        const sG = G.F.n8*2;
+        const nPointsChunk = Math.floor((1<<24)/sG);
+
+        const oldPos = fdTo.pos;
+        fdTo.pos = startSections[sectionId];
+
+        for (let i=0; i< nPoints; i += nPointsChunk) {
+            if ((verbose)&&i) console.log(`Hashing ${sectionName}: ` + i);
+            const n = Math.min(nPoints-i, nPointsChunk);
+
+            const buffLEM = await fdTo.read(n * sG);
+
+            const buffU = await G.batchLEMtoU(buffLEM);
+
+            nextChallangeHasher.update(buffU);
+        }
+
+        fdTo.pos = oldPos;
+    }
+
 
 }
 

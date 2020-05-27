@@ -124,7 +124,7 @@ async function verify(tauFilename, verbose) {
         alphaG1: curve.G1.g,
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
-        nextChallange: utils.calculateFirstChallangeHash(curve, ceremonyPower),
+        nextChallange: utils.calculateFirstChallangeHash(curve, ceremonyPower, verbose),
         responseHash: Blake2b(64).digest()
     };
 
@@ -383,9 +383,9 @@ async function verify(tauFilename, verbose) {
             curve.Fr.toRprLE(buff_r, i*n8r, e);
         }
 
-        binFileUtils.startReadUniqueSection(fd, sections, tauSection);
+        await binFileUtils.startReadUniqueSection(fd, sections, tauSection);
         buffG = await fd.read(nPoints*sG);
-        binFileUtils.endReadSection(fd, true);
+        await binFileUtils.endReadSection(fd, true);
 
         const resTau = await G.multiExpAffine(buffG, buff_r);
 
@@ -393,9 +393,9 @@ async function verify(tauFilename, verbose) {
         buff_r = await curve.Fr.fft(buff_r);
         buff_r = await curve.Fr.batchFromMontgomery(buff_r);
 
-        binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
+        await binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
         buffG = await fd.read(nPoints*sG);
-        binFileUtils.endReadSection(fd, true);
+        await binFileUtils.endReadSection(fd, true);
 
         const resLagrange = await G.multiExpAffine(buffG, buff_r);
 

@@ -125,6 +125,7 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     await fdTo.write(challangeHash);
     responseHasher.update(challangeHash);
 
+
     await contributeSection("G1", (1<<power)*2-1, curve.Fr.one, key.tau.prvKey, "tauG1" );
     await contributeSection("G2", (1<<power)    , curve.Fr.one, key.tau.prvKey, "tauG2" );
     await contributeSection("G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "alphaTauG1" );

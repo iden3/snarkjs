@@ -11,7 +11,7 @@ async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
     ///////////
 
-    if (typeof(ceremonyPower) === "undefined") ceremonyPower = power;
+    if (! ceremonyPower) ceremonyPower = power;
     await fd.writeULE32(1); // Header type
     const pHeaderSize = fd.pos;
     await fd.writeULE64(0); // Temporally set to 0 length
@@ -323,7 +323,9 @@ function hashIsEqual(h1, h2) {
     return true;
 }
 
-function calculateFirstChallangeHash(curve, power) {
+function calculateFirstChallangeHash(curve, power, verbose) {
+    if (verbose) console.log("Calculating First Challange Hash");
+
     const hasher = new Blake2b(64);
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
@@ -331,19 +333,40 @@ function calculateFirstChallangeHash(curve, power) {
     curve.G1.toRprBE(vG1, 0, curve.G1.g);
     curve.G2.toRprBE(vG2, 0, curve.G2.g);
 
-    const blankHasher = new Blake2b(64);
-    hasher.update(blankHasher.digest());
+    hasher.update(Blake2b(64).digest());
 
     let n;
+
     n=(1 << power)*2 -1;
-    for (let i=0; i<n; i++) hasher.update(vG1);
+    if (verbose) console.log("tauG1");
+    hashBlock(vG1, n);
     n= 1 << power;
-    for (let i=0; i<n; i++) hasher.update(vG2);
-    for (let i=0; i<n; i++) hasher.update(vG1);
-    for (let i=0; i<n; i++) hasher.update(vG1);
+    if (verbose) console.log("tauG2");
+    hashBlock(vG2, n);
+    if (verbose) console.log("alphaTauG1");
+    hashBlock(vG1, n);
+    if (verbose) console.log("betaTauG1");
+    hashBlock(vG1, n);
     hasher.update(vG2);
 
     return hasher.digest();
+
+    function hashBlock(buff, n) {
+        const blockSize = 500000;
+        const nBlocks = Math.floor(n / blockSize);
+        const rem = n % blockSize;
+        const bigBuff = new Uint8Array(blockSize * buff.byteLength);
+        for (let i=0; i<blockSize; i++) {
+            bigBuff.set(buff, i*buff.byteLength);
+        }
+        for (let i=0; i<nBlocks; i++) {
+            hasher.update(bigBuff);
+            if (verbose) console.log(i*blockSize);
+        }
+        for (let i=0; i<rem; i++) {
+            hasher.update(buff);
+        }
+    }
 }
 
 
