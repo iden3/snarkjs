@@ -36,7 +36,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (contributions.length>0) {
         lastChallangeHash = contributions[contributions.length-1].nextChallange;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power);
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
     }
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);

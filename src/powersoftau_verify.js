@@ -301,64 +301,64 @@ async function verify(tauFilename, verbose) {
         return P;
     }
 
-    async function processSection(idSection, gName, sectionName, nPoints, singularPointIds) {
-        const MAX_CHUNK_SIZE = 1024;
-        const G = curve[gName];
+    async function processSection(idSection, groupName, sectionName, nPoints, singularPointIndexes) {
+        const MAX_CHUNK_SIZE = 1<<16;
+        const G = curve[groupName];
         const sG = G.F.n8*2;
-        const buffUv = new Uint8Array(G.F.n8*2);
+        await binFileUtils.startReadUniqueSection(fd, sections, idSection);
 
         const singularPoints = [];
-
-        if (!sections[idSection])  assert(false, `File has no ${sectionName} section`);
-        if (sections[idSection].length>1) assert(false, `File has more than one ${sectionName} section`);
-        fd.pos = sections[idSection][0].p;
-
-        const seed= new Array(8);
-        for (let i=0; i<8; i++) {
-            seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
-        }
-
-        const taskManager = await buildTaskManager(verifyThread, {
-            ffjavascript: "ffjavascript"
-        },{
-            curve: curve.name,
-            seed: seed
-        });
 
         let R1 = G.zero;
         let R2 = G.zero;
 
+        let lastBase = G.zero;
+
         for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
             if ((verbose)&&i) console.log(`${sectionName}:  ` + i);
             const n = Math.min(nPoints - i, MAX_CHUNK_SIZE);
-            const buff = await fd.read(n*sG);
-            await taskManager.addTask({
-                cmd: "MUL",
-                G: gName,
-                n: n,
-                TotalPoints: nPoints,
-                buff: buff.slice(),
-                offset: i
-            }, async function(r) {
-                R1 = G.add(R1, r.R1);
-                R2 = G.add(R2, r.R2);
-            });
-            for (let j=i; j<i+n; j++) {
-                const P = G.fromRprLEM(buff, (j-i)*sG);
-                G.toRprBE(buffUv, 0, P);
-                nextContributionHasher.update(buffUv);
-                if (singularPointIds.indexOf(j)>=0) singularPoints.push(P);
+            const bases = await fd.read(n*sG);
+
+            const basesU = await G.batchLEMtoU(bases);
+            nextContributionHasher.update(basesU);
+
+            const scalars = new Uint8Array(4*(n-1));
+            crypto.randomFillSync(scalars);
+
+
+            if (i>0) {
+                const firstBase = G.fromRprLEM(bases, 0);
+                const r = crypto.randomBytes(4).readUInt32BE(0, true);
+
+                R1 = G.add(R1, G.mulScalar(lastBase, r));
+                R2 = G.add(R2, G.mulScalar(firstBase, r));
             }
+
+            const r1 = await G.multiExpAffine(bases.slice(0, (n-1)*sG), scalars);
+            const r2 = await G.multiExpAffine(bases.slice(sG), scalars);
+
+            R1 = G.add(R1, r1);
+            R2 = G.add(R2, r2);
+
+            lastBase = G.fromRprLEM( bases, (n-1)*sG);
+
+            for (let j=0; j<singularPointIndexes.length; j++) {
+                const sp = singularPointIndexes[j];
+                if ((sp >=i) && (sp < i+n)) {
+                    const P = G.fromRprLEM(bases, (sp-i)*sG);
+                    singularPoints.push(P);
+                }
+            }
+
         }
+        await binFileUtils.endReadSection(fd);
 
-        if (fd.pos != sections[idSection][0].p + sections[idSection][0].size) assert(false, `Invalid ${sectionName} section size`);
-
-        await taskManager.finish();
         return {
             R1: R1,
             R2: R2,
             singularPoints: singularPoints
         };
+
     }
 
     async function verifyLagrangeEvaluations(gName, nPoints, tauSection, lagrangeSection, sectionName) {
@@ -407,98 +407,5 @@ async function verify(tauFilename, verbose) {
         return true;
     }
 }
-
-
-function verifyThread(ctx, task) {
-    const pow = 16;
-    const NSet = 1<<pow;
-    if (task.cmd == "INIT") {
-        ctx.assert = ctx.modules.assert;
-        if (task.curve == "bn128") {
-            ctx.curve = ctx.modules.ffjavascript.bn128;
-        } else {
-            ctx.assert(false, "curve not defined");
-        }
-        ctx.rndPerm = buildRndPerm(task.seed);
-        return {};
-    } else if (task.cmd == "MUL") {
-        const G = ctx.curve[task.G];
-        const sG = G.F.n8*2;
-        const acc1 = new Array(NSet);
-        const acc2 = new Array(NSet);
-        for (let i=0; i<NSet; i++) {
-            acc1[i] = G.zero;
-            acc2[i] = G.zero;
-        }
-        for (let i=0; i<task.n; i++) {
-            const P = G.fromRprLEM(task.buff, i*sG);
-            if (task.offset+i < task.TotalPoints-1) {
-                const r = ctx.rndPerm(task.offset + i);
-                acc1[r] = G.add(acc1[r], P);
-            }
-            if (task.offset+i > 0) {
-                const r = ctx.rndPerm(task.offset + i-1);
-                acc2[r] = G.add(acc2[r], P);
-            }
-        }
-        reduceExp(G, acc1, pow);
-        reduceExp(G, acc2, pow);
-        return {
-            R1: acc1[0],
-            R2: acc2[0]
-        };
-    } else {
-        ctx.assert(false, "Op not implemented");
-    }
-
-    function reduceExp(G, accs, p) {
-        if (p==1) return;
-        const half = 1 << (p-1);
-
-        for (let i=0; i<half-1; i++) {
-            accs[i] = G.add(accs[i], accs[half+i]);
-            accs[half-1] = G.add(accs[half-1], accs[half+i]);
-        }
-        reduceExp(G, accs, p-1);
-        for (let i=0; i<p-1;i++) accs[half-1] = G.double(accs[half-1]);
-        accs[0] = G.add(accs[0], accs[half-1] );
-    }
-
-    function buildRndPerm(aSeed) {
-        const seed = aSeed;
-
-        const nPages = 2;
-
-        const pageId = new Array(nPages);
-        const pages = new Array(nPages);
-        for (let i=0; i<nPages; i++) {
-            pageId[i] = -1;
-            pages[i] = new Array(16);
-        }
-        let nextLoad = 0;
-
-        function loadPage(p) {
-            seed[0] = p;
-            const c = nextLoad;
-            nextLoad = (nextLoad+1) % nPages;
-            const rng = new ctx.modules.ffjavascript.ChaCha(seed);
-            for (let i=0; i<16; i++) {
-                pages[c][i] = rng.nextU32();
-            }
-            pageId[c] = p;
-            return c;
-        }
-
-        return function(n) {
-            const page = n>>4;
-            let idx = pageId.indexOf(page);
-            if (idx < 0) idx = loadPage(page);
-            return pages[idx][n & 0xF] % (NSet-1);
-        };
-
-    }
-
-}
-
 
 module.exports = verify;
