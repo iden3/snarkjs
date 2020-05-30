@@ -32,10 +32,18 @@ const Scalar = require("ffjavascript").Scalar;
 const F1Field = require("ffjavascript").F1Field;
 const assert = require("assert");
 const binFileUtils = require("./binfileutils");
+const bn128 = require("ffjavascript").bn128;
 
 module.exports.write = async function writeZKey(fileName, zkey) {
 
-    const fd = await binFileUtils.createOverride(fileName,"zkey", 6, 1);
+    let curve;
+    if (Scalar.eq(zkey.q, bn128.q)) {
+        curve = bn128;
+    } else {
+        assert(false, fd.fileName +": Curve not supported");
+    }
+
+    const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
 
     // Write the header
     ///////////
@@ -48,20 +56,17 @@ module.exports.write = async function writeZKey(fileName, zkey) {
 
     await binFileUtils.startWriteSection(fd, 2);
     const primeQ = zkey.q;
-    const Fq = new F1Field(zkey.q);
     const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
-    const Rq = Scalar.mod(Scalar.shl(1, n8q*8), primeQ);
 
     const primeR = zkey.r;
-    const Fr = new F1Field(zkey.r);
     const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
     const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
     const R2r = Scalar.mod(Scalar.mul(Rr,Rr), primeR);
 
     await fd.writeULE32(n8q);
-    await binFileUtils.writeBigInt(primeQ, n8q);
+    await binFileUtils.writeBigInt(fd, primeQ, n8q);
     await fd.writeULE32(n8r);
-    await binFileUtils.writeBigInt(primeR, n8r);
+    await binFileUtils.writeBigInt(fd, primeR, n8r);
     await fd.writeULE32(zkey.nVars);                         // Total number of bars
     await fd.writeULE32(zkey.nPublic);                       // Total number of public vars (not including ONE)
     await fd.writeULE32(zkey.domainSize);                  // domainSize
@@ -98,24 +103,43 @@ module.exports.write = async function writeZKey(fileName, zkey) {
     await binFileUtils.endWriteSection(fd);
 
 
-    // Write A B1 B2 C points
+
+    // Write A
     ///////////
     await binFileUtils.startWriteSection(fd, 5);
     for (let i=0; i<zkey.nVars; i++) {
         await writePointG1(zkey.A[i]);
-        await writePointG1(zkey.B1[i]);
-        await writePointG2(zkey.B2[i]);
-        if (i<=zkey.nPublic) {
-            await writePointG1_zero();
-        } else {
-            await writePointG1(zkey.C[i]);
-        }
     }
     await binFileUtils.endWriteSection(fd);
 
-    // Write H points
+    // Write B1
     ///////////
     await binFileUtils.startWriteSection(fd, 6);
+    for (let i=0; i<zkey.nVars; i++) {
+        await writePointG1(zkey.B1[i]);
+    }
+    await binFileUtils.endWriteSection(fd);
+
+    // Write B2
+    ///////////
+    await binFileUtils.startWriteSection(fd, 7);
+    for (let i=0; i<zkey.nVars; i++) {
+        await writePointG2(zkey.B2[i]);
+    }
+    await binFileUtils.endWriteSection(fd);
+
+    // Write C
+    ///////////
+    await binFileUtils.startWriteSection(fd, 8);
+    for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
+        await writePointG1(zkey.C[i]);
+    }
+    await binFileUtils.endWriteSection(fd);
+
+
+    // Write H points
+    ///////////
+    await binFileUtils.startWriteSection(fd, 9);
     for (let i=0; i<zkey.domainSize; i++) {
         await writePointG1(zkey.hExps[i]);
     }
@@ -130,41 +154,16 @@ module.exports.write = async function writeZKey(fileName, zkey) {
         await binFileUtils.writeBigInt(fd, n, n8r);
     }
 
-    async function writeFq(n) {
-        // Convert to montgomery
-        n = Scalar.mod( Scalar.mul(n, Rq), primeQ);
-
-        await binFileUtils.writeBigInt(fd, n, n8q);
-    }
-
     async function writePointG1(p) {
-        if (Fq.isZero(p[2])) {
-            await writeFq(0);
-            await writeFq(0);
-        } else {
-            await writeFq(p[0]);
-            await writeFq(p[1]);
-        }
-    }
-
-    async function writePointG1_zero() {
-        await writeFq(0);
-        await writeFq(0);
+        const buff = new Uint8Array(curve.G1.F.n8*2);
+        curve.G1.toRprLEM(buff, 0, p);
+        await fd.write(buff);
     }
 
     async function writePointG2(p) {
-        if (Fq.isZero(p[2][0]) && Fq.isZero(p[2][1])) {
-            await writeFq(Fq.e(0));
-            await writeFq(Fq.e(0));
-            await writeFq(Fq.e(0));
-            await writeFq(Fq.e(0));
-
-        } else {
-            await writeFq(p[0][0]);
-            await writeFq(p[0][1]);
-            await writeFq(p[1][0]);
-            await writeFq(p[1][1]);
-        }
+        const buff = new Uint8Array(curve.G2.F.n8*2);
+        curve.G2.toRprLEM(buff, 0, p);
+        await fd.write(buff);
     }
 };
 
@@ -197,6 +196,12 @@ module.exports.read = async function readZKey(fileName) {
     const Rri = Fr.inv(Rr);
     const Rri2 = Fr.mul(Rri, Rri);
 
+    let curve;
+    if (Scalar.eq(zkey.q, bn128.q)) {
+        curve = bn128;
+    } else {
+        assert(false, fd.fileName +": Curve not supported");
+    }
 
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
@@ -240,32 +245,55 @@ module.exports.read = async function readZKey(fileName) {
     }
     await binFileUtils.endReadSection(fd);
 
-    // Read A B1 B2 C points
+    // Read A points
     ///////////
     await binFileUtils.startReadUniqueSection(fd, sections, 5);
     zkey.A = [];
-    zkey.B1 = [];
-    zkey.B2 = [];
-    zkey.C = [];
     for (let i=0; i<zkey.nVars; i++) {
         const A = await readG1();
-        const B1 = await readG1();
-        const B2 = await readG2();
-        const C = await readG1();
-
-        zkey.A.push(A);
-        zkey.B1.push(B1);
-        zkey.B2.push(B2);
-        zkey.C.push(C);
-        if (i<= zkey.nPublic) {
-            assert(Fr.isZero(C[2]), "C value for public is not zero");
-        }
+        zkey.A[i] = A;
     }
     await binFileUtils.endReadSection(fd);
 
-    // Read H points
+
+    // Read B1
     ///////////
     await binFileUtils.startReadUniqueSection(fd, sections, 6);
+    zkey.B1 = [];
+    for (let i=0; i<zkey.nVars; i++) {
+        const B1 = await readG1();
+
+        zkey.B1[i] = B1;
+    }
+    await binFileUtils.endReadSection(fd);
+
+
+    // Read B2 points
+    ///////////
+    await binFileUtils.startReadUniqueSection(fd, sections, 7);
+    zkey.B2 = [];
+    for (let i=0; i<zkey.nVars; i++) {
+        const B2 = await readG2();
+        zkey.B2[i] = B2;
+    }
+    await binFileUtils.endReadSection(fd);
+
+
+    // Read C points
+    ///////////
+    await binFileUtils.startReadUniqueSection(fd, sections, 8);
+    zkey.C = [];
+    for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
+        const C = await readG1();
+
+        zkey.C[i] = C;
+    }
+    await binFileUtils.endReadSection(fd);
+
+
+    // Read H points
+    ///////////
+    await binFileUtils.startReadUniqueSection(fd, sections, 9);
     zkey.hExps = [];
     for (let i=0; i<zkey.domainSize; i++) {
         const H = await readG1();
@@ -277,36 +305,19 @@ module.exports.read = async function readZKey(fileName) {
 
     return zkey;
 
-    async function readFq() {
-        const n = await binFileUtils.readBigInt(fd, n8q);
-        return Fq.mul(n, Rqi);
-    }
-
     async function readFr2() {
         const n = await binFileUtils.readBigInt(fd, n8r);
         return Fr.mul(n, Rri2);
     }
 
     async function readG1() {
-        const x = await readFq();
-        const y = await readFq();
-        if (Fq.isZero(x) && Fq.isZero(y)) {
-            return [Fq.e(0), Fq.e(1), Fq.e(0)];
-        } else {
-            return [x , y, Fq.e(1)];
-        }
+        const buff = await fd.read(curve.G1.F.n8*2);
+        return curve.G1.fromRprLEM(buff, 0);
     }
 
     async function readG2() {
-        const xa = await readFq();
-        const xb = await readFq();
-        const ya = await readFq();
-        const yb = await readFq();
-        if (Fq.isZero(xa) && Fq.isZero(xb) && Fq.isZero(ya) && Fq.isZero(yb)) {
-            return [[Fq.e(0),Fq.e(0)],[Fq.e(1),Fq.e(0)], [Fq.e(0),Fq.e(0)]];
-        } else {
-            return [[xa, xb],[ya, yb], [Fq.e(1),Fq.e(0)]];
-        }
+        const buff = await fd.read(curve.G2.F.n8*2);
+        return curve.G2.fromRprLEM(buff, 0);
     }
 
 

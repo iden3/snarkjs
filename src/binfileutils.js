@@ -88,7 +88,7 @@ async function endReadSection(fd, noCheck) {
 
 async function writeBigInt(fd, n, n8) {
     const buff = new Uint8Array(n8);
-    Scalar.toRprLE(buff, 0, n);
+    Scalar.toRprLE(buff, 0, n, n8);
     await fd.write(buff);
 }
 

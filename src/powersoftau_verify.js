@@ -3,20 +3,21 @@ const utils = require("./powersoftau_utils");
 const keyPair = require("./keypair");
 const assert = require("assert");
 const crypto = require("crypto");
-const buildTaskManager = require("./taskmanager");
 const binFileUtils = require("./binfileutils");
 const ChaCha = require("ffjavascript").ChaCha;
 
-function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
+async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
     if (curve.G1.isZero(g1s)) return false;
     if (curve.G1.isZero(g1sx)) return false;
     if (curve.G2.isZero(g2s)) return false;
     if (curve.G2.isZero(g2sx)) return false;
-    return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
+    // return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
+    const res = await curve.pairingEq(g1s, g2sx, curve.G1.neg(g1sx), g2s);
+    return res;
 }
 
-function verifyContribution(curve, cur, prev) {
-
+async function verifyContribution(curve, cur, prev) {
+    let sr;
     if (cur.type == 1) {    // Verify the beacon.
         const beaconKey = utils.keyFromBeacon(curve, prev.nextChallange, cur.beaconHash, cur.numIterationsExp);
 
@@ -64,42 +65,50 @@ function verifyContribution(curve, cur, prev) {
     cur.key.alpha.g2_sp = keyPair.getG2sp(1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx);
     cur.key.beta.g2_sp = keyPair.getG2sp(2, prev.nextChallange, cur.key.beta.g1_s, cur.key.beta.g1_sx);
 
-    if (!sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx)) {
+    sr = await sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
+    if (sr !== true) {
         console.log("INVALID key (tau) in challange #"+cur.id);
         return false;
     }
 
-    if (!sameRatio(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx)) {
+    sr = await sameRatio(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
+    if (sr !== true) {
         console.log("INVALID key (alpha) in challange #"+cur.id);
         return false;
     }
 
-    if (!sameRatio(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx)) {
+    sr = await sameRatio(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
+    if (sr !== true) {
         console.log("INVALID key (beta) in challange #"+cur.id);
         return false;
     }
 
-    if (!sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx)) {
+    sr = await sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
+    if (sr !== true) {
         console.log("INVALID tau*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    if (!sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2,)) {
+    sr = await sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
+    if (sr !== true) {
         console.log("INVALID tau*G2. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    if (!sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx)) {
+    sr = await sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
+    if (sr !== true) {
         console.log("INVALID alpha*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    if (!sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx)) {
+    sr = await sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
+    if (sr !== true) {
         console.log("INVALID beta*G1. challange #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    if (!sameRatio(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2,)) {
+    sr = await sameRatio(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
+    if (sr !== true) {
         console.log("INVALID beta*G2. challange #"+cur.id+"It does not follow the previous contribution");
         return false;
     }
@@ -108,6 +117,7 @@ function verifyContribution(curve, cur, prev) {
 }
 
 async function verify(tauFilename, verbose) {
+    let sr;
     await Blake2b.ready();
 
     const {fd, sections} = await binFileUtils.readBinFile(tauFilename, "ptau", 1);
@@ -141,7 +151,7 @@ async function verify(tauFilename, verbose) {
     }
     const curContr = contrs[contrs.length-1];
     if (verbose) console.log("Validating contribution #"+contrs[contrs.length-1].id);
-    const res = verifyContribution(curve, curContr,prevContr, verbose);
+    const res = await verifyContribution(curve, curContr,prevContr, verbose);
     if (!res) return false;
 
 
@@ -156,7 +166,8 @@ async function verify(tauFilename, verbose) {
     // Verify Section tau*G1
     if (verbose) console.log("Verifying powers in tau*G1 section");
     const rTau1 = await processSection(2, "G1", "tauG1", (1 << power)*2-1, [0, 1]);
-    if (!sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2)) {
+    sr = await sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2);
+    if (sr !== true) {
         console.log("tauG1 section. Powers do not match");
         return false;
     }
@@ -174,7 +185,8 @@ async function verify(tauFilename, verbose) {
     // Verify Section tau*G2
     if (verbose) console.log("Verifying powers in tau*G2 section");
     const rTau2 = await processSection(3, "G2", "tauG2", 1 << power, [0, 1]);
-    if (!sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2)) {
+    sr = await sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2);
+    if (sr !== true) {
         console.log("tauG2 section. Powers do not match");
         return false;
     }
@@ -190,7 +202,8 @@ async function verify(tauFilename, verbose) {
     // Verify Section alpha*tau*G1
     if (verbose) console.log("Verifying powers in alpha*tau*G1 section");
     const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 1 << power, [0]);
-    if (!sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2)) {
+    sr = await sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2);
+    if (sr !== true) {
         console.log("alphaTauG1 section. Powers do not match");
         return false;
     }
@@ -202,7 +215,8 @@ async function verify(tauFilename, verbose) {
     // Verify Section beta*tau*G1
     if (verbose) console.log("Verifying powers in beta*tau*G1 section");
     const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 1 << power, [0]);
-    if (!sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2)) {
+    sr = await sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2);
+    if (sr !== true) {
         console.log("betaTauG1 section. Powers do not match");
         return false;
     }
@@ -238,7 +252,7 @@ async function verify(tauFilename, verbose) {
     for (let i = contrs.length-2; i>=0; i--) {
         const curContr = contrs[i];
         const prevContr =  (curContr>0) ? contrs[i-1] : initialContribution;
-        verifyContribution(curve, curContr, prevContr);
+        await verifyContribution(curve, curContr, prevContr);
         printContribution(curContr, prevContr);
     }
     console.log("-----------------------------------------------------");

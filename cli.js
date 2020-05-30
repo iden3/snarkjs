@@ -38,10 +38,12 @@ const printR1cs = require("./src/printr1cs");
 
 const clProcessor = require("./src/clprocessor");
 
-const powersOfTaw = require("./src/powersoftaw");
+const powersOfTaw = require("./src/powersoftau");
 
 const bn128 = require("ffjavascript").bn128;
 const solidityGenerator = require("./src/soliditygenerator.js");
+
+const phase2 = require("./src/phase2");
 
 const commands = [
     {
@@ -103,61 +105,68 @@ const commands = [
         action: solidityGenCall
     },
     {
-        cmd: "powersoftaw new <power> [powersoftaw_0000.ptaw]",
-        description: "Starts a powers of taw ceremony",
+        cmd: "powersoftau new <power> [powersoftau_0000.ptau]",
+        description: "Starts a powers of tau ceremony",
         alias: ["ptn"],
         options: "-verbose|v",
         action: powersOfTawNew
     },
     {
-        cmd: "powersoftaw export challange <powersoftaw_0000.ptaw> [challange]",
+        cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
         description: "Creates a challange",
         alias: ["pte"],
         options: "-verbose|v",
         action: powersOfTawExportChallange
     },
     {
-        cmd: "powersoftaw challange contribute <challange> [response]",
+        cmd: "powersoftau challange contribute <challange> [response]",
         description: "Contribute to a challange",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
         action: powersOfTawChallangeContribute
     },
     {
-        cmd: "powersoftaw import <powersoftaw_old.ptaw> <response> <<powersoftaw_new.ptaw>",
-        description: "import a response to a ptaw file",
+        cmd: "powersoftau import <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
+        description: "import a response to a ptau file",
         alias: ["pti"],
         options: "-verbose|v -nopoints -nocheck -description|d -name|n",
         action: powersOfTawImport
     },
     {
-        cmd: "powersoftaw verify <powersoftaw.ptaw>",
+        cmd: "powersoftau verify <powersoftau.ptau>",
         description: "verifies a powers of tau file",
         alias: ["ptv"],
         options: "-verbose|v",
         action: powersOfTawVerify
     },
     {
-        cmd: "powersoftaw beacon <old_powersoftaw.ptaw> <new_powersoftaw.ptaw> <beaconHash(Hex)> <numIterationsExp>",
+        cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
         description: "adds a beacon",
         alias: ["ptb"],
         options: "-verbose|v -name|n",
         action: powersOfTawBeacon
     },
     {
-        cmd: "powersoftaw contribute <powersoftaw.ptaw> <new_powersoftaw.ptaw>",
+        cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "verifies a powers of tau file",
         alias: ["ptc"],
         options: "-verbose|v -name|n -entropy|e",
         action: powersOfTawContribute
     },
     {
-        cmd: "powersoftaw prepare phase2 <powersoftaw.ptaw> <new_powersoftaw.ptaw>",
+        cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Prepares phase 2. ",
         longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
         alias: ["pt2"],
         options: "-verbose|v",
         action: powersOfTawPreparePhase2
+    },
+    {
+        cmd: "phase2 new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial pkey file with zero contributions ",
+        alias: ["p2n"],
+        options: "-verbose|v",
+        action: phase2new
     },
 
 ];
@@ -504,7 +513,7 @@ async function solidityGenCall(params, options) {
 
 async function powersOfTawNew(params, options) {
     let power;
-    let ptawName;
+    let ptauName;
 
     power = parseInt(params[0]);
     if ((power<1) || (power>28)) {
@@ -512,19 +521,19 @@ async function powersOfTawNew(params, options) {
     }
 
     if (params.length < 2) {
-        ptawName = "powersOfTaw" + power + "_0000.ptaw";
+        ptauName = "powersOfTaw" + power + "_0000.ptau";
     } else {
-        ptawName = params[1];
+        ptauName = params[1];
     }
 
-    return await powersOfTaw.newAccumulator(bn128, power, ptawName, options.verbose);
+    return await powersOfTaw.newAccumulator(bn128, power, ptauName, options.verbose);
 }
 
 async function powersOfTawExportChallange(params, options) {
-    let ptawName;
+    let ptauName;
     let challangeName;
 
-    ptawName = params[0];
+    ptauName = params[0];
 
     if (params.length < 2) {
         challangeName = "challange";
@@ -532,7 +541,7 @@ async function powersOfTawExportChallange(params, options) {
         challangeName = params[1];
     }
 
-    return await powersOfTaw.exportChallange(ptawName, challangeName, options.verbose);
+    return await powersOfTaw.exportChallange(ptauName, challangeName, options.verbose);
 }
 
 
@@ -623,3 +632,30 @@ async function powersOfTawPreparePhase2(params, options) {
     return await powersOfTaw.preparePhase2(oldPtauName, newPtauName, options.verbose);
 }
 
+
+// phase2 new <circuit.r1cs> <powersoftau.ptau> <circuit.zkey>
+async function phase2new(params, options) {
+    let r1csName;
+    let ptauName;
+    let zkeyName;
+
+    if (params.length < 1) {
+        r1csName = "circuit.r1cs";
+    } else {
+        r1csName = params[0];
+    }
+
+    if (params.length < 2) {
+        ptauName = "powersoftau.ptau";
+    } else {
+        ptauName = params[1];
+    }
+
+    if (params.length < 2) {
+        zkeyName = "circuit.zkey";
+    } else {
+        zkeyName = params[2];
+    }
+
+    return phase2.new(r1csName, ptauName, zkeyName, options.verbose);
+}
