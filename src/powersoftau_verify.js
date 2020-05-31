@@ -251,7 +251,7 @@ async function verify(tauFilename, verbose) {
     printContribution(curContr, prevContr);
     for (let i = contrs.length-2; i>=0; i--) {
         const curContr = contrs[i];
-        const prevContr =  (curContr>0) ? contrs[i-1] : initialContribution;
+        const prevContr =  (i>0) ? contrs[i-1] : initialContribution;
         await verifyContribution(curve, curContr, prevContr);
         printContribution(curContr, prevContr);
     }
