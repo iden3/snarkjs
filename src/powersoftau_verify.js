@@ -283,7 +283,7 @@ async function verify(tauFilename, verbose) {
         console.log(utils.formatHash(prevContr.nextChallange));
 
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
-        utils.toPtauPubKeyRpr(buffV, 0, curve, key, false);
+        utils.toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
         const responseHasher = Blake2b(64);
         responseHasher.setPartialHash(curContr.partialHash);
