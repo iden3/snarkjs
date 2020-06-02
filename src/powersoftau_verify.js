@@ -157,7 +157,6 @@ async function verify(tauFilename, verbose) {
 
     const nextContributionHasher = Blake2b(64);
     nextContributionHasher.update(curContr.responseHash);
-    const key = curContr.key;
 
     // Verify powers and compute nextChallangeHash
 
@@ -252,7 +251,8 @@ async function verify(tauFilename, verbose) {
     for (let i = contrs.length-2; i>=0; i--) {
         const curContr = contrs[i];
         const prevContr =  (i>0) ? contrs[i-1] : initialContribution;
-        await verifyContribution(curve, curContr, prevContr);
+        const res = await verifyContribution(curve, curContr, prevContr);
+        if (!res) return false;
         printContribution(curContr, prevContr);
     }
     console.log("-----------------------------------------------------");
@@ -262,13 +262,13 @@ async function verify(tauFilename, verbose) {
         console.log("   snarkjs \"powersoftau preparephase2\" to prepare this file to be used in the phase2 ceremony." );
     } else {
         let res;
-        res = await verifyLagrangeEvaluations("G1", 1 << power, 2, 12, "tauG1");
+        res = await verifyLagrangeEvaluations("G1", 2, 12, "tauG1");
         if (!res) return false;
-        res = await verifyLagrangeEvaluations("G2", 1 << power, 3, 13, "tauG2");
+        res = await verifyLagrangeEvaluations("G2", 3, 13, "tauG2");
         if (!res) return false;
-        res = await verifyLagrangeEvaluations("G1", 1 << power, 4, 14, "alphaTauG1");
+        res = await verifyLagrangeEvaluations("G1", 4, 14, "alphaTauG1");
         if (!res) return false;
-        res = await verifyLagrangeEvaluations("G1", 1 << power, 5, 15, "betaTauG1");
+        res = await verifyLagrangeEvaluations("G1", 5, 15, "betaTauG1");
         if (!res) return false;
     }
 
@@ -375,13 +375,9 @@ async function verify(tauFilename, verbose) {
 
     }
 
-    async function verifyLagrangeEvaluations(gName, nPoints, tauSection, lagrangeSection, sectionName) {
+    async function verifyLagrangeEvaluations(gName, tauSection, lagrangeSection, sectionName) {
 
         if (verbose) console.log(`Verifying phase2 calculated values ${sectionName}...`);
-
-        const n8r = curve.Fr.n8;
-        let buff_r = new Uint8Array(nPoints * n8r);
-        let buffG;
         const G = curve[gName];
         const sG = G.F.n8*2;
 
@@ -392,33 +388,50 @@ async function verify(tauFilename, verbose) {
 
         const rng = new ChaCha(seed);
 
-        for (let i=0; i<nPoints; i++) {
-            const e = curve.Fr.fromRng(rng);
-            curve.Fr.toRprLE(buff_r, i*n8r, e);
-        }
 
-        await binFileUtils.startReadUniqueSection(fd, sections, tauSection);
-        buffG = await fd.read(nPoints*sG);
-        await binFileUtils.endReadSection(fd, true);
-
-        const resTau = await G.multiExpAffine(buffG, buff_r);
-
-        buff_r = await curve.Fr.batchToMontgomery(buff_r);
-        buff_r = await curve.Fr.fft(buff_r);
-        buff_r = await curve.Fr.batchFromMontgomery(buff_r);
-
-        await binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
-        buffG = await fd.read(nPoints*sG);
-        await binFileUtils.endReadSection(fd, true);
-
-        const resLagrange = await G.multiExpAffine(buffG, buff_r);
-
-        if (!G.eq(resTau, resLagrange)) {
-            console.log("Phase2 caclutation does not match with powers of tau");
-            return false;
+        for (let p=0; p<= power; p ++) {
+            const res = await verifyPower(p);
+            if (!res) return false;
         }
 
         return true;
+
+        async function verifyPower(p) {
+            if (verbose) console.log(`Power ${p}...`);
+            const n8r = curve.Fr.n8;
+            const nPoints = 1<<p;
+            let buff_r = new Uint8Array(nPoints * n8r);
+            let buffG;
+
+            for (let i=0; i<nPoints; i++) {
+                const e = curve.Fr.fromRng(rng);
+                curve.Fr.toRprLE(buff_r, i*n8r, e);
+            }
+
+            await binFileUtils.startReadUniqueSection(fd, sections, tauSection);
+            buffG = await fd.read(nPoints*sG);
+            await binFileUtils.endReadSection(fd, true);
+
+            const resTau = await G.multiExpAffine(buffG, buff_r);
+
+            buff_r = await curve.Fr.batchToMontgomery(buff_r);
+            buff_r = await curve.Fr.fft(buff_r);
+            buff_r = await curve.Fr.batchFromMontgomery(buff_r);
+
+            await binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
+            fd.pos += sG*((1 << p)-1);
+            buffG = await fd.read(nPoints*sG);
+            await binFileUtils.endReadSection(fd, true);
+
+            const resLagrange = await G.multiExpAffine(buffG, buff_r);
+
+            if (!G.eq(resTau, resLagrange)) {
+                console.log("Phase2 caclutation does not match with powers of tau");
+                return false;
+            }
+
+            return true;
+        }
     }
 }
 
