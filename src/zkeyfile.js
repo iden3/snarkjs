@@ -77,14 +77,6 @@ async function writeZKey(fileName, zkey) {
     await binFileUtils.endWriteSection(fd);
 
 
-    // Write IC Section
-    ///////////
-    await binFileUtils.startWriteSection(fd, 3);
-    for (let i=0; i<= zkey.nPublic; i++) {
-        await writePointG1(zkey.IC[i] );
-    }
-    await binFileUtils.endWriteSection(fd);
-
 
     // Write Pols (A and B (C can be ommited))
     ///////////
@@ -102,6 +94,14 @@ async function writeZKey(fileName, zkey) {
     }
     await binFileUtils.endWriteSection(fd);
 
+
+    // Write IC Section
+    ///////////
+    await binFileUtils.startWriteSection(fd, 3);
+    for (let i=0; i<= zkey.nPublic; i++) {
+        await writePointG1(zkey.IC[i] );
+    }
+    await binFileUtils.endWriteSection(fd);
 
 
     // Write A

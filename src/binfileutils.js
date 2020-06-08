@@ -86,14 +86,14 @@ async function endReadSection(fd, noCheck) {
     delete fd.readingSection;
 }
 
-async function writeBigInt(fd, n, n8) {
+async function writeBigInt(fd, n, n8, pos) {
     const buff = new Uint8Array(n8);
     Scalar.toRprLE(buff, 0, n, n8);
-    await fd.write(buff);
+    await fd.write(buff, pos);
 }
 
-async function readBigInt(fd, n8) {
-    const buff = await fd.read(n8);
+async function readBigInt(fd, n8, pos) {
+    const buff = await fd.read(n8, pos);
     return Scalar.fromRprLE(buff, 0, n8);
 }
 
