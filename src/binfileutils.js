@@ -111,6 +111,14 @@ async function copySection(fdFrom, sections, fdTo, sectionId) {
 
 }
 
+async function readFullSection(fd, sections, idSection) {
+    await startReadUniqueSection(fd, sections, idSection);
+    const res = await fd.read(fd.readingSection.size);
+    await endReadSection(fd);
+    return res;
+}
+
+
 
 module.exports.readBinFile = readBinFile;
 module.exports.createBinFile = createBinFile;
@@ -121,3 +129,4 @@ module.exports.endWriteSection = endWriteSection;
 module.exports.startReadUniqueSection = startReadUniqueSection;
 module.exports.endReadSection = endReadSection;
 module.exports.copySection = copySection;
+module.exports.readFullSection = readFullSection;

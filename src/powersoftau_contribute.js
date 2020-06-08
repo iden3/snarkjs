@@ -140,6 +140,14 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
             const n= Math.min(NPoints-i, chunkSize );
             const buffIn = await fdOld.read(n * sG);
             const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
+
+            /* Code to test the case where we don't have the 2^m-2 component
+            if (sectionName== "tauG1") {
+                const bz = new Uint8Array(64);
+                buffOutLEM.set(bz, 64*((1 << power) - 1 ));
+            }
+            */
+
             const promiseWrite = fdNew.write(buffOutLEM);
             const buffOutC = await G.batchLEMtoC(buffOutLEM);
 

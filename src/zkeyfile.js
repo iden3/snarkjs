@@ -34,14 +34,11 @@ const assert = require("assert");
 const binFileUtils = require("./binfileutils");
 const bn128 = require("ffjavascript").bn128;
 
-module.exports.write = async function writeZKey(fileName, zkey) {
+const getCurve = require("./curves").getCurveFromQ;
 
-    let curve;
-    if (Scalar.eq(zkey.q, bn128.q)) {
-        curve = bn128;
-    } else {
-        assert(false, fd.fileName +": Curve not supported");
-    }
+async function writeZKey(fileName, zkey) {
+
+    let curve = getCurve(zkey.q);
 
     const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
 
@@ -91,6 +88,9 @@ module.exports.write = async function writeZKey(fileName, zkey) {
 
     // Write Pols (A and B (C can be ommited))
     ///////////
+
+    zkey.ccoefs = zkey.ccoefs.filter(c => c.matrix<2);
+    zkey.ccoefs.sort( (a,b) => a.constraint - b.constraint );
     await binFileUtils.startWriteSection(fd, 4);
     await fd.writeULE32(zkey.ccoefs.length);
     for (let i=0; i<zkey.ccoefs.length; i++) {
@@ -165,18 +165,19 @@ module.exports.write = async function writeZKey(fileName, zkey) {
         curve.G2.toRprLEM(buff, 0, p);
         await fd.write(buff);
     }
-};
+}
 
-module.exports.read = async function readZKey(fileName) {
+
+async function readHeader(fd, sections, protocol) {
+    if (protocol != "groth16") throw new Error("Protocol not supported: "+protocol);
+
     const zkey = {};
-    const {fd, sections} = await binFileUtils.readBinFile(fileName, "zkey", 1);
-
 
     // Read Header
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
-    const protocol = await fd.readULE32();
-    if (protocol != 1) assert("File is not groth");
+    const protocolId = await fd.readULE32();
+    if (protocolId != 1) assert("File is not groth");
     zkey.protocol = "groth16";
     await binFileUtils.endReadSection(fd);
 
@@ -184,24 +185,14 @@ module.exports.read = async function readZKey(fileName) {
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 2);
     const n8q = await fd.readULE32();
+    zkey.n8q = n8q;
     zkey.q = await binFileUtils.readBigInt(fd, n8q);
-    const Fq = new F1Field(zkey.q);
-    const Rq = Scalar.mod(Scalar.shl(1, n8q*8), zkey.q);
-    const Rqi = Fq.inv(Rq);
 
     const n8r = await fd.readULE32();
+    zkey.n8r = n8r;
     zkey.r = await binFileUtils.readBigInt(fd, n8r);
-    const Fr = new F1Field(zkey.r);
-    const Rr = Scalar.mod(Scalar.shl(1, n8q*8), zkey.r);
-    const Rri = Fr.inv(Rr);
-    const Rri2 = Fr.mul(Rri, Rri);
 
-    let curve;
-    if (Scalar.eq(zkey.q, bn128.q)) {
-        curve = bn128;
-    } else {
-        assert(false, fd.fileName +": Curve not supported");
-    }
+    let curve = getCurve(zkey.q);
 
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
@@ -214,6 +205,31 @@ module.exports.read = async function readZKey(fileName) {
     zkey.vk_delta_2 = await readG2();
     await binFileUtils.endReadSection(fd);
 
+    return zkey;
+
+
+    async function readG1() {
+        const buff = await fd.read(curve.G1.F.n8*2);
+        return curve.G1.fromRprLEM(buff, 0);
+    }
+
+    async function readG2() {
+        const buff = await fd.read(curve.G2.F.n8*2);
+        return curve.G2.fromRprLEM(buff, 0);
+    }
+}
+
+async function readZKey(fileName) {
+    const {fd, sections} = await binFileUtils.readBinFile(fileName, "zkey", 1);
+
+    const zkey = await readHeader(fd, sections, "groth16");
+
+    const Fr = new F1Field(zkey.r);
+    const Rr = Scalar.mod(Scalar.shl(1, zkey.n8r*8), zkey.r);
+    const Rri = Fr.inv(Rr);
+    const Rri2 = Fr.mul(Rri, Rri);
+
+    let curve = getCurve(zkey.q);
 
     // Read IC Section
     ///////////
@@ -306,7 +322,7 @@ module.exports.read = async function readZKey(fileName) {
     return zkey;
 
     async function readFr2() {
-        const n = await binFileUtils.readBigInt(fd, n8r);
+        const n = await binFileUtils.readBigInt(fd, zkey.n8r);
         return Fr.mul(n, Rri2);
     }
 
@@ -321,5 +337,8 @@ module.exports.read = async function readZKey(fileName) {
     }
 
 
-};
+}
 
+module.exports.readHeader = readHeader;
+module.exports.read = readZKey;
+module.exports.write = writeZKey;

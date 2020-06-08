@@ -44,6 +44,11 @@ const bn128 = require("ffjavascript").bn128;
 const solidityGenerator = require("./src/soliditygenerator.js");
 
 const phase2 = require("./src/phase2");
+const Scalar = require("ffjavascript").Scalar;
+
+const assert = require("assert");
+
+const groth16Prover = require("./src/groth16_prover");
 
 const commands = [
     {
@@ -91,6 +96,12 @@ const commands = [
         description: "Verify a zk Proof",
         alias: ["zv", "verify -vk|verificationkey -pub|public -p|proof"],
         action: zksnarkVerify
+    },
+    {
+        cmd: "zkey export vkey [circuit.zkey] [verification_key.json]",
+        description: "Exports a verification key to JSON",
+        alias: ["zkev"],
+        action: zKeyExportVKey
     },
     {
         cmd: "solidity genverifier <verificationKey.json> <verifier.sol>",
@@ -371,7 +382,7 @@ async function zksnarkSetup(params, options) {
     return 0;
 }
 
-
+/*
 // zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
 async function zksnarkProve(params, options) {
 
@@ -390,6 +401,25 @@ async function zksnarkProve(params, options) {
 
     if (!zkSnark[protocol]) throw new Error("Invalid protocol");
     const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness, options.verbose);
+
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+
+    return 0;
+}
+*/
+
+
+// zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
+async function zksnarkProve(params, options) {
+
+    const zkeyName = params[0] || "circuit.zkey";
+    const witnessName = params[1] || "witness.wtns";
+    const proofName = params[2] || "proof.json";
+    const publicName = params[3] || "public.json";
+
+
+    const {proof, publicSignals} = await groth16Prover(zkeyName, witnessName, options.verbose);
 
     await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
     await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
@@ -420,6 +450,39 @@ async function zksnarkVerify(params, options) {
         console.log("INVALID");
         return 1;
     }
+}
+
+// zkey export vkey [circuit.zkey] [verification_key.json]",
+async function zKeyExportVKey(params) {
+    const zkeyName = params[0] || "circuit.zkey";
+    const verificationKeyName = params[2] || "verification_key.json";
+
+    const zKey = await zkeyFile.read(zkeyName);
+
+
+    let curve;
+    if (Scalar.eq(zKey.q, bn128.q)) {
+        curve = bn128;
+    } else {
+        assert(false, " Curve not supported");
+    }
+    const vKey = {
+        protocol: zKey.protocol,
+        nPublic: zKey.nPublic,
+        IC: zKey.IC,
+
+
+        vk_alfa_1: zKey.vk_alfa_1,
+
+        vk_beta_2: zKey.vk_beta_2,
+        vk_gamma_2:  zKey.vk_gamma_2,
+        vk_delta_2:  zKey.vk_delta_2,
+
+        vk_alfabeta_12: curve.pairing( zKey.vk_alfa_1 , zKey.vk_beta_2 )
+    };
+
+    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(vKey), null, 1), "utf-8");
+
 }
 
 

@@ -73,41 +73,38 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
             }
             await binFileUtils.endReadSection(fdOld, true);
 
-            for (let i=1; i<= p; i++) {
-                if (i<=chunkPower) {
-                    for (let j=0; j<nChunks; j++) {
-                        if (verbose) console.log(`${sectionName} ${i}/${p} FFTMix ${j+1}/${nChunks}`);
-                        let buff;
-                        fdTmp.pos = (j*pointsPerChunk)*sGmid;
-                        buff = await fdTmp.read(pointsPerChunk*sGmid);
-                        buff = await G.fftMix(buff, i);
-                        fdTmp.pos = (j*pointsPerChunk)*sGmid;
-                        await fdTmp.write(buff);
-                    }
-                } else {
-                    const nGroups = 1 << (p - i);
-                    const nChunksPerGroup = nChunks / nGroups;
-                    for (let j=0; j<nGroups; j++) {
-                        for (let k=0; k <nChunksPerGroup/2; k++) {
-                            if (verbose) console.log(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
-                            const first = Fr.pow( PFr.w[i], k*pointsPerChunk);
-                            const inc = PFr.w[i];
-                            const o1 = j*nChunksPerGroup + k;
-                            const o2 = j*nChunksPerGroup + k + nChunksPerGroup/2;
+            for (let j=0; j<nChunks; j++) {
+                if (verbose) console.log(`${sectionName} ${p} FFTMix ${j+1}/${nChunks}`);
+                let buff;
+                fdTmp.pos = (j*pointsPerChunk)*sGmid;
+                buff = await fdTmp.read(pointsPerChunk*sGmid);
+                buff = await G.fftMix(buff);
+                fdTmp.pos = (j*pointsPerChunk)*sGmid;
+                await fdTmp.write(buff);
+            }
+            for (let i=chunkPower+1; i<= p; i++) {
+                const nGroups = 1 << (p - i);
+                const nChunksPerGroup = nChunks / nGroups;
+                for (let j=0; j<nGroups; j++) {
+                    for (let k=0; k <nChunksPerGroup/2; k++) {
+                        if (verbose) console.log(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
+                        const first = Fr.pow( PFr.w[i], k*pointsPerChunk);
+                        const inc = PFr.w[i];
+                        const o1 = j*nChunksPerGroup + k;
+                        const o2 = j*nChunksPerGroup + k + nChunksPerGroup/2;
 
-                            let buff1, buff2;
-                            fdTmp.pos = o1*sGmid;
-                            buff1 = await fdTmp.read(pointsPerChunk * sGmid);
-                            fdTmp.pos = o2*sGmid;
-                            buff2 = await fdTmp.read(pointsPerChunk * sGmid);
+                        let buff1, buff2;
+                        fdTmp.pos = o1*pointsPerChunk*sGmid;
+                        buff1 = await fdTmp.read(pointsPerChunk * sGmid);
+                        fdTmp.pos = o2*pointsPerChunk*sGmid;
+                        buff2 = await fdTmp.read(pointsPerChunk * sGmid);
 
-                            [buff1, buff2] = await G.fftJoin(buff1, buff2, first, inc);
+                        [buff1, buff2] = await G.fftJoin(buff1, buff2, first, inc);
 
-                            fdTmp.pos = o1*sGmid;
-                            await fdTmp.write(buff1);
-                            fdTmp.pos = o2*sGmid;
-                            await fdTmp.write(buff2);
-                        }
+                        fdTmp.pos = o1*pointsPerChunk*sGmid;
+                        await fdTmp.write(buff1);
+                        fdTmp.pos = o2*pointsPerChunk*sGmid;
+                        await fdTmp.write(buff2);
                     }
                 }
             }
@@ -126,11 +123,12 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
 
             const o = fdNew.pos;
             fdTmp.pos = 0;
+            const factor = Fr.inv( Fr.e( 1<< p));
             for (let i=0; i<nChunks; i++) {
                 if (verbose) console.log(`${sectionName} ${p} FFTFinal ${i+1}/${nChunks}`);
                 let buff;
                 buff = await fdTmp.read(pointsPerChunk * sGmid);
-                buff = await G.fftFinal(buff, Fr.inv( Fr.e( 1<< p)));
+                buff = await G.fftFinal(buff, factor);
 
                 if ( i == 0) {
                     fdNew.pos = o;

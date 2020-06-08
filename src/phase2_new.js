@@ -12,7 +12,7 @@ function log2( V )
 }
 
 
-module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
+module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose) {
 
     const r1cs = await loadR1cs(r1csName, true);
 
@@ -47,8 +47,6 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
 
     };
 
-    const linc = 1 << (power - cirPower);
-
     calculatePolinomials(curve, zKey,r1cs);
 
     zKey.A = new Array(r1cs.nVars);
@@ -67,6 +65,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
         }
     }
     for (let i=0; i<zKey.ccoefs.length; i++) {
+        if (verbose && (i%1000 == 0) && (i >0)) console.log(`${i}/${zKey.ccoefs.length}`);
         const c = zKey.ccoefs[i];
         let CIC;
         if (c.matrix == 0) {
@@ -115,12 +114,18 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
         }
     }
 
-
+/*
     zKey.hExps = new Array(zKey.domainSize-1);
     for (let i=0; i< zKey.domainSize; i++) {
         const t1 = await readEvaluation("tauG1", i);
         const t2 = await readEvaluation("tauG1", i+zKey.domainSize);
-        zKey.hExps[i] = curve.G1.add(t1, t2);
+        zKey.hExps[i] = curve.G1.sub(t2, t1);
+    }
+*/
+
+    zKey.hExps = new Array(zKey.domainSize);
+    for (let i=0; i< zKey.domainSize; i++) {
+        zKey.hExps[i] = await readEvaluation("lTauG1", i*2+1, cirPower+1);
     }
 
     zKey.vk_alfa_1 = await readEvaluation("alphaTauG1", 0);
@@ -130,11 +135,20 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
     zKey.vk_gamma_2 = curve.G2.g;
     zKey.vk_delta_2 = curve.G2.g;
 
+
+    curve.G1.multiAffine(zKey.A);
+    curve.G1.multiAffine(zKey.B1);
+    curve.G2.multiAffine(zKey.B2);
+    curve.G1.multiAffine(zKey.C);
+    curve.G1.multiAffine(zKey.hExps);
+    curve.G1.multiAffine(zKey.IC);
+
     await writeZKey(zkeyName, zKey);
 
     return 0;
 
-    async function readEvaluation(sectionName, idx) {
+    async function readEvaluation(sectionName, idx, p) {
+        p = p || cirPower;
         let o;
         let G;
         switch (sectionName) {
@@ -149,7 +163,10 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
         case "lBetaTauG1": o = sections[15][0].p; G = curve.G1; break;
         }
         const sG = G.F.n8*2;
-        ptauFd.pos = o + sG*idx*linc;
+        if (["lTauG1","lTauG2", "lAlphaTauG1", "lBetaTauG1" ].indexOf(sectionName) >= 0) {
+            o += ((1 << p)-1)*sG;
+        }
+        ptauFd.pos = o + sG*idx;
         const buff = await ptauFd.read(sG);
         return G.fromRprLEM(buff, 0);
     }
@@ -160,14 +177,14 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName) {
 function calculatePolinomials(curve, zKey, r1cs) {
 
     zKey.ccoefs = [];
-    for (let m=0; m<2; m++) {
+    for (let m=0; m<3; m++) {
         for (let c=0; c<r1cs.nConstraints; c++) {
             const signals = Object.keys(r1cs.constraints[c][m]);
             signals.forEach( (s) => {
                 zKey.ccoefs.push({
                     matrix: m,
                     constraint: c,
-                    signal: s,
+                    signal: Number(s),
                     value: r1cs.constraints[c][m][s]
                 });
             });

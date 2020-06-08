@@ -178,9 +178,14 @@ function calculateH(vk_proof, witness) {
     }
 */
 
+    const polC_T = new Array(polA_T.length);
+    for (let i=0; i<polA_T.length; i++) {
+        polC_T[i] = PolF.F.mul(polA_T[i], polB_T[i]);
+    }
 
     const polA_S = PolF.ifft(polA_T);
     const polB_S = PolF.ifft(polB_T);
+    const polC_S = PolF.ifft(polC_T);
 
     // F(wx) = [1, w, w^2, ...... w^(m-1)] in time is the same than shift in in frequency
     const r = PolF.log2(m)+1;
@@ -188,22 +193,17 @@ function calculateH(vk_proof, witness) {
     for (let i=0; i<polA_S.length; i++) {
         polA_S[i] = PolF.F.mul( polA_S[i], PolF.roots[r][i]);
         polB_S[i] = PolF.F.mul( polB_S[i], PolF.roots[r][i]);
+        polC_S[i] = PolF.F.mul( polC_S[i], PolF.roots[r][i]);
     }
 
     const polA_Todd = PolF.fft(polA_S);
     const polB_Todd = PolF.fft(polB_S);
+    const polC_Todd = PolF.fft(polC_S);
 
-    const polAB_T = new Array(polA_S.length*2);
+    const polABC_Todd = new Array(polA_S.length);
     for (let i=0; i<polA_S.length; i++) {
-        polAB_T[2*i] = PolF.F.mul( polA_T[i], polB_T[i]);
-        polAB_T[2*i+1] = PolF.F.mul( polA_Todd[i], polB_Todd[i]);
+        polABC_Todd[i] = PolF.F.sub(PolF.F.mul( polA_Todd[i], polB_Todd[i]), polC_Todd[i]);
     }
 
-    // We only need the to half of the fft, so we could optimize at least by m multiplications.
-    let H_S = PolF.ifft(polAB_T);
-
-    H_S = H_S.slice(m);
-
-    return H_S;
-
+    return polABC_Todd;
 }

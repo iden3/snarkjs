@@ -3,7 +3,7 @@ const assert = require("assert");
 const binFileUtils = require("./binfileutils");
 
 
-module.exports.write = async function writeWtns(fileName, witness, prime) {
+async function writeWtns(fileName, witness, prime) {
 
     const fd = await binFileUtils.createOverride(fileName,"wtns", 2, 2);
 
@@ -22,9 +22,9 @@ module.exports.write = async function writeWtns(fileName, witness, prime) {
 
     await fd.close();
 
-};
+}
 
-module.exports.writeBin = async function writeWtnsBin(fileName, witnessBin, prime) {
+async function writeWtnsBin(fileName, witnessBin, prime) {
 
     witnessBin = Buffer.from(witnessBin);
 
@@ -44,17 +44,25 @@ module.exports.writeBin = async function writeWtnsBin(fileName, witnessBin, prim
     await binFileUtils.endWriteSection(fd);
 
     await fd.close();
-};
+}
 
-module.exports.read = async function readWtns(fileName) {
-
-    const {fd, sections} = await binFileUtils.readBinFile(fileName, "wtns", 2);
+async function readWtnsHeader(fd, sections) {
 
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
     const n8 = await fd.readULE32();
-    await binFileUtils.readBigInt(fd, n8);
+    const q = await binFileUtils.readBigInt(fd, n8);
     const nWitness = await fd.readULE32();
     await binFileUtils.endReadSection(fd);
+
+    return {n8, q, nWitness};
+
+}
+
+async function readWtns(fileName) {
+
+    const {fd, sections} = await binFileUtils.readBinFile(fileName, "wtns", 2);
+
+    const {n8, nWitness} = await readWtnsHeader(fd, sections);
 
     await binFileUtils.startReadUniqueSection(fd, sections, 2);
     const res = [];
@@ -67,4 +75,9 @@ module.exports.read = async function readWtns(fileName) {
     await fd.close();
 
     return res;
-};
+}
+
+module.exports.read = readWtns;
+module.exports.readHeader = readWtnsHeader;
+module.exports.writeBin = writeWtnsBin;
+module.exports.write = writeWtns;
