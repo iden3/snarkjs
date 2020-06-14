@@ -1,6 +1,6 @@
 const zkeyUtils = require("./zkey_utils");
 const binFileUtils = require("./binfileutils");
-const fastFile = require("fastFile");
+const fastFile = require("fastfile");
 const getCurve = require("./curves").getCurveFromQ;
 const misc = require("./misc");
 
