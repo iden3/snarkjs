@@ -1,7 +1,7 @@
 
 const binFileUtils = require("./binfileutils");
 const zkeyUtils = require("./zkey_utils");
-const fastFile = require("fastFile");
+const fastFile = require("fastfile");
 const getCurve = require("./curves").getCurveFromQ;
 
 module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, verbose) {
