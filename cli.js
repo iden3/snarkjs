@@ -30,7 +30,6 @@ const {stringifyBigInts, unstringifyBigInts} = require("ffjavascript").utils;
 const loadR1cs = require("r1csfile").load;
 const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
 
-const zkeyFile = require("./src/zkeyfile");
 const wtnsFile = require("./src/wtnsfile");
 
 const loadSyms = require("./src/loadsyms");
@@ -43,12 +42,12 @@ const powersOfTaw = require("./src/powersoftau");
 const bn128 = require("ffjavascript").bn128;
 const solidityGenerator = require("./src/soliditygenerator.js");
 
-const phase2 = require("./src/phase2");
 const Scalar = require("ffjavascript").Scalar;
 
 const assert = require("assert");
 
 const groth16Prover = require("./src/groth16_prover");
+const zkey = require("./src/zkey");
 
 const commands = [
     {
@@ -98,12 +97,6 @@ const commands = [
         action: zksnarkVerify
     },
     {
-        cmd: "zkey export vkey [circuit.zkey] [verification_key.json]",
-        description: "Exports a verification key to JSON",
-        alias: ["zkev"],
-        action: zKeyExportVKey
-    },
-    {
         cmd: "solidity genverifier <verificationKey.json> <verifier.sol>",
         description: "Creates a verifier in solidity",
         alias: ["ks", "generateverifier -vk|verificationkey -v|verifier"],
@@ -125,7 +118,7 @@ const commands = [
     {
         cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
         description: "Creates a challange",
-        alias: ["pte"],
+        alias: ["ptec"],
         options: "-verbose|v",
         action: powersOfTawExportChallange
     },
@@ -159,7 +152,7 @@ const commands = [
     },
     {
         cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
-        description: "verifies a powers of tau file",
+        description: "creates a ptau file with a new contribution",
         alias: ["ptc"],
         options: "-verbose|v -name|n -entropy|e",
         action: powersOfTawContribute
@@ -173,11 +166,59 @@ const commands = [
         action: powersOfTawPreparePhase2
     },
     {
-        cmd: "phase2 new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
-        description: "Creates an initial pkey file with zero contributions ",
-        alias: ["p2n"],
+        cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
+        description: "Exports a power of tau file to a JSON",
+        alias: ["ptej"],
         options: "-verbose|v",
-        action: phase2new
+        action: powersOfTawExportJson
+    },
+    {
+        cmd: "zkey new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial pkey file with zero contributions ",
+        alias: ["zkn"],
+        options: "-verbose|v",
+        action: zkeyNew
+    },
+    {
+        cmd: "zkey export bellman [circuit.zkey] [circuit.mpcparams]",
+        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman)",
+        alias: ["zkeb"],
+        options: "-verbose|v",
+        action: zkeyExportBellman
+    },
+    {
+        cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
+        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
+        alias: ["zkib"],
+        options: "-verbose|v",
+        action: zkeyImportBellman
+    },
+    {
+        cmd: "zkey verify [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
+        alias: ["zkv"],
+        options: "-verbose|v",
+        action: zkeyVerify
+    },
+    {
+        cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
+        description: "creates a zkey file with a new contribution",
+        alias: ["zkc"],
+        options: "-verbose|v",
+        action: zkeyContribute
+    },
+    {
+        cmd: "zkey export vkey [circuit.zkey] [verification_key.json]",
+        description: "Exports a verification key",
+        alias: ["zkev"],
+        action: zkeyExportVKey
+    },
+    {
+        cmd: "zkey export json [circuit.zkey] [circuit.zkey.json]",
+        description: "Exports a circuit key to a JSON file",
+        alias: ["zkej"],
+        options: "-verbose|v",
+        action: zkeyExportJson
     },
 
 ];
@@ -224,12 +265,6 @@ TODO COMMANDS
         action: witnessVerify
     },
 
-ptau new                                    Starts a ceremony with a new challange for the powes of Tau ceremony
-ptau contribute                             Contribute in the ceremony of powers of tau
-ptau beacon                                 Apply a beacon random to the ceremony
-ptau verify                                 Verify the powers of tau ceremony
-ptau preparePhase2                          Prepare Powers of Taus for a phase 2
-phase2 new                                  Starts a second phase ceremony for a given circuit with a first challange and a reference Hash.
 phase2 constribute                          Contribute in the seconf phase ceremony
 phase2 beacon                               Contribute in the seconf phase ceremony with a Powers of Tau
 phase2 verify                               Verify the Powers of tau
@@ -374,7 +409,7 @@ async function zksnarkSetup(params, options) {
     if (!zkSnark[protocol]) throw new Error("Invalid protocol");
     const setup = zkSnark[protocol].setup(cir, options.verbose);
 
-    await zkeyFile.write(zkeyName, setup.vk_proof);
+    await zkey.utils.write(zkeyName, setup.vk_proof);
     // await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
 
     await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
@@ -453,12 +488,11 @@ async function zksnarkVerify(params, options) {
 }
 
 // zkey export vkey [circuit.zkey] [verification_key.json]",
-async function zKeyExportVKey(params) {
+async function zkeyExportVKey(params) {
     const zkeyName = params[0] || "circuit.zkey";
     const verificationKeyName = params[2] || "verification_key.json";
 
-    const zKey = await zkeyFile.read(zkeyName);
-
+    const zKey = await zkey.utils.read(zkeyName);
 
     let curve;
     if (Scalar.eq(zKey.q, bn128.q)) {
@@ -472,19 +506,26 @@ async function zKeyExportVKey(params) {
         IC: zKey.IC,
 
 
-        vk_alfa_1: zKey.vk_alfa_1,
+        vk_alpha_1: zKey.vk_alpha_1,
 
         vk_beta_2: zKey.vk_beta_2,
         vk_gamma_2:  zKey.vk_gamma_2,
         vk_delta_2:  zKey.vk_delta_2,
 
-        vk_alfabeta_12: curve.pairing( zKey.vk_alfa_1 , zKey.vk_beta_2 )
+        vk_alphabeta_12: curve.pairing( zKey.vk_alpha_1 , zKey.vk_beta_2 )
     };
 
     await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(vKey), null, 1), "utf-8");
 
 }
 
+// zkey export json [circuit.zkey] [circuit.zkey.json]",
+async function zkeyExportJson(params, options) {
+    const zkeyName = params[0] || "circuit.zkey";
+    const zkeyJsonName = params[1] || "circuit.zkey.json";
+
+    return await zkey.exportJson(zkeyName, zkeyJsonName, options.verbose);
+}
 
 // solidity genverifier <verificationKey.json> <verifier.sol>
 async function solidityGenVerifier(params, options) {
@@ -638,7 +679,7 @@ async function powersOfTawImport(params, options) {
     if (options.nopoints) importPoints = false;
     if (options.nocheck) doCheck = false;
 
-    const res = await powersOfTaw.impoertResponse(oldPtauName, response, newPtauName, options.name, importPoints, options.verbose);
+    const res = await powersOfTaw.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, options.verbose);
 
     if (res) return res;
     if (!doCheck) return;
@@ -652,7 +693,7 @@ async function powersOfTawVerify(params, options) {
     ptauName = params[0];
 
     const res = await powersOfTaw.verify(ptauName, options.verbose);
-    if (res) {
+    if (res === true) {
         console.log("Powers of tau OK!");
         return 0;
     } else {
@@ -695,9 +736,20 @@ async function powersOfTawPreparePhase2(params, options) {
     return await powersOfTaw.preparePhase2(oldPtauName, newPtauName, options.verbose);
 }
 
+// powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
+async function powersOfTawExportJson(params, options) {
+    let ptauName;
+    let jsonName;
+
+    ptauName = params[0];
+    jsonName = params[1];
+
+    return await powersOfTaw.exportJson(ptauName, jsonName, options.verbose);
+}
+
 
 // phase2 new <circuit.r1cs> <powersoftau.ptau> <circuit.zkey>
-async function phase2new(params, options) {
+async function zkeyNew(params, options) {
     let r1csName;
     let ptauName;
     let zkeyName;
@@ -721,4 +773,88 @@ async function phase2new(params, options) {
     }
 
     return phase2.new(r1csName, ptauName, zkeyName, options.verbose);
+}
+
+// zkey export bellman [circuit.zkey] [circuit.mpcparams]
+async function zkeyExportBellman(params, options) {
+    let zkeyName;
+    let mpcparamsName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        mpcparamsName = "circuit.mpcparams";
+    } else {
+        mpcparamsName = params[1];
+    }
+
+    return phase2.exportMPCParams(zkeyName, mpcparamsName, options.verbose);
+
+}
+
+
+// zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>
+async function zkeyImportBellman(params, options) {
+    let zkeyNameOld;
+    let mpcParamsName;
+    let zkeyNameNew;
+
+    zkeyNameOld = params[0];
+    mpcParamsName = params[1];
+    zkeyNameNew = params[2];
+
+    return zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.verbose);
+}
+
+// phase2 verify [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]
+async function zkeyVerify(params, options) {
+    let r1csName;
+    let ptauName;
+    let zkeyName;
+
+    if (params.length < 1) {
+        r1csName = "circuit.r1cs";
+    } else {
+        r1csName = params[0];
+    }
+
+    if (params.length < 2) {
+        ptauName = "powersoftau.ptau";
+    } else {
+        ptauName = params[1];
+    }
+
+    if (params.length < 3) {
+        zkeyName = "circuit.zkey";
+    } else {
+        zkeyName = params[2];
+    }
+
+    const res = await zkey.verify(r1csName, ptauName, zkeyName, options.verbose);
+    if (res === true) {
+        console.log("zKey OK!");
+        return 0;
+    } else {
+        console.log("=======>INVALID zKey<==========");
+        return 1;
+    }
+
+}
+
+
+// phase2 contribute <circuit_old.zkey> <circuit_new.zkey>
+
+async function zkeyContribute(params, options) {
+    let zkeyOldName;
+    let zkeyNewName;
+
+    zkeyOldName = params[0];
+    zkeyNewName = params[1];
+
+
+    return phase2.contribute(zkeyOldName, zkeyNewName, options.verbose);
 }

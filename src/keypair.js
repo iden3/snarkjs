@@ -6,6 +6,20 @@ const blake2b = require("blake2b");
 
 const ChaCha = require("ffjavascript").ChaCha;
 
+function hashToG2(hash) {
+    const hashV = new DataView(hash.buffer);
+    const seed = [];
+    for (let i=0; i<8; i++) {
+        seed[i] = hashV.getUint32(i*4);
+    }
+
+    const rng = new ChaCha(seed);
+
+    const g2_sp = bn128.G2.fromRng(rng);
+
+    return g2_sp;
+}
+
 function getG2sp(persinalization, challange, g1s, g1sx) {
 
     const h = blake2b(64);
@@ -17,17 +31,7 @@ function getG2sp(persinalization, challange, g1s, g1sx) {
     h.update( utils.beInt2Buff(g1sx[1],32));
     const hash = Buffer.from(h.digest());
 
-    const seed = [];
-    for (let i=0; i<8; i++) {
-        seed[i] = hash.readUInt32BE(i*4);
-    }
-
-    const rng = new ChaCha(seed);
-
-    const g2_sp = bn128.G2.fromRng(rng);
-
-    return g2_sp;
-
+    return hashToG2(hash);
 }
 
 function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
@@ -55,3 +59,4 @@ function createPTauKey(curve, challangeHash, rng) {
 
 module.exports.createPTauKey = createPTauKey;
 module.exports.getG2sp = getG2sp;
+module.exports.hashToG2 = hashToG2;

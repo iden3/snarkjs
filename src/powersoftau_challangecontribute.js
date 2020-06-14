@@ -24,7 +24,7 @@ const crypto = require("crypto");
 const ChaCha = require("ffjavascript").ChaCha;
 const fs = require("fs");
 const utils = require("./powersoftau_utils");
-
+const misc = require("./misc");
 
 const keyPair = require("./keypair");
 
@@ -78,11 +78,11 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
 
     const claimedHash = await fdFrom.read(64, 0);
     console.log("Claimed Previus Challange Hash: ");
-    console.log(utils.formatHash(claimedHash));
+    console.log(misc.formatHash(claimedHash));
 
     const challangeHash = challangeHasher.digest();
     console.log("Current Challange Hash: ");
-    console.log(utils.formatHash(challangeHash));
+    console.log(misc.formatHash(challangeHash));
 
     const hasher = Blake2b(64);
 
@@ -139,7 +139,7 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     responseHasher.update(buffKey);
     const responseHash = responseHasher.digest();
     console.log("Contribution Response Hash: ");
-    console.log(utils.formatHash(responseHash));
+    console.log(misc.formatHash(responseHash));
 
     await fdTo.close();
     await fdFrom.close();

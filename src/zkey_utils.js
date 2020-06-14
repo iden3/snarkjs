@@ -1,9 +1,9 @@
 
 // Format
 // ======
-// Header
+// Header(1)
 //      Prover Type 1 Groth
-// HeaderGroth
+// HeaderGroth(2)
 //      n8q
 //      q
 //      n8r
@@ -11,36 +11,31 @@
 //      NVars
 //      NPub
 //      DomainSize  (multiple of 2
-//      alfa1
+//      alpha1
 //      beta1
 //      delta1
 //      beta2
 //      gamma2
 //      delta2
-// IC
-// PolA
-// PolB
-// PointsA
-// PointsB1
-// PointsB2
-// PointsC
-// PointsH
-// Contributions
+// IC(3)
+// Coefs(4)
+// PointsA(5)
+// PointsB1(6)
+// PointsB2(7)
+// PointsC(8)
+// PointsH(9)
+// Contributions(10)
 
 
 const Scalar = require("ffjavascript").Scalar;
 const F1Field = require("ffjavascript").F1Field;
 const assert = require("assert");
 const binFileUtils = require("./binfileutils");
-const bn128 = require("ffjavascript").bn128;
 
 const getCurve = require("./curves").getCurveFromQ;
+const {log2} = require("./misc");
 
-async function writeZKey(fileName, zkey) {
-
-    let curve = getCurve(zkey.q);
-
-    const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
+async function writeHeader(fd, zkey) {
 
     // Write the header
     ///////////
@@ -51,14 +46,14 @@ async function writeZKey(fileName, zkey) {
     // Write the Groth header section
     ///////////
 
+    const curve = getCurve(zkey.q);
+
     await binFileUtils.startWriteSection(fd, 2);
-    const primeQ = zkey.q;
+    const primeQ = curve.q;
     const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
-    const primeR = zkey.r;
+    const primeR = curve.r;
     const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
-    const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
-    const R2r = Scalar.mod(Scalar.mul(Rr,Rr), primeR);
 
     await fd.writeULE32(n8q);
     await binFileUtils.writeBigInt(fd, primeQ, n8q);
@@ -67,16 +62,28 @@ async function writeZKey(fileName, zkey) {
     await fd.writeULE32(zkey.nVars);                         // Total number of bars
     await fd.writeULE32(zkey.nPublic);                       // Total number of public vars (not including ONE)
     await fd.writeULE32(zkey.domainSize);                  // domainSize
-    await writePointG1(zkey.vk_alfa_1);
-    await writePointG1(zkey.vk_beta_1);
-    await writePointG1(zkey.vk_delta_1);
-    await writePointG2(zkey.vk_beta_2);
-    await writePointG2(zkey.vk_gamma_2);
-    await writePointG2(zkey.vk_delta_2);
+    await writeG1(fd, curve, zkey.vk_alpha_1);
+    await writeG1(fd, curve, zkey.vk_beta_1);
+    await writeG2(fd, curve, zkey.vk_beta_2);
+    await writeG2(fd, curve, zkey.vk_gamma_2);
+    await writeG1(fd, curve, zkey.vk_delta_1);
+    await writeG2(fd, curve, zkey.vk_delta_2);
 
     await binFileUtils.endWriteSection(fd);
 
 
+}
+
+async function writeZKey(fileName, zkey) {
+
+    let curve = getCurve(zkey.q);
+
+    const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
+
+    await writeHeader(fd, zkey);
+    const n8r = (Math.floor( (Scalar.bitLength(zkey.r) - 1) / 64) +1)*8;
+    const Rr = Scalar.mod(Scalar.shl(1, n8r*8), zkey.r);
+    const R2r = Scalar.mod(Scalar.mul(Rr,Rr), zkey.r);
 
     // Write Pols (A and B (C can be ommited))
     ///////////
@@ -99,7 +106,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 3);
     for (let i=0; i<= zkey.nPublic; i++) {
-        await writePointG1(zkey.IC[i] );
+        await writeG1(fd, curve, zkey.IC[i] );
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -108,7 +115,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 5);
     for (let i=0; i<zkey.nVars; i++) {
-        await writePointG1(zkey.A[i]);
+        await writeG1(fd, curve, zkey.A[i]);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -116,7 +123,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 6);
     for (let i=0; i<zkey.nVars; i++) {
-        await writePointG1(zkey.B1[i]);
+        await writeG1(fd, curve, zkey.B1[i]);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -124,7 +131,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 7);
     for (let i=0; i<zkey.nVars; i++) {
-        await writePointG2(zkey.B2[i]);
+        await writeG2(fd, curve, zkey.B2[i]);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -132,7 +139,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 8);
     for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
-        await writePointG1(zkey.C[i]);
+        await writeG1(fd, curve, zkey.C[i]);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -141,7 +148,7 @@ async function writeZKey(fileName, zkey) {
     ///////////
     await binFileUtils.startWriteSection(fd, 9);
     for (let i=0; i<zkey.domainSize; i++) {
-        await writePointG1(zkey.hExps[i]);
+        await writeG1(fd, curve, zkey.hExps[i]);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -149,23 +156,35 @@ async function writeZKey(fileName, zkey) {
 
     async function writeFr2(n) {
         // Convert to montgomery
-        n = Scalar.mod( Scalar.mul(n, R2r), primeR);
+        n = Scalar.mod( Scalar.mul(n, R2r), zkey.r);
 
         await binFileUtils.writeBigInt(fd, n, n8r);
     }
 
-    async function writePointG1(p) {
-        const buff = new Uint8Array(curve.G1.F.n8*2);
-        curve.G1.toRprLEM(buff, 0, p);
-        await fd.write(buff);
-    }
-
-    async function writePointG2(p) {
-        const buff = new Uint8Array(curve.G2.F.n8*2);
-        curve.G2.toRprLEM(buff, 0, p);
-        await fd.write(buff);
-    }
 }
+
+async function writeG1(fd, curve, p) {
+    const buff = new Uint8Array(curve.G1.F.n8*2);
+    curve.G1.toRprLEM(buff, 0, p);
+    await fd.write(buff);
+}
+
+async function writeG2(fd, curve, p) {
+    const buff = new Uint8Array(curve.G2.F.n8*2);
+    curve.G2.toRprLEM(buff, 0, p);
+    await fd.write(buff);
+}
+
+async function readG1(fd, curve) {
+    const buff = await fd.read(curve.G1.F.n8*2);
+    return curve.G1.fromRprLEM(buff, 0);
+}
+
+async function readG2(fd, curve) {
+    const buff = await fd.read(curve.G2.F.n8*2);
+    return curve.G2.fromRprLEM(buff, 0);
+}
+
 
 
 async function readHeader(fd, sections, protocol) {
@@ -197,26 +216,17 @@ async function readHeader(fd, sections, protocol) {
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
-    zkey.vk_alfa_1 = await readG1();
-    zkey.vk_beta_1 = await readG1();
-    zkey.vk_delta_1 = await readG1();
-    zkey.vk_beta_2 = await readG2();
-    zkey.vk_gamma_2 = await readG2();
-    zkey.vk_delta_2 = await readG2();
+    zkey.power = log2(zkey.domainSize);
+    zkey.vk_alpha_1 = await readG1(fd, curve);
+    zkey.vk_beta_1 = await readG1(fd, curve);
+    zkey.vk_beta_2 = await readG2(fd, curve);
+    zkey.vk_gamma_2 = await readG2(fd, curve);
+    zkey.vk_delta_1 = await readG1(fd, curve);
+    zkey.vk_delta_2 = await readG2(fd, curve);
     await binFileUtils.endReadSection(fd);
 
     return zkey;
 
-
-    async function readG1() {
-        const buff = await fd.read(curve.G1.F.n8*2);
-        return curve.G1.fromRprLEM(buff, 0);
-    }
-
-    async function readG2() {
-        const buff = await fd.read(curve.G2.F.n8*2);
-        return curve.G2.fromRprLEM(buff, 0);
-    }
 }
 
 async function readZKey(fileName) {
@@ -236,7 +246,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 3);
     zkey.IC = [];
     for (let i=0; i<= zkey.nPublic; i++) {
-        const P = await readG1();
+        const P = await readG1(fd, curve);
         zkey.IC.push(P);
     }
     await binFileUtils.endReadSection(fd);
@@ -266,7 +276,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 5);
     zkey.A = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const A = await readG1();
+        const A = await readG1(fd, curve);
         zkey.A[i] = A;
     }
     await binFileUtils.endReadSection(fd);
@@ -277,7 +287,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 6);
     zkey.B1 = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const B1 = await readG1();
+        const B1 = await readG1(fd, curve);
 
         zkey.B1[i] = B1;
     }
@@ -289,7 +299,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 7);
     zkey.B2 = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const B2 = await readG2();
+        const B2 = await readG2(fd, curve);
         zkey.B2[i] = B2;
     }
     await binFileUtils.endReadSection(fd);
@@ -300,7 +310,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 8);
     zkey.C = [];
     for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
-        const C = await readG1();
+        const C = await readG1(fd, curve);
 
         zkey.C[i] = C;
     }
@@ -312,7 +322,7 @@ async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 9);
     zkey.hExps = [];
     for (let i=0; i<zkey.domainSize; i++) {
-        const H = await readG1();
+        const H = await readG1(fd, curve);
         zkey.hExps.push(H);
     }
     await binFileUtils.endReadSection(fd);
@@ -326,19 +336,55 @@ async function readZKey(fileName) {
         return Fr.mul(n, Rri2);
     }
 
-    async function readG1() {
-        const buff = await fd.read(curve.G1.F.n8*2);
-        return curve.G1.fromRprLEM(buff, 0);
+}
+
+
+async function readContribution(fd, curve) {
+    const c = {delta:{}};
+    c.deltaAfter = await readG1(fd, curve);
+    c.delta.g1_s = await readG1(fd, curve);
+    c.delta.g1_sx = await readG1(fd, curve);
+    c.delta.g2_spx = await readG2(fd, curve);
+    c.transcript = await fd.read(64);
+    return c;
+}
+
+
+async function readMPCParams(fd, curve, sections) {
+    await binFileUtils.startReadUniqueSection(fd, sections, 10);
+    const res = { contributions: []};
+    res.csHash = await fd.read(64);
+    const n = await fd.readULE32();
+    for (let i=0; i<n; i++) {
+        const c = await readContribution(fd, curve);
+        res.contributions.push(c);
     }
+    await binFileUtils.endReadSection(fd);
 
-    async function readG2() {
-        const buff = await fd.read(curve.G2.F.n8*2);
-        return curve.G2.fromRprLEM(buff, 0);
+    return res;
+}
+
+async function writeContribution(fd, curve, c) {
+    await writeG1(fd, curve, c.deltaAfter);
+    await writeG1(fd, curve, c.delta.g1_s);
+    await writeG1(fd, curve, c.delta.g1_sx);
+    await writeG2(fd, curve, c.delta.g2_spx);
+    await fd.write(c.transcript);
+}
+
+async function writeMPCParams(fd, curve, mpcParams) {
+    await binFileUtils.startWriteSection(fd, 10);
+    await fd.write(mpcParams.csHash);
+    await fd.writeULE32(mpcParams.contributions.length);
+    for (let i=0; i<mpcParams.contributions.length; i++) {
+        await writeContribution(fd, curve,mpcParams.contributions[i]);
     }
-
-
+    await binFileUtils.endWriteSection(fd);
 }
 
 module.exports.readHeader = readHeader;
+module.exports.writeHeader = writeHeader;
 module.exports.read = readZKey;
 module.exports.write = writeZKey;
+module.exports.readMPCParams = readMPCParams;
+module.exports.writeMPCParams = writeMPCParams;

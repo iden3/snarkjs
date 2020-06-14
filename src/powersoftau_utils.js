@@ -297,32 +297,6 @@ async function writeContributions(fd, curve, contributions) {
     fd.pos = oldPos;
 }
 
-
-function formatHash(b) {
-    const a = new DataView(b.buffer);
-    let S = "";
-    for (let i=0; i<4; i++) {
-        if (i>0) S += "\n";
-        S += "\t\t";
-        for (let j=0; j<4; j++) {
-            if (j>0) S += " ";
-            S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
-        }
-    }
-    return S;
-}
-
-function hashIsEqual(h1, h2) {
-    if (h1.byteLength != h2.byteLength) return false;
-    var dv1 = new Int8Array(h1);
-    var dv2 = new Int8Array(h2);
-    for (var i = 0 ; i != h1.byteLength ; i++)
-    {
-        if (dv1[i] != dv2[i]) return false;
-    }
-    return true;
-}
-
 function calculateFirstChallangeHash(curve, power, verbose) {
     if (verbose) console.log("Calculating First Challange Hash");
 
@@ -405,10 +379,8 @@ module.exports.readPTauHeader = readPTauHeader;
 module.exports.writePTauHeader = writePTauHeader;
 module.exports.readPtauPubKey = readPtauPubKey;
 module.exports.writePtauPubKey = writePtauPubKey;
-module.exports.formatHash = formatHash;
 module.exports.readContributions = readContributions;
 module.exports.writeContributions = writeContributions;
-module.exports.hashIsEqual = hashIsEqual;
 module.exports.calculateFirstChallangeHash = calculateFirstChallangeHash;
 module.exports.toPtauPubKeyRpr = toPtauPubKeyRpr;
 module.exports.fromPtauPubKeyRpr = fromPtauPubKeyRpr;

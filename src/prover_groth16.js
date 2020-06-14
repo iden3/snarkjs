@@ -70,7 +70,7 @@ module.exports = function genProof(vk_proof, witness, verbose) {
         if ((verbose)&&(s%1000 == 1)) console.log("C: ", s);
     }
 
-    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
+    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( vk_proof.vk_delta_1, r ));
 
     proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );

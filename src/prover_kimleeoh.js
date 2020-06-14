@@ -73,10 +73,10 @@ module.exports = function genProof(vk_proof, witness) {
         proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
     }
 
-    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alfa_1 );
+    proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( G1.g, r ));
 
-    piadelta = G1.add( piadelta, vk_proof.vk_alfadelta_1);
+    piadelta = G1.add( piadelta, vk_proof.vk_alphadelta_1);
     piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.vk_delta_1, r ));
 
     proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );

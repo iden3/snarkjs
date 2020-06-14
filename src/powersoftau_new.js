@@ -11,7 +11,7 @@ tauG2(3)
     {1<<power}[
         G2, tau*G2, tau^2 * G2, ...
     ]
-alfaTauG1(4)
+alphaTauG1(4)
     {1<<power}[
         alpha*G1, alpha*tau*G1, alpha*tau^2*G1,....
     ]
@@ -35,9 +35,9 @@ contributions(7)
             tau_g1s
             tau_g1sx
             tau_g2spx
-            alfa_g1s
-            alfa_g1sx
-            alfa_g1spx
+            alpha_g1s
+            alpha_g1sx
+            alpha_g1spx
             beta_g1s
             beta_g1sx
             beta_g1spx
@@ -50,6 +50,7 @@ const ptauUtils = require("./powersoftau_utils");
 const binFileUtils = require("./binfileutils");
 const utils = require("./powersoftau_utils");
 const Blake2b = require("blake2b-wasm");
+const misc = require("./misc");
 
 async function newAccumulator(curve, power, fileName, verbose) {
 
@@ -84,13 +85,13 @@ async function newAccumulator(curve, power, fileName, verbose) {
     }
     await binFileUtils.endWriteSection(fd);
 
-    // Write alfaTauG1
+    // Write alphaTauG1
     ///////////
     await binFileUtils.startWriteSection(fd, 4);
     const nAlfaTauG1 = (1 << power);
     for (let i=0; i< nAlfaTauG1; i++) {
         await fd.write(buffG1);
-        if ((verbose)&&((i%100000) == 0)&&i) console.log("alfaTauG1: " + i);
+        if ((verbose)&&((i%100000) == 0)&&i) console.log("alphaTauG1: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -121,10 +122,10 @@ async function newAccumulator(curve, power, fileName, verbose) {
     const firstChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
 
     console.log("Blank Contribution Hash:");
-    console.log(utils.formatHash(Blake2b(64).digest()));
+    console.log(misc.formatHash(Blake2b(64).digest()));
 
     console.log("First Contribution Hash:");
-    console.log(utils.formatHash(firstChallangeHash));
+    console.log(misc.formatHash(firstChallangeHash));
 
 }
 

@@ -118,6 +118,22 @@ async function readFullSection(fd, sections, idSection) {
     return res;
 }
 
+async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
+    const MAX_BUFF_SIZE = fd1.pageSize * 16;
+    await startReadUniqueSection(fd1, sections1, idSection);
+    await startReadUniqueSection(fd2, sections2, idSection);
+    if (sections1[idSection][0].size != sections2[idSection][0].size) return false;
+    const totalBytes=sections1[idSection][0].size;
+    for (let i=0; i<totalBytes; i+= MAX_BUFF_SIZE) {
+        const n = Math.min(totalBytes-i, MAX_BUFF_SIZE);
+        const buff1 = await fd1.read(n);
+        const buff2 = await fd2.read(n);
+        for (i=0; i<n; i++) if (buff1[i] != buff2[i]) return false;
+    }
+    await endReadSection(fd1);
+    await endReadSection(fd2);
+    return true;
+}
 
 
 module.exports.readBinFile = readBinFile;
@@ -130,3 +146,4 @@ module.exports.startReadUniqueSection = startReadUniqueSection;
 module.exports.endReadSection = endReadSection;
 module.exports.copySection = copySection;
 module.exports.readFullSection = readFullSection;
+module.exports.sectionIsEqual = sectionIsEqual;

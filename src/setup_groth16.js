@@ -53,13 +53,13 @@ module.exports = function setup(circuit, verbose) {
         IC: setup.vk_proof.IC,
 
 
-        vk_alfa_1: setup.vk_proof.vk_alfa_1,
+        vk_alpha_1: setup.vk_proof.vk_alpha_1,
 
         vk_beta_2: setup.vk_proof.vk_beta_2,
         vk_gamma_2:  setup.vk_proof.vk_gamma_2,
         vk_delta_2:  setup.vk_proof.vk_delta_2,
 
-        vk_alfabeta_12: bn128.pairing( setup.vk_proof.vk_alfa_1 , setup.vk_proof.vk_beta_2 )
+        vk_alphabeta_12: bn128.pairing( setup.vk_proof.vk_alpha_1 , setup.vk_proof.vk_beta_2 )
     };
 
     return setup;
@@ -157,7 +157,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
     setup.vk_proof.C = new Array(circuit.nVars);
     setup.vk_proof.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
 
-    setup.toxic.kalfa = F.random();
+    setup.toxic.kalpha = F.random();
     setup.toxic.kbeta = F.random();
     setup.toxic.kgamma = F.random();
     setup.toxic.kdelta = F.random();
@@ -165,7 +165,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
     let invDelta = F.inv(setup.toxic.kdelta);
     let invGamma = F.inv(setup.toxic.kgamma);
 
-    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_proof.vk_alpha_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalpha));
     setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
     setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
 
@@ -199,7 +199,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
                 F.add(
                     F.add(
                         F.mul(v.a_t[s], setup.toxic.kbeta),
-                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                        F.mul(v.b_t[s], setup.toxic.kalpha)),
                     v.c_t[s]));
 
         const IC = G1.mulScalar(G1.g, ps);
@@ -213,7 +213,7 @@ function calculateEncriptedValuesAtT(setup, circuit, verbose) {
                 F.add(
                     F.add(
                         F.mul(v.a_t[s], setup.toxic.kbeta),
-                        F.mul(v.b_t[s], setup.toxic.kalfa)),
+                        F.mul(v.b_t[s], setup.toxic.kalpha)),
                     v.c_t[s]));
         const C = G1.mulScalar(G1.g, ps);
         setup.vk_proof.C[s]=C;

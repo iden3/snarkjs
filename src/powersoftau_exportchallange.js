@@ -10,6 +10,7 @@ const fastFile = require("fastfile");
 const Blake2b = require("blake2b-wasm");
 const utils = require("./powersoftau_utils");
 const binFileUtils = require("./binfileutils");
+const misc = require("./misc");
 
 async function exportChallange(pTauFilename, challangeFilename, verbose) {
     await Blake2b.ready();
@@ -28,10 +29,10 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
     }
 
     console.log("Last Response Hash: ");
-    console.log(utils.formatHash(lastResponseHash));
+    console.log(misc.formatHash(lastResponseHash));
 
     console.log("New Challange Hash: ");
-    console.log(utils.formatHash(curChallangeHash));
+    console.log(misc.formatHash(curChallangeHash));
 
 
     const fdTo = await fastFile.createOverride(challangeFilename);
@@ -51,9 +52,9 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
 
     const calcCurChallangeHash = toHash.digest();
 
-    if (!utils.hashIsEqual (curChallangeHash, calcCurChallangeHash)) {
+    if (!misc.hashIsEqual (curChallangeHash, calcCurChallangeHash)) {
         console.log("Calc Curret Challange Hash: ");
-        console.log(utils.formatHash(calcCurChallangeHash));
+        console.log(misc.formatHash(calcCurChallangeHash));
 
         throw new Error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
     }

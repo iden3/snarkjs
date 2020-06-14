@@ -5,9 +5,13 @@ const binFileUtils = require("./binfileutils");
 const assert = require("assert");
 const {log2} = require("./misc");
 const Scalar = require("ffjavascript").Scalar;
+const Blake2b = require("blake2b-wasm");
+const misc = require("./misc");
 
 
 module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose) {
+    await Blake2b.ready();
+    const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1);
     const r1cs = await r1csFile.loadHeader(fdR1cs, sectionsR1cs);
@@ -17,7 +21,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
     await curve.loadEngine();
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 9);
+    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10);
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
@@ -68,24 +72,39 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
     await fdZKey.writeULE32(domainSize);                  // domainSize
 
-    const bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
+    let bAlpha1;
+    bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
     await fdZKey.write(bAlpha1);
+    bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
+    csHasher.update(bAlpha1);
 
-    const bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
+    let bBeta1;
+    bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
     await fdZKey.write(bBeta1);
+    bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
+    csHasher.update(bBeta1);
+
+    let bBeta2;
+    bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
+    await fdZKey.write(bBeta2);
+    bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
+    csHasher.update(bBeta2);
 
     const bg1 = new Uint8Array(sG1);
     curve.G1.toRprLEM(bg1, 0, curve.G1.g);
-    await fdZKey.write(bg1);        // delta1
-
-    const bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
-    await fdZKey.write(bBeta2);
-
     const bg2 = new Uint8Array(sG2);
     curve.G2.toRprLEM(bg2, 0, curve.G2.g);
-    await fdZKey.write(bg2);        // gamma2
-    await fdZKey.write(bg2);        // delta2
+    const bg1U = new Uint8Array(sG1);
+    curve.G1.toRprBE(bg1U, 0, curve.G1.g);
+    const bg2U = new Uint8Array(sG2);
+    curve.G2.toRprBE(bg2U, 0, curve.G2.g);
 
+    await fdZKey.write(bg2);        // gamma2
+    await fdZKey.write(bg1);        // delta1
+    await fdZKey.write(bg2);        // delta2
+    csHasher.update(bg2U);      // gamma2
+    csHasher.update(bg1U);      // delta1
+    csHasher.update(bg2U);      // delta2
     await binFileUtils.endWriteSection(fdZKey);
 
 
@@ -208,10 +227,6 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 */
 
     await composeAndWritePoints(3, "G1", IC, "IC");
-    await composeAndWritePoints(5, "G1", A, "A");
-    await composeAndWritePoints(6, "G1", B1, "B1");
-    await composeAndWritePoints(7, "G2", B2, "B2");
-    await composeAndWritePoints(8, "G1", C, "C");
 
     // Write Hs
     await binFileUtils.startWriteSection(fdZKey, 9);
@@ -221,6 +236,23 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         await fdZKey.write(buff);
     }
     await binFileUtils.endWriteSection(fdZKey);
+    await hashHPoints();
+
+    await composeAndWritePoints(8, "G1", C, "C");
+    await composeAndWritePoints(5, "G1", A, "A");
+    await composeAndWritePoints(6, "G1", B1, "B1");
+    await composeAndWritePoints(7, "G2", B2, "B2");
+
+    const csHash = csHasher.digest();
+    // Contributions section
+    await binFileUtils.startWriteSection(fdZKey, 10);
+    await fdZKey.write(csHash);
+    await fdZKey.writeULE32(0);
+    await binFileUtils.endWriteSection(fdZKey);
+
+    console.log("Circuit hash: ");
+    console.log(misc.formatHash(csHash));
+
 
     await fdZKey.close();
     await fdPTau.close();
@@ -239,6 +271,8 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
     async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
         const CHUNK_SIZE= 1<<18;
+
+        hashU32(arr.length);
         await binFileUtils.startWriteSection(fdZKey, idSection);
 
         for (let i=0; i<arr.length; i+= CHUNK_SIZE) {
@@ -254,6 +288,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         const concurrency= curve.engine.concurrency;
         const nElementsPerThread = Math.floor(arr.length / concurrency);
         const opPromises = [];
+        const G = curve[groupName];
         for (let i=0; i<concurrency; i++) {
             let n;
             if (i< concurrency-1) {
@@ -271,6 +306,8 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
         for (let i=0; i<result.length; i++) {
             await fdZKey.write(result[i][0]);
+            const buff = await G.batchLEMtoU(result[i][0]);
+            csHasher.update(buff);
         }
     }
 
@@ -356,6 +393,88 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         return res;
     }
 
+
+    async function hashHPoints() {
+        const CHUNK_SIZE = 1<<20;
+
+        hashU32(domainSize-1);
+
+        for (let i=0; i<domainSize-1; i+= CHUNK_SIZE) {
+            if (verbose)  console.log(`HashingHPoints: ${i}/${domainSize}`);
+            const n = Math.min(domainSize-1, CHUNK_SIZE);
+            await hashHPointsChunk(i*CHUNK_SIZE, n);
+        }
+    }
+
+    async function hashHPointsChunk(offset, nPoints) {
+        const buff1 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + (offset + domainSize)*sG1);
+        const buff2 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + offset*sG1);
+        const concurrency= curve.engine.concurrency;
+        const nPointsPerThread = Math.floor(nPoints / concurrency);
+        const opPromises = [];
+        for (let i=0; i<concurrency; i++) {
+            let n;
+            if (i< concurrency-1) {
+                n = nPointsPerThread;
+            } else {
+                n = nPoints - i*nPointsPerThread;
+            }
+            if (n==0) continue;
+
+            const subBuff1 = buff1.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
+            const subBuff2 = buff2.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
+            opPromises.push(hashHPointsThread(subBuff1, subBuff2));
+        }
+
+
+        const result = await Promise.all(opPromises);
+
+        for (let i=0; i<result.length; i++) {
+            csHasher.update(result[i][0]);
+        }
+    }
+
+    async function hashHPointsThread(buff1, buff2) {
+        const nPoints = buff1.byteLength/sG1;
+        const sGmid = curve.G1.F.n8*3;
+        const task = [];
+        task.push({cmd: "ALLOCSET", var: 0, buff: buff1});
+        task.push({cmd: "ALLOCSET", var: 1, buff: buff2});
+        task.push({cmd: "ALLOC", var: 2, len: nPoints*sGmid});
+        for (let i=0; i<nPoints; i++) {
+            task.push({
+                cmd: "CALL",
+                fnName: "g1m_subAffine",
+                params: [
+                    {var: 0, offset: i*sG1},
+                    {var: 1, offset: i*sG1},
+                    {var: 2, offset: i*sGmid},
+                ]
+            });
+        }
+        task.push({cmd: "CALL", fnName: "g1m_batchToAffine", params: [
+            {var: 2},
+            {val: nPoints},
+            {var: 2},
+        ]});
+        task.push({cmd: "CALL", fnName: "g1m_batchLEMtoU", params: [
+            {var: 2},
+            {val: nPoints},
+            {var: 2},
+        ]});
+        task.push({cmd: "GET", out: 0, var: 2, len: nPoints*sG1});
+
+        const res = await curve.engine.queueAction(task);
+
+        return res;
+    }
+
+    function hashU32(n) {
+        const buff = new Uint8Array(4);
+        const buffV = new DataView(buff.buffer);
+        buffV.setUint32(0, n, false);
+        csHasher.update(buff);
+    }
 
 };
 

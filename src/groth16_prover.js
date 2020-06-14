@@ -1,5 +1,5 @@
 const binFileUtils = require("./binfileutils");
-const zkeyFile = require("./zkeyfile");
+const zkeyUtils = require("./zkey").utils;
 const wtnsFile = require("./wtnsfile");
 const getCurve = require("./curves").getCurveFromQ;
 const {log2} = require("./misc");
@@ -12,7 +12,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
 
-    const zkey = await zkeyFile.readHeader(fdZKey, sectionsZKey, "groth16");
+    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
 
     if (!Scalar.eq(zkey.r,  wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
@@ -66,7 +66,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
     const s = curve.Fr.random();
 
 
-    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alfa_1 );
+    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( zkey.vk_delta_1, r ));
 
     proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );

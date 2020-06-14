@@ -12,7 +12,7 @@ const crypto = require("crypto");
 const keyPair = require("./keypair");
 const readline = require("readline");
 const binFileUtils = require("./binfileutils");
-
+const misc = require("./misc");
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -34,7 +34,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
         throw new Error("This file has been reduced. You cannot contribute into a reduced file.");
     }
     if (sections[12]) {
-        console.log("WARNING: Contributing into a fle that has phase2 calculated. You will have to prepare phase2 again.");
+        console.log("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
     }
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const curContribution = {
@@ -98,7 +98,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     const hashResponse = responseHasher.digest();
 
     console.log("Contribution Response Hash imported: ");
-    console.log(utils.formatHash(hashResponse));
+    console.log(misc.formatHash(hashResponse));
 
     const nextChallangeHasher = new Blake2b(64);
     nextChallangeHasher.update(hashResponse);
@@ -112,7 +112,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     curContribution.nextChallange = nextChallangeHasher.digest();
 
     console.log("Next Challange Hash: ");
-    console.log(utils.formatHash(curContribution.nextChallange));
+    console.log(misc.formatHash(curContribution.nextChallange));
 
     contributions.push(curContribution);
 

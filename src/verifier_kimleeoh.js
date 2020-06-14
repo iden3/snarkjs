@@ -63,7 +63,7 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
             G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))
         ),
         bn128.F12.mul(
-            vk_verifier.vk_alfabeta_12,
+            vk_verifier.vk_alphabeta_12,
             bn128.F12.mul(
                 bn128.pairing( cpub , vk_verifier.vk_gamma_2 ),
                 bn128.pairing( proof.pi_c , G2.g )

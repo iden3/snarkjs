@@ -4,6 +4,7 @@ const Blake2b = require("blake2b-wasm");
 const fs = require("fs");
 const utils = require("./powersoftau_utils");
 const binFileUtils = require("./binfileutils");
+const misc = require("./misc");
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, verbose) {
 
@@ -45,7 +46,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const fdResponse = await fastFile.readExisting(contributionFilename);
     const contributionPreviousHash = await fdResponse.read(64);
 
-    assert(utils.hashIsEqual(contributionPreviousHash,lastChallangeHash),
+    assert(misc.hashIsEqual(contributionPreviousHash,lastChallangeHash),
         "Wrong contribution. this contribution is not based on the previus hash");
 
     const hasherResponse = new Blake2b(64);
@@ -75,7 +76,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const hashResponse = hasherResponse.digest();
 
     console.log("Contribution Response Hash imported: ");
-    console.log(utils.formatHash(hashResponse));
+    console.log(misc.formatHash(hashResponse));
 
     const nextChallangeHasher = new Blake2b(64);
     nextChallangeHasher.update(hashResponse);
@@ -89,7 +90,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     currentContribution.nextChallange = nextChallangeHasher.digest();
 
     console.log("Next Challange Hash: ");
-    console.log(utils.formatHash(currentContribution.nextChallange));
+    console.log(misc.formatHash(currentContribution.nextChallange));
 
     contributions.push(currentContribution);
 

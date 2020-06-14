@@ -128,28 +128,28 @@ function calculateEncriptedValuesAtT(setup, circuit) {
     setup.vk_proof.C = new Array(circuit.nVars);
     setup.vk_verifier.IC = new Array(circuit.nPubInputs + circuit.nOutputs + 1);
 
-    setup.toxic.kalfa = F.random();
+    setup.toxic.kalpha = F.random();
     setup.toxic.kbeta = F.random();
     setup.toxic.kgamma = F.random();
     setup.toxic.kdelta = F.random();
 
     const gammaSquare = F.mul(setup.toxic.kgamma, setup.toxic.kgamma);
 
-    setup.vk_proof.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_proof.vk_alpha_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalpha));
     setup.vk_proof.vk_beta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kbeta));
     setup.vk_proof.vk_delta_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kdelta));
-    setup.vk_proof.vk_alfadelta_1 = G1.affine(G1.mulScalar( G1.g, F.mul(setup.toxic.kalfa, setup.toxic.kdelta)));
+    setup.vk_proof.vk_alphadelta_1 = G1.affine(G1.mulScalar( G1.g, F.mul(setup.toxic.kalpha, setup.toxic.kdelta)));
 
     setup.vk_proof.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
 
 
-    setup.vk_verifier.vk_alfa_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalfa));
+    setup.vk_verifier.vk_alpha_1 = G1.affine(G1.mulScalar( G1.g, setup.toxic.kalpha));
 
     setup.vk_verifier.vk_beta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kbeta));
     setup.vk_verifier.vk_gamma_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
     setup.vk_verifier.vk_delta_2 = G2.affine(G2.mulScalar( G2.g, setup.toxic.kdelta));
 
-    setup.vk_verifier.vk_alfabeta_12 = bn128.pairing( setup.vk_verifier.vk_alfa_1 , setup.vk_verifier.vk_beta_2 );
+    setup.vk_verifier.vk_alphabeta_12 = bn128.pairing( setup.vk_verifier.vk_alpha_1 , setup.vk_verifier.vk_beta_2 );
 
     for (let s=0; s<circuit.nVars; s++) {
 
@@ -181,7 +181,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
                         v.a_t[s]
                     ),
                     F.mul(
-                        setup.toxic.kalfa,
+                        setup.toxic.kalpha,
                         v.b_t[s]
                     )
                 )
@@ -204,7 +204,7 @@ function calculateEncriptedValuesAtT(setup, circuit) {
                         v.a_t[s]
                     ),
                     F.mul(
-                        F.mul(setup.toxic.kalfa, setup.toxic.kgamma),
+                        F.mul(setup.toxic.kalpha, setup.toxic.kgamma),
                         v.b_t[s]
                     )
                 )

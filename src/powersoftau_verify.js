@@ -5,16 +5,8 @@ const assert = require("assert");
 const crypto = require("crypto");
 const binFileUtils = require("./binfileutils");
 const ChaCha = require("ffjavascript").ChaCha;
-
-async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
-    if (curve.G1.isZero(g1s)) return false;
-    if (curve.G1.isZero(g1sx)) return false;
-    if (curve.G2.isZero(g2s)) return false;
-    if (curve.G2.isZero(g2sx)) return false;
-    // return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
-    const res = await curve.pairingEq(g1s, g2sx, curve.G1.neg(g1sx), g2s);
-    return res;
-}
+const misc = require("./misc");
+const sameRatio = misc.sameRatio;
 
 async function verifyContribution(curve, cur, prev) {
     let sr;
@@ -235,14 +227,14 @@ async function verify(tauFilename, verbose) {
     const nextContributionHash = nextContributionHasher.digest();
 
     // Check the nextChallangeHash
-    if (!utils.hashIsEqual(nextContributionHash,curContr.nextChallange)) {
+    if (!misc.hashIsEqual(nextContributionHash,curContr.nextChallange)) {
         console.log("Hash of the values does not match the next challange of the last contributor in the contributions section");
         return false;
     }
 
     if (verbose) {
         console.log("Next challange hash: ");
-        console.log(utils.formatHash(nextContributionHash));
+        console.log(misc.formatHash(nextContributionHash));
     }
 
     // Verify Previous contributions
@@ -280,7 +272,7 @@ async function verify(tauFilename, verbose) {
         console.log("-----------------------------------------------------");
         console.log(`Contribution #${curContr.id}: ${curContr.name ||""}`);
         console.log("\tBased on challange");
-        console.log(utils.formatHash(prevContr.nextChallange));
+        console.log(misc.formatHash(prevContr.nextChallange));
 
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         utils.toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
@@ -291,10 +283,10 @@ async function verify(tauFilename, verbose) {
         const responseHash = responseHasher.digest();
 
         console.log("\tResponse Hash");
-        console.log(utils.formatHash(responseHash));
+        console.log(misc.formatHash(responseHash));
 
         console.log("\tNext Challange");
-        console.log(utils.formatHash(curContr.nextChallange));
+        console.log(misc.formatHash(curContr.nextChallange));
     }
 
     async function processSectionBetaG2() {

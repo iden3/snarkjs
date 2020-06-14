@@ -69,9 +69,9 @@ function generateVerifier_groth16(verificationKey) {
     let template = fs.readFileSync(path.join( __dirname,  "..", "templates", "verifier_groth16.sol"), "utf-8");
 
 
-    const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
-                        `${verificationKey.vk_alfa_1[1].toString()}`;
-    template = template.replace("<%vk_alfa1%>", vkalfa1_str);
+    const vkalpha1_str = `${verificationKey.vk_alpha_1[0].toString()},`+
+                        `${verificationKey.vk_alpha_1[1].toString()}`;
+    template = template.replace("<%vk_alpha1%>", vkalpha1_str);
 
     const vkbeta2_str = `[${verificationKey.vk_beta_2[0][1].toString()},`+
                          `${verificationKey.vk_beta_2[0][0].toString()}], `+
@@ -112,9 +112,9 @@ function generateVerifier_kimleeoh(verificationKey) {
     let template = fs.readFileSync(path.join( __dirname,  "..", "templates", "verifier_groth16.sol"), "utf-8");
 
 
-    const vkalfa1_str = `${verificationKey.vk_alfa_1[0].toString()},`+
-                        `${verificationKey.vk_alfa_1[1].toString()}`;
-    template = template.replace("<%vk_alfa1%>", vkalfa1_str);
+    const vkalpha1_str = `${verificationKey.vk_alpha_1[0].toString()},`+
+                        `${verificationKey.vk_alpha_1[1].toString()}`;
+    template = template.replace("<%vk_alpha1%>", vkalpha1_str);
 
     const vkbeta2_str = `[${verificationKey.vk_beta_2[0][1].toString()},`+
                          `${verificationKey.vk_beta_2[0][0].toString()}], `+
