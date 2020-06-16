@@ -362,7 +362,7 @@ function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
         }
     }
 
-    const curHashV = new DataView(curHash.buffer);
+    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
     const seed = [];
     for (let i=0; i<8; i++) {
         seed[i] = curHashV.getUint32(i*4, false);

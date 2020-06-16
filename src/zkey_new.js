@@ -471,7 +471,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
     function hashU32(n) {
         const buff = new Uint8Array(4);
-        const buffV = new DataView(buff.buffer);
+        const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
         buffV.setUint32(0, n, false);
         csHasher.update(buff);
     }

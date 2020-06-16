@@ -36,7 +36,7 @@ function log2( V )
 
 
 function formatHash(b) {
-    const a = new DataView(b.buffer);
+    const a = new DataView(b.buffer, b.byteOffset, b.byteLength);
     let S = "";
     for (let i=0; i<4; i++) {
         if (i>0) S += "\n";

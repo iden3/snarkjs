@@ -117,7 +117,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
         }
 
         const buffSize = new Uint8Array(4);
-        const buffSizeV = new DataView(buffSize.buffer);
+        const buffSizeV = new DataView(buffSize.buffer, buffSize.byteOffset, buffSize.byteLength);
         buffSizeV.setUint32(0, buff.byteLength / sG, false);
 
         await fdMPCParams.write(buffSize);
@@ -126,7 +126,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
 
     async function writeU32(n) {
         const buffSize = new Uint8Array(4);
-        const buffSizeV = new DataView(buffSize.buffer);
+        const buffSizeV = new DataView(buffSize.buffer, buffSize.byteOffset, buffSize.byteLength);
         buffSizeV.setUint32(0, n, false);
 
         await fdMPCParams.write(buffSize);

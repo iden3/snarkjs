@@ -104,7 +104,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
     const sCoef = 4*3 + zkey.n8r;
 
     const elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
-    const coeffsDV = new DataView(coeffs.buffer);
+    const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
     const promises = [];
 
     const cutPoints = [];
