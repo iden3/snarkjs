@@ -9,6 +9,7 @@ const sameRatio = misc.sameRatio;
 const crypto = require("crypto");
 const ChaCha = require("ffjavascript").ChaCha;
 const newZKey = require("./zkey_new");
+const {hashG1, hashPubKey} = require("./zkey_utils");
 
 
 module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, verbose) {
@@ -34,8 +35,8 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         const c = mpcParams.contributions[i];
         const ourHasher = misc.cloneHasher(accumulatedHasher);
 
-        hashG1(ourHasher, c.delta.g1_s);
-        hashG1(ourHasher, c.delta.g1_sx);
+        hashG1(ourHasher, curve, c.delta.g1_s);
+        hashG1(ourHasher, curve, c.delta.g1_sx);
 
         if (!misc.hashIsEqual(ourHasher.digest(), c.transcript)) {
             console.log(`INVALID(${i}): Inconsistent transcript `);
@@ -56,10 +57,10 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
             return false;
         }
 
-        hashPubKey(accumulatedHasher, c);
+        hashPubKey(accumulatedHasher, curve, c);
 
         const contributionHasher = Blake2b(64);
-        hashPubKey(contributionHasher, c);
+        hashPubKey(contributionHasher, curve, c);
         responses.push(contributionHasher.digest());
 
         curDelta = c.deltaAfter;
@@ -180,27 +181,6 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
 
 
     return true;
-
-    function hashG1(hasher, p) {
-        const buff = new Uint8Array(sG1);
-        curve.G1.toRprUncompressed(buff, 0, p);
-        hasher.update(buff);
-    }
-
-    function hashG2(hasher, p) {
-        const buff = new Uint8Array(sG2);
-        curve.G2.toRprUncompressed(buff, 0, p);
-        hasher.update(buff);
-    }
-
-    function hashPubKey(hasher, c) {
-        hashG1(hasher, c.deltaAfter);
-        hashG1(hasher, c.delta.g1_s);
-        hashG1(hasher, c.delta.g1_sx);
-        hashG2(hasher, c.delta.g2_spx);
-        hasher.update(c.transcript);
-    }
-
 
 
     async function sectionHasSameRatio(groupName, fd1, sections1, fd2, sections2, idSection, g2sp, g2spx, sectionName) {

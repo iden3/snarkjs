@@ -1,4 +1,7 @@
 const Blake2b = require("blake2b-wasm");
+const readline = require("readline");
+const ChaCha = require("ffjavascript").ChaCha;
+const crypto = require("crypto");
 
 const _revTable = [];
 for (let i=0; i<256; i++) {
@@ -74,9 +77,42 @@ async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
     return res;
 }
 
+
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+function askEntropy() {
+    return new Promise((resolve) => {
+        rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
+    });
+}
+
+async function getRandomRng(entropy) {
+    // Generate a random key
+    while (!entropy) {
+        entropy = await askEntropy();
+    }
+    const hasher = Blake2b(64);
+    hasher.update(crypto.randomBytes(64));
+    const enc = new TextEncoder(); // always utf-8
+    hasher.update(enc.encode(entropy));
+    const hash = Buffer.from(hasher.digest());
+
+    const seed = [];
+    for (let i=0;i<8;i++) {
+        seed[i] = hash.readUInt32BE(i*4);
+    }
+    const rng = new ChaCha(seed);
+    return rng;
+}
+
 module.exports.bitReverse = bitReverse;
 module.exports.log2 = log2;
 module.exports.formatHash = formatHash;
 module.exports.hashIsEqual = hashIsEqual;
 module.exports.cloneHasher = cloneHasher;
 module.exports.sameRatio = sameRatio;
+module.exports.getRandomRng = getRandomRng;

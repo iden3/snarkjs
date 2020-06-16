@@ -346,6 +346,33 @@ async function readContribution(fd, curve) {
     c.delta.g1_sx = await readG1(fd, curve);
     c.delta.g2_spx = await readG2(fd, curve);
     c.transcript = await fd.read(64);
+    c.type = await fd.readULE32();
+
+    const paramLength = await fd.readULE32();
+    const curPos = fd.pos;
+    let lastType =0;
+    while (fd.pos-curPos < paramLength) {
+        const buffType = await fd.read(1);
+        if (buffType[0]<= lastType) throw new Error("Parameters in the contribution must be sorted");
+        lastType = buffType[0];
+        if (buffType[0]==1) {     // Name
+            const buffLen = await fd.read(1);
+            const buffStr = await fd.read(buffLen[0]);
+            c.name = new TextDecoder().decode(buffStr);
+        } else if (buffType[0]==2) {
+            const buffExp = await fd.read(1);
+            c.numIterationsExp = buffExp[0];
+        } else if (buffType[0]==3) {
+            const buffLen = await fd.read(1);
+            c.beaconHash = await fd.read(buffLen[0]);
+        } else {
+            throw new Error("Parameter not recognized");
+        }
+    }
+    if (fd.pos != curPos + paramLength) {
+        throw new Error("Parametes do not match");
+    }
+
     return c;
 }
 
@@ -370,6 +397,31 @@ async function writeContribution(fd, curve, c) {
     await writeG1(fd, curve, c.delta.g1_sx);
     await writeG2(fd, curve, c.delta.g2_spx);
     await fd.write(c.transcript);
+    await fd.writeULE32(c.type || 0);
+
+    const params = [];
+    if (c.name) {
+        params.push(1);      // Param Name
+        const nameData = new TextEncoder("utf-8").encode(c.name.substring(0,64));
+        params.push(nameData.byteLength);
+        for (let i=0; i<nameData.byteLength; i++) params.push(nameData[i]);
+    }
+    if (c.type == 1) {
+        params.push(2);      // Param numIterationsExp
+        params.push(c.numIterationsExp);
+
+        params.push(3);      // Beacon Hash
+        params.push(c.beaconHash.byteLength);
+        for (let i=0; i<c.beaconHash.byteLength; i++) params.push(c.beaconHash[i]);
+    }
+    if (params.length>0) {
+        const paramsBuff = new Uint8Array(params);
+        await fd.writeULE32(paramsBuff.byteLength);
+        await fd.write(paramsBuff);
+    } else {
+        await fd.writeULE32(0);
+    }
+
 }
 
 async function writeMPCParams(fd, curve, mpcParams) {
@@ -382,9 +434,33 @@ async function writeMPCParams(fd, curve, mpcParams) {
     await binFileUtils.endWriteSection(fd);
 }
 
+function hashG1(hasher, curve, p) {
+    const buff = new Uint8Array(curve.G1.F.n8*2);
+    curve.G1.toRprUncompressed(buff, 0, p);
+    hasher.update(buff);
+}
+
+function hashG2(hasher,curve, p) {
+    const buff = new Uint8Array(curve.G2.F.n8*2);
+    curve.G2.toRprUncompressed(buff, 0, p);
+    hasher.update(buff);
+}
+
+function hashPubKey(hasher, curve, c) {
+    hashG1(hasher, curve, c.deltaAfter);
+    hashG1(hasher, curve, c.delta.g1_s);
+    hashG1(hasher, curve, c.delta.g1_sx);
+    hashG2(hasher, curve, c.delta.g2_spx);
+    hasher.update(c.transcript);
+}
+
+
 module.exports.readHeader = readHeader;
 module.exports.writeHeader = writeHeader;
 module.exports.read = readZKey;
 module.exports.write = writeZKey;
 module.exports.readMPCParams = readMPCParams;
 module.exports.writeMPCParams = writeMPCParams;
+module.exports.hashG1 = hashG1;
+module.exports.hashG2 = hashG2;
+module.exports.hashPubKey = hashPubKey;

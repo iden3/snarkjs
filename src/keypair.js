@@ -7,7 +7,7 @@ const blake2b = require("blake2b");
 const ChaCha = require("ffjavascript").ChaCha;
 
 function hashToG2(hash) {
-    const hashV = new DataView(hash.buffer);
+    const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
     const seed = [];
     for (let i=0; i<8; i++) {
         seed[i] = hashV.getUint32(i*4);
@@ -57,6 +57,17 @@ function createPTauKey(curve, challangeHash, rng) {
     return key;
 }
 
+function createDeltaKey(curve, transcript, rng) {
+    const delta = {};
+    delta.prvKey = curve.Fr.fromRng(rng);
+    delta.g1_s = curve.G1.affine(curve.G1.fromRng(rng));
+    delta.g1_sx = curve.G1.affine(curve.G1.mulScalar(delta.g1_s, delta.prvKey));
+    delta.g2_sp = hashToG2(transcript);
+    delta.g2_spx = curve.G2.affine(curve.G2.mulScalar(delta.g2_sp, delta.prvKey));
+    return delta;
+}
+
 module.exports.createPTauKey = createPTauKey;
 module.exports.getG2sp = getG2sp;
 module.exports.hashToG2 = hashToG2;
+module.exports.createDeltaKey =createDeltaKey;

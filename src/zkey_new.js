@@ -395,7 +395,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
 
     async function hashHPoints() {
-        const CHUNK_SIZE = 1<<20;
+        const CHUNK_SIZE = 1<<16;
 
         hashU32(domainSize-1);
 

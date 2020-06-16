@@ -133,7 +133,7 @@ const commands = [
         cmd: "powersoftau import <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
         description: "import a response to a ptau file",
         alias: ["pti"],
-        options: "-verbose|v -nopoints -nocheck -description|d -name|n",
+        options: "-verbose|v -nopoints -nocheck -name|n",
         action: powersOfTawImport
     },
     {
@@ -204,7 +204,7 @@ const commands = [
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
         description: "creates a zkey file with a new contribution",
         alias: ["zkc"],
-        options: "-verbose|v",
+        options: "-verbose|v  -entropy|e -name|n",
         action: zkeyContribute
     },
     {
@@ -772,7 +772,7 @@ async function zkeyNew(params, options) {
         zkeyName = params[2];
     }
 
-    return phase2.new(r1csName, ptauName, zkeyName, options.verbose);
+    return zkey.new(r1csName, ptauName, zkeyName, options.verbose);
 }
 
 // zkey export bellman [circuit.zkey] [circuit.mpcparams]
@@ -792,7 +792,7 @@ async function zkeyExportBellman(params, options) {
         mpcparamsName = params[1];
     }
 
-    return phase2.exportMPCParams(zkeyName, mpcparamsName, options.verbose);
+    return zkey.exportMPCParams(zkeyName, mpcparamsName, options.verbose);
 
 }
 
@@ -846,8 +846,7 @@ async function zkeyVerify(params, options) {
 }
 
 
-// phase2 contribute <circuit_old.zkey> <circuit_new.zkey>
-
+// zkey contribute <circuit_old.zkey> <circuit_new.zkey>
 async function zkeyContribute(params, options) {
     let zkeyOldName;
     let zkeyNewName;
@@ -856,5 +855,5 @@ async function zkeyContribute(params, options) {
     zkeyNewName = params[1];
 
 
-    return phase2.contribute(zkeyOldName, zkeyNewName, options.verbose);
+    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, options.verbose);
 }
