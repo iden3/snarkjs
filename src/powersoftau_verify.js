@@ -290,7 +290,7 @@ async function verify(tauFilename, verbose) {
         console.log(misc.formatHash(prevContr.nextChallange));
 
         if (curContr.type == 1) {
-            console.log(`Beacon generator: ${misc.byteArray2Hex(curContr.beaconHash)}`);
+            console.log(`Beacon generator: ${misc.byteArray2hex(curContr.beaconHash)}`);
             console.log(`Beacon iterations Exp: ${curContr.numIterationsExp}`);
         }
 
