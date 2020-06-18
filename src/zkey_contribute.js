@@ -21,7 +21,6 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
 
     const fdNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
 
-    const curContribution = {};
 
     const rng = await misc.getRandomRng(entropy);
 
@@ -30,6 +29,7 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
         utils.hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
 
+    const curContribution = {};
     curContribution.delta = {};
     curContribution.delta.prvKey = curve.Fr.fromRng(rng);
     curContribution.delta.g1_s = curve.G1.affine(curve.G1.fromRng(rng));
@@ -44,10 +44,11 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
     zkey.vk_delta_2 = curve.G2.mulScalar(zkey.vk_delta_2, curContribution.delta.prvKey);
 
     curContribution.deltaAfter = zkey.vk_delta_1;
-    mpcParams.contributions.push(curContribution);
 
     curContribution.type = 0;
     if (name) curContribution.name = name;
+
+    mpcParams.contributions.push(curContribution);
 
     await zkeyUtils.writeHeader(fdNew, zkey);
 

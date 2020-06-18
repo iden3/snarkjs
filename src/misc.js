@@ -109,6 +109,47 @@ async function getRandomRng(entropy) {
     return rng;
 }
 
+function rngFromBeaconParams(beaconHash, numIterationsExp) {
+    let nIterationsInner;
+    let nIterationsOuter;
+    if (numIterationsExp<32) {
+        nIterationsInner = (1 << numIterationsExp) >>> 0;
+        nIterationsOuter = 1;
+    } else {
+        nIterationsInner = 0x100000000;
+        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
+    }
+
+    let curHash = beaconHash;
+    for (let i=0; i<nIterationsOuter; i++) {
+        for (let j=0; j<nIterationsInner; j++) {
+            curHash = crypto.createHash("sha256").update(curHash).digest();
+        }
+    }
+
+    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
+    const seed = [];
+    for (let i=0; i<8; i++) {
+        seed[i] = curHashV.getUint32(i*4, false);
+    }
+
+    const rng = new ChaCha(seed);
+
+    return rng;
+}
+
+function hex2ByteArray(s) {
+    return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
+        return parseInt(h, 16);
+    }));
+}
+
+function byteArray2hex(byteArray) {
+    return Array.prototype.map.call(byteArray, function(byte) {
+        return ("0" + (byte & 0xFF).toString(16)).slice(-2);
+    }).join("");
+}
+
 module.exports.bitReverse = bitReverse;
 module.exports.log2 = log2;
 module.exports.formatHash = formatHash;
@@ -116,3 +157,6 @@ module.exports.hashIsEqual = hashIsEqual;
 module.exports.cloneHasher = cloneHasher;
 module.exports.sameRatio = sameRatio;
 module.exports.getRandomRng = getRandomRng;
+module.exports.rngFromBeaconParams = rngFromBeaconParams;
+module.exports.hex2ByteArray = hex2ByteArray;
+module.exports.byteArray2hex = byteArray2hex;

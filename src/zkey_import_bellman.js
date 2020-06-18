@@ -167,6 +167,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
         return curve.G2.fromRprUncompressed(buff, 0);
     }
 
+
     function contributionIsEqual(c1, c2) {
         if (!curve.G1.eq(c1.deltaAfter   , c2.deltaAfter)) return false;
         if (!curve.G1.eq(c1.delta.g1_s   , c2.delta.g1_s)) return false;

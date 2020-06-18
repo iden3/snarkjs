@@ -3,14 +3,10 @@ const utils = require("./powersoftau_utils");
 const misc = require("./misc");
 const binFileUtils = require("./binfileutils");
 
-function hex2ByteArray(s) {
-    return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
-        return parseInt(h, 16);
-    }));
-}
+
 
 async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, beaconHashStr, verbose) {
-    const beaconHash = hex2ByteArray(beaconHashStr);
+    const beaconHash = misc.hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
     {

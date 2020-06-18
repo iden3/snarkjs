@@ -7,23 +7,9 @@
 
 const Blake2b = require("blake2b-wasm");
 const utils = require("./powersoftau_utils");
-const ChaCha = require("ffjavascript").ChaCha;
-const crypto = require("crypto");
 const keyPair = require("./keypair");
-const readline = require("readline");
 const binFileUtils = require("./binfileutils");
 const misc = require("./misc");
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-
-function askEntropy() {
-    return new Promise((resolve) => {
-        rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-    });
-}
 
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbose) {
     await Blake2b.ready();
@@ -51,20 +37,9 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     }
 
     // Generate a random key
-    while (!entropy) {
-        entropy = await askEntropy();
-    }
-    const hasher = Blake2b(64);
-    hasher.update(crypto.randomBytes(64));
-    const enc = new TextEncoder(); // always utf-8
-    hasher.update(enc.encode(entropy));
-    const hash = Buffer.from(hasher.digest());
 
-    const seed = [];
-    for (let i=0;i<8;i++) {
-        seed[i] = hash.readUInt32BE(i*4);
-    }
-    const rng = new ChaCha(seed);
+    const rng = await misc.getRandomRng(entropy);
+
     curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
 
 

@@ -19,27 +19,11 @@
 const fastFile = require("fastfile");
 const assert = require("assert");
 const Blake2b = require("blake2b-wasm");
-const readline = require("readline");
-const crypto = require("crypto");
-const ChaCha = require("ffjavascript").ChaCha;
 const fs = require("fs");
 const utils = require("./powersoftau_utils");
 const misc = require("./misc");
-
+const { applyKeyToChallangeSection } = require("./mpc_applykey");
 const keyPair = require("./keypair");
-
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-
-function askEntropy() {
-    return new Promise((resolve) => {
-        rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-    });
-}
-
 
 async function challangeContribute(curve, challangeFilename, responesFileName, entropy, verbose) {
     await Blake2b.ready();
@@ -63,10 +47,6 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
 
     const fdTo = await fastFile.createOverride(responesFileName);
 
-    while (!entropy) {
-        entropy = await askEntropy();
-    }
-
     // Calculate the hash
     console.log("Hashing challange");
     const challangeHasher = Blake2b(64);
@@ -84,21 +64,7 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     console.log("Current Challange Hash: ");
     console.log(misc.formatHash(challangeHash));
 
-    const hasher = Blake2b(64);
-
-    hasher.update(crypto.randomBytes(64));
-
-    const enc = new TextEncoder(); // always utf-8
-    hasher.update(enc.encode(entropy));
-
-    const hash = Buffer.from(hasher.digest());
-
-    const seed = [];
-    for (let i=0;i<8;i++) {
-        seed[i] = hash.readUInt32BE(i*4);
-    }
-
-    const rng = new ChaCha(seed);
+    const rng = await misc.getRandomRng(entropy);
 
     const key = keyPair.createPTauKey(curve, challangeHash, rng);
 
@@ -125,12 +91,11 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     await fdTo.write(challangeHash);
     responseHasher.update(challangeHash);
 
-
-    await contributeSection("G1", (1<<power)*2-1, curve.Fr.one, key.tau.prvKey, "tauG1" );
-    await contributeSection("G2", (1<<power)    , curve.Fr.one, key.tau.prvKey, "tauG2" );
-    await contributeSection("G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "alphaTauG1" );
-    await contributeSection("G1", (1<<power)    , key.beta.prvKey, key.tau.prvKey, "betaTauG1" );
-    await contributeSection("G2", 1             , key.beta.prvKey, key.tau.prvKey, "betaG2" );
+    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , verbose );
+    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G2", (1<<power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , verbose );
+    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", verbose );
+    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , verbose );
+    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G2", 1             , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG2" , verbose );
 
     // Write and hash key
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -143,26 +108,6 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
 
     await fdTo.close();
     await fdFrom.close();
-
-    async function contributeSection(groupName, nPoints, first, inc, sectionName) {
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
-        let t = first;
-        for (let i=0 ; i<nPoints ; i+= chunkSize) {
-            if ((verbose)&&i) console.log(`${sectionName}: ` + i);
-            const n= Math.min(nPoints-i, chunkSize );
-            const buffInU = await fdFrom.read(n * sG);
-            const buffInLEM = await G.batchUtoLEM(buffInU);
-            const buffOutLEM = await G.batchApplyKey(buffInLEM, t, inc);
-            const buffOutC = await G.batchLEMtoC(buffOutLEM);
-
-            responseHasher.update(buffOutC);
-            await fdTo.write(buffOutC);
-            t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
-        }
-    }
 }
 
 module.exports = challangeContribute;

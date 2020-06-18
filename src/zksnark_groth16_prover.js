@@ -95,6 +95,9 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
 
     proof.protocol = "groth";
 
+    await fdZKey.close();
+    await fdWtns.close();
+
     return {proof, publicSignals};
 }
 

@@ -14,7 +14,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const mpcParams = await zkeyUtils.readMPCParams(fdZKey, sectionsZKey);
+    const mpcParams = await zkeyUtils.readMPCParams(fdZKey, curve, sectionsZKey);
 
     const fdMPCParams = await fastFile.createOverride(mpcparamsName);
 
@@ -50,7 +50,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
     await writePointArray("G1", buffBasesH_Tau);
 
     /////////////////////
-    // C section  (l section in some notations)
+    // L section
     /////////////////////
     let buffBasesC;
     buffBasesC = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 8);
@@ -89,7 +89,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
         await writeG1(c.deltaAfter);
         await writeG1(c.delta.g1_s);
         await writeG1(c.delta.g1_sx);
-        await writeG1(c.delta.g2_spx);
+        await writeG2(c.delta.g2_spx);
         await fdMPCParams.write(c.transcript);
     }
 
@@ -98,13 +98,13 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
 
     async function writeG1(P) {
         const buff = new Uint8Array(sG1);
-        curve.G1.toRprBE(buff, 0, P);
+        curve.G1.toRprUncompressed(buff, 0, P);
         await fdMPCParams.write(buff);
     }
 
     async function writeG2(P) {
         const buff = new Uint8Array(sG2);
-        curve.G2.toRprBE(buff, 0, P);
+        curve.G2.toRprUncompressed(buff, 0, P);
         await fdMPCParams.write(buff);
     }
 

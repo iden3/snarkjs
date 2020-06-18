@@ -1,11 +1,9 @@
-const fastFile = require("fastfile");
 const assert = require("assert");
 const Scalar = require("ffjavascript").Scalar;
 const bn128 = require("ffjavascript").bn128;
 const Blake2b = require("blake2b-wasm");
-const ChaCha = require("ffjavascript").ChaCha;
 const keyPair = require("./keypair");
-const crypto = require("crypto");
+const misc = require("./misc");
 
 async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
@@ -345,30 +343,8 @@ function calculateFirstChallangeHash(curve, power, verbose) {
 
 
 function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
-    let nIterationsInner;
-    let nIterationsOuter;
-    if (numIterationsExp<32) {
-        nIterationsInner = (1 << numIterationsExp) >>> 0;
-        nIterationsOuter = 1;
-    } else {
-        nIterationsInner = 0x100000000;
-        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
-    }
 
-    let curHash = beaconHash;
-    for (let i=0; i<nIterationsOuter; i++) {
-        for (let j=0; j<nIterationsInner; j++) {
-            curHash = crypto.createHash("sha256").update(curHash).digest();
-        }
-    }
-
-    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
-    const seed = [];
-    for (let i=0; i<8; i++) {
-        seed[i] = curHashV.getUint32(i*4, false);
-    }
-
-    const rng = new ChaCha(seed);
+    const rng = misc.rngFromBeaconParams(beaconHash, numIterationsExp);
 
     const key = keyPair.createPTauKey(curve, challangeHash, rng);
 

@@ -46,8 +46,9 @@ const Scalar = require("ffjavascript").Scalar;
 
 const assert = require("assert");
 
-const groth16Prover = require("./src/groth16_prover");
 const zkey = require("./src/zkey");
+const zksnark = require("./src/zksnark");
+const curves = require("./src/curves");
 
 const commands = [
     {
@@ -123,7 +124,7 @@ const commands = [
         action: powersOfTawExportChallange
     },
     {
-        cmd: "powersoftau challange contribute <challange> [response]",
+        cmd: "powersoftau challange contribute <curve> <challange> [response]",
         description: "Contribute to a challange",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
@@ -206,6 +207,20 @@ const commands = [
         alias: ["zkc"],
         options: "-verbose|v  -entropy|e -name|n",
         action: zkeyContribute
+    },
+    {
+        cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
+        description: "adds a beacon",
+        alias: ["zkb"],
+        options: "-verbose|v -name|n",
+        action: zkeyBeacon
+    },
+    {
+        cmd: "zkey challange contribute <curve> <challange> [response]",
+        description: "contributes to a llallange file in bellman format",
+        alias: ["zkcc"],
+        options: "-verbose|v  -entropy|e",
+        action: zkeyChallangeContribute
     },
     {
         cmd: "zkey export vkey [circuit.zkey] [verification_key.json]",
@@ -454,7 +469,7 @@ async function zksnarkProve(params, options) {
     const publicName = params[3] || "public.json";
 
 
-    const {proof, publicSignals} = await groth16Prover(zkeyName, witnessName, options.verbose);
+    const {proof, publicSignals} = await zksnark.groth16.prover(zkeyName, witnessName, options.verbose);
 
     await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
     await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
@@ -473,10 +488,14 @@ async function zksnarkVerify(params, options) {
     const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
     const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
 
+/*
     const protocol = verificationKey.protocol;
     if (!zkSnark[protocol]) throw new Error("Invalid protocol");
 
     const isValid = zkSnark[protocol].isValid(verificationKey, proof, pub);
+*/
+
+    const isValid = await zksnark.groth16.verifier(verificationKey, proof, pub);
 
     if (isValid) {
         console.log("OK");
@@ -512,7 +531,7 @@ async function zkeyExportVKey(params) {
         vk_gamma_2:  zKey.vk_gamma_2,
         vk_delta_2:  zKey.vk_delta_2,
 
-        vk_alphabeta_12: curve.pairing( zKey.vk_alpha_1 , zKey.vk_beta_2 )
+        vk_alphabeta_12: await curve.pairing( zKey.vk_alpha_1 , zKey.vk_beta_2 )
     };
 
     await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(vKey), null, 1), "utf-8");
@@ -648,20 +667,22 @@ async function powersOfTawExportChallange(params, options) {
     return await powersOfTaw.exportChallange(ptauName, challangeName, options.verbose);
 }
 
-
+// powersoftau challange contribute <curve> <challange> [response]
 async function powersOfTawChallangeContribute(params, options) {
     let challangeName;
     let responseName;
 
-    challangeName = params[0];
+    const curve = curves.getCurveFromName(params[0]);
 
-    if (params.length < 2) {
+    challangeName = params[1];
+
+    if (params.length < 3) {
         responseName = changeExt(challangeName, "response");
     } else {
-        responseName = params[1];
+        responseName = params[2];
     }
 
-    return await powersOfTaw.challangeContribute(bn128, challangeName, responseName, options.entropy, options.verbose);
+    return await powersOfTaw.challangeContribute(curve, challangeName, responseName, options.entropy, options.verbose);
 }
 
 
@@ -766,7 +787,7 @@ async function zkeyNew(params, options) {
         ptauName = params[1];
     }
 
-    if (params.length < 2) {
+    if (params.length < 3) {
         zkeyName = "circuit.zkey";
     } else {
         zkeyName = params[2];
@@ -792,7 +813,7 @@ async function zkeyExportBellman(params, options) {
         mpcparamsName = params[1];
     }
 
-    return zkey.exportMPCParams(zkeyName, mpcparamsName, options.verbose);
+    return zkey.exportBellman(zkeyName, mpcparamsName, options.verbose);
 
 }
 
@@ -857,3 +878,38 @@ async function zkeyContribute(params, options) {
 
     return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, options.verbose);
 }
+
+// zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>
+async function zkeyBeacon(params, options) {
+    let zkeyOldName;
+    let zkeyNewName;
+    let beaconHashStr;
+    let numIterationsExp;
+
+    zkeyOldName = params[0];
+    zkeyNewName = params[1];
+    beaconHashStr = params[2];
+    numIterationsExp = params[3];
+
+    return await zkey.beacon(zkeyOldName, zkeyNewName, options.name ,numIterationsExp, beaconHashStr, options.verbose);
+}
+
+
+// zkey challange contribute <curve> <challange> [response]",
+async function zkeyChallangeContribute(params, options) {
+    let challangeName;
+    let responseName;
+
+    const curve = curves.getCurveFromName(params[0]);
+
+    challangeName = params[1];
+
+    if (params.length < 3) {
+        responseName = changeExt(challangeName, "response");
+    } else {
+        responseName = params[2];
+    }
+
+    return zkey.challangeContribute(curve, challangeName, responseName, options.entropy, options.verbose);
+}
+

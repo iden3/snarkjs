@@ -271,8 +271,9 @@ async function verify(tauFilename, verbose) {
     function printContribution(curContr, prevContr) {
         console.log("-----------------------------------------------------");
         console.log(`Contribution #${curContr.id}: ${curContr.name ||""}`);
-        console.log("\tBased on challange");
-        console.log(misc.formatHash(prevContr.nextChallange));
+
+        console.log("\tNext Challange");
+        console.log(misc.formatHash(curContr.nextChallange));
 
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         utils.toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
@@ -285,8 +286,14 @@ async function verify(tauFilename, verbose) {
         console.log("\tResponse Hash");
         console.log(misc.formatHash(responseHash));
 
-        console.log("\tNext Challange");
-        console.log(misc.formatHash(curContr.nextChallange));
+        console.log("\tBased on challange");
+        console.log(misc.formatHash(prevContr.nextChallange));
+
+        if (curContr.type == 1) {
+            console.log(`Beacon generator: ${misc.byteArray2Hex(curContr.beaconHash)}`);
+            console.log(`Beacon iterations Exp: ${curContr.numIterationsExp}`);
+        }
+
     }
 
     async function processSectionBetaG2() {

@@ -31,14 +31,34 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
 
     await binFileUtils.endWriteSection(fdNew);
     await binFileUtils.endReadSection(fdOld);
-
-
-}
-
-async function applyKeyToBinFile(fdOld, fdNew, curve, groupName, nPoints, first, inc, sectionName, verbose) {
-
 }
 
 
-module.exports.applyKeyToBinFile = applyKeyToBinFile;
+
+async function applyKeyToChallangeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, verbose) {
+    const G = curve[groupName];
+    const sG = G.F.n8*2;
+    const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
+    let t = first;
+    for (let i=0 ; i<nPoints ; i+= chunkSize) {
+        if ((verbose)&&i) console.log(`${sectionName}: ` + i);
+        const n= Math.min(nPoints-i, chunkSize );
+        const buffInU = await fdOld.read(n * sG);
+        const buffInLEM = await G.batchUtoLEM(buffInU);
+        const buffOutLEM = await G.batchApplyKey(buffInLEM, t, inc);
+        let buffOut;
+        if (formatOut == "COMPRESSED") {
+            buffOut = await G.batchLEMtoC(buffOutLEM);
+        } else {
+            buffOut = await G.batchLEMtoU(buffOutLEM);
+        }
+
+        if (responseHasher) responseHasher.update(buffOutC);
+        await fdNew.write(buffOut);
+        t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
+    }
+}
+
+
+module.exports.applyKeyToChallangeSection = applyKeyToChallangeSection;
 module.exports.applyKeyToSection = applyKeyToSection;

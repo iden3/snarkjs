@@ -27,7 +27,6 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
 
     const mpcParams = await zkeyUtils.readMPCParams(fd, curve, sections);
 
-    const responses = [];
     const accumulatedHasher = Blake2b(64);
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
@@ -57,11 +56,27 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
             return false;
         }
 
+        if (c.type == 1) {
+            const rng = misc.rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
+            const expected_prvKey = curve.Fr.fromRng(rng);
+            const expected_g1_s = curve.G1.affine(curve.G1.fromRng(rng));
+            const expected_g1_sx = curve.G1.affine(curve.G1.mulScalar(expected_g1_s, expected_prvKey));
+            if (curve.G1.eq(expected_g1_s, c.delta.g1_s) !== true) {
+                console.log(`INVALID(${i}): Key of the beacon does not match. g1_s `);
+                return false;
+            }
+            if (curve.G1.eq(expected_g1_sx, c.delta.g1_sx) !== true) {
+                console.log(`INVALID(${i}): Key of the beacon does not match. g1_sx `);
+                return false;
+            }
+        }
+
         hashPubKey(accumulatedHasher, curve, c);
 
         const contributionHasher = Blake2b(64);
         hashPubKey(contributionHasher, curve, c);
-        responses.push(contributionHasher.digest());
+
+        c.contributionHash = contributionHasher.digest();
 
         curDelta = c.deltaAfter;
     }
@@ -178,6 +193,18 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         console.log("H section does not match");
         return false;
     }
+
+    for (let i=mpcParams.contributions.length-1; i>=0; i--) {
+        const c = mpcParams.contributions[i];
+        console.log("-------------------------");
+        console.log(`contribution #${i+1}${c.name ? c.name : ""}:`);
+        console.log(misc.formatHash(c.contributionHash));
+        if (c.type == 1) {
+            console.log(`Beacon generator: ${misc.byteArray2hex(c.beaconHash)}`);
+            console.log(`Beacon iterations Exp: ${c.numIterationsExp}`);
+        }
+    }
+    console.log("-------------------------");
 
 
     return true;
