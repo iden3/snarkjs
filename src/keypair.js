@@ -2,7 +2,7 @@
 const bn128 = require("ffjavascript").bn128;
 const utils = require("ffjavascript").utils;
 
-const blake2b = require("blake2b");
+const blake2b = require("blake2b-wasm");
 
 const ChaCha = require("ffjavascript").ChaCha;
 
