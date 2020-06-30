@@ -20,8 +20,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
     const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections, "groth16");
 
-    const curve = getCurve(zkey.q);
-    await curve.loadEngine();
+    const curve = await getCurve(zkey.q);
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
@@ -60,7 +59,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
             const rng = misc.rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
             const expected_prvKey = curve.Fr.fromRng(rng);
             const expected_g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-            const expected_g1_sx = curve.G1.toAffine(curve.G1.timesScalar(expected_g1_s, expected_prvKey));
+            const expected_g1_sx = curve.G1.toAffine(curve.G1.timesFr(expected_g1_s, expected_prvKey));
             if (curve.G1.eq(expected_g1_s, c.delta.g1_s) !== true) {
                 console.log(`INVALID(${i}): Key of the beacon does not match. g1_s `);
                 return false;
@@ -288,7 +287,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         // Works*2   const first = curve.Fr.neg(curve.Fr.e(2));
         const first = curve.Fr.neg(curve.Fr.e(2));
         // const inc = curve.Fr.inv(curve.PFr.w[zkey.power+1]);
-        const inc = curve.PFr.w[zkey.power+1];
+        const inc = curve.Fr.w[zkey.power+1];
         buff_r = await curve.Fr.batchApplyKey(buff_r, first, inc);
         buff_r = await curve.Fr.fft(buff_r);
         buff_r = await curve.Fr.batchFromMontgomery(buff_r);
@@ -317,7 +316,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
     async function batchSubstract(buff1, buff2) {
         const sG = curve.G1.F.n8*2;
         const nPoints = buff1.byteLength / sG;
-        const concurrency= curve.engine.concurrency;
+        const concurrency= curve.tm.concurrency;
         const nPointsPerThread = Math.floor(nPoints / concurrency);
         const opPromises = [];
         for (let i=0; i<concurrency; i++) {
@@ -374,7 +373,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         ]});
         task.push({cmd: "GET", out: 0, var: 2, len: nPoints*sG1});
 
-        const res = await curve.engine.queueAction(task);
+        const res = await curve.tm.queueAction(task);
 
         return res;
     }

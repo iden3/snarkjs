@@ -916,7 +916,7 @@ async function zkeyChallangeContribute(params, options) {
     let challangeName;
     let responseName;
 
-    const curve = curves.getCurveFromName(params[0]);
+    const curve = await curves.getCurveFromName(params[0]);
 
     challangeName = params[1];
 

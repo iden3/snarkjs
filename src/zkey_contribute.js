@@ -14,8 +14,7 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fdOld, sections, "groth16");
 
-    const curve = getCurve(zkey.q);
-    await curve.loadEngine();
+    const curve = await getCurve(zkey.q);
 
     const mpcParams = await zkeyUtils.readMPCParams(fdOld, curve, sections);
 
@@ -34,15 +33,15 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
     curContribution.delta = {};
     curContribution.delta.prvKey = curve.Fr.fromRng(rng);
     curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesScalar(curContribution.delta.g1_s, curContribution.delta.prvKey));
+    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, curContribution.delta.prvKey));
     utils.hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
     utils.hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
     curContribution.transcript = transcriptHasher.digest();
     curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesScalar(curContribution.delta.g2_sp, curContribution.delta.prvKey));
+    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, curContribution.delta.prvKey));
 
-    zkey.vk_delta_1 = curve.G1.timesScalar(zkey.vk_delta_1, curContribution.delta.prvKey);
-    zkey.vk_delta_2 = curve.G2.timesScalar(zkey.vk_delta_2, curContribution.delta.prvKey);
+    zkey.vk_delta_1 = curve.G1.timesFr(zkey.vk_delta_1, curContribution.delta.prvKey);
+    zkey.vk_delta_2 = curve.G2.timesFr(zkey.vk_delta_2, curContribution.delta.prvKey);
 
     curContribution.deltaAfter = zkey.vk_delta_1;
 

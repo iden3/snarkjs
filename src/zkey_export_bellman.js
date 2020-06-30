@@ -9,8 +9,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
 
-    const curve = getCurve(zkey.q);
-    await curve.loadEngine();
+    const curve = await getCurve(zkey.q);
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
@@ -42,7 +41,7 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
 
     let buffBasesH_Tau;
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", verbose ? console.log : undefined);
-    buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.PFr.w[zkey.power+1], "jacobian", "affine", verbose ? console.log : undefined);
+    buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", verbose ? console.log : undefined);
 
     // Remove last element.  (The degree of H will be allways m-2)
     buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);

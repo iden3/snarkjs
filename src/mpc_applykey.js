@@ -26,7 +26,7 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
         buff = await fdOld.read(n*sG);
         buff = await G.batchApplyKey(buff, t, inc);
         await fdNew.write(buff);
-        t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
+        t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
 
     await binFileUtils.endWriteSection(fdNew);

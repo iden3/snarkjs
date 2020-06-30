@@ -9,8 +9,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
     const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, "groth16");
 
-    const curve = getCurve(zkeyHeader.q);
-    await curve.loadEngine();
+    const curve = await getCurve(zkeyHeader.q);
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
@@ -39,6 +38,16 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
         c.delta.g1_sx = await readG1(fdMPCParams);
         c.delta.g2_spx = await readG2(fdMPCParams);
         c.transcript = await fdMPCParams.read(64);
+        if (i<oldMPCParams.contributions.length) {
+            c.type = oldMPCParams.contributions[i].type;
+            if (c.type==1) {
+                c.beaconHash = oldMPCParams.contributions[i].beaconHash;
+                c.numIterationsExp = oldMPCParams.contributions[i].numIterationsExp;
+            }
+            if (oldMPCParams.contributions[i].name) {
+                c.name = oldMPCParams.contributions[i].name;
+            }
+        }
         newMPCParams.contributions.push(c);
     }
 
@@ -98,7 +107,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     buffH = new Uint8Array(zkeyHeader.domainSize*sG1);
     buffH.set(buffTauLEM);   // Let the last one to zero.
     const n2Inv = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
-    const wInv = curve.Fr.inv(curve.PFr.w[zkeyHeader.power+1]);
+    const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
     buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", verbose ? console.log : undefined);
     buffH = await curve.G1.ifft(buffH, "jacobian", "affine", verbose ? console.log : undefined);
     await binFileUtils.startWriteSection(fdZKeyNew, 9);

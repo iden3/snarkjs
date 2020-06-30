@@ -46,7 +46,7 @@ async function writeHeader(fd, zkey) {
     // Write the Groth header section
     ///////////
 
-    const curve = getCurve(zkey.q);
+    const curve = await getCurve(zkey.q);
 
     await binFileUtils.startWriteSection(fd, 2);
     const primeQ = curve.q;

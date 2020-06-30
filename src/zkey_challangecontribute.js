@@ -44,10 +44,10 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     await copy(sG2); // beta2
     await copy(sG2); // gamma2
     const oldDelta1 = await readG1();
-    const delta1 = curve.G1.timesScalar(oldDelta1, delta);
+    const delta1 = curve.G1.timesFr(oldDelta1, delta);
     await writeG1(delta1);
     const oldDelta2 = await readG2();
-    const delta2 = curve.G2.timesScalar(oldDelta2, delta);
+    const delta2 = curve.G2.timesFr(oldDelta2, delta);
     await writeG2(delta2);
 
     // IC
@@ -108,12 +108,12 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     curContribution.delta = {};
     curContribution.delta.prvKey = delta;
     curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesScalar(curContribution.delta.g1_s, delta));
+    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, delta));
     utils.hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
     utils.hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
     curContribution.transcript = transcriptHasher.digest();
     curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesScalar(curContribution.delta.g2_sp, delta));
+    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, delta));
     curContribution.deltaAfter = delta1;
     curContribution.type = 0;
     mpcParams.contributions.push(curContribution);
