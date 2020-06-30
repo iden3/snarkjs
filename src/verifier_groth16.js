@@ -21,14 +21,14 @@
 
 
 const bn128 = require("ffjavascript").bn128;
-
+/*
 const G1 = bn128.G1;
-
+*/
 module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+        cpub  = G1.add( cpub, G1.timesScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 
     if (! bn128.F12.eq(

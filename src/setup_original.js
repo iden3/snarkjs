@@ -20,12 +20,12 @@
 const bn128 = require("ffjavascript").bn128;
 const PolField = require("ffjavascript").PolField;
 const ZqField = require("ffjavascript").F1Field;
-
+/*
 const G1 = bn128.G1;
 const G2 = bn128.G2;
 const PolF = new PolField(new ZqField(bn128.r));
 const F = new ZqField(bn128.r);
-
+*/
 module.exports = function setup(circuit) {
     const setup = {
         vk_proof : {
@@ -139,18 +139,18 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
     const gb = F.mul(setup.toxic.kbeta, setup.toxic.kgamma);
 
-    setup.vk_verifier.vk_a = G2.affine(G2.mulScalar( G2.g, setup.toxic.ka));
-    setup.vk_verifier.vk_b = G1.affine(G1.mulScalar( G1.g, setup.toxic.kb));
-    setup.vk_verifier.vk_c = G2.affine(G2.mulScalar( G2.g, setup.toxic.kc));
-    setup.vk_verifier.vk_gb_1 = G1.affine(G1.mulScalar( G1.g, gb));
-    setup.vk_verifier.vk_gb_2 = G2.affine(G2.mulScalar( G2.g, gb));
-    setup.vk_verifier.vk_g = G2.affine(G2.mulScalar( G2.g, setup.toxic.kgamma));
+    setup.vk_verifier.vk_a = G2.toAffine(G2.timesScalar( G2.g, setup.toxic.ka));
+    setup.vk_verifier.vk_b = G1.toAffine(G1.timesScalar( G1.g, setup.toxic.kb));
+    setup.vk_verifier.vk_c = G2.toAffine(G2.timesScalar( G2.g, setup.toxic.kc));
+    setup.vk_verifier.vk_gb_1 = G1.toAffine(G1.timesScalar( G1.g, gb));
+    setup.vk_verifier.vk_gb_2 = G2.toAffine(G2.timesScalar( G2.g, gb));
+    setup.vk_verifier.vk_g = G2.toAffine(G2.timesScalar( G2.g, setup.toxic.kgamma));
 
     for (let s=0; s<circuit.nVars; s++) {
 
         // A[i] = G1 * polA(t)
         const raat = F.mul(setup.toxic.ra, v.a_t[s]);
-        const A = G1.affine(G1.mulScalar(G1.g, raat));
+        const A = G1.toAffine(G1.timesScalar(G1.g, raat));
 
         setup.vk_proof.A[s] = A;
 
@@ -161,26 +161,26 @@ function calculateEncriptedValuesAtT(setup, circuit) {
 
         // B1[i] = G1 * polB(t)
         const rbbt = F.mul(setup.toxic.rb, v.b_t[s]);
-        const B1 = G1.affine(G1.mulScalar(G1.g, rbbt));
+        const B1 = G1.toAffine(G1.timesScalar(G1.g, rbbt));
 
         // B2[i] = G2 * polB(t)
-        const B2 = G2.affine(G2.mulScalar(G2.g, rbbt));
+        const B2 = G2.toAffine(G2.timesScalar(G2.g, rbbt));
 
         setup.vk_proof.B[s]=B2;
 
         // C[i] = G1 * polC(t)
         const rcct = F.mul(setup.toxic.rc, v.c_t[s]);
-        const C = G1.affine(G1.mulScalar( G1.g, rcct));
+        const C = G1.toAffine(G1.timesScalar( G1.g, rcct));
         setup.vk_proof.C[s] =C;
 
         // K = G1 * (A+B+C)
 
         const kt = F.add(F.add(raat, rbbt), rcct);
-        const K = G1.affine(G1.mulScalar( G1.g, kt));
+        const K = G1.toAffine(G1.timesScalar( G1.g, kt));
 
         /*
         // Comment this lines to improve the process
-                const Ktest = G1.affine(G1.add(G1.add(A, B1), C));
+                const Ktest = G1.toAffine(G1.add(G1.add(A, B1), C));
 
                 if (!G1.equals(K, Ktest)) {
                     console.log ("=====FAIL======");
@@ -188,35 +188,35 @@ function calculateEncriptedValuesAtT(setup, circuit) {
         */
 
         if (s > setup.vk_proof.nPublic) {
-            setup.vk_proof.Ap[s] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+            setup.vk_proof.Ap[s] = G1.toAffine(G1.timesScalar(A, setup.toxic.ka));
         }
-        setup.vk_proof.Bp[s] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
-        setup.vk_proof.Cp[s] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
-        setup.vk_proof.Kp[s] = G1.affine(G1.mulScalar(K, setup.toxic.kbeta));
+        setup.vk_proof.Bp[s] = G1.toAffine(G1.timesScalar(B1, setup.toxic.kb));
+        setup.vk_proof.Cp[s] = G1.toAffine(G1.timesScalar(C, setup.toxic.kc));
+        setup.vk_proof.Kp[s] = G1.toAffine(G1.timesScalar(K, setup.toxic.kbeta));
     }
 
     // Extra coeficients
-    const A = G1.mulScalar( G1.g, F.mul(setup.toxic.ra, v.z_t));
-    setup.vk_proof.A[circuit.nVars] = G1.affine(A);
-    setup.vk_proof.Ap[circuit.nVars] = G1.affine(G1.mulScalar(A, setup.toxic.ka));
+    const A = G1.timesScalar( G1.g, F.mul(setup.toxic.ra, v.z_t));
+    setup.vk_proof.A[circuit.nVars] = G1.toAffine(A);
+    setup.vk_proof.Ap[circuit.nVars] = G1.toAffine(G1.timesScalar(A, setup.toxic.ka));
 
-    const B1 = G1.mulScalar( G1.g, F.mul(setup.toxic.rb, v.z_t));
-    const B2 = G2.mulScalar( G2.g, F.mul(setup.toxic.rb, v.z_t));
-    setup.vk_proof.B[circuit.nVars] = G2.affine(B2);
-    setup.vk_proof.Bp[circuit.nVars] = G1.affine(G1.mulScalar(B1, setup.toxic.kb));
+    const B1 = G1.timesScalar( G1.g, F.mul(setup.toxic.rb, v.z_t));
+    const B2 = G2.timesScalar( G2.g, F.mul(setup.toxic.rb, v.z_t));
+    setup.vk_proof.B[circuit.nVars] = G2.toAffine(B2);
+    setup.vk_proof.Bp[circuit.nVars] = G1.toAffine(G1.timesScalar(B1, setup.toxic.kb));
 
-    const C = G1.mulScalar( G1.g, F.mul(setup.toxic.rc, v.z_t));
-    setup.vk_proof.C[circuit.nVars] = G1.affine(C);
-    setup.vk_proof.Cp[circuit.nVars] = G1.affine(G1.mulScalar(C, setup.toxic.kc));
+    const C = G1.timesScalar( G1.g, F.mul(setup.toxic.rc, v.z_t));
+    setup.vk_proof.C[circuit.nVars] = G1.toAffine(C);
+    setup.vk_proof.Cp[circuit.nVars] = G1.toAffine(G1.timesScalar(C, setup.toxic.kc));
 
-    setup.vk_proof.Kp[circuit.nVars  ] = G1.affine(G1.mulScalar(A, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+1] = G1.affine(G1.mulScalar(B1, setup.toxic.kbeta));
-    setup.vk_proof.Kp[circuit.nVars+2] = G1.affine(G1.mulScalar(C, setup.toxic.kbeta));
+    setup.vk_proof.Kp[circuit.nVars  ] = G1.toAffine(G1.timesScalar(A, setup.toxic.kbeta));
+    setup.vk_proof.Kp[circuit.nVars+1] = G1.toAffine(G1.timesScalar(B1, setup.toxic.kbeta));
+    setup.vk_proof.Kp[circuit.nVars+2] = G1.toAffine(G1.timesScalar(C, setup.toxic.kbeta));
 
-//    setup.vk_verifier.A[0] = G1.affine(G1.add(setup.vk_verifier.A[0], setup.vk_proof.A[circuit.nVars]));
+//    setup.vk_verifier.A[0] = G1.toAffine(G1.add(setup.vk_verifier.A[0], setup.vk_proof.A[circuit.nVars]));
 
     // vk_z
-    setup.vk_verifier.vk_z = G2.affine(G2.mulScalar(
+    setup.vk_verifier.vk_z = G2.toAffine(G2.timesScalar(
         G2.g,
         F.mul(setup.toxic.rc, v.z_t)));
 }
@@ -229,7 +229,7 @@ function calculateHexps(setup) {
     setup.vk_proof.hExps[0] = G1.g;
     let eT = setup.toxic.t;
     for (let i=1; i<maxH; i++) {
-        setup.vk_proof.hExps[i] = G1.affine(G1.mulScalar(G1.g, eT));
+        setup.vk_proof.hExps[i] = G1.toAffine(G1.timesScalar(G1.g, eT));
         eT = F.mul(eT, setup.toxic.t);
     }
 }

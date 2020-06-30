@@ -1,9 +1,9 @@
 const assert = require("assert");
 const Scalar = require("ffjavascript").Scalar;
-const bn128 = require("ffjavascript").bn128;
 const Blake2b = require("blake2b-wasm");
 const keyPair = require("./keypair");
 const misc = require("./misc");
+const {getCurveFromQ} = require("./curves");
 
 async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
@@ -39,12 +39,9 @@ async function readPTauHeader(fd, sections) {
     const n8 = await fd.readULE32();
     const buff = await fd.read(n8);
     const q = Scalar.fromRprLE(buff);
-    let curve;
-    if (Scalar.eq(q, bn128.q)) {
-        curve = bn128;
-    } else {
-        assert(false, fd.fileName +": Curve not supported");
-    }
+
+    const curve = await getCurveFromQ(q);
+
     assert(curve.F1.n64*8 == n8, fd.fileName +": Invalid size");
 
     const power = await fd.readULE32();
@@ -88,7 +85,7 @@ function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
         if (montgomery) {
             p = curve.G1.fromRprLEM( buff, pos );
         } else {
-            p = curve.G1.fromRprBE( buff, pos );
+            p = curve.G1.fromRprUncompressed( buff, pos );
         }
         pos += curve.G1.F.n8*2;
         return p;
@@ -99,7 +96,7 @@ function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
         if (montgomery) {
             p = curve.G2.fromRprLEM( buff, pos );
         } else {
-            p = curve.G2.fromRprBE( buff, pos );
+            p = curve.G2.fromRprUncompressed( buff, pos );
         }
         pos += curve.G2.F.n8*2;
         return p;
@@ -122,7 +119,7 @@ function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
         if (montgomery) {
             curve.G1.toRprLEM(buff, pos, p);
         } else {
-            curve.G1.toRprBE(buff, pos, p);
+            curve.G1.toRprUncompressed(buff, pos, p);
         }
         pos += curve.F1.n8*2;
     }
@@ -131,7 +128,7 @@ function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
         if (montgomery) {
             curve.G2.toRprLEM(buff, pos, p);
         } else {
-            curve.G2.toRprBE(buff, pos, p);
+            curve.G2.toRprUncompressed(buff, pos, p);
         }
         pos += curve.F2.n8*2;
     }
@@ -194,12 +191,12 @@ async function readContribution(fd, curve) {
     return c;
 
     async function readG1() {
-        const pBuff = await fd.read(curve.F1.n8*2);
+        const pBuff = await fd.read(curve.G1.F.n8*2);
         return curve.G1.fromRprLEM( pBuff );
     }
 
     async function readG2() {
-        const pBuff = await fd.read(curve.F2.n8*2);
+        const pBuff = await fd.read(curve.G2.F.n8*2);
         return curve.G2.fromRprLEM( pBuff );
     }
 
@@ -302,8 +299,8 @@ function calculateFirstChallangeHash(curve, power, verbose) {
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
-    curve.G1.toRprBE(vG1, 0, curve.G1.g);
-    curve.G2.toRprBE(vG2, 0, curve.G2.g);
+    curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
+    curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
     hasher.update(Blake2b(64).digest());
 

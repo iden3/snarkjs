@@ -1,12 +1,9 @@
 
-const bn128 = require("ffjavascript").bn128;
-const utils = require("ffjavascript").utils;
-
 const blake2b = require("blake2b-wasm");
 
 const ChaCha = require("ffjavascript").ChaCha;
 
-function hashToG2(hash) {
+function hashToG2(curve, hash) {
     const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
     const seed = [];
     for (let i=0; i<8; i++) {
@@ -15,30 +12,31 @@ function hashToG2(hash) {
 
     const rng = new ChaCha(seed);
 
-    const g2_sp = bn128.G2.fromRng(rng);
+    const g2_sp = curve.G2.fromRng(rng);
 
     return g2_sp;
 }
 
-function getG2sp(persinalization, challange, g1s, g1sx) {
+function getG2sp(curve, persinalization, challange, g1s, g1sx) {
 
     const h = blake2b(64);
-    h.update(Buffer.from([persinalization]));
+    const b1 = new Uint8Array([persinalization]);
+    h.update(b1);
     h.update(challange);
-    h.update( utils.beInt2Buff(g1s[0],32));
-    h.update( utils.beInt2Buff(g1s[1],32));
-    h.update( utils.beInt2Buff(g1sx[0],32));
-    h.update( utils.beInt2Buff(g1sx[1],32));
-    const hash = Buffer.from(h.digest());
+    const b3 = curve.G1.toUncompressed(g1s);
+    h.update( b3);
+    const b4 = curve.G1.toUncompressed(g1sx);
+    h.update( b4);
+    const hash =h.digest();
 
-    return hashToG2(hash);
+    return hashToG2(curve, hash);
 }
 
 function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
-    k.g1_s = curve.G1.affine(curve.G1.fromRng(rng));
-    k.g1_sx = curve.G1.affine(curve.G1.mulScalar(k.g1_s, k.prvKey));
-    k.g2_sp = curve.G2.affine(getG2sp(personalization, challangeHash, k.g1_s, k.g1_sx));
-    k.g2_spx = curve.G2.affine(curve.G2.mulScalar(k.g2_sp, k.prvKey));
+    k.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
+    k.g1_sx = curve.G1.toAffine(curve.G1.timesFr(k.g1_s, k.prvKey));
+    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challangeHash, k.g1_s, k.g1_sx));
+    k.g2_spx = curve.G2.toAffine(curve.G2.timesFr(k.g2_sp, k.prvKey));
     return k;
 }
 
@@ -60,10 +58,10 @@ function createPTauKey(curve, challangeHash, rng) {
 function createDeltaKey(curve, transcript, rng) {
     const delta = {};
     delta.prvKey = curve.Fr.fromRng(rng);
-    delta.g1_s = curve.G1.affine(curve.G1.fromRng(rng));
-    delta.g1_sx = curve.G1.affine(curve.G1.mulScalar(delta.g1_s, delta.prvKey));
-    delta.g2_sp = hashToG2(transcript);
-    delta.g2_spx = curve.G2.affine(curve.G2.mulScalar(delta.g2_sp, delta.prvKey));
+    delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
+    delta.g1_sx = curve.G1.toAffine(curve.G1.timesScalar(delta.g1_s, delta.prvKey));
+    delta.g2_sp = hashToG2(curve, transcript);
+    delta.g2_spx = curve.G2.toAffine(curve.G2.timesScalar(delta.g2_sp, delta.prvKey));
     return delta;
 }
 

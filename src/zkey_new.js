@@ -19,8 +19,6 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
 
-    await curve.loadEngine();
-
     const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10);
 
     const sG1 = curve.G1.F.n8*2;
@@ -62,7 +60,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     const primeR = curve.r;
     const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
     const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
-    const R2r = Scalar.mod(Scalar.mul(Rr,Rr), primeR);
+    const R2r = curve.Fr.e(Scalar.mod(Scalar.mul(Rr,Rr), primeR));
 
     await fdZKey.writeULE32(n8q);
     await binFileUtils.writeBigInt(fdZKey, primeQ, n8q);
@@ -95,9 +93,9 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     const bg2 = new Uint8Array(sG2);
     curve.G2.toRprLEM(bg2, 0, curve.G2.g);
     const bg1U = new Uint8Array(sG1);
-    curve.G1.toRprBE(bg1U, 0, curve.G1.g);
+    curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
     const bg2U = new Uint8Array(sG2);
-    curve.G2.toRprBE(bg2U, 0, curve.G2.g);
+    curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
 
     await fdZKey.write(bg2);        // gamma2
     await fdZKey.write(bg1);        // delta1
@@ -285,7 +283,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     }
 
     async function composeAndWritePointsChunk(groupName, arr) {
-        const concurrency= curve.engine.concurrency;
+        const concurrency= curve.tm.concurrency;
         const nElementsPerThread = Math.floor(arr.length / concurrency);
         const opPromises = [];
         const G = curve[groupName];
@@ -388,7 +386,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         ]});
         task.push({cmd: "GET", out: 0, var: 2, len: arr.length*sGout});
 
-        const res = await curve.engine.queueAction(task);
+        const res = await curve.tm.queueAction(task);
 
         return res;
     }
@@ -409,7 +407,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     async function hashHPointsChunk(offset, nPoints) {
         const buff1 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + (offset + domainSize)*sG1);
         const buff2 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + offset*sG1);
-        const concurrency= curve.engine.concurrency;
+        const concurrency= curve.tm.concurrency;
         const nPointsPerThread = Math.floor(nPoints / concurrency);
         const opPromises = [];
         for (let i=0; i<concurrency; i++) {
@@ -464,7 +462,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         ]});
         task.push({cmd: "GET", out: 0, var: 2, len: nPoints*sG1});
 
-        const res = await curve.engine.queueAction(task);
+        const res = await curve.tm.queueAction(task);
 
         return res;
     }

@@ -22,8 +22,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}`);
     }
 
-    const curve = getCurve(zkey.q);
-    await curve.loadEngine();
+    const curve = await getCurve(zkey.q);
     const Fr = curve.Fr;
     const G1 = curve.G1;
     const G2 = curve.G2;
@@ -41,15 +40,15 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
 
     const buffA = await Fr.ifft(buffA_T);
-    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), curve.PFr.w[power+1]);
+    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), curve.Fr.w[power+1]);
     const buffAodd_T = await Fr.fft(buffAodd);
 
     const buffB = await Fr.ifft(buffB_T);
-    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), curve.PFr.w[power+1]);
+    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), curve.Fr.w[power+1]);
     const buffBodd_T = await Fr.fft(buffBodd);
 
     const buffC = await Fr.ifft(buffC_T);
-    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), curve.PFr.w[power+1]);
+    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), curve.Fr.w[power+1]);
     const buffCodd_T = await Fr.fft(buffCodd);
 
     const buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T);
@@ -65,35 +64,35 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
-
     proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( zkey.vk_delta_1, r ));
+    proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
     proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( zkey.vk_delta_2, s ));
+    proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
     pib1 = G1.add( pib1, zkey.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.mulScalar( zkey.vk_delta_1, s ));
+    pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
     proof.pi_c = G1.add(proof.pi_c, resH);
 
 
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( zkey.vk_delta_1, Fr.neg(Fr.mul(r,s) )));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( proof.pi_a, s ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( pib1, r ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( zkey.vk_delta_1, Fr.neg(Fr.mul(r,s) )));
 
 
     const publicSignals = [];
 
     for (let i=1; i<= zkey.nPublic; i++) {
-        publicSignals.push(Fr.fromRprLE(buffWitness, i*Fr.n8));
+        const b = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
+        publicSignals.push(Scalar.fromRprLE(b));
     }
 
-    proof.pi_a = G1.affine(proof.pi_a);
-    proof.pi_b = G2.affine(proof.pi_b);
-    proof.pi_c = G1.affine(proof.pi_c);
+    proof.pi_a = G1.toObject(G1.toAffine(proof.pi_a));
+    proof.pi_b = G2.toObject(G2.toAffine(proof.pi_b));
+    proof.pi_c = G1.toObject(G1.toAffine(proof.pi_c));
 
-    proof.protocol = "groth";
+    proof.protocol = "groth16";
 
     await fdZKey.close();
     await fdWtns.close();
@@ -103,7 +102,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
 
 
 async function buldABC(curve, zkey, witness, coeffs) {
-    const concurrency = curve.engine.concurrency;
+    const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
     const elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
@@ -145,7 +144,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
         task.push({cmd: "GET", out: 0, var: 2, len: n*curve.Fr.n8});
         task.push({cmd: "GET", out: 1, var: 3, len: n*curve.Fr.n8});
         task.push({cmd: "GET", out: 2, var: 4, len: n*curve.Fr.n8});
-        promises.push(curve.engine.queueAction(task));
+        promises.push(curve.tm.queueAction(task));
     }
 
     const result = await Promise.all(promises);
@@ -183,7 +182,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
 
 
 async function joinABC(curve, zkey, a, b, c) {
-    const concurrency = curve.engine.concurrency;
+    const concurrency = curve.tm.concurrency;
 
     const n8 = curve.Fr.n8;
     const nElements = Math.floor(a.byteLength / curve.Fr.n8);
@@ -223,7 +222,7 @@ async function joinABC(curve, zkey, a, b, c) {
             {var: 3}
         ]});
         task.push({cmd: "GET", out: 0, var: 3, len: n*n8});
-        promises.push(curve.engine.queueAction(task));
+        promises.push(curve.tm.queueAction(task));
     }
 
     const result = await Promise.all(promises);

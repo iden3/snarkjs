@@ -60,10 +60,8 @@ async function newAccumulator(curve, power, fileName, verbose) {
 
     await ptauUtils.writePTauHeader(fd, curve, power, 0);
 
-    const buffG1 = new Uint8Array(curve.G1.F.n8*2);
-    const buffG2 = new Uint8Array(curve.G2.F.n8*2);
-    curve.G1.toRprLEM(buffG1, 0, curve.G1.g);
-    curve.G2.toRprLEM(buffG2, 0, curve.G2.g);
+    const buffG1 = curve.G1.oneAffine;
+    const buffG2 = curve.G2.oneAffine;
 
     // Write tauG1
     ///////////

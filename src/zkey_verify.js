@@ -42,7 +42,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
             return false;
         }
 
-        const delta_g2_sp = hashToG2(c.transcript);
+        const delta_g2_sp = hashToG2(curve, c.transcript);
 
         sr = await sameRatio(curve, c.delta.g1_s, c.delta.g1_sx, delta_g2_sp, c.delta.g2_spx);
         if (sr !== true) {
@@ -59,8 +59,8 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         if (c.type == 1) {
             const rng = misc.rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
             const expected_prvKey = curve.Fr.fromRng(rng);
-            const expected_g1_s = curve.G1.affine(curve.G1.fromRng(rng));
-            const expected_g1_sx = curve.G1.affine(curve.G1.mulScalar(expected_g1_s, expected_prvKey));
+            const expected_g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
+            const expected_g1_sx = curve.G1.toAffine(curve.G1.timesScalar(expected_g1_s, expected_prvKey));
             if (curve.G1.eq(expected_g1_s, c.delta.g1_s) !== true) {
                 console.log(`INVALID(${i}): Key of the beacon does not match. g1_s `);
                 return false;

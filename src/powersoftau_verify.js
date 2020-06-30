@@ -53,9 +53,9 @@ async function verifyContribution(curve, cur, prev) {
         }
     }
 
-    cur.key.tau.g2_sp = keyPair.getG2sp(0, prev.nextChallange, cur.key.tau.g1_s, cur.key.tau.g1_sx);
-    cur.key.alpha.g2_sp = keyPair.getG2sp(1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx);
-    cur.key.beta.g2_sp = keyPair.getG2sp(2, prev.nextChallange, cur.key.beta.g1_s, cur.key.beta.g1_sx);
+    cur.key.tau.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 0, prev.nextChallange, cur.key.tau.g1_s, cur.key.tau.g1_sx));
+    cur.key.alpha.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
+    cur.key.beta.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 2, prev.nextChallange, cur.key.beta.g1_s, cur.key.beta.g1_sx));
 
     sr = await sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
@@ -308,7 +308,7 @@ async function verify(tauFilename, verbose) {
         const buff = await fd.read(sG);
         const P = G.fromRprLEM(buff);
 
-        G.toRprBE(buffUv, 0, P);
+        G.toRprUncompressed(buffUv, 0, P);
         nextContributionHasher.update(buffUv);
 
         return P;
@@ -343,8 +343,8 @@ async function verify(tauFilename, verbose) {
                 const firstBase = G.fromRprLEM(bases, 0);
                 const r = crypto.randomBytes(4).readUInt32BE(0, true);
 
-                R1 = G.add(R1, G.mulScalar(lastBase, r));
-                R2 = G.add(R2, G.mulScalar(firstBase, r));
+                R1 = G.add(R1, G.timesScalar(lastBase, r));
+                R2 = G.add(R2, G.timesScalar(firstBase, r));
             }
 
             const r1 = await G.multiExpAffine(bases.slice(0, (n-1)*sG), scalars);

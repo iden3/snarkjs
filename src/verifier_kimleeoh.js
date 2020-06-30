@@ -24,14 +24,15 @@ const bn128 = require("ffjavascript").bn128;
 const createKeccakHash = require("keccak");
 const utils = require("ffjavascript").utils;
 
+/*
 const G1 = bn128.G1;
 const G2 = bn128.G2;
-
+*/
 module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+        cpub  = G1.add( cpub, G1.timesScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 
     const buff = Buffer.concat([
@@ -59,8 +60,8 @@ module.exports = function isValid(vk_verifier, proof, publicSignals) {
 
     if (! bn128.F12.eq(
         bn128.pairing(
-            G1.add(proof.pi_a, G1.mulScalar(G1.g, h1)),
-            G2.add(proof.pi_b, G2.mulScalar(vk_verifier.vk_delta_2, h2))
+            G1.add(proof.pi_a, G1.timesScalar(G1.g, h1)),
+            G2.add(proof.pi_b, G2.timesScalar(vk_verifier.vk_delta_2, h2))
         ),
         bn128.F12.mul(
             vk_verifier.vk_alphabeta_12,

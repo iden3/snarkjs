@@ -53,9 +53,9 @@ async function applyKeyToChallangeSection(fdOld, fdNew, responseHasher, curve, g
             buffOut = await G.batchLEMtoU(buffOutLEM);
         }
 
-        if (responseHasher) responseHasher.update(buffOutC);
+        if (responseHasher) responseHasher.update(buffOut);
         await fdNew.write(buffOut);
-        t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
+        t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
 }
 

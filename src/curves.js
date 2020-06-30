@@ -1,21 +1,44 @@
 const Scalar = require("ffjavascript").Scalar;
-const bn128 = require("ffjavascript").bn128;
+const buildBn128 = require("ffjavascript").buildBn128;
+const buildBls12381 = require("ffjavascript").buildBls12381;
 
-module.exports.getCurveFromQ = function getCurveFromQ(q) {
+const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+
+const bls12381q = Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
+const bn128q = Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+
+module.exports.getCurveFromR = async function getCurveFromR(r) {
     let curve;
-    if (Scalar.eq(q, bn128.q)) {
-        curve = bn128;
+    if (Scalar.eq(r, bn128r)) {
+        curve = await buildBn128();
+    } else if (Scalar.eq(r, bls12381r)) {
+        curve = await buildBls12381();
     } else {
-        throw new Error(`Curve not supported: ${q.toString()}`);
+        throw new Error(`Curve not supported: ${Scalar.toString(r)}`);
     }
     return curve;
 };
 
-module.exports.getCurveFromName = function getCurveFromName(name) {
+module.exports.getCurveFromQ = async function getCurveFromQ(q) {
+    let curve;
+    if (Scalar.eq(q, bn128q)) {
+        curve = await buildBn128();
+    } else if (Scalar.eq(q, bls12381q)) {
+        curve = await buildBls12381();
+    } else {
+        throw new Error(`Curve not supported: ${Scalar.toString(q)}`);
+    }
+    return curve;
+};
+
+module.exports.getCurveFromName = async function getCurveFromName(name) {
     let curve;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
-        curve = bn128;
+        curve = await buildBn128();
+    } else if (["BLS12381"].indexOf(normName) >= 0) {
+        curve = await buildBls12381();
     } else {
         throw new Error(`Curve not supported: ${name}`);
     }

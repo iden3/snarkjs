@@ -25,11 +25,11 @@ const ZqField = require("ffjavascript").ZqField;
 const createKeccakHash = require("keccak");
 const utils = require("ffjavascript").utils;
 
-
+/*
 const PolF = new PolField(new ZqField(bn128.r));
 const G1 = bn128.G1;
 const G2 = bn128.G2;
-
+*/
 module.exports = function genProof(vk_proof, witness) {
 
     const proof = {};
@@ -58,35 +58,35 @@ module.exports = function genProof(vk_proof, witness) {
 
     for (let s= 0; s< vk_proof.nVars; s++) {
         // pi_a = pi_a + A[s] * witness[s];
-        proof.pi_a = G1.add( proof.pi_a, G1.mulScalar( vk_proof.A[s], witness[s]));
+        proof.pi_a = G1.add( proof.pi_a, G1.timesScalar( vk_proof.A[s], witness[s]));
 
         // pi_b = pi_b + B[s] * witness[s];
-        proof.pi_b = G2.add( proof.pi_b, G2.mulScalar( vk_proof.B2[s], witness[s]));
+        proof.pi_b = G2.add( proof.pi_b, G2.timesScalar( vk_proof.B2[s], witness[s]));
 
-        piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.Adelta[s], witness[s]));
-        pib1 = G1.add( pib1, G1.mulScalar( vk_proof.B1[s], witness[s]));
+        piadelta = G1.add( piadelta, G1.timesScalar( vk_proof.Adelta[s], witness[s]));
+        pib1 = G1.add( pib1, G1.timesScalar( vk_proof.B1[s], witness[s]));
     }
 
     for (let s= vk_proof.nPublic+1; s< vk_proof.nVars; s++) {
 
         // pi_a  = pi_a  + A[s]  * witness[s];
-        proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.C[s], witness[s]));
+        proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( vk_proof.C[s], witness[s]));
     }
 
     proof.pi_a  = G1.add( proof.pi_a, vk_proof.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.mulScalar( G1.g, r ));
+    proof.pi_a  = G1.add( proof.pi_a, G1.timesScalar( G1.g, r ));
 
     piadelta = G1.add( piadelta, vk_proof.vk_alphadelta_1);
-    piadelta = G1.add( piadelta, G1.mulScalar( vk_proof.vk_delta_1, r ));
+    piadelta = G1.add( piadelta, G1.timesScalar( vk_proof.vk_delta_1, r ));
 
     proof.pi_b  = G2.add( proof.pi_b, vk_proof.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.mulScalar( G2.g, s ));
+    proof.pi_b  = G2.add( proof.pi_b, G2.timesScalar( G2.g, s ));
 
     pib1 = G1.add( pib1, vk_proof.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.mulScalar( G1.g, s ));
+    pib1 = G1.add( pib1, G1.timesScalar( G1.g, s ));
 
-    proof.pi_a = G1.affine(proof.pi_a);
-    proof.pi_b = G2.affine(proof.pi_b);
+    proof.pi_a = G1.toAffine(proof.pi_a);
+    proof.pi_b = G2.toAffine(proof.pi_b);
 
     const buff = Buffer.concat([
         utils.beInt2Buff(proof.pi_a[0],32),
@@ -111,28 +111,28 @@ module.exports = function genProof(vk_proof, witness) {
 
     const h = calculateH(vk_proof, witness);
 
-    // proof.pi_c = G1.affine(proof.pi_c);
+    // proof.pi_c = G1.toAffine(proof.pi_c);
     // console.log("pi_onlyc", proof.pi_c);
 
     for (let i = 0; i < h.length; i++) {
         // console.log(i + "->" + h[i].toString());
-        proof.pi_c = G1.add( proof.pi_c, G1.mulScalar( vk_proof.hExps[i], h[i]));
+        proof.pi_c = G1.add( proof.pi_c, G1.timesScalar( vk_proof.hExps[i], h[i]));
     }
 
-    // proof.pi_c = G1.affine(proof.pi_c);
+    // proof.pi_c = G1.toAffine(proof.pi_c);
     // console.log("pi_candh", proof.pi_c);
 
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( proof.pi_a, s ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( G1.g, PolF.F.neg(PolF.F.mul(r,s) )));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( proof.pi_a, s ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( pib1, r ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( G1.g, PolF.F.neg(PolF.F.mul(r,s) )));
 
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( piadelta, h2 ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( pib1, h1 ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.mulScalar( vk_proof.vk_delta_1, PolF.F.mul(h1,h2)));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( piadelta, h2 ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( pib1, h1 ));
+    proof.pi_c  = G1.add( proof.pi_c, G1.timesScalar( vk_proof.vk_delta_1, PolF.F.mul(h1,h2)));
 
     const publicSignals = witness.slice(1, vk_proof.nPublic+1);
 
-    proof.pi_c = G1.affine(proof.pi_c);
+    proof.pi_c = G1.toAffine(proof.pi_c);
 
     proof.protocol = "kimleeoh";
 

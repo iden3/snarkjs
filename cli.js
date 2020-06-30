@@ -33,13 +33,12 @@ const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuil
 const wtnsFile = require("./src/wtnsfile");
 
 const loadSyms = require("./src/loadsyms");
-const printR1cs = require("./src/printr1cs");
+const r1cs = require("./src/r1cs");
 
 const clProcessor = require("./src/clprocessor");
 
 const powersOfTaw = require("./src/powersoftau");
 
-const bn128 = require("ffjavascript").bn128;
 const solidityGenerator = require("./src/soliditygenerator.js");
 
 const Scalar = require("ffjavascript").Scalar;
@@ -64,18 +63,32 @@ const commands = [
         action: r1csPrint
     },
     {
-        cmd: "witness calculate [circuit.wasm] [input.json] [witness.wtns]",
-        description: "Caclculate specific witness of a circuit given an input",
-        alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
-        action: witnessCalculate
+        cmd: "r1cs export json [circuit.r1cs] [circuit.json]",
+        description: "Export r1cs to JSON file",
+        alias: ["rej"],
+        action: r1csExportJSON
     },
     {
-        cmd: "witness debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
+        cmd: "wtns calculate [circuit.wasm] [input.json] [witness.wtns]",
+        description: "Caclculate specific witness of a circuit given an input",
+        alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
+        action: wtnsCalculate
+    },
+    {
+        cmd: "wtns debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
         description: "Calculate the witness with debug info.",
         longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
         options: "-get|g -set|s -trigger|t",
         alias: ["wd"],
-        action: witnessDebug
+        action: wtnsDebug
+    },
+    {
+        cmd: "wtns export json [witness.wtns] [witnes.json]",
+        description: "Calculate the witness with debug info.",
+        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-get|g -set|s -trigger|t",
+        alias: ["wej"],
+        action: wtnsExportJson
     },
     {
         cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
@@ -110,7 +123,7 @@ const commands = [
         action: solidityGenCall
     },
     {
-        cmd: "powersoftau new <power> [powersoftau_0000.ptau]",
+        cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
         description: "Starts a powers of tau ceremony",
         alias: ["ptn"],
         options: "-verbose|v",
@@ -314,13 +327,8 @@ function changeExt(fileName, newExt) {
 async function r1csInfo(params, options) {
     const r1csName = params[0] ||  "circuit.r1cs";
 
-    const cir = await loadR1cs(r1csName);
+    await r1cs.info(r1csName);
 
-    console.log(`# Wires: ${cir.nVars}`);
-    console.log(`# Constraints: ${cir.nConstraints}`);
-    console.log(`# Private Inputs: ${cir.nPrvInputs}`);
-    console.log(`# Public Inputs: ${cir.nPubInputs}`);
-    console.log(`# Outputs: ${cir.nOutputs}`);
 
     return 0;
 }
@@ -328,18 +336,29 @@ async function r1csInfo(params, options) {
 // r1cs print [circuit.r1cs] [circuit.sym]
 async function r1csPrint(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
-    const symName = params[2] || changeExt(r1csName, "sym");
+    const symName = params[1] || changeExt(r1csName, "sym");
     const cir = await loadR1cs(r1csName, true, true);
 
     const sym = await loadSyms(symName);
 
-    printR1cs(cir, sym);
+    await r1cs.print(cir, sym);
 
     return 0;
 }
 
-// witness calculate <circuit.wasm> <input.json> <witness.wtns>
-async function witnessCalculate(params, options) {
+
+// r1cs export json [circuit.r1cs] [circuit.json]
+async function r1csExportJSON(params, options) {
+    const r1csName = params[0] || "circuit.r1cs";
+    const jsonName = params[1] || changeExt(r1csName, "json");
+
+    await r1cs.exportJson(r1csName, jsonName);
+
+    return 0;
+}
+
+// wtns calculate <circuit.wasm> <input.json> <witness.wtns>
+async function wtnsCalculate(params, options) {
     const wasmName = params[0] || "circuit.wasm";
     const inputName = params[1] || "input.json";
     const witnessName = params[2] || "witness.wtns";
@@ -361,9 +380,9 @@ async function witnessCalculate(params, options) {
 }
 
 
-// witness debug <circuit.wasm> <input.json> <witness.wtns> <circuit.sym>
+// wtns debug <circuit.wasm> <input.json> <witness.wtns> <circuit.sym>
 // -get|g -set|s -trigger|t
-async function witnessDebug(params, options) {
+async function wtnsDebug(params, options) {
     const wasmName = params[0] || "circuit.wasm";
     const inputName = params[1] || "input.json";
     const witnessName = params[2] || "witness.wtns";
@@ -408,6 +427,21 @@ async function witnessDebug(params, options) {
 
     return 0;
 }
+
+
+// wtns export json  [witness.wtns] [witness.json]
+// -get|g -set|s -trigger|t
+async function wtnsExportJson(params, options) {
+    const wtnsName = params[0] || "witness.wtns";
+    const jsonName = params[1] || "witness.json";
+
+    const w = await wtnsFile.read(wtnsName);
+
+    await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts(w), null, 1));
+
+    return 0;
+}
+
 
 
 // zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
@@ -511,31 +545,7 @@ async function zkeyExportVKey(params) {
     const zkeyName = params[0] || "circuit.zkey";
     const verificationKeyName = params[2] || "verification_key.json";
 
-    const zKey = await zkey.utils.read(zkeyName);
-
-    let curve;
-    if (Scalar.eq(zKey.q, bn128.q)) {
-        curve = bn128;
-    } else {
-        assert(false, " Curve not supported");
-    }
-    const vKey = {
-        protocol: zKey.protocol,
-        nPublic: zKey.nPublic,
-        IC: zKey.IC,
-
-
-        vk_alpha_1: zKey.vk_alpha_1,
-
-        vk_beta_2: zKey.vk_beta_2,
-        vk_gamma_2:  zKey.vk_gamma_2,
-        vk_delta_2:  zKey.vk_delta_2,
-
-        vk_alphabeta_12: await curve.pairing( zKey.vk_alpha_1 , zKey.vk_beta_2 )
-    };
-
-    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(vKey), null, 1), "utf-8");
-
+    return await zkey.exportVerificationKey(zkeyName, verificationKeyName);
 }
 
 // zkey export json [circuit.zkey] [circuit.zkey.json]",
@@ -634,22 +644,28 @@ async function solidityGenCall(params, options) {
     return 0;
 }
 
+// powersoftau new <curve> <power> [powersoftau_0000.ptau]",
 async function powersOfTawNew(params, options) {
+    let curveName;
     let power;
     let ptauName;
 
-    power = parseInt(params[0]);
+    curveName = params[0];
+
+    power = parseInt(params[1]);
     if ((power<1) || (power>28)) {
         throw new Error("Power must be between 1 and 28");
     }
 
-    if (params.length < 2) {
+    if (params.length < 3) {
         ptauName = "powersOfTaw" + power + "_0000.ptau";
     } else {
-        ptauName = params[1];
+        ptauName = params[2];
     }
 
-    return await powersOfTaw.newAccumulator(bn128, power, ptauName, options.verbose);
+    const curve = await curves.getCurveFromName(curveName);
+
+    return await powersOfTaw.newAccumulator(curve, power, ptauName, options.verbose);
 }
 
 async function powersOfTawExportChallange(params, options) {
@@ -672,7 +688,7 @@ async function powersOfTawChallangeContribute(params, options) {
     let challangeName;
     let responseName;
 
-    const curve = curves.getCurveFromName(params[0]);
+    const curve = await curves.getCurveFromName(params[0]);
 
     challangeName = params[1];
 

@@ -131,7 +131,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
             if (i==0)   // Return the 2 first points.
                 for (let j=0; j<Math.min(2, NPoints); j++)
                     res.push(G.fromRprLEM(buffOutLEM, j*sG));
-            t = curve.Fr.mul(t, curve.Fr.pow(inc, n));
+            t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
         }
 
         await binFileUtils.endWriteSection(fdNew);

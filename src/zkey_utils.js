@@ -211,7 +211,7 @@ async function readHeader(fd, sections, protocol) {
     zkey.n8r = n8r;
     zkey.r = await binFileUtils.readBigInt(fd, n8r);
 
-    let curve = getCurve(zkey.q);
+    let curve = await getCurve(zkey.q);
 
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();

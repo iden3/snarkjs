@@ -19,28 +19,47 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 
-
-const bn128 = require("ffjavascript").bn128;
-
-const G1 = bn128.G1;
+const Scalar = require("ffjavascript").Scalar;
+const curves = require("./curves");
 
 module.exports = async function isValid(vk_verifier, proof, publicSignals) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.mulScalar( vk_verifier.IC[s+1], publicSignals[s]));
+        cpub  = G1.add( cpub, G1.timesScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 */
 
-    let cpub = await G1.multiExp(vk_verifier.IC.slice(1), publicSignals);
-    cpub = G1.add(cpub, vk_verifier.IC[0]);
+    const curve = await curves.getCurveFromName(vk_verifier.curve);
 
-    const res = await bn128.pairingEq(
-        bn128.G1.neg(proof.pi_a) , proof.pi_b,
-        cpub , vk_verifier.vk_gamma_2,
-        proof.pi_c , vk_verifier.vk_delta_2,
+    const IC0 = curve.G1.fromObject(vk_verifier.IC[0]);
+    const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
+    const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
 
-        vk_verifier.vk_alpha_1, vk_verifier.vk_beta_2
+    for (let i=0; i<publicSignals.length; i++) {
+        const buffP = curve.G1.fromObject(vk_verifier.IC[i+1]);
+        IC.set(buffP, i*curve.G1.F.n8*2);
+        Scalar.toRprLE(w, curve.Fr.n8*i, publicSignals[i], curve.Fr.n8);
+    }
+
+    let cpub = await curve.G1.multiExpAffine(IC, w);
+    cpub = curve.G1.add(cpub, IC0);
+
+    const pi_a = curve.G1.fromObject(proof.pi_a);
+    const pi_b = curve.G2.fromObject(proof.pi_b);
+    const pi_c = curve.G1.fromObject(proof.pi_c);
+
+    const vk_gamma_2 = curve.G2.fromObject(vk_verifier.vk_gamma_2);
+    const vk_delta_2 = curve.G2.fromObject(vk_verifier.vk_delta_2);
+    const vk_alpha_1 = curve.G1.fromObject(vk_verifier.vk_alpha_1);
+    const vk_beta_2 = curve.G2.fromObject(vk_verifier.vk_beta_2);
+
+    const res = await curve.pairingEq(
+        curve.G1.neg(pi_a) , pi_b,
+        cpub , vk_gamma_2,
+        pi_c , vk_delta_2,
+
+        vk_alpha_1, vk_beta_2
     );
 
     if (! res) return false;
