@@ -1,7 +1,3 @@
-const moduleURL = new URL(import.meta.url);
-
-const __dirname = path.dirname(moduleURL.pathname);
-
 import * as fastFile from "fastfile";
 
 import exportVerificationKey from "./zkey_export_verificationkey.js";

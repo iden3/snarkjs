@@ -14911,9 +14911,6 @@ async function zkeyExportVerificationKey(zkeyName, logger) {
     return vKey;
 }
 
-const moduleURL = new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('main.js', document.baseURI).href)));
-
-const __dirname$1 = path.dirname(moduleURL.pathname);
 // Not ready yet
 // module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
 

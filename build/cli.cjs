@@ -10,7 +10,7 @@ var Blake2b = _interopDefault(require('blake2b-wasm'));
 var readline = _interopDefault(require('readline'));
 var crypto = _interopDefault(require('crypto'));
 var circomRuntime = _interopDefault(require('circom_runtime'));
-var path$1 = _interopDefault(require('path'));
+var path = _interopDefault(require('path'));
 var Logger = _interopDefault(require('logplease'));
 
 async function open(fileName, openFlags, cacheSize) {
@@ -5082,9 +5082,6 @@ async function zkeyExportVerificationKey(zkeyName, logger) {
     return vKey;
 }
 
-const moduleURL = new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href)));
-
-const __dirname$1 = path.dirname(moduleURL.pathname);
 // Not ready yet
 // module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
 
@@ -6121,7 +6118,7 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const templateName = path$1.join( __dirname, "templates", "verifier_groth16.sol");
+    const templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templateName);
 
