@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /*
     Copyright 2018 0KIMS association.
 
@@ -21,35 +19,95 @@
 
 /* eslint-disable no-console */
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
 
-const zkSnark = require("./index.js");
-const {stringifyBigInts, unstringifyBigInts} = require("ffjavascript").utils;
+import {load as loadR1cs} from "r1csfile";
 
-const loadR1cs = require("r1csfile").load;
-const WitnessCalculatorBuilder = require("circom_runtime").WitnessCalculatorBuilder;
+import loadSyms from "./src/loadsyms.js";
+import * as r1cs from "./src/r1cs.js";
 
-const wtnsFile = require("./src/wtnsfile");
+import clProcessor from "./src/clprocessor.js";
 
-const loadSyms = require("./src/loadsyms");
-const r1cs = require("./src/r1cs");
+import * as powersOfTaw from "./src/powersoftau.js";
 
-const clProcessor = require("./src/clprocessor");
+import {  utils }   from "ffjavascript";
+const {stringifyBigInts, unstringifyBigInts} = utils;
 
-const powersOfTaw = require("./src/powersoftau");
+import * as zkey from "./src/zkey.js";
+import * as groth16 from "./src/groth16.js";
+import * as wtns from "./src/wtns.js";
+import * as curves from "./src/curves.js";
+import path from "path";
 
-const solidityGenerator = require("./src/soliditygenerator.js");
-
-const Scalar = require("ffjavascript").Scalar;
-
-const assert = require("assert");
-
-const zkey = require("./src/zkey");
-const zksnark = require("./src/zksnark");
-const curves = require("./src/curves");
+import Logger from "logplease";
+const logger = Logger.create("snarkJS", {showTimestamp:false});
+Logger.setLogLevel("INFO");
 
 const commands = [
+    {
+        cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
+        description: "Starts a powers of tau ceremony",
+        alias: ["ptn"],
+        options: "-verbose|v",
+        action: powersOfTawNew
+    },
+    {
+        cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
+        description: "creates a ptau file with a new contribution",
+        alias: ["ptc"],
+        options: "-verbose|v -name|n -entropy|e",
+        action: powersOfTawContribute
+    },
+    {
+        cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
+        description: "Creates a challange",
+        alias: ["ptec"],
+        options: "-verbose|v",
+        action: powersOfTawExportChallange
+    },
+    {
+        cmd: "powersoftau challange contribute <curve> <challange> [response]",
+        description: "Contribute to a challange",
+        alias: ["ptcc"],
+        options: "-verbose|v -entropy|e",
+        action: powersOfTawChallangeContribute
+    },
+    {
+        cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
+        description: "import a response to a ptau file",
+        alias: ["ptir"],
+        options: "-verbose|v -nopoints -nocheck -name|n",
+        action: powersOfTawImport
+    },
+    {
+        cmd: "powersoftau verify <powersoftau.ptau>",
+        description: "verifies a powers of tau file",
+        alias: ["ptv"],
+        options: "-verbose|v",
+        action: powersOfTawVerify
+    },
+    {
+        cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
+        description: "adds a beacon",
+        alias: ["ptb"],
+        options: "-verbose|v -name|n",
+        action: powersOfTawBeacon
+    },
+    {
+        cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
+        description: "Prepares phase 2. ",
+        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        alias: ["pt2"],
+        options: "-verbose|v",
+        action: powersOfTawPreparePhase2
+    },
+    {
+        cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
+        description: "Exports a power of tau file to a JSON",
+        alias: ["ptej"],
+        options: "-verbose|v",
+        action: powersOfTawExportJson
+    },
     {
         cmd: "r1cs info [circuit.r1cs]",
         description: "Print statistiscs of a circuit",
@@ -86,10 +144,11 @@ const commands = [
         cmd: "wtns export json [witness.wtns] [witnes.json]",
         description: "Calculate the witness with debug info.",
         longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
-        options: "-get|g -set|s -trigger|t",
+        options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
     },
+/*
     {
         cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
         description: "Run a simple setup for a circuit generating the proving key.",
@@ -97,94 +156,38 @@ const commands = [
         options: "-verbose|v -protocol",
         action: zksnarkSetup
     },
+*/
     {
-        cmd: "zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
-        description: "Generates a zk Proof",
-        alias: ["zp", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
+        cmd: "groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a zk Proof from witness",
+        alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
         options: "-verbose|v -protocol",
         action: zksnarkProve
     },
     {
-        cmd: "zksnark verify [verification_key.json] [public.json] [proof.json]",
+        cmd: "groth16 fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
+        description: "Generates a zk Proof from input",
+        alias: ["g16f", "g16i"],
+        options: "-verbose|v -protocol",
+        action: zksnarkFullProve
+    },
+    {
+        cmd: "groth16 verify [verification_key.json] [public.json] [proof.json]",
         description: "Verify a zk Proof",
-        alias: ["zv", "verify -vk|verificationkey -pub|public -p|proof"],
+        alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
         action: zksnarkVerify
     },
     {
-        cmd: "solidity genverifier <verificationKey.json> <verifier.sol>",
+        cmd: "zkey export solidityverifier [circuit.zkey] [verifier.sol]",
         description: "Creates a verifier in solidity",
-        alias: ["ks", "generateverifier -vk|verificationkey -v|verifier"],
-        action: solidityGenVerifier
+        alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        action: zkeyExportSolidityVerifier
     },
     {
-        cmd: "solidity gencall <public.json> <proof.json>",
+        cmd: "zkey export soliditycalldata <public.json> <proof.json>",
         description: "Generates call parameters ready to be called.",
-        alias: ["pc", "generatecall -pub|public -p|proof"],
-        action: solidityGenCall
-    },
-    {
-        cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
-        description: "Starts a powers of tau ceremony",
-        alias: ["ptn"],
-        options: "-verbose|v",
-        action: powersOfTawNew
-    },
-    {
-        cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
-        description: "Creates a challange",
-        alias: ["ptec"],
-        options: "-verbose|v",
-        action: powersOfTawExportChallange
-    },
-    {
-        cmd: "powersoftau challange contribute <curve> <challange> [response]",
-        description: "Contribute to a challange",
-        alias: ["ptcc"],
-        options: "-verbose|v -entropy|e",
-        action: powersOfTawChallangeContribute
-    },
-    {
-        cmd: "powersoftau import <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
-        description: "import a response to a ptau file",
-        alias: ["pti"],
-        options: "-verbose|v -nopoints -nocheck -name|n",
-        action: powersOfTawImport
-    },
-    {
-        cmd: "powersoftau verify <powersoftau.ptau>",
-        description: "verifies a powers of tau file",
-        alias: ["ptv"],
-        options: "-verbose|v",
-        action: powersOfTawVerify
-    },
-    {
-        cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
-        description: "adds a beacon",
-        alias: ["ptb"],
-        options: "-verbose|v -name|n",
-        action: powersOfTawBeacon
-    },
-    {
-        cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
-        description: "creates a ptau file with a new contribution",
-        alias: ["ptc"],
-        options: "-verbose|v -name|n -entropy|e",
-        action: powersOfTawContribute
-    },
-    {
-        cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
-        description: "Prepares phase 2. ",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
-        alias: ["pt2"],
-        options: "-verbose|v",
-        action: powersOfTawPreparePhase2
-    },
-    {
-        cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
-        description: "Exports a power of tau file to a JSON",
-        alias: ["ptej"],
-        options: "-verbose|v",
-        action: powersOfTawExportJson
+        alias: ["zkesc", "generatecall -pub|public -p|proof"],
+        action: zkeyExportSolidityCalldata
     },
     {
         cmd: "zkey new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
@@ -204,7 +207,7 @@ const commands = [
         cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
         description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
         alias: ["zkib"],
-        options: "-verbose|v",
+        options: "-verbose|v -name|n",
         action: zkeyImportBellman
     },
     {
@@ -229,14 +232,14 @@ const commands = [
         action: zkeyBeacon
     },
     {
-        cmd: "zkey challange contribute <curve> <challange> [response]",
+        cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
         description: "contributes to a llallange file in bellman format",
-        alias: ["zkcc"],
+        alias: ["zkbc"],
         options: "-verbose|v  -entropy|e",
-        action: zkeyChallangeContribute
+        action: zkeyBellmanContribute
     },
     {
-        cmd: "zkey export vkey [circuit.zkey] [verification_key.json]",
+        cmd: "zkey export verificationkey [circuit.zkey] [verification_key.json]",
         description: "Exports a verification key",
         alias: ["zkev"],
         action: zkeyExportVKey
@@ -256,8 +259,7 @@ const commands = [
 clProcessor(commands).then( (res) => {
     process.exit(res);
 }, (err) => {
-    console.log(err.stack);
-    console.log("ERROR: " + err);
+    logger.error(err);
     process.exit(1);
 });
 
@@ -327,7 +329,9 @@ function changeExt(fileName, newExt) {
 async function r1csInfo(params, options) {
     const r1csName = params[0] ||  "circuit.r1cs";
 
-    await r1cs.info(r1csName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    await r1cs.info(r1csName, logger);
 
 
     return 0;
@@ -337,11 +341,14 @@ async function r1csInfo(params, options) {
 async function r1csPrint(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const symName = params[1] || changeExt(r1csName, "sym");
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
     const cir = await loadR1cs(r1csName, true, true);
 
     const sym = await loadSyms(symName);
 
-    await r1cs.print(cir, sym);
+    await r1cs.print(cir, sym, logger);
 
     return 0;
 }
@@ -352,7 +359,12 @@ async function r1csExportJSON(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const jsonName = params[1] || changeExt(r1csName, "json");
 
-    await r1cs.exportJson(r1csName, jsonName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const r1csObj = await r1cs.exportJson(r1csName, logger);
+
+    const S = JSON.stringify(utils.stringifyBigInts(r1csObj), null, 1);
+    await fs.promises.writeFile(jsonName, S);
 
     return 0;
 }
@@ -363,18 +375,11 @@ async function wtnsCalculate(params, options) {
     const inputName = params[1] || "input.json";
     const witnessName = params[2] || "witness.wtns";
 
-    const wasm = await fs.promises.readFile(wasmName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
     const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
 
-    const wc = await WitnessCalculatorBuilder(wasm, options);
-
-    const w = await wc.calculateBinWitness(input);
-    await wtnsFile.writeBin(witnessName, w, wc.prime);
-/*
-    const w = await wc.calculateWitness(input);
-    await wtnsFile.write(witnessName, w, wc.prime);
-*/
-    // fs.promises.writeFile(witnessName, JSON.stringify(stringifyBigInts(w), null, 1));
+    await wtns.calculate(input, wasmName, witnessName, {});
 
     return 0;
 }
@@ -388,42 +393,11 @@ async function wtnsDebug(params, options) {
     const witnessName = params[2] || "witness.wtns";
     const symName = params[3] || changeExt(wasmName, "sym");
 
-    const wasm = await fs.promises.readFile(wasmName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
     const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
 
-    let wcOps = {
-        sanityCheck: true
-    };
-    let sym = await loadSyms(symName);
-    if (options.set) {
-        if (!sym) sym = await loadSyms(symName);
-        wcOps.logSetSignal= function(labelIdx, value) {
-            console.log("SET " + sym.labelIdx2Name[labelIdx] + " <-- " + value.toString());
-        };
-    }
-    if (options.get) {
-        if (!sym) sym = await loadSyms(symName);
-        wcOps.logGetSignal= function(varIdx, value) {
-            console.log("GET " + sym.labelIdx2Name[varIdx] + " --> " + value.toString());
-        };
-    }
-    if (options.trigger) {
-        if (!sym) sym = await loadSyms(symName);
-        wcOps.logStartComponent= function(cIdx) {
-            console.log("START: " + sym.componentIdx2Name[cIdx]);
-        };
-        wcOps.logFinishComponent= function(cIdx) {
-            console.log("FINISH: " + sym.componentIdx2Name[cIdx]);
-        };
-    }
-
-    const wc = await WitnessCalculatorBuilder(wasm, wcOps);
-
-    const w = await wc.calculateWitness(input);
-
-    await wtnsFile.write(witnessName, w);
-
-    // await fs.promises.writeFile(witnessName, JSON.stringify(stringifyBigInts(w), null, 1));
+    await wtns.debug(input, wasmName, witnessName, symName, options, logger);
 
     return 0;
 }
@@ -435,7 +409,9 @@ async function wtnsExportJson(params, options) {
     const wtnsName = params[0] || "witness.wtns";
     const jsonName = params[1] || "witness.json";
 
-    const w = await wtnsFile.read(wtnsName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const w = await wtns.exportJson(wtnsName);
 
     await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts(w), null, 1));
 
@@ -443,7 +419,7 @@ async function wtnsExportJson(params, options) {
 }
 
 
-
+/*
 // zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
 async function zksnarkSetup(params, options) {
 
@@ -465,36 +441,9 @@ async function zksnarkSetup(params, options) {
 
     return 0;
 }
-
-/*
-// zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
-async function zksnarkProve(params, options) {
-
-    const zkeyName = params[0] || "circuit.zkey";
-    const witnessName = params[1] || "witness.wtns";
-    const proofName = params[2] || "proof.json";
-    const publicName = params[3] || "public.json";
-
-    const witness = await wtnsFile.read(witnessName);
-    // const witness = unstringifyBigInts(JSON.parse(fs.readFileSync(witnessName, "utf8")));
-
-    const provingKey = await zkeyFile.read(zkeyName);
-    // const provingKey = unstringifyBigInts(JSON.parse(fs.readFileSync(provingKeyName, "utf8")));
-
-    const protocol = provingKey.protocol;
-
-    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-    const {proof, publicSignals} = zkSnark[protocol].genProof(provingKey, witness, options.verbose);
-
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
-
-    return 0;
-}
 */
 
-
-// zksnark prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
+// groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
 async function zksnarkProve(params, options) {
 
     const zkeyName = params[0] || "circuit.zkey";
@@ -502,8 +451,9 @@ async function zksnarkProve(params, options) {
     const proofName = params[2] || "proof.json";
     const publicName = params[3] || "public.json";
 
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await zksnark.groth16.prover(zkeyName, witnessName, options.verbose);
+    const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
 
     await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
     await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
@@ -511,41 +461,60 @@ async function zksnarkProve(params, options) {
     return 0;
 }
 
-// zksnark verify [verification_key.json] [public.json] [proof.json]
+// groth16 fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]
+async function zksnarkFullProve(params, options) {
+
+    const inputName = params[0] || "input.json";
+    const wasmName = params[1] || "circuit.wasm";
+    const zkeyName = params[2] || "circuit.zkey";
+    const proofName = params[3] || "proof.json";
+    const publicName = params[4] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+
+    const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName,  logger);
+
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+
+    return 0;
+}
+
+// groth16 verify [verification_key.json] [public.json] [proof.json]
 async function zksnarkVerify(params, options) {
 
     const verificationKeyName = params[0] || "verification_key.json";
-    const publicName = params[0] || "public.json";
-    const proofName = params[0] || "proof.json";
+    const publicName = params[1] || "public.json";
+    const proofName = params[2] || "proof.json";
 
     const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
     const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
     const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
 
-/*
-    const protocol = verificationKey.protocol;
-    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid = zkSnark[protocol].isValid(verificationKey, proof, pub);
-*/
-
-    const isValid = await zksnark.groth16.verifier(verificationKey, proof, pub);
+    const isValid = await groth16.validate(verificationKey, pub, proof, logger);
 
     if (isValid) {
-        console.log("OK");
         return 0;
     } else {
-        console.log("INVALID");
         return 1;
     }
 }
 
 // zkey export vkey [circuit.zkey] [verification_key.json]",
-async function zkeyExportVKey(params) {
+async function zkeyExportVKey(params, options) {
     const zkeyName = params[0] || "circuit.zkey";
     const verificationKeyName = params[2] || "verification_key.json";
 
-    return await zkey.exportVerificationKey(zkeyName, verificationKeyName);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const vKey = await zkey.exportVerificationKey(zkeyName);
+
+    const S = JSON.stringify(utils.stringifyBigInts(vKey), null, 1);
+    await fs.promises.writeFile(verificationKeyName, S);
 }
 
 // zkey export json [circuit.zkey] [circuit.zkey.json]",
@@ -553,18 +522,23 @@ async function zkeyExportJson(params, options) {
     const zkeyName = params[0] || "circuit.zkey";
     const zkeyJsonName = params[1] || "circuit.zkey.json";
 
-    return await zkey.exportJson(zkeyName, zkeyJsonName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const zKey = await zkey.exportJson(zkeyName, logger);
+
+    const S = JSON.stringify(utils.stringifyBigInts(zKey), null, 1);
+    await fs.promises.writeFile(zkeyJsonName, S);
 }
 
-// solidity genverifier <verificationKey.json> <verifier.sol>
-async function solidityGenVerifier(params, options) {
-    let verificationKeyName;
+// solidity genverifier [circuit.zkey] [verifier.sol]
+async function zkeyExportSolidityVerifier(params, options) {
+    let zkeyName;
     let verifierName;
 
     if (params.length < 1) {
-        verificationKeyName = "verification_key.json";
+        zkeyName = "circuit.zkey";
     } else {
-        verificationKeyName = params[0];
+        zkeyName = params[0];
     }
 
     if (params.length < 2) {
@@ -573,18 +547,11 @@ async function solidityGenVerifier(params, options) {
         verifierName = params[1];
     }
 
-    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    let verifierCode;
-    if (verificationKey.protocol == "original") {
-        verifierCode = solidityGenerator.generateVerifier_original(verificationKey);
-    } else if (verificationKey.protocol == "groth16") {
-        verifierCode = solidityGenerator.generateVerifier_groth16(verificationKey);
-    } else if (verificationKey.protocol == "kimleeoh") {
-        verifierCode = solidityGenerator.generateVerifier_kimleeoh(verificationKey);
-    } else {
-        throw new Error("InvalidProof");
-    }
+    const templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
+
+    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templateName, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
@@ -593,7 +560,7 @@ async function solidityGenVerifier(params, options) {
 
 
 // solidity gencall <public.json> <proof.json>
-async function solidityGenCall(params, options) {
+async function zkeyExportSolidityCalldata(params, options) {
     let publicName;
     let proofName;
 
@@ -609,14 +576,15 @@ async function solidityGenCall(params, options) {
         proofName = params[1];
     }
 
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const public = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
+    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
     const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
 
     let inputs = "";
-    for (let i=0; i<public.length; i++) {
+    for (let i=0; i<pub.length; i++) {
         if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256(public[i]);
+        inputs = inputs + p256(pub[i]);
     }
 
     let S;
@@ -665,7 +633,9 @@ async function powersOfTawNew(params, options) {
 
     const curve = await curves.getCurveFromName(curveName);
 
-    return await powersOfTaw.newAccumulator(curve, power, ptauName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.newAccumulator(curve, power, ptauName, logger);
 }
 
 async function powersOfTawExportChallange(params, options) {
@@ -680,7 +650,9 @@ async function powersOfTawExportChallange(params, options) {
         challangeName = params[1];
     }
 
-    return await powersOfTaw.exportChallange(ptauName, challangeName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.exportChallange(ptauName, challangeName, logger);
 }
 
 // powersoftau challange contribute <curve> <challange> [response]
@@ -698,7 +670,9 @@ async function powersOfTawChallangeContribute(params, options) {
         responseName = params[2];
     }
 
-    return await powersOfTaw.challangeContribute(curve, challangeName, responseName, options.entropy, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.challangeContribute(curve, challangeName, responseName, options.entropy, logger);
 }
 
 
@@ -716,7 +690,9 @@ async function powersOfTawImport(params, options) {
     if (options.nopoints) importPoints = false;
     if (options.nocheck) doCheck = false;
 
-    const res = await powersOfTaw.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const res = await powersOfTaw.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
     if (res) return res;
     if (!doCheck) return;
@@ -729,12 +705,12 @@ async function powersOfTawVerify(params, options) {
 
     ptauName = params[0];
 
-    const res = await powersOfTaw.verify(ptauName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const res = await powersOfTaw.verify(ptauName, logger);
     if (res === true) {
-        console.log("Powers of tau OK!");
         return 0;
     } else {
-        console.log("=======>INVALID Powers of tau<==========");
         return 1;
     }
 }
@@ -750,7 +726,9 @@ async function powersOfTawBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    return await powersOfTaw.beacon(oldPtauName, newPtauName, options.name ,numIterationsExp, beaconHashStr, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
 async function powersOfTawContribute(params, options) {
@@ -760,7 +738,9 @@ async function powersOfTawContribute(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    return await powersOfTaw.contribute(oldPtauName, newPtauName, options.name , options.entropy, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
 }
 
 async function powersOfTawPreparePhase2(params, options) {
@@ -770,7 +750,9 @@ async function powersOfTawPreparePhase2(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    return await powersOfTaw.preparePhase2(oldPtauName, newPtauName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTaw.preparePhase2(oldPtauName, newPtauName, logger);
 }
 
 // powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
@@ -781,7 +763,13 @@ async function powersOfTawExportJson(params, options) {
     ptauName = params[0];
     jsonName = params[1];
 
-    return await powersOfTaw.exportJson(ptauName, jsonName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const pTau = await powersOfTaw.exportJson(ptauName, logger);
+
+    const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
+    await fs.promises.writeFile(jsonName, S);
+
 }
 
 
@@ -809,7 +797,9 @@ async function zkeyNew(params, options) {
         zkeyName = params[2];
     }
 
-    return zkey.new(r1csName, ptauName, zkeyName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return zkey.newZKey(r1csName, ptauName, zkeyName, logger);
 }
 
 // zkey export bellman [circuit.zkey] [circuit.mpcparams]
@@ -829,7 +819,9 @@ async function zkeyExportBellman(params, options) {
         mpcparamsName = params[1];
     }
 
-    return zkey.exportBellman(zkeyName, mpcparamsName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return zkey.exportBellman(zkeyName, mpcparamsName, logger);
 
 }
 
@@ -844,7 +836,9 @@ async function zkeyImportBellman(params, options) {
     mpcParamsName = params[1];
     zkeyNameNew = params[2];
 
-    return zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
 }
 
 // phase2 verify [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]
@@ -871,12 +865,12 @@ async function zkeyVerify(params, options) {
         zkeyName = params[2];
     }
 
-    const res = await zkey.verify(r1csName, ptauName, zkeyName, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const res = await zkey.verify(r1csName, ptauName, zkeyName, logger);
     if (res === true) {
-        console.log("zKey OK!");
         return 0;
     } else {
-        console.log("=======>INVALID zKey<==========");
         return 1;
     }
 
@@ -891,8 +885,9 @@ async function zkeyContribute(params, options) {
     zkeyOldName = params[0];
     zkeyNewName = params[1];
 
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, options.verbose);
+    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
 }
 
 // zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>
@@ -907,12 +902,14 @@ async function zkeyBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    return await zkey.beacon(zkeyOldName, zkeyNewName, options.name ,numIterationsExp, beaconHashStr, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await zkey.beacon(zkeyOldName, zkeyNewName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
 
 // zkey challange contribute <curve> <challange> [response]",
-async function zkeyChallangeContribute(params, options) {
+async function zkeyBellmanContribute(params, options) {
     let challangeName;
     let responseName;
 
@@ -926,6 +923,8 @@ async function zkeyChallangeContribute(params, options) {
         responseName = params[2];
     }
 
-    return zkey.challangeContribute(curve, challangeName, responseName, options.entropy, options.verbose);
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return zkey.bellmanContribute(curve, challangeName, responseName, options.entropy, logger);
 }
 

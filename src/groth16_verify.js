@@ -18,17 +18,22 @@
 */
 
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
+import { Scalar } from "ffjavascript";
+import * as curves from "./curves.js";
+import {  utils }   from "ffjavascript";
+const {unstringifyBigInts} = utils;
 
-const Scalar = require("ffjavascript").Scalar;
-const curves = require("./curves");
-
-module.exports = async function isValid(vk_verifier, proof, publicSignals) {
+export default async function isValid(vk_verifier, publicSignals, proof, logger) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
         cpub  = G1.add( cpub, G1.timesScalar( vk_verifier.IC[s+1], publicSignals[s]));
     }
 */
+
+    vk_verifier = unstringifyBigInts(vk_verifier);
+    proof = unstringifyBigInts(proof);
+    publicSignals = unstringifyBigInts(publicSignals);
 
     const curve = await curves.getCurveFromName(vk_verifier.curve);
 
@@ -62,6 +67,11 @@ module.exports = async function isValid(vk_verifier, proof, publicSignals) {
         vk_alpha_1, vk_beta_2
     );
 
-    if (! res) return false;
+    if (! res) {
+        if (logger) logger.error("Invalid proof");
+        return false;
+    }
+
+    if (logger) logger.info("OK!");
     return true;
 };

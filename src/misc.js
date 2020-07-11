@@ -1,7 +1,8 @@
-const Blake2b = require("blake2b-wasm");
-const readline = require("readline");
-const ChaCha = require("ffjavascript").ChaCha;
-const crypto = require("crypto");
+/* global window */
+import Blake2b from "blake2b-wasm";
+import readline from "readline";
+import { ChaCha } from "ffjavascript";
+import crypto from "crypto";
 
 const _revTable = [];
 for (let i=0; i<256; i++) {
@@ -19,7 +20,7 @@ function _revSlow(idx, bits) {
     return res;
 }
 
-function bitReverse(idx, bits) {
+export function bitReverse(idx, bits) {
     return (
         _revTable[idx >>> 24] |
         (_revTable[(idx >>> 16) & 0xFF] << 8) |
@@ -29,13 +30,13 @@ function bitReverse(idx, bits) {
 }
 
 
-function log2( V )
+export function log2( V )
 {
     return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
 }
 
 
-function formatHash(b) {
+export function formatHash(b, title) {
     const a = new DataView(b.buffer, b.byteOffset, b.byteLength);
     let S = "";
     for (let i=0; i<4; i++) {
@@ -46,10 +47,11 @@ function formatHash(b) {
             S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
         }
     }
+    if (title) S = title + "\n" + S;
     return S;
 }
 
-function hashIsEqual(h1, h2) {
+export function hashIsEqual(h1, h2) {
     if (h1.byteLength != h2.byteLength) return false;
     var dv1 = new Int8Array(h1);
     var dv2 = new Int8Array(h2);
@@ -60,14 +62,14 @@ function hashIsEqual(h1, h2) {
     return true;
 }
 
-function cloneHasher(h) {
+export function cloneHasher(h) {
     const ph = h.getPartialHash();
     const res = Blake2b(64);
     res.setPartialHash(ph);
     return res;
 }
 
-async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
+export async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
     if (curve.G1.isZero(g1s)) return false;
     if (curve.G1.isZero(g1sx)) return false;
     if (curve.G2.isZero(g2s)) return false;
@@ -78,20 +80,23 @@ async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
 }
 
 
+export function askEntropy() {
+    if (process.browser) {
+        return window.prompt("Enter a random text. (Entropy): ", "");
+    } else {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
 
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-
-function askEntropy() {
-    return new Promise((resolve) => {
-        rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-    });
+        return new Promise((resolve) => {
+            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
+        });
+    }
 }
 
-async function getRandomRng(entropy) {
-    // Generate a random key
+export async function getRandomRng(entropy) {
+    // Generate a random Rng
     while (!entropy) {
         entropy = await askEntropy();
     }
@@ -109,7 +114,7 @@ async function getRandomRng(entropy) {
     return rng;
 }
 
-function rngFromBeaconParams(beaconHash, numIterationsExp) {
+export function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let nIterationsInner;
     let nIterationsOuter;
     if (numIterationsExp<32) {
@@ -138,25 +143,17 @@ function rngFromBeaconParams(beaconHash, numIterationsExp) {
     return rng;
 }
 
-function hex2ByteArray(s) {
+export function hex2ByteArray(s) {
+    if (s instanceof Uint8Array) return s;
+    if (s.slice(0,2) == "0x") s= s.slice(2);
     return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
         return parseInt(h, 16);
     }));
 }
 
-function byteArray2hex(byteArray) {
+export function byteArray2hex(byteArray) {
     return Array.prototype.map.call(byteArray, function(byte) {
         return ("0" + (byte & 0xFF).toString(16)).slice(-2);
     }).join("");
 }
 
-module.exports.bitReverse = bitReverse;
-module.exports.log2 = log2;
-module.exports.formatHash = formatHash;
-module.exports.hashIsEqual = hashIsEqual;
-module.exports.cloneHasher = cloneHasher;
-module.exports.sameRatio = sameRatio;
-module.exports.getRandomRng = getRandomRng;
-module.exports.rngFromBeaconParams = rngFromBeaconParams;
-module.exports.hex2ByteArray = hex2ByteArray;
-module.exports.byteArray2hex = byteArray2hex;

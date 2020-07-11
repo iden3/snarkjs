@@ -26,16 +26,13 @@
 // PointsH(9)
 // Contributions(10)
 
+import { Scalar, F1Field } from "ffjavascript";
+import * as binFileUtils from "./binfileutils.js";
 
-const Scalar = require("ffjavascript").Scalar;
-const F1Field = require("ffjavascript").F1Field;
-const assert = require("assert");
-const binFileUtils = require("./binfileutils");
+import { getCurveFromQ as getCurve } from "./curves.js";
+import { log2 } from "./misc.js";
 
-const getCurve = require("./curves").getCurveFromQ;
-const {log2} = require("./misc");
-
-async function writeHeader(fd, zkey) {
+export async function writeHeader(fd, zkey) {
 
     // Write the header
     ///////////
@@ -74,7 +71,7 @@ async function writeHeader(fd, zkey) {
 
 }
 
-async function writeZKey(fileName, zkey) {
+export async function writeZKey(fileName, zkey) {
 
     let curve = getCurve(zkey.q);
 
@@ -187,7 +184,7 @@ async function readG2(fd, curve) {
 
 
 
-async function readHeader(fd, sections, protocol) {
+export async function readHeader(fd, sections, protocol) {
     if (protocol != "groth16") throw new Error("Protocol not supported: "+protocol);
 
     const zkey = {};
@@ -196,7 +193,7 @@ async function readHeader(fd, sections, protocol) {
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
     const protocolId = await fd.readULE32();
-    if (protocolId != 1) assert("File is not groth");
+    if (protocolId != 1) throw new Error("File is not groth");
     zkey.protocol = "groth16";
     await binFileUtils.endReadSection(fd);
 
@@ -229,7 +226,7 @@ async function readHeader(fd, sections, protocol) {
 
 }
 
-async function readZKey(fileName) {
+export async function readZKey(fileName) {
     const {fd, sections} = await binFileUtils.readBinFile(fileName, "zkey", 1);
 
     const zkey = await readHeader(fd, sections, "groth16");
@@ -377,7 +374,7 @@ async function readContribution(fd, curve) {
 }
 
 
-async function readMPCParams(fd, curve, sections) {
+export async function readMPCParams(fd, curve, sections) {
     await binFileUtils.startReadUniqueSection(fd, sections, 10);
     const res = { contributions: []};
     res.csHash = await fd.read(64);
@@ -424,7 +421,7 @@ async function writeContribution(fd, curve, c) {
 
 }
 
-async function writeMPCParams(fd, curve, mpcParams) {
+export async function writeMPCParams(fd, curve, mpcParams) {
     await binFileUtils.startWriteSection(fd, 10);
     await fd.write(mpcParams.csHash);
     await fd.writeULE32(mpcParams.contributions.length);
@@ -434,19 +431,19 @@ async function writeMPCParams(fd, curve, mpcParams) {
     await binFileUtils.endWriteSection(fd);
 }
 
-function hashG1(hasher, curve, p) {
+export function hashG1(hasher, curve, p) {
     const buff = new Uint8Array(curve.G1.F.n8*2);
     curve.G1.toRprUncompressed(buff, 0, p);
     hasher.update(buff);
 }
 
-function hashG2(hasher,curve, p) {
+export function hashG2(hasher,curve, p) {
     const buff = new Uint8Array(curve.G2.F.n8*2);
     curve.G2.toRprUncompressed(buff, 0, p);
     hasher.update(buff);
 }
 
-function hashPubKey(hasher, curve, c) {
+export function hashPubKey(hasher, curve, c) {
     hashG1(hasher, curve, c.deltaAfter);
     hashG1(hasher, curve, c.delta.g1_s);
     hashG1(hasher, curve, c.delta.g1_sx);
@@ -454,13 +451,3 @@ function hashPubKey(hasher, curve, c) {
     hasher.update(c.transcript);
 }
 
-
-module.exports.readHeader = readHeader;
-module.exports.writeHeader = writeHeader;
-module.exports.read = readZKey;
-module.exports.write = writeZKey;
-module.exports.readMPCParams = readMPCParams;
-module.exports.writeMPCParams = writeMPCParams;
-module.exports.hashG1 = hashG1;
-module.exports.hashG2 = hashG2;
-module.exports.hashPubKey = hashPubKey;

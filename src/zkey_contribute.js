@@ -1,14 +1,14 @@
 
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey_utils");
-const getCurve = require("./curves").getCurveFromQ;
-const misc = require("./misc");
-const Blake2b = require("blake2b-wasm");
-const utils = require("./zkey_utils");
-const hashToG2 = require("./keypair").hashToG2;
-const {applyKeyToSection} = require("./mpc_applykey");
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import * as misc from "./misc.js";
+import Blake2b from "blake2b-wasm";
+import * as utils from "./zkey_utils.js";
+import { hashToG2 as hashToG2 } from "./keypair.js";
+import { applyKeyToSection } from "./mpc_applykey.js";
 
-module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, verbose) {
+export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
     await Blake2b.ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
@@ -68,8 +68,8 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
     await binFileUtils.copySection(fdOld, sections, fdNew, 7);
 
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", verbose);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", verbose);
+    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
+    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
 
     await zkeyUtils.writeMPCParams(fdNew, curve, mpcParams);
 
@@ -81,8 +81,7 @@ module.exports  = async function phase2contribute(zkeyNameOld, zkeyNameNew, name
 
     const contribuionHash = contributionHasher.digest();
 
-    console.log("Contribution Hash: ");
-    console.log(misc.formatHash(contribuionHash));
+    if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
 
-    return true;
-};
+    return contribuionHash;
+}

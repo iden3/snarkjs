@@ -1,9 +1,7 @@
-const utils = require("./powersoftau_utils");
-const binFileUtils = require("./binfileutils");
-const {stringifyBigInts} = require("ffjavascript").utils;
-const fs = require("fs");
+import * as utils from "./powersoftau_utils.js";
+import * as binFileUtils from "./binfileutils.js";
 
-async function exportJson(pTauFilename, jsonFileName, verbose) {
+export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await utils.readPTauHeader(fd, sections);
@@ -26,8 +24,8 @@ async function exportJson(pTauFilename, jsonFileName, verbose) {
 
     await fd.close();
 
-    const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
-    await fs.promises.writeFile(jsonFileName, S);
+    return pTau;
+
 
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
@@ -69,5 +67,4 @@ async function exportJson(pTauFilename, jsonFileName, verbose) {
 
 }
 
-module.exports = exportJson;
 

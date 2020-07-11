@@ -1,8 +1,8 @@
-const Scalar = require("ffjavascript").Scalar;
-const fastFile = require("fastfile");
-const assert = require("assert");
 
-async function readBinFile(fileName, type, maxVersion) {
+import  { Scalar } from "ffjavascript";
+import * as fastFile from "fastfile";
+
+export async function readBinFile(fileName, type, maxVersion) {
 
     const fd = await fastFile.readExisting(fileName);
 
@@ -10,11 +10,11 @@ async function readBinFile(fileName, type, maxVersion) {
     let readedType = "";
     for (let i=0; i<4; i++) readedType += String.fromCharCode(b[i]);
 
-    if (readedType != type) assert(false, fileName + ": Invalid File format");
+    if (readedType != type) throw new Error(fileName + ": Invalid File format");
 
     let v = await fd.readULE32();
 
-    if (v>maxVersion) assert(false, "Version not supported");
+    if (v>maxVersion) throw new Error("Version not supported");
 
     const nSections = await fd.readULE32();
 
@@ -34,7 +34,7 @@ async function readBinFile(fileName, type, maxVersion) {
     return {fd, sections};
 }
 
-async function createBinFile(fileName, type, version, nSections) {
+export async function createBinFile(fileName, type, version, nSections) {
 
     const fd = await fastFile.createOverride(fileName);
 
@@ -48,8 +48,8 @@ async function createBinFile(fileName, type, version, nSections) {
     return fd;
 }
 
-async function startWriteSection(fd, idSection) {
-    assert(typeof fd.writingSection === "undefined", "Already writing a section");
+export async function startWriteSection(fd, idSection) {
+    if (typeof fd.writingSection !== "undefined") throw new Error("Already writing a section");
     await fd.writeULE32(idSection); // Header type
     fd.writingSection = {
         pSectionSize: fd.pos
@@ -57,8 +57,8 @@ async function startWriteSection(fd, idSection) {
     await fd.writeULE64(0); // Temporally set to 0 length
 }
 
-async function endWriteSection(fd) {
-    assert(typeof fd.writingSection != "undefined", "Not writing a section");
+export async function endWriteSection(fd) {
+    if (typeof fd.writingSection === "undefined") throw new Error("Not writing a section");
 
     const sectionSize = fd.pos - fd.writingSection.pSectionSize - 8;
     const oldPos = fd.pos;
@@ -68,36 +68,36 @@ async function endWriteSection(fd) {
     delete fd.writingSection;
 }
 
-async function startReadUniqueSection(fd, sections, idSection) {
-    assert(typeof fd.readingSection === "undefined", "Already reading a section");
-    if (!sections[idSection])  assert(false, fd.fileName + ": Missing section "+ idSection );
-    if (sections[idSection].length>1) assert(false, fd.fileName +": Section Duplicated " +idSection);
+export async function startReadUniqueSection(fd, sections, idSection) {
+    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
+    if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
+    if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
 
     fd.pos = sections[idSection][0].p;
 
     fd.readingSection = sections[idSection][0];
 }
 
-async function endReadSection(fd, noCheck) {
-    assert(typeof fd.readingSection != "undefined", "Not reading a section");
+export async function endReadSection(fd, noCheck) {
+    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
     if (!noCheck) {
-        assert.equal(fd.pos-fd.readingSection.p, fd.readingSection.size);
+        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
     }
     delete fd.readingSection;
 }
 
-async function writeBigInt(fd, n, n8, pos) {
+export async function writeBigInt(fd, n, n8, pos) {
     const buff = new Uint8Array(n8);
     Scalar.toRprLE(buff, 0, n, n8);
     await fd.write(buff, pos);
 }
 
-async function readBigInt(fd, n8, pos) {
+export async function readBigInt(fd, n8, pos) {
     const buff = await fd.read(n8, pos);
     return Scalar.fromRprLE(buff, 0, n8);
 }
 
-async function copySection(fdFrom, sections, fdTo, sectionId) {
+export async function copySection(fdFrom, sections, fdTo, sectionId) {
     const chunkSize = fdFrom.pageSize;
     await startReadUniqueSection(fdFrom, sections, sectionId);
     await startWriteSection(fdTo, sectionId);
@@ -111,14 +111,14 @@ async function copySection(fdFrom, sections, fdTo, sectionId) {
 
 }
 
-async function readFullSection(fd, sections, idSection) {
+export async function readFullSection(fd, sections, idSection) {
     await startReadUniqueSection(fd, sections, idSection);
     const res = await fd.read(fd.readingSection.size);
     await endReadSection(fd);
     return res;
 }
 
-async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
+export async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
     const MAX_BUFF_SIZE = fd1.pageSize * 16;
     await startReadUniqueSection(fd1, sections1, idSection);
     await startReadUniqueSection(fd2, sections2, idSection);
@@ -134,16 +134,3 @@ async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
     await endReadSection(fd2);
     return true;
 }
-
-
-module.exports.readBinFile = readBinFile;
-module.exports.createBinFile = createBinFile;
-module.exports.writeBigInt = writeBigInt;
-module.exports.readBigInt = readBigInt;
-module.exports.startWriteSection = startWriteSection;
-module.exports.endWriteSection = endWriteSection;
-module.exports.startReadUniqueSection = startReadUniqueSection;
-module.exports.endReadSection = endReadSection;
-module.exports.copySection = copySection;
-module.exports.readFullSection = readFullSection;
-module.exports.sectionIsEqual = sectionIsEqual;

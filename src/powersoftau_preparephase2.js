@@ -1,10 +1,9 @@
-const binFileUtils = require("./binfileutils");
-const utils = require("./powersoftau_utils");
-const fastFile = require("fastfile");
-const {bitReverse} = require("./misc");
-const fs = require("fs");
+import * as binFileUtils from "./binfileutils.js";
+import * as utils from "./powersoftau_utils.js";
+import * as fastFile from "fastfile";
+import { bitReverse } from "./misc.js";
 
-async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
+export default async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdOld, sections);
@@ -12,7 +11,8 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 11);
     await utils.writePTauHeader(fdNew, curve, power);
 
-    const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
+    // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
+    const fdTmp = await fastFile.createOverride({type: "mem"});
 
     await binFileUtils.copySection(fdOld, sections, fdNew, 2);
     await binFileUtils.copySection(fdOld, sections, fdNew, 3);
@@ -30,13 +30,13 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
     await fdNew.close();
     await fdTmp.close();
 
-    await fs.promises.unlink(newPTauFilename+ ".tmp");
+    // await fs.promises.unlink(newPTauFilename+ ".tmp");
 
     return;
 
     async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
         const CHUNKPOW = 16;
-        if (verbose) console.log("Starting section: "+sectionName);
+        if (logger) logger.debug("Starting section: "+sectionName);
 
         await binFileUtils.startWriteSection(fdNew, newSectionId);
 
@@ -63,7 +63,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
             fdTmp.pos =0;
             for (let i=0; i<nChunks; i++) {
                 let buff;
-                if (verbose) console.log(`${sectionName} Prepare ${i+1}/${nChunks}`);
+                if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
                 buff = await fdOld.read(pointsPerChunk*sGin);
                 buff = await G.batchToJacobian(buff);
                 for (let j=0; j<pointsPerChunk; j++) {
@@ -74,7 +74,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
             await binFileUtils.endReadSection(fdOld, true);
 
             for (let j=0; j<nChunks; j++) {
-                if (verbose) console.log(`${sectionName} ${p} FFTMix ${j+1}/${nChunks}`);
+                if (logger) logger.debug(`${sectionName} ${p} FFTMix ${j+1}/${nChunks}`);
                 let buff;
                 fdTmp.pos = (j*pointsPerChunk)*sGmid;
                 buff = await fdTmp.read(pointsPerChunk*sGmid);
@@ -87,7 +87,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
                 const nChunksPerGroup = nChunks / nGroups;
                 for (let j=0; j<nGroups; j++) {
                     for (let k=0; k <nChunksPerGroup/2; k++) {
-                        if (verbose) console.log(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
+                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
                         const first = Fr.pow( PFr.w[i], k*pointsPerChunk);
                         const inc = PFr.w[i];
                         const o1 = j*nChunksPerGroup + k;
@@ -125,7 +125,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
             fdTmp.pos = 0;
             const factor = Fr.inv( Fr.e( 1<< p));
             for (let i=0; i<nChunks; i++) {
-                if (verbose) console.log(`${sectionName} ${p} FFTFinal ${i+1}/${nChunks}`);
+                if (logger) logger.debug(`${sectionName} ${p} FFTFinal ${i+1}/${nChunks}`);
                 let buff;
                 buff = await fdTmp.read(pointsPerChunk * sGmid);
                 buff = await G.fftFinal(buff, factor);
@@ -145,4 +145,3 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, verbose) {
     }
 }
 
-module.exports = preparePhase2;

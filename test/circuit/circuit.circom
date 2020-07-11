@@ -2,7 +2,7 @@ template Multiplier(n) {
     signal private input a;
     signal private input b;
     signal output c;
-
+   
     signal int[n];
 
     int[0] <== a*a + b;
@@ -13,4 +13,4 @@ template Multiplier(n) {
     c <== int[n-1];
 }
 
-component main = Multiplier(100);
+component main = Multiplier(1000);

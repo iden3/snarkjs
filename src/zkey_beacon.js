@@ -1,31 +1,31 @@
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey_utils");
-const getCurve = require("./curves").getCurveFromQ;
-const misc = require("./misc");
-const Blake2b = require("blake2b-wasm");
-const utils = require("./zkey_utils");
-const hashToG2 = require("./keypair").hashToG2;
-const {applyKeyToSection} = require("./mpc_applykey");
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import * as misc from "./misc.js";
+import Blake2b from "blake2b-wasm";
+import * as utils from "./zkey_utils.js";
+import { hashToG2 as hashToG2 } from "./keypair.js";
+import { applyKeyToSection } from "./mpc_applykey.js";
 
 
-module.exports = async function beacon(zkeyNameOld, zkeyNameNew, name, numIterationsExp, beaconHashStr, verbose) {
+export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
     await Blake2b.ready();
 
     const beaconHash = misc.hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
     {
-        console.log("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
+        if (logger) logger.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
         return false;
     }
     if (beaconHash.length>=256) {
-        console.log("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
         return false;
     }
 
     numIterationsExp = parseInt(numIterationsExp);
     if ((numIterationsExp<10)||(numIterationsExp>63)) {
-        console.log("Invalid numIterationsExp. (Must be between 10 and 63)");
+        if (logger) logger.error("Invalid numIterationsExp. (Must be between 10 and 63)");
         return false;
     }
 
@@ -89,8 +89,8 @@ module.exports = async function beacon(zkeyNameOld, zkeyNameNew, name, numIterat
     await binFileUtils.copySection(fdOld, sections, fdNew, 7);
 
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", verbose);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", verbose);
+    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
+    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
 
     await zkeyUtils.writeMPCParams(fdNew, curve, mpcParams);
 
@@ -102,8 +102,7 @@ module.exports = async function beacon(zkeyNameOld, zkeyNameNew, name, numIterat
 
     const contribuionHash = contributionHasher.digest();
 
-    console.log("Contribution Hash: ");
-    console.log(misc.formatHash(contribuionHash));
+    if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
 
-    return true;
-};
+    return contribuionHash;
+}

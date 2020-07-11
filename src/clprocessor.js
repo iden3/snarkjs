@@ -1,17 +1,15 @@
-#!/usr/bin/env node
-
-const version = require("../package").version;
-
+import pkg from "../package.json";
+const version = pkg.version;
 let selectedCommand = null;
 
-module.exports = async function clProcessor(commands) {
+export default async function clProcessor(commands) {
     const cl = [];
     const argv = {};
     for (let i=2; i<process.argv.length; i++) {
         if (process.argv[i][0] == "-") {
             let S = process.argv[i];
             while (S[0] == "-") S = S.slice(1);
-            const arr = S.split("=")
+            const arr = S.split("=");
             if (arr.length > 1) {
                 argv[arr[0]] = arr.slice(1).join("=");
             } else {
@@ -34,7 +32,7 @@ module.exports = async function clProcessor(commands) {
                     const options = getOptions(cmd.options);
                     await cmd.action(m, options);
                 } else {
-                    await cmd.action(m);
+                    await cmd.action(m, {});
                 }
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
@@ -198,7 +196,6 @@ module.exports = async function clProcessor(commands) {
             }
             S += " " + pl.params.join(" ");
             console.log(S);
-//            console.log("");
         }
     }
 

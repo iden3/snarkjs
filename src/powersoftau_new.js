@@ -46,13 +46,12 @@ contributions(7)
     ]
  */
 
-const ptauUtils = require("./powersoftau_utils");
-const binFileUtils = require("./binfileutils");
-const utils = require("./powersoftau_utils");
-const Blake2b = require("blake2b-wasm");
-const misc = require("./misc");
+import * as ptauUtils from "./powersoftau_utils.js";
+import * as binFileUtils from "./binfileutils.js";
+import Blake2b from "blake2b-wasm";
+import * as misc from "./misc.js";
 
-async function newAccumulator(curve, power, fileName, verbose) {
+export default async function newAccumulator(curve, power, fileName, logger) {
 
     await Blake2b.ready();
 
@@ -69,7 +68,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     const nTauG1 = (1 << power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
         await fd.write(buffG1);
-        if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG1: " + i);
+        if ((logger)&&((i%100000) == 0)&&i) logger.info("tauG1: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -79,7 +78,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     const nTauG2 = (1 << power);
     for (let i=0; i< nTauG2; i++) {
         await fd.write(buffG2);
-        if ((verbose)&&((i%100000) == 0)&&i) console.log("tauG2: " + i);
+        if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG2: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -89,7 +88,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     const nAlfaTauG1 = (1 << power);
     for (let i=0; i< nAlfaTauG1; i++) {
         await fd.write(buffG1);
-        if ((verbose)&&((i%100000) == 0)&&i) console.log("alphaTauG1: " + i);
+        if ((logger)&&((i%100000) == 0)&&i) logger.log("alphaTauG1: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -99,7 +98,7 @@ async function newAccumulator(curve, power, fileName, verbose) {
     const nBetaTauG1 = (1 << power);
     for (let i=0; i< nBetaTauG1; i++) {
         await fd.write(buffG1);
-        if ((verbose)&&((i%100000) == 0)&&i) console.log("betaTauG1: " + i);
+        if ((logger)&&((i%100000) == 0)&&i) logger.log("betaTauG1: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 
@@ -117,14 +116,12 @@ async function newAccumulator(curve, power, fileName, verbose) {
 
     await fd.close();
 
-    const firstChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
+    const firstChallangeHash = ptauUtils.calculateFirstChallangeHash(curve, power, logger);
 
-    console.log("Blank Contribution Hash:");
-    console.log(misc.formatHash(Blake2b(64).digest()));
+    if (logger) logger.debug(misc.formatHash(Blake2b(64).digest(), "Blank Contribution Hash:"));
 
-    console.log("First Contribution Hash:");
-    console.log(misc.formatHash(firstChallangeHash));
+    if (logger) logger.info(misc.formatHash(firstChallangeHash, "First Contribution Hash:"));
+
+    return firstChallangeHash;
 
 }
-
-module.exports = newAccumulator;

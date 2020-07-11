@@ -1,11 +1,9 @@
-const Scalar = require("ffjavascript").Scalar;
-const assert = require("assert");
-const binFileUtils = require("./binfileutils");
+import { Scalar } from "ffjavascript";
+
+import * as binFileUtils from "./binfileutils.js";
 
 
-async function writeWtns(fileName, witness, prime) {
-
-    const fd = await binFileUtils.createOverride(fileName,"wtns", 2, 2);
+export async function write(fd, witness, prime) {
 
     await binFileUtils.startWriteSection(fd, 1);
     const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
@@ -20,21 +18,18 @@ async function writeWtns(fileName, witness, prime) {
     }
     await binFileUtils.endWriteSection(fd, 2);
 
-    await fd.close();
 
 }
 
-async function writeWtnsBin(fileName, witnessBin, prime) {
-
-    witnessBin = Buffer.from(witnessBin);
-
-    const fd = await binFileUtils.createBinFile(fileName, "wtns", 2, 2);
+export async function writeBin(fd, witnessBin, prime) {
 
     await binFileUtils.startWriteSection(fd, 1);
     const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
     await fd.writeULE32(n8);
     await binFileUtils.writeBigInt(fd, prime, n8);
-    assert(witnessBin.length % n8 == 0);
+    if (witnessBin.byteLength % n8 != 0) {
+        throw new Error("Invalid witness length");
+    }
     await fd.writeULE32(witnessBin.byteLength / n8);
     await binFileUtils.endWriteSection(fd);
 
@@ -43,10 +38,9 @@ async function writeWtnsBin(fileName, witnessBin, prime) {
     await fd.write(witnessBin);
     await binFileUtils.endWriteSection(fd);
 
-    await fd.close();
 }
 
-async function readWtnsHeader(fd, sections) {
+export async function readHeader(fd, sections) {
 
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
     const n8 = await fd.readULE32();
@@ -58,11 +52,11 @@ async function readWtnsHeader(fd, sections) {
 
 }
 
-async function readWtns(fileName) {
+export async function read(fileName) {
 
     const {fd, sections} = await binFileUtils.readBinFile(fileName, "wtns", 2);
 
-    const {n8, nWitness} = await readWtnsHeader(fd, sections);
+    const {n8, nWitness} = await readHeader(fd, sections);
 
     await binFileUtils.startReadUniqueSection(fd, sections, 2);
     const res = [];
@@ -77,7 +71,3 @@ async function readWtns(fileName) {
     return res;
 }
 
-module.exports.read = readWtns;
-module.exports.readHeader = readWtnsHeader;
-module.exports.writeBin = writeWtnsBin;
-module.exports.write = writeWtns;

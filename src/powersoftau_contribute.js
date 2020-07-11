@@ -5,22 +5,23 @@
 //      2^N AlphaTauG1 Points (uncompressed)
 //      2^N BetaTauG1 Points (uncompressed)
 
-const Blake2b = require("blake2b-wasm");
-const utils = require("./powersoftau_utils");
-const keyPair = require("./keypair");
-const binFileUtils = require("./binfileutils");
-const misc = require("./misc");
+import Blake2b from "blake2b-wasm";
+import * as utils from "./powersoftau_utils.js";
+import * as keyPair from "./keypair.js";
+import * as binFileUtils from "./binfileutils.js";
+import * as misc from "./misc.js";
 
-async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbose) {
+export default async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
     await Blake2b.ready();
 
     const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await utils.readPTauHeader(fdOld, sections);
     if (power != ceremonyPower) {
+        if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
         throw new Error("This file has been reduced. You cannot contribute into a reduced file.");
     }
     if (sections[12]) {
-        console.log("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
+        if (logger) logger.warn("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
     }
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const curContribution = {
@@ -30,15 +31,16 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
 
     let lastChallangeHash;
 
+    const rng = await misc.getRandomRng(entropy);
+
     if (contributions.length>0) {
         lastChallangeHash = contributions[contributions.length-1].nextChallange;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, logger);
     }
 
     // Generate a random key
 
-    const rng = await misc.getRandomRng(entropy);
 
     curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
 
@@ -72,8 +74,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     responseHasher.update(new Uint8Array(buffKey));
     const hashResponse = responseHasher.digest();
 
-    console.log("Contribution Response Hash imported: ");
-    console.log(misc.formatHash(hashResponse));
+    if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     const nextChallangeHasher = new Blake2b(64);
     nextChallangeHasher.update(hashResponse);
@@ -86,8 +87,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
 
     curContribution.nextChallange = nextChallangeHasher.digest();
 
-    console.log("Next Challange Hash: ");
-    console.log(misc.formatHash(curContribution.nextChallange));
+    if (logger) logger.info(misc.formatHash(curContribution.nextChallange, "Next Challange Hash: "));
 
     contributions.push(curContribution);
 
@@ -96,7 +96,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
     await fdOld.close();
     await fdNew.close();
 
-    return;
+    return hashResponse;
 
     async function processSection(sectionId, groupName, NPoints, first, inc, sectionName) {
         const res = [];
@@ -111,7 +111,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
         const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
         let t = first;
         for (let i=0 ; i<NPoints ; i+= chunkSize) {
-            if ((verbose)&&i) console.log(`${sectionName}: ` + i);
+            if (logger) logger.debug(`processing: ${sectionName}: ${i}/${NPoints}`);
             const n= Math.min(NPoints-i, chunkSize );
             const buffIn = await fdOld.read(n * sG);
             const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
@@ -150,7 +150,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
         fdTo.pos = startSections[sectionId];
 
         for (let i=0; i< nPoints; i += nPointsChunk) {
-            if ((verbose)&&i) console.log(`Hashing ${sectionName}: ` + i);
+            if ((logger)&&i) logger.debug(`Hashing ${sectionName}: ` + i);
             const n = Math.min(nPoints-i, nPointsChunk);
 
             const buffLEM = await fdTo.read(n * sG);
@@ -166,4 +166,3 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, verbo
 
 }
 
-module.exports = contribute;

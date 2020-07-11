@@ -1,11 +1,10 @@
-const assert = require("assert");
-const Scalar = require("ffjavascript").Scalar;
-const Blake2b = require("blake2b-wasm");
-const keyPair = require("./keypair");
-const misc = require("./misc");
-const {getCurveFromQ} = require("./curves");
+import { Scalar } from "ffjavascript";
+import Blake2b from "blake2b-wasm";
+import * as keyPair from "./keypair.js";
+import * as misc from "./misc.js";
+import { getCurveFromQ } from "./curves.js";
 
-async function writePTauHeader(fd, curve, power, ceremonyPower) {
+export async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
     ///////////
 
@@ -31,9 +30,9 @@ async function writePTauHeader(fd, curve, power, ceremonyPower) {
     fd.pos = oldPos;
 }
 
-async function readPTauHeader(fd, sections) {
-    if (!sections[1])  assert(false, fd.fileName + ": File has no  header");
-    if (sections[1].length>1) assert(false, fd.fileName +": File has more than one header");
+export async function readPTauHeader(fd, sections) {
+    if (!sections[1])  throw new Error(fd.fileName + ": File has no  header");
+    if (sections[1].length>1) throw new Error(fd.fileName +": File has more than one header");
 
     fd.pos = sections[1][0].p;
     const n8 = await fd.readULE32();
@@ -42,25 +41,25 @@ async function readPTauHeader(fd, sections) {
 
     const curve = await getCurveFromQ(q);
 
-    assert(curve.F1.n64*8 == n8, fd.fileName +": Invalid size");
+    if (curve.F1.n64*8 != n8) throw new Error(fd.fileName +": Invalid size");
 
     const power = await fd.readULE32();
     const ceremonyPower = await fd.readULE32();
 
-    assert.equal(fd.pos-sections[1][0].p, sections[1][0].size);
+    if (fd.pos-sections[1][0].p != sections[1][0].size) throw new Error("Invalid PTau header size");
 
     return {curve, power, ceremonyPower};
 }
 
 
-async function readPtauPubKey(fd, curve, montgomery) {
+export async function readPtauPubKey(fd, curve, montgomery) {
 
     const buff = await fd.read(curve.F1.n8*2*6 + curve.F2.n8*2*3);
 
     return fromPtauPubKeyRpr(buff, 0, curve, montgomery);
 }
 
-function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
+export function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
 
     const key = {
         tau: {},
@@ -103,7 +102,7 @@ function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
     }
 }
 
-function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
+export function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
 
     writeG1(key.tau.g1_s);
     writeG1(key.tau.g1_sx);
@@ -136,7 +135,7 @@ function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
     return buff;
 }
 
-async function writePtauPubKey(fd, curve, key, montgomery) {
+export async function writePtauPubKey(fd, curve, key, montgomery) {
     const buff = new Uint8Array(curve.F1.n8*2*6 + curve.F2.n8*2*3);
     toPtauPubKeyRpr(buff, 0, curve, key, montgomery);
     await fd.write(buff);
@@ -206,9 +205,9 @@ async function readContribution(fd, curve) {
     }
 }
 
-async function readContributions(fd, curve, sections) {
-    if (!sections[7])  assert(false, fd.fileName + ": File has no  contributions");
-    if (sections[7][0].length>1) assert(false, fd.fileName +": File has more than one contributions section");
+export async function readContributions(fd, curve, sections) {
+    if (!sections[7])  throw new Error(fd.fileName + ": File has no  contributions");
+    if (sections[7][0].length>1) throw new Error(fd.fileName +": File has more than one contributions section");
 
     fd.pos = sections[7][0].p;
     const nContributions = await fd.readULE32();
@@ -219,7 +218,7 @@ async function readContributions(fd, curve, sections) {
         contributions.push(c);
     }
 
-    assert.equal(fd.pos-sections[7][0].p, sections[7][0].size);
+    if (fd.pos-sections[7][0].p != sections[7][0].size) throw new Error("Invalid contribution section size");
 
     return contributions;
 }
@@ -274,7 +273,7 @@ async function writeContribution(fd, curve, contribution) {
 
 }
 
-async function writeContributions(fd, curve, contributions) {
+export async function writeContributions(fd, curve, contributions) {
 
     await fd.writeULE32(7); // Header type
     const pContributionsSize = fd.pos;
@@ -292,8 +291,8 @@ async function writeContributions(fd, curve, contributions) {
     fd.pos = oldPos;
 }
 
-function calculateFirstChallangeHash(curve, power, verbose) {
-    if (verbose) console.log("Calculating First Challange Hash");
+export function calculateFirstChallangeHash(curve, power, logger) {
+    if (logger) logger.debug("Calculating First Challange Hash");
 
     const hasher = new Blake2b(64);
 
@@ -307,14 +306,14 @@ function calculateFirstChallangeHash(curve, power, verbose) {
     let n;
 
     n=(1 << power)*2 -1;
-    if (verbose) console.log("tauG1");
+    if (logger) logger.debug("Calculate Initial Hash: tauG1");
     hashBlock(vG1, n);
     n= 1 << power;
-    if (verbose) console.log("tauG2");
+    if (logger) logger.debug("Calculate Initial Hash: tauG2");
     hashBlock(vG2, n);
-    if (verbose) console.log("alphaTauG1");
+    if (logger) logger.debug("Calculate Initial Hash: alphaTauG1");
     hashBlock(vG1, n);
-    if (verbose) console.log("betaTauG1");
+    if (logger) logger.debug("Calculate Initial Hash: betaTauG1");
     hashBlock(vG1, n);
     hasher.update(vG2);
 
@@ -330,7 +329,7 @@ function calculateFirstChallangeHash(curve, power, verbose) {
         }
         for (let i=0; i<nBlocks; i++) {
             hasher.update(bigBuff);
-            if (verbose) console.log(i*blockSize);
+            if (logger) logger.debug("Initial hash: " +i*blockSize);
         }
         for (let i=0; i<rem; i++) {
             hasher.update(buff);
@@ -339,7 +338,7 @@ function calculateFirstChallangeHash(curve, power, verbose) {
 }
 
 
-function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
+export function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
 
     const rng = misc.rngFromBeaconParams(beaconHash, numIterationsExp);
 
@@ -347,15 +346,4 @@ function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
 
     return key;
 }
-
-module.exports.readPTauHeader = readPTauHeader;
-module.exports.writePTauHeader = writePTauHeader;
-module.exports.readPtauPubKey = readPtauPubKey;
-module.exports.writePtauPubKey = writePtauPubKey;
-module.exports.readContributions = readContributions;
-module.exports.writeContributions = writeContributions;
-module.exports.calculateFirstChallangeHash = calculateFirstChallangeHash;
-module.exports.toPtauPubKeyRpr = toPtauPubKeyRpr;
-module.exports.fromPtauPubKeyRpr = fromPtauPubKeyRpr;
-module.exports.keyFromBeacon = keyFromBeacon;
 

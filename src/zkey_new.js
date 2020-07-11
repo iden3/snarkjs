@@ -1,20 +1,18 @@
 
-const r1csFile = require("r1csfile");
-const utils = require("./powersoftau_utils");
-const binFileUtils = require("./binfileutils");
-const assert = require("assert");
-const {log2} = require("./misc");
-const Scalar = require("ffjavascript").Scalar;
-const Blake2b = require("blake2b-wasm");
-const misc = require("./misc");
+import {loadHeader as loadR1csHeader} from "r1csfile";
+import * as utils from "./powersoftau_utils.js";
+import * as binFileUtils from "./binfileutils.js";
+import { log2, formatHash } from "./misc.js";
+import { Scalar } from "ffjavascript";
+import Blake2b from "blake2b-wasm";
 
 
-module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose) {
+export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await Blake2b.ready();
     const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1);
-    const r1cs = await r1csFile.loadHeader(fdR1cs, sectionsR1cs);
+    const r1cs = await loadR1csHeader(fdR1cs, sectionsR1cs);
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
@@ -25,19 +23,19 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     const sG2 = curve.G2.F.n8*2;
 
     if (r1cs.prime != curve.r) {
-        console.log("r1cs curve does not match powers of tau ceremony curve");
+        if (logger) logger.error("r1cs curve does not match powers of tau ceremony curve");
         return -1;
     }
 
     const cirPower = log2(r1cs.nConstraints + r1cs.nPubInputs + r1cs.nOutputs +1 -1) +1;
 
     if (cirPower > power) {
-        console.log(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints} > 2**${power}`);
+        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints} > 2**${power}`);
         return -1;
     }
 
     if (!sectionsPTau[12]) {
-        console.log("Powers of tau is not prepared.");
+        if (logger) logger.error("Powers of tau is not prepared.");
         return -1;
     }
 
@@ -124,7 +122,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     let nCoefs = 0;
     fdZKey.pos += 4;
     for (let c=0; c<r1cs.nConstraints; c++) {
-        if (verbose && (c%1000 == 0) && (c >0)) console.log(`${c}/${r1cs.nConstraints}`);
+        if ((logger)&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
         const nA = await fdR1cs.readULE32();
         for (let i=0; i<nA; i++) {
             const s = await fdR1cs.readULE32();
@@ -248,15 +246,14 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
     await fdZKey.writeULE32(0);
     await binFileUtils.endWriteSection(fdZKey);
 
-    console.log("Circuit hash: ");
-    console.log(misc.formatHash(csHash));
+    if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
 
 
     await fdZKey.close();
     await fdPTau.close();
     await fdR1cs.close();
 
-    return 0;
+    return csHash;
 
     async function writeFr2(buff) {
         const n = curve.Fr.fromRprLE(buff, 0);
@@ -274,7 +271,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
         await binFileUtils.startWriteSection(fdZKey, idSection);
 
         for (let i=0; i<arr.length; i+= CHUNK_SIZE) {
-            if (verbose)  console.log(`${sectionName}: ${i}/${arr.length}`);
+            if (logger)  logger.debug(`Writing points ${sectionName}: ${i}/${arr.length}`);
             const n = Math.min(arr.length -i, CHUNK_SIZE);
             const subArr = arr.slice(i, i + n);
             await composeAndWritePointsChunk(groupName, subArr);
@@ -326,7 +323,7 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
             fnBatchToAffine = "g2m_batchToAffine";
             fnZero = "g2m_zero";
         } else {
-            assert(false);
+            throw new Error("Invalid group");
         }
         let acc =0;
         for (let i=0; i<arr.length; i++) acc += arr[i] ? arr[i].length : 0;
@@ -393,14 +390,14 @@ module.exports  = async function phase2new(r1csName, ptauName, zkeyName, verbose
 
 
     async function hashHPoints() {
-        const CHUNK_SIZE = 1<<16;
+        const CHUNK_SIZE = 1<<14;
 
         hashU32(domainSize-1);
 
         for (let i=0; i<domainSize-1; i+= CHUNK_SIZE) {
-            if (verbose)  console.log(`HashingHPoints: ${i}/${domainSize}`);
+            if (logger)  logger.debug(`HashingHPoints: ${i}/${domainSize}`);
             const n = Math.min(domainSize-1, CHUNK_SIZE);
-            await hashHPointsChunk(i*CHUNK_SIZE, n);
+            await hashHPointsChunk(i, n);
         }
     }
 

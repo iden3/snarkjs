@@ -1,10 +1,11 @@
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey_utils");
-const getCurve = require("./curves").getCurveFromQ;
-const {stringifyBigInts} = require("ffjavascript").utils;
-const fs = require("fs");
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import { utils } from "ffjavascript";
+const {stringifyBigInts} = utils;
 
-module.exports  = async function zkeyExportVerificationKey(zkeyName, verificationKeyName) {
+
+export default async function zkeyExportVerificationKey(zkeyName, logger) {
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections, "groth16");
@@ -14,7 +15,7 @@ module.exports  = async function zkeyExportVerificationKey(zkeyName, verificatio
 
     const alphaBeta = await curve.pairing( zkey.vk_alpha_1 , zkey.vk_beta_2 );
 
-    const vKey = {
+    let vKey = {
         protocol: zkey.protocol,
         curve: curve.name,
         nPublic: zkey.nPublic,
@@ -39,5 +40,9 @@ module.exports  = async function zkeyExportVerificationKey(zkeyName, verificatio
     }
     await binFileUtils.endReadSection(fd);
 
-    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(vKey), null, 1), "utf-8");
-};
+    vKey = stringifyBigInts(vKey);
+
+    await fd.close();
+
+    return vKey;
+}

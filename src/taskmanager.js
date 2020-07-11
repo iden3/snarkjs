@@ -1,5 +1,3 @@
-const assert = require("assert");
-
 const inBrowser = (typeof window !== "undefined");
 let NodeWorker;
 if (!inBrowser) {
@@ -87,8 +85,8 @@ async function buildTaskManager(fn, mods, initTask) {
         return function(e) {
 
             function finishTask() {
-                // It can  not be a waiting task and it's terminating
-                assert( !(tm.waitingTask && tm.terminateDeferred));
+                if  ( (tm.waitingTask && tm.terminateDeferred))
+                    throw new Error("It can  not be a waiting task and it's terminating");
 
                 if (tm.terminateDeferred) {
                     tm.workers[i].worker.postMessage({cmd: "TERMINATE"});
@@ -130,7 +128,8 @@ async function buildTaskManager(fn, mods, initTask) {
     }
 
     function processTask(i, task, asyncCb) {
-        assert(tm.workers[i].state == "READY");
+        if (tm.workers[i].state != "READY")
+            throw new Error("Worker is not ready");
         tm.workers[i].asyncCb = asyncCb;
 
         tm.workers[i].state = "WORKING";
@@ -163,7 +162,8 @@ async function buildTaskManager(fn, mods, initTask) {
 
     tm.finish = function() {
         const self = this;
-        assert (self.terminatePromise == null);
+        if (self.terminatePromise != null)
+            throw new Error("Task manager already terminated");
 
         self.terminateDeferred = new Deferred();
 
@@ -178,8 +178,8 @@ async function buildTaskManager(fn, mods, initTask) {
 
     tm.addTask = function (task, asyncCb) {
         const self = this;
-        assert (!self.waitingTask);
-        assert(!self.terminateDeferred);
+        if  (self.waitingTask) throw new Error("Waiting task pending");
+        if (self.terminateDeferred) throw new Error("New task after task manager terminated");
         const deferral = new Deferred();
         let i;
         for (i=0; i<tm.workers.length; i++) {

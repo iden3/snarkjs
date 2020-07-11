@@ -1,12 +1,10 @@
-const assert = require("assert");
-const fastFile = require("fastfile");
-const Blake2b = require("blake2b-wasm");
-const fs = require("fs");
-const utils = require("./powersoftau_utils");
-const binFileUtils = require("./binfileutils");
-const misc = require("./misc");
+import * as fastFile from "fastfile";
+import Blake2b from "blake2b-wasm";
+import * as utils from "./powersoftau_utils.js";
+import * as binFileUtils from "./binfileutils.js";
+import * as misc from "./misc.js";
 
-async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, verbose) {
+export default async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
     await Blake2b.ready();
 
@@ -15,39 +13,40 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const currentContribution = {};
 
+    if (name) currentContribution.name = name;
+
     const sG1 = curve.F1.n8*2;
     const scG1 = curve.F1.n8; // Compresed size
     const sG2 = curve.F2.n8*2;
     const scG2 = curve.F2.n8; // Compresed size
 
-    let stats = await fs.promises.stat(contributionFilename);
-    assert.equal(stats.size,
+    const fdResponse = await fastFile.readExisting(contributionFilename);
+
+    if  (fdResponse.totalSize !=
         64 +                            // Old Hash
         ((1<<power)*2-1)*scG1 +
         (1<<power)*scG2 +
         (1<<power)*scG1 +
         (1<<power)*scG1 +
         scG2 +
-        sG1*6 + sG2*3,
-        "Size of the contribution is invalid"
-    );
+        sG1*6 + sG2*3)
+        throw new Error("Size of the contribution is invalid");
 
     let lastChallangeHash;
 
     if (contributions.length>0) {
         lastChallangeHash = contributions[contributions.length-1].nextChallange;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, logger);
     }
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
     await utils.writePTauHeader(fdNew, curve, power);
 
-    const fdResponse = await fastFile.readExisting(contributionFilename);
     const contributionPreviousHash = await fdResponse.read(64);
 
-    assert(misc.hashIsEqual(contributionPreviousHash,lastChallangeHash),
-        "Wrong contribution. this contribution is not based on the previus hash");
+    if(!misc.hashIsEqual(contributionPreviousHash,lastChallangeHash))
+        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
 
     const hasherResponse = new Blake2b(64);
     hasherResponse.update(contributionPreviousHash);
@@ -75,22 +74,20 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     hasherResponse.update(new Uint8Array(buffKey));
     const hashResponse = hasherResponse.digest();
 
-    console.log("Contribution Response Hash imported: ");
-    console.log(misc.formatHash(hashResponse));
+    if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     const nextChallangeHasher = new Blake2b(64);
     nextChallangeHasher.update(hashResponse);
 
-    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
-    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
-    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1");
-    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
-    await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
+    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
+    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
+    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
+    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
+    await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
     currentContribution.nextChallange = nextChallangeHasher.digest();
 
-    console.log("Next Challange Hash: ");
-    console.log(misc.formatHash(currentContribution.nextChallange));
+    if (logger) logger.info(misc.formatHash(currentContribution.nextChallange, "Next Challange Hash: "));
 
     contributions.push(currentContribution);
 
@@ -99,6 +96,8 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     await fdResponse.close();
     await fdNew.close();
     await fdOld.close();
+
+    return currentContribution.nextChallange;
 
     async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
 
@@ -114,7 +113,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         startSections[sectionId] = fdTo.pos;
 
         for (let i=0; i< nPoints; i += nPointsChunk) {
-            if ((verbose)&&i) console.log(`Importing ${sectionName}: ` + i);
+            if (logger) logger.debug(`Importing ${sectionName}: ${i}/${nPoints}`);
             const n = Math.min(nPoints-i, nPointsChunk);
 
             const buffC = await fdFrom.read(n * scG);
@@ -138,7 +137,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     }
 
 
-    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
+    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName, logger) {
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
@@ -148,7 +147,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         fdTo.pos = startSections[sectionId];
 
         for (let i=0; i< nPoints; i += nPointsChunk) {
-            if ((verbose)&&i) console.log(`Hashing ${sectionName}: ` + i);
+            if (logger) logger.debug(`Hashing ${sectionName}: ${i}/${nPoints}`);
             const n = Math.min(nPoints-i, nPointsChunk);
 
             const buffLEM = await fdTo.read(n * sG);
@@ -163,4 +162,3 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
 }
 
-module.exports = importResponse;

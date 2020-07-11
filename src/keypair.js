@@ -1,9 +1,9 @@
 
-const blake2b = require("blake2b-wasm");
+import blake2b from "blake2b-wasm";
 
-const ChaCha = require("ffjavascript").ChaCha;
+import { ChaCha } from "ffjavascript";
 
-function hashToG2(curve, hash) {
+export function hashToG2(curve, hash) {
     const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
     const seed = [];
     for (let i=0; i<8; i++) {
@@ -17,7 +17,7 @@ function hashToG2(curve, hash) {
     return g2_sp;
 }
 
-function getG2sp(curve, persinalization, challange, g1s, g1sx) {
+export function getG2sp(curve, persinalization, challange, g1s, g1sx) {
 
     const h = blake2b(64);
     const b1 = new Uint8Array([persinalization]);
@@ -40,7 +40,7 @@ function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
     return k;
 }
 
-function createPTauKey(curve, challangeHash, rng) {
+export function createPTauKey(curve, challangeHash, rng) {
     const key = {
         tau: {},
         alpha: {},
@@ -55,7 +55,7 @@ function createPTauKey(curve, challangeHash, rng) {
     return key;
 }
 
-function createDeltaKey(curve, transcript, rng) {
+export function createDeltaKey(curve, transcript, rng) {
     const delta = {};
     delta.prvKey = curve.Fr.fromRng(rng);
     delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
@@ -64,8 +64,3 @@ function createDeltaKey(curve, transcript, rng) {
     delta.g2_spx = curve.G2.toAffine(curve.G2.timesScalar(delta.g2_sp, delta.prvKey));
     return delta;
 }
-
-module.exports.createPTauKey = createPTauKey;
-module.exports.getG2sp = getG2sp;
-module.exports.hashToG2 = hashToG2;
-module.exports.createDeltaKey =createDeltaKey;

@@ -1,12 +1,14 @@
-const fs = require("fs");
+import * as fastFile from "fastFile";
 
-module.exports = async function loadSymbols(symFileName) {
+export default async function loadSymbols(symFileName) {
     const sym = {
         labelIdx2Name: [ "one" ],
         varIdx2Name: [ "one" ],
         componentIdx2Name: []
     };
-    const symsStr = await fs.promises.readFile(symFileName, "utf8");
+    const fd = await fastFile.readExisting(symFileName);
+    const buff = await fd.read(fd.totalSize);
+    const symsStr = new TextDecoder("utf-8").decode(buff);
     const lines = symsStr.split("\n");
     for (let i=0; i<lines.length; i++) {
         const arr = lines[i].split(",");
@@ -22,6 +24,8 @@ module.exports = async function loadSymbols(symFileName) {
         }
     }
 
+    await fd.close();
+
     return sym;
 
     function extractComponent(name) {
@@ -29,4 +33,4 @@ module.exports = async function loadSymbols(symFileName) {
         arr.pop(); // Remove the lasr element
         return arr.join(".");
     }
-};
+}

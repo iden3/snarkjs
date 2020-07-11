@@ -1,18 +1,18 @@
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey_utils");
-const getCurve = require("./curves").getCurveFromQ;
-const Blake2b = require("blake2b-wasm");
-const misc = require("./misc");
-const Scalar = require("ffjavascript").Scalar;
-const hashToG2 = require("./keypair").hashToG2;
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import Blake2b from "blake2b-wasm";
+import * as misc from "./misc.js";
+import { hashToG2 as hashToG2 } from "./keypair.js";
 const sameRatio = misc.sameRatio;
-const crypto = require("crypto");
-const ChaCha = require("ffjavascript").ChaCha;
-const newZKey = require("./zkey_new");
-const {hashG1, hashPubKey} = require("./zkey_utils");
+import crypto from "crypto";
+import newZKey from "./zkey_new.js";
+import {hashG1, hashPubKey} from "./zkey_utils.js";
+import { Scalar, ChaCha } from "ffjavascript";
 
 
-module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, verbose) {
+
+export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
     await Blake2b.ready();
@@ -93,7 +93,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         ||(zkeyInit.n8q != zkey.n8q)
         ||(zkeyInit.n8r != zkey.n8r))
     {
-        console.log("INVALID:  Different curves");
+        if (logger) logger.error("INVALID:  Different curves");
         return false;
     }
 
@@ -101,110 +101,115 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         ||(zkeyInit.nPublic !=  zkey.nPublic)
         ||(zkeyInit.domainSize != zkey.domainSize))
     {
-        console.log("INVALID:  Different circuit parameters");
+        if (logger) logger.error("INVALID:  Different circuit parameters");
         return false;
     }
 
     if (!curve.G1.eq(zkey.vk_alpha_1, zkeyInit.vk_alpha_1)) {
-        console.log("INVALID:  Invalid alpha1");
+        if (logger) logger.error("INVALID:  Invalid alpha1");
         return false;
     }
     if (!curve.G1.eq(zkey.vk_beta_1, zkeyInit.vk_beta_1)) {
-        console.log("INVALID:  Invalid beta1");
+        if (logger) logger.error("INVALID:  Invalid beta1");
         return false;
     }
     if (!curve.G2.eq(zkey.vk_beta_2, zkeyInit.vk_beta_2)) {
-        console.log("INVALID:  Invalid beta2");
+        if (logger) logger.error("INVALID:  Invalid beta2");
         return false;
     }
     if (!curve.G2.eq(zkey.vk_gamma_2, zkeyInit.vk_gamma_2)) {
-        console.log("INVALID:  Invalid gamma2");
+        if (logger) logger.error("INVALID:  Invalid gamma2");
         return false;
     }
     if (!curve.G1.eq(zkey.vk_delta_1, curDelta)) {
-        console.log("INVALID:  Invalud delta1");
+        if (logger) logger.error("INVALID:  Invalud delta1");
         return false;
     }
     sr = await sameRatio(curve, curve.G1.g, curDelta, curve.G2.g, zkey.vk_delta_2);
     if (sr !== true) {
-        console.log("INVALID:  Invalud delta2");
+        if (logger) logger.error("INVALID:  Invalud delta2");
         return false;
     }
 
     const mpcParamsInit = await zkeyUtils.readMPCParams(fdInit, curve, sectionsInit);
     if (!misc.hashIsEqual(mpcParams.csHash, mpcParamsInit.csHash)) {
-        console.log("INVALID:  Circuit does not match");
+        if (logger) logger.error("INVALID:  Circuit does not match");
         return false;
     }
 
     // Check sizes of sections
     if (sections[8][0].size != sG1*(zkey.nVars-zkey.nPublic-1)) {
-        console.log("INVALID:  Invalid L section size");
+        if (logger) logger.error("INVALID:  Invalid L section size");
         return false;
     }
 
     if (sections[9][0].size != sG1*(zkey.domainSize)) {
-        console.log("INVALID:  Invalid H section size");
+        if (logger) logger.error("INVALID:  Invalid H section size");
         return false;
     }
 
     let ss;
     ss = await binFileUtils.sectionIsEqual(fd, sections, fdInit, sectionsInit, 3);
     if (!ss) {
-        console.log("INVALID:  IC section is not identical");
+        if (logger) logger.error("INVALID:  IC section is not identical");
         return false;
     }
 
     ss = await binFileUtils.sectionIsEqual(fd, sections, fdInit, sectionsInit, 4);
     if (!ss) {
-        console.log("Coeffs section is not identical");
+        if (logger) logger.error("Coeffs section is not identical");
         return false;
     }
 
     ss = await binFileUtils.sectionIsEqual(fd, sections, fdInit, sectionsInit, 5);
     if (!ss) {
-        console.log("A section is not identical");
+        if (logger) logger.error("A section is not identical");
         return false;
     }
 
     ss = await binFileUtils.sectionIsEqual(fd, sections, fdInit, sectionsInit, 6);
     if (!ss) {
-        console.log("B1 section is not identical");
+        if (logger) logger.error("B1 section is not identical");
         return false;
     }
 
     ss = await binFileUtils.sectionIsEqual(fd, sections, fdInit, sectionsInit, 7);
     if (!ss) {
-        console.log("B2 section is not identical");
+        if (logger) logger.error("B2 section is not identical");
         return false;
     }
 
     // Check L
     sr = await sectionHasSameRatio("G1", fdInit, sectionsInit, fd, sections, 8, zkey.vk_delta_2, zkeyInit.vk_delta_2, "L section");
     if (sr!==true) {
-        console.log("L section does not match");
+        if (logger) logger.error("L section does not match");
         return false;
     }
 
     // Check H
     sr = await sameRatioH();
     if (sr!==true) {
-        console.log("H section does not match");
+        if (logger) logger.error("H section does not match");
         return false;
     }
 
+    if (logger) logger.info(misc.formatHash(mpcParams.csHash, "Circuit Hash: "));
+
+    await fd.close();
+    await fdInit.close();
+
     for (let i=mpcParams.contributions.length-1; i>=0; i--) {
         const c = mpcParams.contributions[i];
-        console.log("-------------------------");
-        console.log(`contribution #${i+1}${c.name ? c.name : ""}:`);
-        console.log(misc.formatHash(c.contributionHash));
+        if (logger) logger.info("-------------------------");
+        if (logger) logger.info(misc.formatHash(c.contributionHash, `contribution #${i+1} ${c.name ? c.name : ""}:`));
         if (c.type == 1) {
-            console.log(`Beacon generator: ${misc.byteArray2hex(c.beaconHash)}`);
-            console.log(`Beacon iterations Exp: ${c.numIterationsExp}`);
+            if (logger) logger.info(`Beacon generator: ${misc.byteArray2hex(c.beaconHash)}`);
+            if (logger) logger.info(`Beacon iterations Exp: ${c.numIterationsExp}`);
         }
     }
-    console.log("-------------------------");
+    if (logger) logger.info("-------------------------");
 
+    if (logger) logger.info("ZKey Ok!");
 
     return true;
 
@@ -222,7 +227,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         const nPoints = sections1[idSection][0].size / sG;
 
         for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
-            if ((verbose)&&i) console.log(`${sectionName}:  ` + i);
+            if (logger) logger.debug(`Same ratio check ${sectionName}:  ${i}/${nPoints}`);
             const n = Math.min(nPoints - i, MAX_CHUNK_SIZE);
             const bases1 = await fd1.read(n*sG);
             const bases2 = await fd2.read(n*sG);
@@ -267,7 +272,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if ((verbose)&&i) console.log(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*MAX_CHUNK_SIZE*sG);
@@ -295,7 +300,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         await binFileUtils.startReadUniqueSection(fd, sections, 9);
         let R2 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if ((verbose)&&i) console.log(`H Verificaition(lagrange):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verificaition(lagrange):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff = await fd.read(sG*n);
@@ -308,6 +313,7 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
 
         sr = await sameRatio(curve, R1, R2, zkey.vk_delta_2, zkeyInit.vk_delta_2);
         if (sr !== true) return false;
+
 
         return true;
 
@@ -378,5 +384,5 @@ module.exports  = async function phase2verify(r1csFileName, pTauFileName, zkeyFi
         return res;
     }
 
-};
+}
 

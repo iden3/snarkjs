@@ -1,6 +1,4 @@
-const Scalar = require("ffjavascript").Scalar;
-const buildBn128 = require("ffjavascript").buildBn128;
-const buildBls12381 = require("ffjavascript").buildBls12381;
+import { Scalar, buildBn128, buildBls12381} from "ffjavascript";
 
 const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -8,7 +6,7 @@ const bn128r = Scalar.e("2188824287183927522224640574525727508854836440041603434
 const bls12381q = Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
 const bn128q = Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 
-module.exports.getCurveFromR = async function getCurveFromR(r) {
+export async function getCurveFromR(r) {
     let curve;
     if (Scalar.eq(r, bn128r)) {
         curve = await buildBn128();
@@ -20,7 +18,7 @@ module.exports.getCurveFromR = async function getCurveFromR(r) {
     return curve;
 };
 
-module.exports.getCurveFromQ = async function getCurveFromQ(q) {
+export async function getCurveFromQ(q) {
     let curve;
     if (Scalar.eq(q, bn128q)) {
         curve = await buildBn128();
@@ -32,7 +30,7 @@ module.exports.getCurveFromQ = async function getCurveFromQ(q) {
     return curve;
 };
 
-module.exports.getCurveFromName = async function getCurveFromName(name) {
+export async function getCurveFromName(name) {
     let curve;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {

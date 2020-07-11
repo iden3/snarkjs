@@ -1,12 +1,8 @@
-const {stringifyBigInts} = require("ffjavascript").utils;
-const fs = require("fs");
-const readZKey = require("./zkey_utils").read;
-module.exports = zkeyExportJson;
+import { readZKey as readZKey } from "./zkey_utils.js";
 
-async function zkeyExportJson(zkeyFileName, jsonFileName, verbose) {
+export default async function zkeyExportJson(zkeyFileName, verbose) {
 
     const zKey = await readZKey(zkeyFileName);
 
-    const S = JSON.stringify(stringifyBigInts(zKey), null, 1);
-    await fs.promises.writeFile(jsonFileName, S);
+    return zKey;
 }

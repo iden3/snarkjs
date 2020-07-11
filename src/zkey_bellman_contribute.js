@@ -16,15 +16,15 @@
 //          G2*tp*alpha (compressed)
 //          G2*up*beta (compressed)
 
-const fastFile = require("fastfile");
-const Blake2b = require("blake2b-wasm");
-const utils = require("./zkey_utils");
-const misc = require("./misc");
-const { applyKeyToChallangeSection } = require("./mpc_applykey");
-const {hashPubKey} = require("./zkey_utils");
-const hashToG2 = require("./keypair").hashToG2;
+import * as fastFile from "fastfile";
+import Blake2b from "blake2b-wasm";
+import * as utils from "./zkey_utils.js";
+import * as misc from "./misc.js";
+import { applyKeyToChallangeSection } from "./mpc_applykey.js";
+import { hashPubKey } from "./zkey_utils.js";
+import { hashToG2 as hashToG2 } from "./keypair.js";
 
-async function challangeContribute(curve, challangeFilename, responesFileName, entropy, verbose) {
+export default async function bellmanContribute(curve, challangeFilename, responesFileName, entropy, logger) {
     await Blake2b.ready();
 
     const rng = await misc.getRandomRng(entropy);
@@ -58,12 +58,12 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     // H
     const nH = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nH);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", verbose);
+    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
 
     // L
     const nL = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nL);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", verbose);
+    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
 
     // A
     const nA = await fdFrom.readUBE32();
@@ -138,11 +138,14 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     const contributionHasher = Blake2b(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
-    console.log("Contribution Hash: ");
-    console.log(misc.formatHash(contributionHasher.digest()));
+    const contributionHash = contributionHasher.digest();
+
+    if (logger) logger.info(misc.formatHash(contributionHash, "Contribution Hash: "));
 
     await fdTo.close();
     await fdFrom.close();
+
+    return contributionHash;
 
     async function copy(nBytes) {
         const CHUNK_SIZE = fdFrom.pageSize*2;
@@ -177,5 +180,3 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
 
 
 }
-
-module.exports = challangeContribute;

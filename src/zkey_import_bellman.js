@@ -1,10 +1,10 @@
-const zkeyUtils = require("./zkey_utils");
-const binFileUtils = require("./binfileutils");
-const fastFile = require("fastfile");
-const getCurve = require("./curves").getCurveFromQ;
-const misc = require("./misc");
+import * as zkeyUtils from "./zkey_utils.js";
+import * as binFileUtils from "./binfileutils.js";
+import * as fastFile from "fastfile";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import * as misc from "./misc.js";
 
-module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, verbose) {
+export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
     const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, "groth16");
@@ -52,22 +52,29 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     }
 
     if (!misc.hashIsEqual(newMPCParams.csHash, oldMPCParams.csHash)) {
-        console.log("Hash of the original circuit does not match with the MPC one");
+        if (logger) logger.error("Hash of the original circuit does not match with the MPC one");
         return false;
     }
 
     if (oldMPCParams.contributions.length > newMPCParams.contributions.length) {
-        console.log("The impoerted file does not include new contributions");
+        if (logger) logger.error("The impoerted file does not include new contributions");
         return false;
     }
 
     for (let i=0; i<oldMPCParams.contributions.length; i++) {
         if (!contributionIsEqual(oldMPCParams.contributions[i], newMPCParams.contributions[i])) {
-            console.log(`Previos contribution ${i} does not match`);
+            if (logger) logger.error(`Previos contribution ${i} does not match`);
             return false;
         }
     }
 
+
+    // Set the same name to all new controbutions
+    if (name) {
+        for (let i=oldMPCParams.contributions.length; i<newMPCParams.contributions.length; i++) {
+            newMPCParams.contributions[i].name = name;
+        }
+    }
 
     const fdZKeyNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
     fdMPCParams.pos = 0;
@@ -84,7 +91,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // IC (Keep original)
     const nIC = await fdMPCParams.readUBE32();
     if (nIC != zkeyHeader.nPublic +1) {
-        console.log("Invalid number of points in IC");
+        if (logger) logger.error("Invalid number of points in IC");
         await fdZKeyNew.discard();
         return false;
     }
@@ -97,7 +104,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // H Section
     const nH = await fdMPCParams.readUBE32();
     if (nH != zkeyHeader.domainSize-1) {
-        console.log("Invalid number of points in H");
+        if (logger) logger.error("Invalid number of points in H");
         await fdZKeyNew.discard();
         return false;
     }
@@ -108,8 +115,8 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     buffH.set(buffTauLEM);   // Let the last one to zero.
     const n2Inv = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
     const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
-    buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", verbose ? console.log : undefined);
-    buffH = await curve.G1.ifft(buffH, "jacobian", "affine", verbose ? console.log : undefined);
+    buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", logger);
+    buffH = await curve.G1.ifft(buffH, "jacobian", "affine", logger);
     await binFileUtils.startWriteSection(fdZKeyNew, 9);
     await fdZKeyNew.write(buffH);
     await binFileUtils.endWriteSection(fdZKeyNew);
@@ -117,7 +124,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // C Secion (L section)
     const nL = await fdMPCParams.readUBE32();
     if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
-        console.log("Invalid number of points in L");
+        if (logger) logger.error("Invalid number of points in L");
         await fdZKeyNew.discard();
         return false;
     }
@@ -131,7 +138,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // A Section
     const nA = await fdMPCParams.readUBE32();
     if (nA != zkeyHeader.nVars) {
-        console.log("Invalid number of points in A");
+        if (logger) logger.error("Invalid number of points in A");
         await fdZKeyNew.discard();
         return false;
     }
@@ -141,7 +148,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // B1 Section
     const nB1 = await fdMPCParams.readUBE32();
     if (nB1 != zkeyHeader.nVars) {
-        console.log("Invalid number of points in B1");
+        if (logger) logger.error("Invalid number of points in B1");
         await fdZKeyNew.discard();
         return false;
     }
@@ -151,7 +158,7 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     // B2 Section
     const nB2 = await fdMPCParams.readUBE32();
     if (nB2 != zkeyHeader.nVars) {
-        console.log("Invalid number of points in B2");
+        if (logger) logger.error("Invalid number of points in B2");
         await fdZKeyNew.discard();
         return false;
     }
@@ -187,5 +194,5 @@ module.exports  = async function phase2importMPCParams(zkeyNameOld, mpcparamsNam
     }
 
 
-};
+}
 

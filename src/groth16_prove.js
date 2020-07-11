@@ -1,14 +1,15 @@
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey").utils;
-const wtnsFile = require("./wtnsfile");
-const getCurve = require("./curves").getCurveFromQ;
-const {log2} = require("./misc");
-const Scalar = require("ffjavascript").Scalar;
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import * as wtnsUtils from "./wtns_utils.js";
+import { getCurveFromQ as getCurve } from "./curves.js";
+import { log2 } from "./misc.js";
+import { Scalar, utils } from "ffjavascript";
+const {stringifyBigInts} = utils;
 
-async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
+export default async function groth16ProofFromInput(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2);
 
-    const wtns = await wtnsFile.readHeader(fdWtns, sectionsWtns);
+    const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
 
@@ -53,7 +54,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
 
     const buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T);
 
-    const proof = {};
+    let proof = {};
 
     proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness);
     let pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness);
@@ -81,7 +82,7 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
     proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( zkey.vk_delta_1, Fr.neg(Fr.mul(r,s) )));
 
 
-    const publicSignals = [];
+    let publicSignals = [];
 
     for (let i=1; i<= zkey.nPublic; i++) {
         const b = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
@@ -96,6 +97,10 @@ async function groth16Prover(zkeyFileName, witnessFileName, verbose) {
 
     await fdZKey.close();
     await fdWtns.close();
+
+    proof = stringifyBigInts(proof);
+    publicSignals = stringifyBigInts(publicSignals);
+
 
     return {proof, publicSignals};
 }
@@ -237,4 +242,3 @@ async function joinABC(curve, zkey, a, b, c) {
     return outBuff;
 }
 
-module.exports = groth16Prover;

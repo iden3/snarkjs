@@ -1,10 +1,10 @@
 
-const binFileUtils = require("./binfileutils");
-const zkeyUtils = require("./zkey_utils");
-const fastFile = require("fastfile");
-const getCurve = require("./curves").getCurveFromQ;
+import * as binFileUtils from "./binfileutils.js";
+import * as zkeyUtils from "./zkey_utils.js";
+import * as fastFile from "fastfile";
+import { getCurveFromQ as getCurve } from "./curves.js";
 
-module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, verbose) {
+export default async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
@@ -40,8 +40,8 @@ module.exports  = async function phase2exportMPCParams(zkeyName, mpcparamsName, 
     const buffBasesH_Lodd = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 9);
 
     let buffBasesH_Tau;
-    buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", verbose ? console.log : undefined);
-    buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", verbose ? console.log : undefined);
+    buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
+    buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", logger);
 
     // Remove last element.  (The degree of H will be allways m-2)
     buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);

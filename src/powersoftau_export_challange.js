@@ -6,13 +6,13 @@
 //     2^N  BetaTauG1 Points (uncompressed)
 //     BetaG2 (uncompressed)
 
-const fastFile = require("fastfile");
-const Blake2b = require("blake2b-wasm");
-const utils = require("./powersoftau_utils");
-const binFileUtils = require("./binfileutils");
-const misc = require("./misc");
+import * as fastFile from "fastfile";
+import Blake2b from "blake2b-wasm";
+import * as utils from "./powersoftau_utils.js";
+import * as binFileUtils from "./binfileutils.js";
+import * as misc from "./misc.js";
 
-async function exportChallange(pTauFilename, challangeFilename, verbose) {
+export default async function exportChallange(pTauFilename, challangeFilename, logger) {
     await Blake2b.ready();
     const {fd: fdFrom, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
 
@@ -28,11 +28,9 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
         curChallangeHash = contributions[contributions.length-1].nextChallange;
     }
 
-    console.log("Last Response Hash: ");
-    console.log(misc.formatHash(lastResponseHash));
+    if (logger) logger.info(misc.formatHash(lastResponseHash, "Last Response Hash: "));
 
-    console.log("New Challange Hash: ");
-    console.log(misc.formatHash(curChallangeHash));
+    if (logger) logger.info(misc.formatHash(curChallangeHash, "New Challange Hash: "));
 
 
     const fdTo = await fastFile.createOverride(challangeFilename);
@@ -53,11 +51,13 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
     const calcCurChallangeHash = toHash.digest();
 
     if (!misc.hashIsEqual (curChallangeHash, calcCurChallangeHash)) {
-        console.log("Calc Curret Challange Hash: ");
-        console.log(misc.formatHash(calcCurChallangeHash));
+        if (logger) logger.info(misc.formatHash(calcCurChallangeHash, "Calc Curret Challange Hash: "));
 
+        if (logger) logger.error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
         throw new Error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
     }
+
+    return curChallangeHash;
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
         const G = curve[groupName];
@@ -66,7 +66,7 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
 
         await binFileUtils.startReadUniqueSection(fdFrom, sections, sectionId);
         for (let i=0; i< nPoints; i+= nPointsChunk) {
-            if ((verbose)&&i) console.log(`${sectionName}: ` + i);
+            if (logger) logger.debug(`Exporting ${sectionName}: ${i}/${nPoints}`);
             const n = Math.min(nPoints-i, nPointsChunk);
             let buff;
             buff = await fdFrom.read(n*sG);
@@ -80,4 +80,3 @@ async function exportChallange(pTauFilename, challangeFilename, verbose) {
 
 }
 
-module.exports = exportChallange;

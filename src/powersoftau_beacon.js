@@ -1,26 +1,26 @@
-const Blake2b = require("blake2b-wasm");
-const utils = require("./powersoftau_utils");
-const misc = require("./misc");
-const binFileUtils = require("./binfileutils");
+import Blake2b from "blake2b-wasm";
+import * as utils from "./powersoftau_utils.js";
+import * as misc from "./misc.js";
+import * as binFileUtils from "./binfileutils.js";
 
 
 
-async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, beaconHashStr, verbose) {
+export default async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,numIterationsExp, logger) {
     const beaconHash = misc.hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
     {
-        console.log("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
+        if (logger) logger.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
         return false;
     }
     if (beaconHash.length>=256) {
-        console.log("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
         return false;
     }
 
     numIterationsExp = parseInt(numIterationsExp);
     if ((numIterationsExp<10)||(numIterationsExp>63)) {
-        console.log("Invalid numIterationsExp. (Must be between 10 and 63)");
+        if (logger) logger.error("Invalid numIterationsExp. (Must be between 10 and 63)");
         return false;
     }
 
@@ -30,10 +30,11 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await utils.readPTauHeader(fdOld, sections);
     if (power != ceremonyPower) {
-        throw new Error("This file has been reduced. You cannot contribute into a reduced file.");
+        if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
+        return false;
     }
     if (sections[12]) {
-        console.log("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
+        if (logger) logger.warn("Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
     }
     const contributions = await utils.readContributions(fdOld, curve, sections);
     const curContribution = {
@@ -48,7 +49,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     if (contributions.length>0) {
         lastChallangeHash = contributions[contributions.length-1].nextChallange;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, verbose);
+        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, logger);
     }
 
     curContribution.key = utils.keyFromBeacon(curve, lastChallangeHash, beaconHash, numIterationsExp);
@@ -62,15 +63,15 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     const startSections = [];
 
     let firstPoints;
-    firstPoints = await processSection(2, "G1",  (1<<power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1" );
+    firstPoints = await processSection(2, "G1",  (1<<power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1", logger );
     curContribution.tauG1 = firstPoints[1];
-    firstPoints = await processSection(3, "G2",  (1<<power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2" );
+    firstPoints = await processSection(3, "G2",  (1<<power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2", logger );
     curContribution.tauG2 = firstPoints[1];
-    firstPoints = await processSection(4, "G1",  (1<<power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1" );
+    firstPoints = await processSection(4, "G1",  (1<<power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1", logger );
     curContribution.alphaG1 = firstPoints[0];
-    firstPoints = await processSection(5, "G1",  (1<<power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1" );
+    firstPoints = await processSection(5, "G1",  (1<<power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1", logger );
     curContribution.betaG1 = firstPoints[0];
-    firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
+    firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
     curContribution.betaG2 = firstPoints[0];
 
     curContribution.partialHash = responseHasher.getPartialHash();
@@ -82,22 +83,20 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     responseHasher.update(new Uint8Array(buffKey));
     const hashResponse = responseHasher.digest();
 
-    console.log("Contribution Response Hash imported: ");
-    console.log(misc.formatHash(hashResponse));
+    if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     const nextChallangeHasher = new Blake2b(64);
     nextChallangeHasher.update(hashResponse);
 
-    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
-    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
-    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1");
-    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
-    await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
+    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
+    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
+    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
+    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
+    await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
     curContribution.nextChallange = nextChallangeHasher.digest();
 
-    console.log("Next Challange Hash: ");
-    console.log(misc.formatHash(curContribution.nextChallange));
+    if (logger) logger.info(misc.formatHash(curContribution.nextChallange, "Next Challange Hash: "));
 
     contributions.push(curContribution);
 
@@ -106,9 +105,9 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     await fdOld.close();
     await fdNew.close();
 
-    return;
+    return hashResponse;
 
-    async function processSection(sectionId, groupName, NPoints, first, inc, sectionName) {
+    async function processSection(sectionId, groupName, NPoints, first, inc, sectionName, logger) {
         const res = [];
         fdOld.pos = sections[sectionId][0].p;
 
@@ -121,7 +120,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
         const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
         let t = first;
         for (let i=0 ; i<NPoints ; i+= chunkSize) {
-            if ((verbose)&&i) console.log(`${sectionName}: ` + i);
+            if (logger) logger.debug(`applying key${sectionName}: ${i}/${NPoints}`);
             const n= Math.min(NPoints-i, chunkSize );
             const buffIn = await fdOld.read(n * sG);
             const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
@@ -150,7 +149,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     }
 
 
-    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
+    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName, logger) {
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
@@ -160,7 +159,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
         fdTo.pos = startSections[sectionId];
 
         for (let i=0; i< nPoints; i += nPointsChunk) {
-            if ((verbose)&&i) console.log(`Hashing ${sectionName}: ` + i);
+            if (logger) logger.debug(`Hashing ${sectionName}: ${i}/${nPoints}`);
             const n = Math.min(nPoints-i, nPointsChunk);
 
             const buffLEM = await fdTo.read(n * sG);
@@ -174,4 +173,3 @@ async function beacon(oldPtauFilename, newPTauFilename, name, numIterationsExp, 
     }
 }
 
-module.exports = beacon;

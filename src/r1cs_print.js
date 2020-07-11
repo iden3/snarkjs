@@ -1,5 +1,5 @@
 
-module.exports = function r1csPrint(r1cs, syms) {
+export default function r1csPrint(r1cs, syms, logger) {
     for (let i=0; i<r1cs.constraints.length; i++) {
         printCostraint(r1cs.constraints[i]);
     }
@@ -21,7 +21,7 @@ module.exports = function r1csPrint(r1cs, syms) {
             return S;
         };
         const S = `[ ${lc2str(c[0])} ] * [ ${lc2str(c[1])} ] - [ ${lc2str(c[2])} ] = 0`;
-        console.log(S);
+        if (logger) logger.info(S);
     }
 
-};
+}
