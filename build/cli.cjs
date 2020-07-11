@@ -4390,7 +4390,8 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
 
 
-    const initFileName = "~" + zkeyFileName + ".init";
+    // const initFileName = "~" + zkeyFileName + ".init";
+    const initFileName = {type: "mem"};
     await newZKey(r1csFileName, pTauFileName, initFileName);
 
     const {fd: fdInit, sections: sectionsInit} = await readBinFile$1(initFileName, "zkey", 2);
