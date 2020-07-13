@@ -11,7 +11,6 @@ var readline = _interopDefault(require('readline'));
 var crypto = _interopDefault(require('crypto'));
 var circomRuntime = _interopDefault(require('circom_runtime'));
 var path = _interopDefault(require('path'));
-var appRoot = _interopDefault(require('app-root-path'));
 var Logger = _interopDefault(require('logplease'));
 
 async function open(fileName, openFlags, cacheSize) {
@@ -740,7 +739,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.3.1";
+var version = "0.3.2";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
@@ -777,7 +776,6 @@ var repository = {
 	url: "https://github.com/iden3/snarkjs.git"
 };
 var dependencies = {
-	"app-root-path": "^3.0.0",
 	"blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
 	circom_runtime: "0.0.9",
 	fastfile: "0.0.6",
@@ -6109,7 +6107,12 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const templateName = path.join( appRoot.path, "templates", "verifier_groth16.sol");
+    let templateName;
+    if (path.existsSync(path.join( __dirname, "templates", "verifier_groth16.sol"))) {
+        templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
+    } else {
+        templateName = path.join( __dirname, "..", "templates", "verifier_groth16.sol");
+    }
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templateName);
 

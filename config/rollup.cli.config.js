@@ -25,8 +25,6 @@ export default {
         "keccak",
         "yargs",
         "logplease",
-
-        "app-root-path"
     ],
     plugins: [
         resolve({
