@@ -24,8 +24,9 @@ export default {
         "ffjavascript",
         "keccak",
         "yargs",
-        "logplease"
+        "logplease",
 
+        "app-root-path"
     ],
     plugins: [
         resolve({

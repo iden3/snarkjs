@@ -115,8 +115,6 @@ snarkjs powersoftau verify pot12_final.ptau
 
 ### Create a circuit
 ```sh
-mkdir mycircuit
-cd my mycircuit
 cat <<EOT > circuit.circom
 template Multiplier(n) {
     signal private input a;
@@ -164,6 +162,7 @@ snarkjs r1cs print circuit.r1cs
 ### export r1cs to json
 ```sh
 snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
+cat circuit.r1cs.json
 ```
 
 

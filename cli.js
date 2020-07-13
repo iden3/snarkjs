@@ -38,6 +38,7 @@ import * as groth16 from "./src/groth16.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
+import appRoot from "app-root-path";
 
 import Logger from "logplease";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
@@ -519,7 +520,7 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
+    const templateName = path.join( appRoot.path, "templates", "verifier_groth16.sol");
 
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templateName, logger);
 

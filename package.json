@@ -38,6 +38,7 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
+    "app-root-path": "^3.0.0",
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
     "circom_runtime": "0.0.9",
     "fastfile": "0.0.6",
