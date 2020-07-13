@@ -65,7 +65,7 @@ snarkjs g16p --help
 
 ### Debugging tip
 
-If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked. For example:
+If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked. For example, you can run:
 
 
 ```sh
@@ -101,7 +101,7 @@ You'll be prompted to enter a random text as an extra source of entropy.
 
 `contribute` takes as input the transcript of the protocol so far, in this case `pot12_0000.ptau`, and outputs a new transcript, in this case `pot12_0001.ptau`, which includes the computation carried out by the new contributor.
 
-`name` can be anything you want, and is just included for reference (it will be printed when you verify the file (step 4).
+`name` can be anything you want, and is just included for reference (it will be printed when you verify the file (step 5).
 
 ### 3. Provide a second contribution
 ```sh
@@ -142,7 +142,7 @@ snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090
 
 The next step is to apply a random beacon to it (we need to apply a random beacon in order to finalise phase 1 of the trusted setup).
 
-> A random beacon is a source of public randomness that is not available before a fixed time. The beacon itself can be a delayed hash function (e.g. 2^40 iterations of SHA256) evaluated on some high entropy and publicly available data. Possible sources of data include: the closing value of the stock market on a certain date in the future, the output of a selected set of national lotteries, or the value of a block at a particular height in one or more blockchains. E.g. the hash of the 11 millionth Ethereum block (which as of this writing is some 3 months in the future). See [here](https://eprint.iacr.org/2017/1050.pdf) for more on the importance of a random beacon.
+> To paraphrase Sean Bowe and Ariel Gabizon, a random beacon is a source of public randomness that is not available before a fixed time. The beacon itself can be a delayed hash function (e.g. 2^40 iterations of SHA256) evaluated on some high entropy and publicly available data. Possible sources of data include: the closing value of the stock market on a certain date in the future, the output of a selected set of national lotteries, or the value of a block at a particular height in one or more blockchains. E.g. the hash of the 11 millionth Ethereum block (which as of this writing is some 3 months in the future). See [here](https://eprint.iacr.org/2017/1050.pdf) for more on the importance of a random beacon.
 
 In the above case, the beacon is essentially a delayed hash function evaluated on `0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` (in practice, this will be some form of high entropy and publicly available data). The `10` just means perform `2 ^ 10` iterations of this hash function.
 
@@ -243,8 +243,9 @@ snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
 cat circuit.r1cs.json
 ```
 
+We export r1cs to json format to make it human readable.
 
-### 14. Generate the reference zKey without phase2 contributions.
+### 14. Generate the reference zKey without phase2 contributions
 ```sh
 snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
@@ -262,12 +263,15 @@ The following steps are similar to the equivalent phase1 steps, except we use `z
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
 
+We provide a contribution to the phase2 ceremony, and update the zkey to reflect this.
 
 
 ### 16. Provide a second phase2 contribution
 ```sh
 snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contribution Name" -v -e="Another random entropy"
 ```
+
+We provide a second contribution, and an updated zkey.
 
 ### 17. Provide a third contribution using third party software
 
@@ -277,8 +281,9 @@ snarkjs zkey bellman contribute bn128 challange_phase2_0003 response_phase2_0003
 snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
 ```
 
+We use [this software](https://github.com/kobigurk/phase2-bn254) to provide a third contribution.
 
-### 18. Verify the zkey file
+### 18. Verify the latest zkey
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 ```
@@ -289,7 +294,7 @@ snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
 ```
 
-### 20. Verify the final `ptau` file
+### 20. Verify the final `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
