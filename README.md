@@ -261,7 +261,7 @@ You can deploy th "Verifier" smartcontract using remix for example.
 In order to simulate a verification call, you can do:
 
 ```sh
-zkey export soliditycalldata public.json proof.json
+snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
 And cut and paste the resolt directlly in the "verifyProof" field in the deployed smart contract.
@@ -272,6 +272,7 @@ This call will return true if the proof and the public data is valid.
 ## Use in node
 
 ```sh
+npm init
 npm install snarkjs
 ```
 
@@ -305,6 +306,10 @@ run().then(() => {
 ## Use in the web
 
 load snarkjs.min.js and start using it normally.
+
+```
+cp node_modules/snarkjs/build/snarkjs.min.js .
+```
 
 
 ```html
