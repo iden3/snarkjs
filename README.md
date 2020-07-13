@@ -301,14 +301,14 @@ If everything checks out, you should see the following:
 snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
 ```
 
-The next step is to apply a random beacon to it (we need to apply a random beacon in order to finalise phase 2 of the trusted setup).
+After all the contributions are in, we apply a random beacon to the latest `zkey` (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
 
 ### 20. Verify the final `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
-Befoe we go ahead and export the verification key as a json, we perform a final check and verify the final protocol transcript.
+Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript.
 
 ### 21. Export the verification key
 ```sh
@@ -332,18 +332,20 @@ We calculate the witness given the inputs `a = 3` and `b = 11`.
 snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
 ```
 
-We check for any  errors in the witness calculation process (this is good practice).
+We check for any errors in the witness calculation process (this is best practice).
 
 
-The above command will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get)
+The above command will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get).
 
 
-### 24. Calculate the proof
+### 24. Create the proof
 ```sh
 snarkjs groth16 prove circuit_final.zkey witness.wtns proof.json public.json
 ```
 
-Note that it's possible to calculate both the proof and the witness in the same command:
+We create the proof. The above command will generate the files `proof.json` and `public.json`: `proof.json` contains the actual proof, whereas `public.json` contains the values of the public inputs and output.
+
+Note that it's possible to create the proof and calculate the witness in the same command by running:
 ```sh
 snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json public.json
 ```
@@ -354,22 +356,28 @@ snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json 
 snarkjs groth16 verify verification_key.json public.json proof.json
 ```
 
+We use the `groth16 verify` command to verify the proof, passing in the `verification_key` we exported earlier.
+
+If all is well, you should see that `OK` has been outputted to your console. This signifies the proof is valid.
+
+
 ### 26. Turn the verifier into a smart contract
 ```sh
 snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
 ```
 
-You can then deploy the verifier smart-contract using remix for example.
+Finally, we turn the the verifier into a smart-contract so that we can export it using [remix](https://remix.ethereum.org/) for example. For the details on how to do this, see section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
 
-In order to simulate a verification call, run:
-
+### 27. Simulate a verification call
 ```sh
 snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
-And cut and paste the result directly in the verifyProof field in the deployed smart contract. For more details on how to do this, see section four of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
+Run the above command to simulate a verification call, and cut and paste the result directly in the verifyProof field in thedeployed smart contract. 
 
 This call will return true if both the proof and public data are valid.
+
+And voila! That's all there is to it :)
 
 
 ## Using Node
@@ -469,7 +477,7 @@ async function calculateProof() {
 
 ## Final note
 
-We hope you enjoyed this quick walk-through. Please address any questions you may have to our [telegram group](https://t.me/iden3io) (it’s also a great way to join the community and stay up-to-date with the latest circom and snarkjs developments).
+We hope you enjoyed this quick walk-through. Please address any questions you may have to our [telegram group](https://t.me/iden3io) (it’s also a great way to join the community and stay up-to-date with the latest circom and snarkjs developments) 💙
 
 ## License
 
