@@ -1,6 +1,6 @@
 # snarkjs
 
-This is a JavaScript and Pure Web Assembly implementation of zkSNARK schemes. It uses the Groth16 Protocol (3 point only and 3 pairings).
+This is a **JavaScript and Pure Web Assembly implementation of zkSNARK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings).
 
 This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit specific ceremonies.
 
