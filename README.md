@@ -2,7 +2,7 @@
 
 This is a JavaScript and Pure Web Assembly implementation of zkSNARK schemes. It uses the Groth16 Protocol (3 point only and 3 pairings).
 
-This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal "powers of tau" ceremony, and the second phase circuit specific ceremonies.
+This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit specific ceremonies.
 
 > Any zk-snark project can pick a round from the common phase 1 to start their circuit-specific phase 2 ceremony.
 
@@ -74,6 +74,8 @@ snarkjs g16p -v
 
 
 ## Guide
+
+> If this is your first time using circom and snarkjs, we recommend going through [this tutorial](https://blog.iden3.io/first-zk-proof.html) first.
 
 ### 0. Create and move into a new directory
 ```sh
@@ -243,7 +245,7 @@ snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
 cat circuit.r1cs.json
 ```
 
-We export r1cs to json format to make it human readable.
+We export r1cs to `json` format to make it human readable.
 
 ### 14. Generate the reference zKey without phase2 contributions
 ```sh
@@ -283,7 +285,7 @@ snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.
 
 And a third using [third-party software](https://github.com/kobigurk/phase2-bn254).
 
-### 18. Verify the latest zkey
+### 18. Verify the latest `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 ```
@@ -308,7 +310,7 @@ After all the contributions are in, we apply a random beacon to the latest `zkey
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
-Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript.
+Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript (zkey).
 
 ### 21. Export the verification key
 ```sh
@@ -335,7 +337,7 @@ snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --
 We check for any errors in the witness calculation process (this is best practice).
 
 
-The above command will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get).
+The above command will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (`--get`).
 
 
 ### 24. Create the proof
@@ -474,6 +476,15 @@ async function calculateProof() {
 </body>
 </html>
 ```
+
+## Further resources
+- [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
+- [Scalable Multi-party Computation for zk-SNARK Parameters in
+the Random Beacon Model](https://eprint.iacr.org/2017/1050.pdf)
+- [phase2-bn254](https://github.com/kobigurk/phase2-bn254)
+- [Perpetual Powers of Tau](https://github.com/weijiekoh/perpetualpowersoftau)
+- [Powers of Tau](https://github.com/ebfull/powersoftau)
+- [Trusted setup ceremonies explored](https://www.zeroknowledge.fm/133)
 
 ## Final note
 
