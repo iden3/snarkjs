@@ -455,6 +455,9 @@ class MemFile {
 
 }
 
+/* global fetch */
+
+
 async function createOverride(o, b) {
     if (typeof o === "string") {
         o = {
@@ -472,24 +475,38 @@ async function createOverride(o, b) {
     }
 }
 
-function readExisting$1(o, b) {
+async function readExisting$1(o, b) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
             data: o
         };
     }
-    if (typeof o === "string") {
-        o = {
-            type: "file",
-            fileName: o,
-            cacheSize: b
-        };
+    if (process.browser) {
+        if (typeof o === "string") {
+            const buff = await fetch(o).then( function(res) {
+                return res.arrayBuffer();
+            }).then(function (ab) {
+                return new Uint8Array(ab);
+            });
+            o = {
+                type: "mem",
+                data: buff
+            };
+        }
+    } else {
+        if (typeof o === "string") {
+            o = {
+                type: "file",
+                fileName: o,
+                cacheSize: b
+            };
+        }
     }
     if (o.type == "file") {
-        return open(o.fileName, "r", o.cacheSize);
+        return await open(o.fileName, "r", o.cacheSize);
     } else if (o.type == "mem") {
-        return readExisting(o);
+        return await readExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -734,10 +751,11 @@ var scripts = {
 	test: "mocha",
 	build: "rollup -c config/rollup.cjs.config.js",
 	buildcli: "rollup -c config/rollup.cli.config.js",
-	buildiife: "BROWSER=true rollup -c config/rollup.iife.config.js"
+	buildiife: "BROWSER=true rollup -c config/rollup.iife.config.js",
+	buildiifemin: "BROWSER=true rollup -c config/rollup.iife_min.config.js"
 };
 var bin = {
-	snarkjs: "build/cli.js"
+	snarkjs: "build/cli.cjs"
 };
 var directories = {
 	templates: "templates"
@@ -760,11 +778,11 @@ var repository = {
 var dependencies = {
 	"blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
 	circom_runtime: "0.0.8",
-	fastfile: "0.0.5",
+	fastfile: "0.0.6",
 	ffjavascript: "0.2.2",
 	keccak: "^3.0.0",
 	logplease: "^1.2.15",
-	r1csfile: "0.0.9",
+	r1csfile: "0.0.10",
 	yargs: "^12.0.5"
 };
 var devDependencies = {
@@ -777,7 +795,8 @@ var devDependencies = {
 	"rollup-plugin-ignore": "^1.0.6",
 	"rollup-plugin-json": "^4.0.0",
 	"rollup-plugin-node-resolve": "^5.2.0",
-	"rollup-plugin-replace": "^2.2.0"
+	"rollup-plugin-replace": "^2.2.0",
+	"rollup-plugin-terser": "^6.1.0"
 };
 var pkg = {
 	name: name,
@@ -5203,7 +5222,7 @@ async function read(fileName) {
 
 const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
 
-async function groth16ProofFromInput(zkeyFileName, witnessFileName, logger) {
+async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2);
 
     const wtns = await readHeader$1(fdWtns, sectionsWtns);
@@ -5297,7 +5316,6 @@ async function groth16ProofFromInput(zkeyFileName, witnessFileName, logger) {
 
     proof = stringifyBigInts$1(proof);
     publicSignals = stringifyBigInts$1(publicSignals);
-
 
     return {proof, publicSignals};
 }
@@ -5457,12 +5475,12 @@ async function wtnsCalculate(input, wasmFileName, wtnsFileName, options) {
 
 }
 
-async function groth16ProofFromInput$1(input, wasmFile, zkeyFileName, logger) {
+async function groth16FullProve(input, wasmFile, zkeyFileName, logger) {
     const wtns= {
         type: "mem"
     };
     await wtnsCalculate(input, wasmFile, wtns);
-    return await groth16ProofFromInput(zkeyFileName, wtns);
+    return await groth16Prove(zkeyFileName, wtns);
 }
 
 /*
@@ -5485,7 +5503,7 @@ async function groth16ProofFromInput$1(input, wasmFile, zkeyFileName, logger) {
 */
 const {unstringifyBigInts} = ffjavascript.utils;
 
-async function isValid(vk_verifier, publicSignals, proof, logger) {
+async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
@@ -5650,13 +5668,6 @@ const commands = [
         action: powersOfTawImport
     },
     {
-        cmd: "powersoftau verify <powersoftau.ptau>",
-        description: "verifies a powers of tau file",
-        alias: ["ptv"],
-        options: "-verbose|v",
-        action: powersOfTawVerify
-    },
-    {
         cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
         description: "adds a beacon",
         alias: ["ptb"],
@@ -5670,6 +5681,13 @@ const commands = [
         alias: ["pt2"],
         options: "-verbose|v",
         action: powersOfTawPreparePhase2
+    },
+    {
+        cmd: "powersoftau verify <powersoftau.ptau>",
+        description: "verifies a powers of tau file",
+        alias: ["ptv"],
+        options: "-verbose|v",
+        action: powersOfTawVerify
     },
     {
         cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
@@ -5718,34 +5736,67 @@ const commands = [
         alias: ["wej"],
         action: wtnsExportJson$1
     },
-/*
     {
-        cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
-        description: "Run a simple setup for a circuit generating the proving key.",
-        alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
-        options: "-verbose|v -protocol",
-        action: zksnarkSetup
-    },
-*/
-    {
-        cmd: "groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
-        description: "Generates a zk Proof from witness",
-        alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-        options: "-verbose|v -protocol",
-        action: zksnarkProve
+        cmd: "zkey new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial pkey file with zero contributions ",
+        alias: ["zkn"],
+        options: "-verbose|v",
+        action: zkeyNew
     },
     {
-        cmd: "groth16 fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
-        description: "Generates a zk Proof from input",
-        alias: ["g16f", "g16i"],
-        options: "-verbose|v -protocol",
-        action: zksnarkFullProve
+        cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
+        description: "creates a zkey file with a new contribution",
+        alias: ["zkc"],
+        options: "-verbose|v  -entropy|e -name|n",
+        action: zkeyContribute
     },
     {
-        cmd: "groth16 verify [verification_key.json] [public.json] [proof.json]",
-        description: "Verify a zk Proof",
-        alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
-        action: zksnarkVerify
+        cmd: "zkey export bellman [circuit.zkey] [circuit.mpcparams]",
+        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman)",
+        alias: ["zkeb"],
+        options: "-verbose|v",
+        action: zkeyExportBellman
+    },
+    {
+        cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
+        description: "contributes to a llallange file in bellman format",
+        alias: ["zkbc"],
+        options: "-verbose|v  -entropy|e",
+        action: zkeyBellmanContribute
+    },
+    {
+        cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
+        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
+        alias: ["zkib"],
+        options: "-verbose|v -name|n",
+        action: zkeyImportBellman
+    },
+    {
+        cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
+        description: "adds a beacon",
+        alias: ["zkb"],
+        options: "-verbose|v -name|n",
+        action: zkeyBeacon
+    },
+    {
+        cmd: "zkey verify [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
+        alias: ["zkv"],
+        options: "-verbose|v",
+        action: zkeyVerify
+    },
+    {
+        cmd: "zkey export verificationkey [circuit.zkey] [verification_key.json]",
+        description: "Exports a verification key",
+        alias: ["zkev"],
+        action: zkeyExportVKey
+    },
+    {
+        cmd: "zkey export json [circuit.zkey] [circuit.zkey.json]",
+        description: "Exports a circuit key to a JSON file",
+        alias: ["zkej"],
+        options: "-verbose|v",
+        action: zkeyExportJson$1
     },
     {
         cmd: "zkey export solidityverifier [circuit.zkey] [verifier.sol]",
@@ -5760,66 +5811,24 @@ const commands = [
         action: zkeyExportSolidityCalldata
     },
     {
-        cmd: "zkey new [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
-        description: "Creates an initial pkey file with zero contributions ",
-        alias: ["zkn"],
-        options: "-verbose|v",
-        action: zkeyNew
+        cmd: "groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a zk Proof from witness",
+        alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
+        options: "-verbose|v -protocol",
+        action: groth16Prove$1
     },
     {
-        cmd: "zkey export bellman [circuit.zkey] [circuit.mpcparams]",
-        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman)",
-        alias: ["zkeb"],
-        options: "-verbose|v",
-        action: zkeyExportBellman
+        cmd: "groth16 fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
+        description: "Generates a zk Proof from input",
+        alias: ["g16f", "g16i"],
+        options: "-verbose|v -protocol",
+        action: groth16FullProve$1
     },
     {
-        cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
-        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
-        alias: ["zkib"],
-        options: "-verbose|v -name|n",
-        action: zkeyImportBellman
-    },
-    {
-        cmd: "zkey verify [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
-        description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
-        alias: ["zkv"],
-        options: "-verbose|v",
-        action: zkeyVerify
-    },
-    {
-        cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
-        description: "creates a zkey file with a new contribution",
-        alias: ["zkc"],
-        options: "-verbose|v  -entropy|e -name|n",
-        action: zkeyContribute
-    },
-    {
-        cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
-        description: "adds a beacon",
-        alias: ["zkb"],
-        options: "-verbose|v -name|n",
-        action: zkeyBeacon
-    },
-    {
-        cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
-        description: "contributes to a llallange file in bellman format",
-        alias: ["zkbc"],
-        options: "-verbose|v  -entropy|e",
-        action: zkeyBellmanContribute
-    },
-    {
-        cmd: "zkey export verificationkey [circuit.zkey] [verification_key.json]",
-        description: "Exports a verification key",
-        alias: ["zkev"],
-        action: zkeyExportVKey
-    },
-    {
-        cmd: "zkey export json [circuit.zkey] [circuit.zkey.json]",
-        description: "Exports a circuit key to a JSON file",
-        alias: ["zkej"],
-        options: "-verbose|v",
-        action: zkeyExportJson$1
+        cmd: "groth16 verify [verification_key.json] [public.json] [proof.json]",
+        description: "Verify a zk Proof",
+        alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
+        action: groth16Verify$1
     },
 
 ];
@@ -5839,42 +5848,21 @@ TODO COMMANDS
 =============
 
     {
-        cmd: "r1cs export circomJSON [circuit.r1cs] [circuit.json]",
-        description: "Exports a R1CS to JSON file.",
-        alias: ["rj"],
-        action: r1csExportCircomJSON
+        cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
+        description: "Run a simple setup for a circuit generating the proving key.",
+        alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
+        options: "-verbose|v -protocol",
+        action: zksnarkSetup
     },
-    {
-        cmd: "witness export json <witness.wtns> <witness.json>",
-        description: "Export witness file to json",
-        alias: ["wj"],
-        action: witnessExportJson
-    },
-
-    {
-        cmd: "zkey export vkey <circuit.zkey> <verification_key.json>",
-        description: "Exports a verification key to JSON",
-        alias: ["kv"],
-        action: zKeySolidity
-    },
-
     {
         cmd: "witness verify <circuit.r1cs> <witness.wtns>",
         description: "Verify a witness agains a r1cs",
         alias: ["wv"],
         action: witnessVerify
     },
-
-phase2 constribute                          Contribute in the seconf phase ceremony
-phase2 beacon                               Contribute in the seconf phase ceremony with a Powers of Tau
-phase2 verify                               Verify the Powers of tau
-zksnark setup                s              Run a simple setup for a circuit generating the proving key.
-zksnark prove                p              Generates a zk Proof
-zksnark verify               v              Verify a zk Proof
-zkey export pkJSON           pkjson         Exports a proving key to JSON
-zkey export vkJSON           vkjson         Exports a verification key to JSON
-zkey export vkSolidity       vksol          Creates a verifier in solidity
-proof callParameters         cp             Generates call parameters ready to be called.
+    {
+        cmd: "powersOfTau export response"
+    }
 */
 
 
@@ -6014,7 +6002,7 @@ async function zksnarkSetup(params, options) {
 */
 
 // groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
-async function zksnarkProve(params, options) {
+async function groth16Prove$1(params, options) {
 
     const zkeyName = params[0] || "circuit.zkey";
     const witnessName = params[1] || "witness.wtns";
@@ -6023,7 +6011,7 @@ async function zksnarkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await groth16ProofFromInput(zkeyName, witnessName);
+    const {proof, publicSignals} = await groth16Prove(zkeyName, witnessName);
 
     await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$2(proof), null, 1), "utf-8");
     await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$2(publicSignals), null, 1), "utf-8");
@@ -6032,7 +6020,7 @@ async function zksnarkProve(params, options) {
 }
 
 // groth16 fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]
-async function zksnarkFullProve(params, options) {
+async function groth16FullProve$1(params, options) {
 
     const inputName = params[0] || "input.json";
     const wasmName = params[1] || "circuit.wasm";
@@ -6044,7 +6032,7 @@ async function zksnarkFullProve(params, options) {
 
     const input = unstringifyBigInts$1(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
 
-    const {proof, publicSignals} = await groth16ProofFromInput$1(input, wasmName, zkeyName);
+    const {proof, publicSignals} = await groth16FullProve(input, wasmName, zkeyName);
 
     await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$2(proof), null, 1), "utf-8");
     await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$2(publicSignals), null, 1), "utf-8");
@@ -6053,7 +6041,7 @@ async function zksnarkFullProve(params, options) {
 }
 
 // groth16 verify [verification_key.json] [public.json] [proof.json]
-async function zksnarkVerify(params, options) {
+async function groth16Verify$1(params, options) {
 
     const verificationKeyName = params[0] || "verification_key.json";
     const publicName = params[1] || "public.json";
@@ -6065,9 +6053,9 @@ async function zksnarkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid$1 = await isValid(verificationKey, pub, proof, logger);
+    const isValid = await groth16Verify(verificationKey, pub, proof, logger);
 
-    if (isValid$1) {
+    if (isValid) {
         return 0;
     } else {
         return 1;

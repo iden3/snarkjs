@@ -6,7 +6,7 @@ import { log2 } from "./misc.js";
 import { Scalar, utils } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
-export default async function groth16ProofFromInput(zkeyFileName, witnessFileName, logger) {
+export default async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2);
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
@@ -100,7 +100,6 @@ export default async function groth16ProofFromInput(zkeyFileName, witnessFileNam
 
     proof = stringifyBigInts(proof);
     publicSignals = stringifyBigInts(publicSignals);
-
 
     return {proof, publicSignals};
 }

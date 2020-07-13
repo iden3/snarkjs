@@ -109,7 +109,7 @@ describe("Full process", function ()  {
     });
 
     it ("groth16 verify", async () => {
-        const res = await snarkjs.groth16.validate(vKey, publicSignals, proof);
+        const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
         assert(res == true);
     });
 

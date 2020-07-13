@@ -13,10 +13,11 @@
     "test": "mocha",
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
-    "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js"
+    "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
+    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js"
   },
   "bin": {
-    "snarkjs": "build/cli.js"
+    "snarkjs": "build/cli.cjs"
   },
   "directories": {
     "templates": "templates"
@@ -39,11 +40,11 @@
   "dependencies": {
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
     "circom_runtime": "0.0.8",
-    "fastfile": "0.0.5",
+    "fastfile": "0.0.6",
     "ffjavascript": "0.2.2",
     "keccak": "^3.0.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.9",
+    "r1csfile": "0.0.10",
     "yargs": "^12.0.5"
   },
   "devDependencies": {
@@ -56,6 +57,7 @@
     "rollup-plugin-ignore": "^1.0.6",
     "rollup-plugin-json": "^4.0.0",
     "rollup-plugin-node-resolve": "^5.2.0",
-    "rollup-plugin-replace": "^2.2.0"
+    "rollup-plugin-replace": "^2.2.0",
+    "rollup-plugin-terser": "^6.1.0"
   }
 }

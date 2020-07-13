@@ -1,7 +1,7 @@
 import groth16_prove from "./groth16_prove.js";
 import wtns_calculate from "./wtns_calculate.js";
 
-export default async function groth16ProofFromInput(input, wasmFile, zkeyFileName, logger) {
+export default async function groth16FullProve(input, wasmFile, zkeyFileName, logger) {
     const wtns= {
         type: "mem"
     };

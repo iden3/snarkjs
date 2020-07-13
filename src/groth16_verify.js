@@ -23,7 +23,7 @@ import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
-export default async function isValid(vk_verifier, publicSignals, proof, logger) {
+export default async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
