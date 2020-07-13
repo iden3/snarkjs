@@ -157,7 +157,7 @@ We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
 
 Under the hood,  the `prepare phase2` command calculates the evaluation of the Lagrange polynomials at tau for `alpha*tau` and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step, and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
 
-### 8. Verify the final `ptau` file
+### 8. Verify the final `ptau`
 ```sh
 snarkjs powersoftau verify pot12_final.ptau
 ```
@@ -256,14 +256,14 @@ Importantly, one can verify whether a `zKey` belongs to a specific circuit or no
 
 Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not include any contributions yet, so it cannot be used in a final circuit.
 
-The following steps are similar to the equivalent phase1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.
+*The following steps (15-20) are similar to the equivalent phase1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
 
 ### 15. Contribute to the phase2 ceremony
 ```sh
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
 
-We provide a contribution to the phase2 ceremony, and update the zkey to reflect this. As in phase 1, you'll be prompted to enter a random text as an extra source of entropy.
+We contribute to the phase2 ceremony, and update the zkey to reflect this. As in phase 1, you'll be prompted to enter a random text as an extra source of entropy.
 
 
 ### 16. Provide a second phase2 contribution
@@ -281,28 +281,40 @@ snarkjs zkey bellman contribute bn128 challange_phase2_0003 response_phase2_0003
 snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
 ```
 
-We use [this software](https://github.com/kobigurk/phase2-bn254) to provide a third contribution.
+And a third using [third-party software](https://github.com/kobigurk/phase2-bn254).
 
 ### 18. Verify the latest zkey
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 ```
 
+We verify the `zkey` file we created in the previous step. The `verify` command verifies a `zkey` file. Which means it checks all the contributions to the second phase of the multi-party computation (MPC) up to that point. It also prints the hashes of all the intermediary results to the console.
+
+If everything checks out, you should see the following:
+
+```
+[INFO]  snarkJS: ZKey Ok!
+```
 
 ### 19. Apply a random beacon
 ```sh
 snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
 ```
 
+The next step is to apply a random beacon to it (we need to apply a random beacon in order to finalise phase 2 of the trusted setup).
+
 ### 20. Verify the final `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
+Befoe we go ahead and export the verification key as a json, we perform a final check and verify the final protocol transcript.
+
 ### 21. Export the verification key
 ```sh
 snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
 ```
+We export the verification key from `circuit_final.zkey` into `verification_key.json`.
 
 ### 22. Calculate the witness
 ```sh
@@ -312,16 +324,18 @@ EOT
 snarkjs wtns calculate circuit.wasm input.json witness.wtns
 ```
 
+We calculate the witness given the inputs `a = 3` and `b = 11`.
+
+
 ### 23. Debug the final witness calculation
-
-In general, when you are developing a new circuit you will want to check for some errors in the witness calculation process.
-
-To do so, run:
 ```sh
 snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
 ```
 
-This will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get)
+We check for any  errors in the witness calculation process (this is good practice).
+
+
+The above command will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get)
 
 
 ### 24. Calculate the proof
@@ -453,7 +467,10 @@ async function calculateProof() {
 </html>
 ```
 
-*P.S. Please address any questions you may have to our [telegram group](https://t.me/iden3io) (it’s also a great way to join the community and stay up-to-date with the latest circom and snarkjs developments).*
+## Final note
+
+We hope you enjoyed this quick walk-through. Please address any questions you may have to our [telegram group](https://t.me/iden3io) (it’s also a great way to join the community and stay up-to-date with the latest circom and snarkjs developments).
+
 ## License
 
 snarkjs is part of the iden3 project copyright 2018 0KIMS association and published with GPL-3 license. Please check the COPYING file for more details.
