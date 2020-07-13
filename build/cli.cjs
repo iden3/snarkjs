@@ -739,7 +739,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.3.2";
+var version = "0.3.3";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
@@ -6108,9 +6108,10 @@ async function zkeyExportSolidityVerifier(params, options) {
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
     let templateName;
-    if (path.existsSync(path.join( __dirname, "templates", "verifier_groth16.sol"))) {
+    try {
         templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
-    } else {
+        await fs.promises.stat(templateName);
+    } catch (err) {
         templateName = path.join( __dirname, "..", "templates", "verifier_groth16.sol");
     }
 

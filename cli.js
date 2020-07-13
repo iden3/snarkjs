@@ -520,9 +520,10 @@ async function zkeyExportSolidityVerifier(params, options) {
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
     let templateName;
-    if (path.existsSync(path.join( __dirname, "templates", "verifier_groth16.sol"))) {
+    try {
         templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
-    } else {
+        await fs.promises.stat(templateName);
+    } catch (err) {
         templateName = path.join( __dirname, "..", "templates", "verifier_groth16.sol");
     }
 
