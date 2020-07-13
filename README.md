@@ -14,7 +14,7 @@ It works in [`node.js`](#using-node) as well as directly in the [browser](#in-th
 
 It's an [ES module](https://hacks.mozilla.org/2018/03/es-modules-a-cartoon-deep-dive/), so it can be directly imported into bigger projects using [Rollup](https://rollupjs.org/guide/en/) or [Webpack](https://webpack.js.org/).
 
-The low-level cryptography is performed directly in wasm, and uses worker threads to parallelize the computations. The result is a high performance library with benchmarks comparable to host implementations.
+The low-level cryptography is performed directly in `wasm`, and uses worker threads to parallelize the computations. The result is a high performance library with benchmarks comparable to host implementations.
 
 ## Preliminaries
 
@@ -49,16 +49,15 @@ snarkjs --help
 ```
 
 
-The help for specific command:
+You can also us the `--help` option with specific commands:
 
-Example
 ```sh
 snarkjs groth16 prove --help
 ```
 
-Most of the commands have a short alias.
+Most of the commands have an alternative shorter alias (which you can discover using `--help`).
 
-For example, the previous command can also be invoked as:
+For example, the previous command can also be invoked with:
 
 ```sh
 snarkjs g16p --help
