@@ -1,4 +1,4 @@
-# snarkjs: JavaScript implementation of zkSNARKs.
+# snarkjs
 
 This is a JavaScript and Pure Web Assembly implementation of zkSNARK schemes. It uses the Groth16 Protocol (3 point only and 3 pairings).
 
@@ -40,7 +40,7 @@ npm install -g snarkjs@latest
 
 If you're seeing an error, try prefixing both commands with `sudo`.
 
-### Understand the Help command
+### Understand the `help` command
 
 To see a list of all `snarkjs` commands, as well as descriptions about their inputs and outputs, run:
 
@@ -114,7 +114,7 @@ By allowing you to write the random text as part of the command, the `-e` parame
 ### 4. Provide a third contribution using third party software
 ```sh
 snarkjs powersoftau export challange pot12_0002.ptau challange_0003
-snarkjs powersoftau challange contribute bn128 challange_0003 response_0003
+snarkjs powersoftau challange contribute bn128 challange_0003 response_0003 -e="some random text"
 snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
 ```
 
@@ -288,7 +288,7 @@ We provide a second contribution.
 
 ```sh
 snarkjs zkey export bellman circuit_0002.zkey  challange_phase2_0003
-snarkjs zkey bellman contribute bn128 challange_phase2_0003 response_phase2_0003
+snarkjs zkey bellman contribute bn128 challange_phase2_0003 response_phase2_0003 -e="some random text"
 snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
 ```
 
