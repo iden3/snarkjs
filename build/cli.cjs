@@ -739,7 +739,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.1.31";
+var version = "0.3.0";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
@@ -777,12 +777,12 @@ var repository = {
 };
 var dependencies = {
 	"blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
-	circom_runtime: "0.0.8",
+	circom_runtime: "0.0.9",
 	fastfile: "0.0.6",
-	ffjavascript: "0.2.2",
+	ffjavascript: "0.2.4",
 	keccak: "^3.0.0",
 	logplease: "^1.2.15",
-	r1csfile: "0.0.10",
+	r1csfile: "0.0.12",
 	yargs: "^12.0.5"
 };
 var devDependencies = {

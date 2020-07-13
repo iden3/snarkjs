@@ -20,8 +20,8 @@ The low level criptography is done directly in wasm. And it uses working threads
 
 ### Install snarkjs and circom
 ```sh
-npm install -g circom
-npm install -g snarkjs
+npm install -g circom@latest
+npm install -g snarkjs@latest
 ```
 
 ### Help
@@ -45,6 +45,12 @@ For example, the previos command can also be invoked as:
 
 ```sh
 snarkjs g16p --help
+```
+
+For this tutorial, create a new direcory and change the path
+```sh
+mkdir snarkjs_example
+cd snarkjs_example
 ```
 
 
@@ -99,7 +105,7 @@ snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090
 
 ### Prepare phase2
 ```sh
-powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
+snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
 ```
 
 ### Verify the last file
