@@ -1,8 +1,10 @@
 # snarkjs: JavaScript implementation of zkSNARKs.
 
-This is a JavaScript and Pure Web Assembly implementation of zkSNARK schemes. It uses the Groth16 Protocol (3 point only and 3 pairings)
+This is a JavaScript and Pure Web Assembly implementation of zkSNARK schemes. It uses the Groth16 Protocol (3 point only and 3 pairings).
 
 This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal "powers of tau" ceremony, and the second phase circuit specific ceremonies.
+
+> Any zk-snark project can pick a round from the common phase 1 to start their circuit-specific phase 2 ceremony.
 
 The formats used in this library for the multi-party computation are compatible with the ones used in [Semaphore's Perpetual Powers of Tau](https://github.com/weijiekoh/perpetualpowersoftau) and [other implementations](https://github.com/kobigurk/phase2-bn254).
 
