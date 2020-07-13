@@ -72,73 +72,90 @@ snarkjs g16p -v
 ```
 
 
-## Tutorial
+## Guide
 
-### 0. Create a new directory
-
+### 0. Create and move into a new directory
 ```sh
 mkdir snarkjs_example
 cd snarkjs_example
 ```
 
-### 1. Start a new ceremony.
-
+### 1. Start a new powers of tau ceremony
 ```sh
-snarkjs powersoftau new bn128 12 pot12_0000.ptau
+snarkjs powersoftau new bn128 12 pot12_0000.ptau -v
 ```
 
 The first parameter after `new` refers to the type of curve you wish to use. At the moment, we support both `bn128` and `bls12-381`.
 
-The second parameter, in this case `12`, is the power of two of the maximum number of contraints that the ceremony can accept.
+The second parameter, in this case `12`, is the power of two of the maximum number of contraints that the ceremony can accept: in this case, the number of constraints is `2 ^ 12 = 4096`. The maximum value supported here is `28`, which means you can use `snarkjs` to securely generate zk-snark parameters for circuits with up to `2 ^ 28` (≈268 million) constraints.
 
-In this case, the maximum number of constraints is `2^12 = 4096`.
+> Note that the creator of the ceremony is also the first contributor.
 
 ### 2. Contribute to the ceremony
 ```sh
-snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="Example Name" -v
+snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="First contribution" -v
 ```
 
-The name is a random name and it's include for reference. It's printed in the verification.
+You'll be prompted to enter a random text as an extra source of entropy.
+
+`contribute` takes as input the transcript of the protocol so far, in this case `pot12_0000.ptau`, and outputs a new transcript, in this case `pot12_0001.ptau`, which includes the computation carried out by the new contributor.
+
+`name` can be anything you want, and is just included for reference (it will be printed when you verify the file (step 4).
 
 ### 3. Provide a second contribution
 ```sh
-snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution Name" -v -e="some random text"
+snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution" -v -e="some random text"
 ```
 
-the -e parameter allows the comman to be non interactive and use this text as an extra source of entropy for the random generation.
+By allowing you to write the random text as part of the command, the `-e` parameter allows `contribute` to be non-interactive.
 
-
-### 4. Verify the file
-```sh
-snarkjs powersoftau verify pot12_0002.ptau
-```
-
-This command checks all the contributions of the Multiparty Computation (MPC) and list the hashes of the
-intermediary results.
-
-### Contribute using third party software
-
+### 4. Provide a third contribution using third party software
 ```sh
 snarkjs powersoftau export challange pot12_0002.ptau challange_0003
 snarkjs powersoftau challange contribute bn128 challange_0003 response_0003
 snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
 ```
 
+The commands above use [this software](https://github.com/kobigurk/phase2-bn254) to help generate a challenge, response, and a new `ptau` file.
 
-### Add a beacon
+### 5. Verify the protocol so far
+```sh
+snarkjs powersoftau verify pot12_0003.ptau
+```
+
+The `verify` command verifies a `ptau` (powers of tau) file. Which means it checks all the contributions to the multi-party computation (MPC) up to that point. It also prints the hashes of all the intermediary results to the console.
+
+If everything checks out, you should see the following at the top of the output:
+
+```sh
+[INFO]  snarkJS: Powers Of tau file OK!
+```
+
+In sum, whenever a new zk-snark project needs to perform a trusted setup, you can just pick the latest `ptau` file, and run the `verify` command to verify the entire chain of challenges and responses so far.
+
+
+### 6. Apply a random beacon
 ```sh
 snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
 ```
 
-### Prepare phase2
+The next step is to apply a random beacon to it (we need to apply a random beacon in order to finalise phase 1 of the trusted setup).
+
+> A random beacon is a source of public randomness that is not available before a fixed time. The beacon itself can be a delayed hash function (e.g. 2^40 iterations of SHA256) evaluated on some high entropy and publicly available data. Possible sources of data include: the closing value of the stock market on a certain date in the future, the output of a selected set of national lotteries, or the value of a block at a particular height in one or more blockchains. E.g. the hash of the 11 millionth Ethereum block (which as of this writing is some 3 months in the future). See [here](https://eprint.iacr.org/2017/1050.pdf) for more on the importance of a random beacon.
+
+
+### 7. Prepare phase 2
 ```sh
 snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
 ```
 
-### Verify the last file
+We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
+
+### 8. Verify the final protocol transcript
 ```sh
 snarkjs powersoftau verify pot12_final.ptau
 ```
+
 
 ### Create a circuit
 ```sh
