@@ -448,7 +448,7 @@ async function calculateProof() {
 </html>
 ```
 
-
+*P.S. Please address any questions you may have to our [telegram group](https://t.me/iden3io) (it’s also a great way to join the community and stay up-to-date with the latest circom and snarkjs developments).*
 ## License
 
 snarkjs is part of the iden3 project copyright 2018 0KIMS association and published with GPL-3 license. Please check the COPYING file for more details.
