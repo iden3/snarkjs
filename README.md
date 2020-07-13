@@ -259,7 +259,7 @@ snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
 
 The `zkey new` command creates an initial `zkey` file with zero contributions.
 
-The `zley` is a zero-knowledge key that includes both the pairing and verification keys as well as phase2 contributions.
+The `zkey` is a zero-knowledge key that includes both the pairing and verification keys as well as phase2 contributions.
 
 Importantly, one can verify whether a `zkey` belongs to a specific circuit or not.
 
@@ -272,7 +272,9 @@ Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
 
-We contribute to the phase2 ceremony, and update the zkey to reflect this. As in phase 1, you'll be prompted to enter a random text as an extra source of entropy.
+The `zkey contribute` command creates a `zkey` file with a new contribution.
+
+As in phase 1, you'll be prompted to enter a random text as an extra source of entropy.
 
 
 ### 16. Provide a second phase2 contribution
@@ -312,14 +314,16 @@ If everything checks out, you should see the following:
 snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
 ```
 
-After all the contributions are in, we apply a random beacon to the latest `zkey` (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
+The `zkey beacon` command creates a `zkey` file with a contribution applied in the form of a random beacon.
+
+We us it to apply a random beacon to the latest `zkey` after all the final contribution has been made (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
 
 ### 20. Verify the final `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
-Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript (zkey).
+Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript (`zkey`).
 
 ### 21. Export the verification key
 ```sh
