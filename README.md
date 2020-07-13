@@ -263,7 +263,7 @@ The following steps are similar to the equivalent phase1 steps, except we use `z
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
 
-We provide a contribution to the phase2 ceremony, and update the zkey to reflect this.
+We provide a contribution to the phase2 ceremony, and update the zkey to reflect this. As in phase 1, you'll be prompted to enter a random text as an extra source of entropy.
 
 
 ### 16. Provide a second phase2 contribution
@@ -271,7 +271,7 @@ We provide a contribution to the phase2 ceremony, and update the zkey to reflect
 snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contribution Name" -v -e="Another random entropy"
 ```
 
-We provide a second contribution, and an updated zkey.
+We provide a second contribution.
 
 ### 17. Provide a third contribution using third party software
 
@@ -312,7 +312,6 @@ EOT
 snarkjs wtns calculate circuit.wasm input.json witness.wtns
 ```
 
-
 ### 23. Debug the final witness calculation
 
 In general, when you are developing a new circuit you will want to check for some errors in the witness calculation process.
@@ -322,7 +321,7 @@ To do so, run:
 snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
 ```
 
-This will log every time a new component is started/ended (`--trigger`), when a signal is set (`--set`) and when it's get (--get)
+This will log every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (--get)
 
 
 ### 24. Calculate the proof
