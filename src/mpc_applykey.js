@@ -5,7 +5,7 @@ import * as binFileUtils from "./binfileutils.js";
     This function creates a new section in the fdTo file with id idSection.
     It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
-    It also updates the newChallangeHasher with the new points
+    It also updates the newChallengeHasher with the new points
 */
 
 export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger) {
@@ -34,7 +34,7 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
 
 
 
-export async function applyKeyToChallangeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
+export async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
     const G = curve[groupName];
     const sG = G.F.n8*2;
     const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks

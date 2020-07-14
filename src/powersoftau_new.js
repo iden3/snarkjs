@@ -42,7 +42,7 @@ contributions(7)
             beta_g1sx
             beta_g1spx
         partialHash (216 bytes) See https://github.com/mafintosh/blake2b-wasm/blob/23bee06945806309977af802bc374727542617c7/blake2b.wat#L9
-        hashNewChallange
+        hashNewChallenge
     ]
  */
 
@@ -116,12 +116,12 @@ export default async function newAccumulator(curve, power, fileName, logger) {
 
     await fd.close();
 
-    const firstChallangeHash = ptauUtils.calculateFirstChallangeHash(curve, power, logger);
+    const firstChallengeHash = ptauUtils.calculateFirstChallengeHash(curve, power, logger);
 
     if (logger) logger.debug(misc.formatHash(Blake2b(64).digest(), "Blank Contribution Hash:"));
 
-    if (logger) logger.info(misc.formatHash(firstChallangeHash, "First Contribution Hash:"));
+    if (logger) logger.info(misc.formatHash(firstChallengeHash, "First Contribution Hash:"));
 
-    return firstChallangeHash;
+    return firstChallengeHash;
 
 }

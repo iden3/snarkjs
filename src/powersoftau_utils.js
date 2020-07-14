@@ -151,7 +151,7 @@ async function readContribution(fd, curve) {
     c.betaG2 = await readG2();
     c.key = await readPtauPubKey(fd, curve, true);
     c.partialHash = await fd.read(216);
-    c.nextChallange = await fd.read(64);
+    c.nextChallenge = await fd.read(64);
     c.type = await fd.readULE32();
 
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
@@ -234,7 +234,7 @@ async function writeContribution(fd, curve, contribution) {
     await writeG2(contribution.betaG2);
     await writePtauPubKey(fd, curve, contribution.key, true);
     await fd.write(contribution.partialHash);
-    await fd.write(contribution.nextChallange);
+    await fd.write(contribution.nextChallenge);
     await fd.writeULE32(contribution.type || 0);
 
     const params = [];
@@ -291,8 +291,8 @@ export async function writeContributions(fd, curve, contributions) {
     fd.pos = oldPos;
 }
 
-export function calculateFirstChallangeHash(curve, power, logger) {
-    if (logger) logger.debug("Calculating First Challange Hash");
+export function calculateFirstChallengeHash(curve, power, logger) {
+    if (logger) logger.debug("Calculating First Challenge Hash");
 
     const hasher = new Blake2b(64);
 
@@ -338,11 +338,11 @@ export function calculateFirstChallangeHash(curve, power, logger) {
 }
 
 
-export function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
+export function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
 
     const rng = misc.rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const key = keyPair.createPTauKey(curve, challangeHash, rng);
+    const key = keyPair.createPTauKey(curve, challengeHash, rng);
 
     return key;
 }

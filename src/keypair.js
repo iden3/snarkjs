@@ -17,12 +17,12 @@ export function hashToG2(curve, hash) {
     return g2_sp;
 }
 
-export function getG2sp(curve, persinalization, challange, g1s, g1sx) {
+export function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
     const h = blake2b(64);
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
-    h.update(challange);
+    h.update(challenge);
     const b3 = curve.G1.toUncompressed(g1s);
     h.update( b3);
     const b4 = curve.G1.toUncompressed(g1sx);
@@ -32,15 +32,15 @@ export function getG2sp(curve, persinalization, challange, g1s, g1sx) {
     return hashToG2(curve, hash);
 }
 
-function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
+function calculatePubKey(k, curve, personalization, challengeHash, rng ) {
     k.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
     k.g1_sx = curve.G1.toAffine(curve.G1.timesFr(k.g1_s, k.prvKey));
-    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challangeHash, k.g1_s, k.g1_sx));
+    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challengeHash, k.g1_s, k.g1_sx));
     k.g2_spx = curve.G2.toAffine(curve.G2.timesFr(k.g2_sp, k.prvKey));
     return k;
 }
 
-export function createPTauKey(curve, challangeHash, rng) {
+export function createPTauKey(curve, challengeHash, rng) {
     const key = {
         tau: {},
         alpha: {},
@@ -49,9 +49,9 @@ export function createPTauKey(curve, challangeHash, rng) {
     key.tau.prvKey = curve.Fr.fromRng(rng);
     key.alpha.prvKey = curve.Fr.fromRng(rng);
     key.beta.prvKey = curve.Fr.fromRng(rng);
-    calculatePubKey(key.tau, curve, 0, challangeHash, rng);
-    calculatePubKey(key.alpha, curve, 1, challangeHash, rng);
-    calculatePubKey(key.beta, curve, 2, challangeHash, rng);
+    calculatePubKey(key.tau, curve, 0, challengeHash, rng);
+    calculatePubKey(key.alpha, curve, 1, challengeHash, rng);
+    calculatePubKey(key.beta, curve, 2, challengeHash, rng);
     return key;
 }
 

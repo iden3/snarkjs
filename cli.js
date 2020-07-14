@@ -59,18 +59,18 @@ const commands = [
         action: powersOfTawContribute
     },
     {
-        cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
-        description: "Creates a challange",
+        cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
+        description: "Creates a challenge",
         alias: ["ptec"],
         options: "-verbose|v",
-        action: powersOfTawExportChallange
+        action: powersOfTawExportChallenge
     },
     {
-        cmd: "powersoftau challange contribute <curve> <challange> [response]",
-        description: "Contribute to a challange",
+        cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
+        description: "Contribute to a challenge",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
-        action: powersOfTawChallangeContribute
+        action: powersOfTawChallengeContribute
     },
     {
         cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
@@ -614,41 +614,41 @@ async function powersOfTawNew(params, options) {
     return await powersOfTaw.newAccumulator(curve, power, ptauName, logger);
 }
 
-async function powersOfTawExportChallange(params, options) {
+async function powersOfTawExportChallenge(params, options) {
     let ptauName;
-    let challangeName;
+    let challengeName;
 
     ptauName = params[0];
 
     if (params.length < 2) {
-        challangeName = "challange";
+        challengeName = "challenge";
     } else {
-        challangeName = params[1];
+        challengeName = params[1];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.exportChallange(ptauName, challangeName, logger);
+    return await powersOfTaw.exportChallenge(ptauName, challengeName, logger);
 }
 
-// powersoftau challange contribute <curve> <challange> [response]
-async function powersOfTawChallangeContribute(params, options) {
-    let challangeName;
+// powersoftau challenge contribute <curve> <challenge> [response]
+async function powersOfTawChallengeContribute(params, options) {
+    let challengeName;
     let responseName;
 
     const curve = await curves.getCurveFromName(params[0]);
 
-    challangeName = params[1];
+    challengeName = params[1];
 
     if (params.length < 3) {
-        responseName = changeExt(challangeName, "response");
+        responseName = changeExt(challengeName, "response");
     } else {
         responseName = params[2];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.challangeContribute(curve, challangeName, responseName, options.entropy, logger);
+    return await powersOfTaw.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
 
@@ -884,23 +884,23 @@ async function zkeyBeacon(params, options) {
 }
 
 
-// zkey challange contribute <curve> <challange> [response]",
+// zkey challenge contribute <curve> <challenge> [response]",
 async function zkeyBellmanContribute(params, options) {
-    let challangeName;
+    let challengeName;
     let responseName;
 
     const curve = await curves.getCurveFromName(params[0]);
 
-    challangeName = params[1];
+    challengeName = params[1];
 
     if (params.length < 3) {
-        responseName = changeExt(challangeName, "response");
+        responseName = changeExt(challengeName, "response");
     } else {
         responseName = params[2];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.bellmanContribute(curve, challangeName, responseName, options.entropy, logger);
+    return zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 

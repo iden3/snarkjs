@@ -29,24 +29,24 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
         type: 0, // Beacon
     };
 
-    let lastChallangeHash;
+    let lastChallengeHash;
 
     const rng = await misc.getRandomRng(entropy);
 
     if (contributions.length>0) {
-        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, logger);
+        lastChallengeHash = utils.calculateFirstChallengeHash(curve, power, logger);
     }
 
     // Generate a random key
 
 
-    curContribution.key = keyPair.createPTauKey(curve, lastChallangeHash, rng);
+    curContribution.key = keyPair.createPTauKey(curve, lastChallengeHash, rng);
 
 
     const responseHasher = new Blake2b(64);
-    responseHasher.update(lastChallangeHash);
+    responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
     await utils.writePTauHeader(fdNew, curve, power);
@@ -76,8 +76,8 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
 
     if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallangeHasher = new Blake2b(64);
-    nextChallangeHasher.update(hashResponse);
+    const nextChallengeHasher = new Blake2b(64);
+    nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
     await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
@@ -85,9 +85,9 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
     await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
 
-    curContribution.nextChallange = nextChallangeHasher.digest();
+    curContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(misc.formatHash(curContribution.nextChallange, "Next Challange Hash: "));
+    if (logger) logger.info(misc.formatHash(curContribution.nextChallenge, "Next Challenge Hash: "));
 
     contributions.push(curContribution);
 
@@ -157,7 +157,7 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
 
             const buffU = await G.batchLEMtoU(buffLEM);
 
-            nextChallangeHasher.update(buffU);
+            nextChallengeHasher.update(buffU);
         }
 
         fdTo.pos = oldPos;

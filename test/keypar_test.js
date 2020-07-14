@@ -16,7 +16,7 @@ describe("keypair", () => {
     });
 
     it("It should calculate the right g2_s for the test vectors", async () => {
-        const challange = hex2ByteArray(
+        const challenge = hex2ByteArray(
             "bc0bde7980381fa642b2097591dd83f1"+
             "ed15b003e15c35520af32c95eb519149"+
             "2a6f3175215635cfc10e6098e2c612d0"+
@@ -33,7 +33,7 @@ describe("keypair", () => {
             Scalar.e("0x0c17fd067df52c480a1db3c6890821f975932d89d0d53c6c60777cc56f1dd712"),
             Scalar.e("1")
         ]);
-        const tau_g2_sp = getG2sp(curve, 0, challange, tau_g1_s, tau_g1_sx);
+        const tau_g2_sp = getG2sp(curve, 0, challenge, tau_g1_s, tau_g1_sx);
 
         const tau_g2_spx = curve.G2.fromObject([
             [
@@ -64,7 +64,7 @@ describe("keypair", () => {
             Scalar.e("0x0b3a94f2b61178f2974e039cfd671e7405ec43eb2c09dc8f43a34f450917a62f"),
             Scalar.e("1")
         ]);
-        const alpha_g2_sp = getG2sp(curve, 1, challange, alpha_g1_s, alpha_g1_sx);
+        const alpha_g2_sp = getG2sp(curve, 1, challenge, alpha_g1_s, alpha_g1_sx);
 
         const alpha_g2_spx = curve.G2.fromObject([
             [
@@ -96,7 +96,7 @@ describe("keypair", () => {
             Scalar.e("0x12074f06ef232a472cb36c328e760c4acfb4bedad4ca3ee09971578a0fe185ab"),
             Scalar.e("1")
         ]);
-        const beta_g2_sp = getG2sp(curve, 2, challange, beta_g1_s, beta_g1_sx);
+        const beta_g2_sp = getG2sp(curve, 2, challenge, beta_g1_s, beta_g1_sx);
 
         const beta_g2_spx = curve.G2.fromObject([
             [

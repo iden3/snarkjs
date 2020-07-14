@@ -32,12 +32,12 @@ export default async function importResponse(oldPtauFilename, contributionFilena
         sG1*6 + sG2*3)
         throw new Error("Size of the contribution is invalid");
 
-    let lastChallangeHash;
+    let lastChallengeHash;
 
     if (contributions.length>0) {
-        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
     } else {
-        lastChallangeHash = utils.calculateFirstChallangeHash(curve, power, logger);
+        lastChallengeHash = utils.calculateFirstChallengeHash(curve, power, logger);
     }
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -45,7 +45,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     const contributionPreviousHash = await fdResponse.read(64);
 
-    if(!misc.hashIsEqual(contributionPreviousHash,lastChallangeHash))
+    if(!misc.hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. this contribution is not based on the previus hash");
 
     const hasherResponse = new Blake2b(64);
@@ -76,8 +76,8 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallangeHasher = new Blake2b(64);
-    nextChallangeHasher.update(hashResponse);
+    const nextChallengeHasher = new Blake2b(64);
+    nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
     await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
@@ -85,9 +85,9 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
-    currentContribution.nextChallange = nextChallangeHasher.digest();
+    currentContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(misc.formatHash(currentContribution.nextChallange, "Next Challange Hash: "));
+    if (logger) logger.info(misc.formatHash(currentContribution.nextChallenge, "Next Challenge Hash: "));
 
     contributions.push(currentContribution);
 
@@ -97,7 +97,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     await fdNew.close();
     await fdOld.close();
 
-    return currentContribution.nextChallange;
+    return currentContribution.nextChallenge;
 
     async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
 
@@ -154,7 +154,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
             const buffU = await G.batchLEMtoU(buffLEM);
 
-            nextChallangeHasher.update(buffU);
+            nextChallengeHasher.update(buffU);
         }
 
         fdTo.pos = oldPos;

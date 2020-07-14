@@ -12,28 +12,28 @@ import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "./binfileutils.js";
 import * as misc from "./misc.js";
 
-export default async function exportChallange(pTauFilename, challangeFilename, logger) {
+export default async function exportChallenge(pTauFilename, challengeFilename, logger) {
     await Blake2b.ready();
     const {fd: fdFrom, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await utils.readPTauHeader(fdFrom, sections);
 
     const contributions = await utils.readContributions(fdFrom, curve, sections);
-    let lastResponseHash, curChallangeHash;
+    let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
         lastResponseHash = Blake2b(64).digest();
-        curChallangeHash = utils.calculateFirstChallangeHash(curve, power);
+        curChallengeHash = utils.calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
-        curChallangeHash = contributions[contributions.length-1].nextChallange;
+        curChallengeHash = contributions[contributions.length-1].nextChallenge;
     }
 
     if (logger) logger.info(misc.formatHash(lastResponseHash, "Last Response Hash: "));
 
-    if (logger) logger.info(misc.formatHash(curChallangeHash, "New Challange Hash: "));
+    if (logger) logger.info(misc.formatHash(curChallengeHash, "New Challenge Hash: "));
 
 
-    const fdTo = await fastFile.createOverride(challangeFilename);
+    const fdTo = await fastFile.createOverride(challengeFilename);
 
     const toHash = Blake2b(64);
     await fdTo.write(lastResponseHash);
@@ -48,16 +48,16 @@ export default async function exportChallange(pTauFilename, challangeFilename, l
     await fdFrom.close();
     await fdTo.close();
 
-    const calcCurChallangeHash = toHash.digest();
+    const calcCurChallengeHash = toHash.digest();
 
-    if (!misc.hashIsEqual (curChallangeHash, calcCurChallangeHash)) {
-        if (logger) logger.info(misc.formatHash(calcCurChallangeHash, "Calc Curret Challange Hash: "));
+    if (!misc.hashIsEqual (curChallengeHash, calcCurChallengeHash)) {
+        if (logger) logger.info(misc.formatHash(calcCurChallengeHash, "Calc Curret Challenge Hash: "));
 
-        if (logger) logger.error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
-        throw new Error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
+        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
     }
 
-    return curChallangeHash;
+    return curChallengeHash;
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
         const G = curve[groupName];

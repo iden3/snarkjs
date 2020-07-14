@@ -12,7 +12,7 @@ describe("Full process", function ()  {
     const ptau_2 = {type: "mem"};
     const ptau_beacon = {type: "mem"};
     const ptau_final = {type: "mem"};
-    const ptau_challange2 = {type: "mem"};
+    const ptau_challenge2 = {type: "mem"};
     const ptau_response2 = {type: "mem"};
     const zkey_0 = {type: "mem"};
     const zkey_1 = {type: "mem"};
@@ -40,12 +40,12 @@ describe("Full process", function ()  {
         await snarkjs.powersOfTau.contribute(ptau_0, ptau_1, "C1", "Entropy1");
     });
 
-    it ("powersoftau export challange", async () => {
-        await snarkjs.powersOfTau.exportChallange(ptau_1, ptau_challange2);
+    it ("powersoftau export challenge", async () => {
+        await snarkjs.powersOfTau.exportChallenge(ptau_1, ptau_challenge2);
     });
 
-    it ("powersoftau challange contribute", async () => {
-        await snarkjs.powersOfTau.challangeContribute(curve, ptau_challange2, ptau_response2, "Entropy2");
+    it ("powersoftau challenge contribute", async () => {
+        await snarkjs.powersOfTau.challengeContribute(curve, ptau_challenge2, ptau_response2, "Entropy2");
     });
 
     it ("powersoftau import response", async () => {

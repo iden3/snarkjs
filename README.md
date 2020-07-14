@@ -49,7 +49,7 @@ snarkjs --help
 ```
 
 
-You can also us the `--help` option with specific commands:
+You can also use the `--help` option with specific commands:
 
 ```sh
 snarkjs groth16 prove --help
@@ -65,11 +65,9 @@ snarkjs g16p --help
 
 ### Debugging tip
 
-If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked. 
+If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked.
 
 ## Guide
-
-> If this is your first time using circom and snarkjs, we recommend going through [this tutorial](https://blog.iden3.io/first-zk-proof.html) first.
 
 ### 0. Create and move into a new directory
 ```sh
@@ -88,8 +86,6 @@ The first parameter after `new` refers to the type of curve you wish to use. At 
 
 The second parameter, in this case `12`, is the power of two of the maximum number of contraints that the ceremony can accept: in this case, the number of constraints is `2 ^ 12 = 4096`. The maximum value supported here is `28`, which means you can use `snarkjs` to securely generate zk-snark parameters for circuits with up to `2 ^ 28` (≈268 million) constraints.
 
-
-> Note that the creator of the ceremony is also the first contributor.
 
 ### 2. Contribute to the ceremony
 ```sh
@@ -113,12 +109,14 @@ By allowing you to write the random text as part of the command, the `-e` parame
 
 ### 4. Provide a third contribution using third party software
 ```sh
-snarkjs powersoftau export challange pot12_0002.ptau challange_0003
-snarkjs powersoftau challange contribute bn128 challange_0003 response_0003 -e="some random text"
+snarkjs powersoftau export challenge pot12_0002.ptau challenge_0003
+snarkjs powersoftau challenge contribute bn128 challenge_0003 response_0003 -e="some random text"
 snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
 ```
 
-The commands above use [this software](https://github.com/kobigurk/phase2-bn254) to help generate a challenge, response, and a new `ptau` file.
+The challenge and response files are compatible with [this software](https://github.com/kobigurk/phase2-bn254).
+
+This allows to use both softwares in a single ceremony.
 
 ### 5. Verify the protocol so far
 ```sh
@@ -158,7 +156,7 @@ snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
 
 We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
 
-Under the hood,  the `prepare phase2` command calculates the evaluation of the Lagrange polynomials at tau for `alpha*tau` and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step, and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
+Under the hood,  the `prepare phase2` command calculates the encrypted evaluation of the Lagrange polynomials at tau for `tau`, `alpha*tau` and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step, and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
 
 ### 8. Verify the final `ptau`
 ```sh
@@ -169,7 +167,7 @@ The `verify` command verifies a powers of tau file.
 
 Before we go ahead and create the circuit, we perform a final check and verify the final protocol transcript.
 
-
+You can see now that there is not a warning any more informing that you have not run the prepare phase2.
 
 ### 9. Create the circuit
 ```sh
@@ -259,7 +257,7 @@ snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
 
 The `zkey new` command creates an initial `zkey` file with zero contributions.
 
-The `zkey` is a zero-knowledge key that includes both the pairing and verification keys as well as phase2 contributions.
+The `zkey` is a zero-knowledge key that includes both the prooving and verification keys as well as phase2 contributions.
 
 Importantly, one can verify whether a `zkey` belongs to a specific circuit or not.
 
@@ -287,8 +285,8 @@ We provide a second contribution.
 ### 17. Provide a third contribution using third party software
 
 ```sh
-snarkjs zkey export bellman circuit_0002.zkey  challange_phase2_0003
-snarkjs zkey bellman contribute bn128 challange_phase2_0003 response_phase2_0003 -e="some random text"
+snarkjs zkey export bellman circuit_0002.zkey  challenge_phase2_0003
+snarkjs zkey bellman contribute bn128 challenge_phase2_0003 response_phase2_0003 -e="some random text"
 snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
 ```
 
@@ -301,7 +299,9 @@ snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 
 The `zkey verify` command verifies a `zkey` file. It also prints the hashes of all the intermediary results to the console.
 
-We verify the `zkey` file we created in the previous step.  Which means we check all the contributions to the second phase of the multi-party computation (MPC) up to that point. 
+We verify the `zkey` file we created in the previous step.  Which means we check all the contributions to the second phase of the multi-party computation (MPC) up to that point.
+
+This command also checksh that the zkey file matches the circuit.
 
 If everything checks out, you should see the following:
 
@@ -316,7 +316,7 @@ snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0
 
 The `zkey beacon` command creates a `zkey` file with a contribution applied in the form of a random beacon.
 
-We us it to apply a random beacon to the latest `zkey` after all the final contribution has been made (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
+We use it to apply a random beacon to the latest `zkey` after all the final contribution has been made (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
 
 ### 20. Verify the final `zkey`
 ```sh
@@ -388,9 +388,7 @@ Finally, we export the verifier as a Solidity smart-contract so that we can publ
 snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
-We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract. 
-
-This call will return true if both the proof and public data are valid.
+We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract in the remix envirotment.
 
 And voila! That's all there is to it :)
 

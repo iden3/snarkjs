@@ -20,11 +20,11 @@ import * as fastFile from "fastfile";
 import Blake2b from "blake2b-wasm";
 import * as utils from "./zkey_utils.js";
 import * as misc from "./misc.js";
-import { applyKeyToChallangeSection } from "./mpc_applykey.js";
+import { applyKeyToChallengeSection } from "./mpc_applykey.js";
 import { hashPubKey } from "./zkey_utils.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 
-export default async function bellmanContribute(curve, challangeFilename, responesFileName, entropy, logger) {
+export default async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
     await Blake2b.ready();
 
     const rng = await misc.getRandomRng(entropy);
@@ -35,7 +35,7 @@ export default async function bellmanContribute(curve, challangeFilename, respon
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await fastFile.readExisting(challangeFilename);
+    const fdFrom = await fastFile.readExisting(challengeFilename);
     const fdTo = await fastFile.createOverride(responesFileName);
 
 
@@ -58,12 +58,12 @@ export default async function bellmanContribute(curve, challangeFilename, respon
     // H
     const nH = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nH);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
+    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
 
     // L
     const nL = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nL);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
+    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
 
     // A
     const nA = await fdFrom.readUBE32();

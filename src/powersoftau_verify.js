@@ -10,97 +10,97 @@ const sameRatio = misc.sameRatio;
 async function verifyContribution(curve, cur, prev, logger) {
     let sr;
     if (cur.type == 1) {    // Verify the beacon.
-        const beaconKey = utils.keyFromBeacon(curve, prev.nextChallange, cur.beaconHash, cur.numIterationsExp);
+        const beaconKey = utils.keyFromBeacon(curve, prev.nextChallenge, cur.beaconHash, cur.numIterationsExp);
 
         if (!curve.G1.eq(cur.key.tau.g1_s, beaconKey.tau.g1_s)) {
-            if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.tau.g1_sx, beaconKey.tau.g1_sx)) {
-            if (logger) logger.error(`BEACON key (tauG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.tau.g2_spx, beaconKey.tau.g2_spx)) {
-            if (logger) logger.error(`BEACON key (tauG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
 
         if (!curve.G1.eq(cur.key.alpha.g1_s, beaconKey.alpha.g1_s)) {
-            if (logger) logger.error(`BEACON key (alphaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.alpha.g1_sx, beaconKey.alpha.g1_sx)) {
-            if (logger) logger.error(`BEACON key (alphaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.alpha.g2_spx, beaconKey.alpha.g2_spx)) {
-            if (logger) logger.error(`BEACON key (alphaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
 
         if (!curve.G1.eq(cur.key.beta.g1_s, beaconKey.beta.g1_s)) {
-            if (logger) logger.error(`BEACON key (betaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.beta.g1_sx, beaconKey.beta.g1_sx)) {
-            if (logger) logger.error(`BEACON key (betaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.beta.g2_spx, beaconKey.beta.g2_spx)) {
-            if (logger) logger.error(`BEACON key (betaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
     }
 
-    cur.key.tau.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 0, prev.nextChallange, cur.key.tau.g1_s, cur.key.tau.g1_sx));
-    cur.key.alpha.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
-    cur.key.beta.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 2, prev.nextChallange, cur.key.beta.g1_s, cur.key.beta.g1_sx));
+    cur.key.tau.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 0, prev.nextChallenge, cur.key.tau.g1_s, cur.key.tau.g1_sx));
+    cur.key.alpha.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 1, prev.nextChallenge, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
+    cur.key.beta.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 2, prev.nextChallenge, cur.key.beta.g1_s, cur.key.beta.g1_sx));
 
     sr = await sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (tau) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (tau) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (alpha) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (alpha) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (beta) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (beta) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID tau*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
     if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G2. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID tau*G2. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID alpha*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID alpha*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID beta*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
     if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G2. challange #"+cur.id+"It does not follow the previous contribution");
+        if (logger) logger.error("INVALID beta*G2. challenge #"+cur.id+"It does not follow the previous contribution");
         return false;
     }
 
@@ -126,7 +126,7 @@ export default async function verify(tauFilename, logger) {
         alphaG1: curve.G1.g,
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
-        nextChallange: utils.calculateFirstChallangeHash(curve, ceremonyPower, logger),
+        nextChallenge: utils.calculateFirstChallengeHash(curve, ceremonyPower, logger),
         responseHash: Blake2b(64).digest()
     };
 
@@ -150,7 +150,7 @@ export default async function verify(tauFilename, logger) {
     const nextContributionHasher = Blake2b(64);
     nextContributionHasher.update(curContr.responseHash);
 
-    // Verify powers and compute nextChallangeHash
+    // Verify powers and compute nextChallengeHash
 
     // await test();
 
@@ -226,13 +226,13 @@ export default async function verify(tauFilename, logger) {
 
     const nextContributionHash = nextContributionHasher.digest();
 
-    // Check the nextChallangeHash
-    if (!misc.hashIsEqual(nextContributionHash,curContr.nextChallange)) {
-        if (logger) logger.error("Hash of the values does not match the next challange of the last contributor in the contributions section");
+    // Check the nextChallengeHash
+    if (!misc.hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
+        if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
         return false;
     }
 
-    if (logger) logger.info(misc.formatHash(nextContributionHash, "Next challange hash: "));
+    if (logger) logger.info(misc.formatHash(nextContributionHash, "Next challenge hash: "));
 
     // Verify Previous contributions
 
@@ -272,7 +272,7 @@ export default async function verify(tauFilename, logger) {
         logger.info("-----------------------------------------------------");
         logger.info(`Contribution #${curContr.id}: ${curContr.name ||""}`);
 
-        logger.info(misc.formatHash(curContr.nextChallange, "Next Challange: "));
+        logger.info(misc.formatHash(curContr.nextChallenge, "Next Challenge: "));
 
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         utils.toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
@@ -284,7 +284,7 @@ export default async function verify(tauFilename, logger) {
 
         logger.info(misc.formatHash(responseHash, "Response Hash:"));
 
-        logger.info(misc.formatHash(prevContr.nextChallange, "Response Hash:"));
+        logger.info(misc.formatHash(prevContr.nextChallenge, "Response Hash:"));
 
         if (curContr.type == 1) {
             logger.info(`Beacon generator: ${misc.byteArray2hex(curContr.beaconHash)}`);

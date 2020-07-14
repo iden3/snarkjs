@@ -739,7 +739,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.3.3";
+var version = "0.3.4";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
@@ -1064,12 +1064,12 @@ function hashToG2(curve, hash) {
     return g2_sp;
 }
 
-function getG2sp(curve, persinalization, challange, g1s, g1sx) {
+function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
     const h = Blake2b(64);
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
-    h.update(challange);
+    h.update(challenge);
     const b3 = curve.G1.toUncompressed(g1s);
     h.update( b3);
     const b4 = curve.G1.toUncompressed(g1sx);
@@ -1079,15 +1079,15 @@ function getG2sp(curve, persinalization, challange, g1s, g1sx) {
     return hashToG2(curve, hash);
 }
 
-function calculatePubKey(k, curve, personalization, challangeHash, rng ) {
+function calculatePubKey(k, curve, personalization, challengeHash, rng ) {
     k.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
     k.g1_sx = curve.G1.toAffine(curve.G1.timesFr(k.g1_s, k.prvKey));
-    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challangeHash, k.g1_s, k.g1_sx));
+    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challengeHash, k.g1_s, k.g1_sx));
     k.g2_spx = curve.G2.toAffine(curve.G2.timesFr(k.g2_sp, k.prvKey));
     return k;
 }
 
-function createPTauKey(curve, challangeHash, rng) {
+function createPTauKey(curve, challengeHash, rng) {
     const key = {
         tau: {},
         alpha: {},
@@ -1096,9 +1096,9 @@ function createPTauKey(curve, challangeHash, rng) {
     key.tau.prvKey = curve.Fr.fromRng(rng);
     key.alpha.prvKey = curve.Fr.fromRng(rng);
     key.beta.prvKey = curve.Fr.fromRng(rng);
-    calculatePubKey(key.tau, curve, 0, challangeHash, rng);
-    calculatePubKey(key.alpha, curve, 1, challangeHash, rng);
-    calculatePubKey(key.beta, curve, 2, challangeHash, rng);
+    calculatePubKey(key.tau, curve, 0, challengeHash, rng);
+    calculatePubKey(key.alpha, curve, 1, challengeHash, rng);
+    calculatePubKey(key.beta, curve, 2, challengeHash, rng);
     return key;
 }
 
@@ -1439,7 +1439,7 @@ async function readContribution(fd, curve) {
     c.betaG2 = await readG2();
     c.key = await readPtauPubKey(fd, curve, true);
     c.partialHash = await fd.read(216);
-    c.nextChallange = await fd.read(64);
+    c.nextChallenge = await fd.read(64);
     c.type = await fd.readULE32();
 
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
@@ -1522,7 +1522,7 @@ async function writeContribution(fd, curve, contribution) {
     await writeG2(contribution.betaG2);
     await writePtauPubKey(fd, curve, contribution.key, true);
     await fd.write(contribution.partialHash);
-    await fd.write(contribution.nextChallange);
+    await fd.write(contribution.nextChallenge);
     await fd.writeULE32(contribution.type || 0);
 
     const params = [];
@@ -1579,8 +1579,8 @@ async function writeContributions(fd, curve, contributions) {
     fd.pos = oldPos;
 }
 
-function calculateFirstChallangeHash(curve, power, logger) {
-    if (logger) logger.debug("Calculating First Challange Hash");
+function calculateFirstChallengeHash(curve, power, logger) {
+    if (logger) logger.debug("Calculating First Challenge Hash");
 
     const hasher = new Blake2b(64);
 
@@ -1626,11 +1626,11 @@ function calculateFirstChallangeHash(curve, power, logger) {
 }
 
 
-function keyFromBeacon(curve, challangeHash, beaconHash, numIterationsExp) {
+function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
 
     const rng = rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const key = createPTauKey(curve, challangeHash, rng);
+    const key = createPTauKey(curve, challengeHash, rng);
 
     return key;
 }
@@ -1812,7 +1812,7 @@ contributions(7)
             beta_g1sx
             beta_g1spx
         partialHash (216 bytes) See https://github.com/mafintosh/blake2b-wasm/blob/23bee06945806309977af802bc374727542617c7/blake2b.wat#L9
-        hashNewChallange
+        hashNewChallenge
     ]
  */
 
@@ -1881,40 +1881,40 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     await fd.close();
 
-    const firstChallangeHash = calculateFirstChallangeHash(curve, power, logger);
+    const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
     if (logger) logger.debug(formatHash(Blake2b(64).digest(), "Blank Contribution Hash:"));
 
-    if (logger) logger.info(formatHash(firstChallangeHash, "First Contribution Hash:"));
+    if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
-    return firstChallangeHash;
+    return firstChallengeHash;
 
 }
 
 // Format of the outpu
 
-async function exportChallange(pTauFilename, challangeFilename, logger) {
+async function exportChallenge(pTauFilename, challengeFilename, logger) {
     await Blake2b.ready();
     const {fd: fdFrom, sections} = await readBinFile$1(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fdFrom, sections);
 
     const contributions = await readContributions(fdFrom, curve, sections);
-    let lastResponseHash, curChallangeHash;
+    let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
         lastResponseHash = Blake2b(64).digest();
-        curChallangeHash = calculateFirstChallangeHash(curve, power);
+        curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
-        curChallangeHash = contributions[contributions.length-1].nextChallange;
+        curChallengeHash = contributions[contributions.length-1].nextChallenge;
     }
 
     if (logger) logger.info(formatHash(lastResponseHash, "Last Response Hash: "));
 
-    if (logger) logger.info(formatHash(curChallangeHash, "New Challange Hash: "));
+    if (logger) logger.info(formatHash(curChallengeHash, "New Challenge Hash: "));
 
 
-    const fdTo = await createOverride(challangeFilename);
+    const fdTo = await createOverride(challengeFilename);
 
     const toHash = Blake2b(64);
     await fdTo.write(lastResponseHash);
@@ -1929,16 +1929,16 @@ async function exportChallange(pTauFilename, challangeFilename, logger) {
     await fdFrom.close();
     await fdTo.close();
 
-    const calcCurChallangeHash = toHash.digest();
+    const calcCurChallengeHash = toHash.digest();
 
-    if (!hashIsEqual (curChallangeHash, calcCurChallangeHash)) {
-        if (logger) logger.info(formatHash(calcCurChallangeHash, "Calc Curret Challange Hash: "));
+    if (!hashIsEqual (curChallengeHash, calcCurChallengeHash)) {
+        if (logger) logger.info(formatHash(calcCurChallengeHash, "Calc Curret Challenge Hash: "));
 
-        if (logger) logger.error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
-        throw new Error("PTau file is corrupted. Calculated new challange hash does not match with the eclared one");
+        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
     }
 
-    return curChallangeHash;
+    return curChallengeHash;
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
         const G = curve[groupName];
@@ -1989,12 +1989,12 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         sG1*6 + sG2*3)
         throw new Error("Size of the contribution is invalid");
 
-    let lastChallangeHash;
+    let lastChallengeHash;
 
     if (contributions.length>0) {
-        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
     } else {
-        lastChallangeHash = calculateFirstChallangeHash(curve, power, logger);
+        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
     }
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -2002,7 +2002,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
     const contributionPreviousHash = await fdResponse.read(64);
 
-    if(!hashIsEqual(contributionPreviousHash,lastChallangeHash))
+    if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. this contribution is not based on the previus hash");
 
     const hasherResponse = new Blake2b(64);
@@ -2033,8 +2033,8 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallangeHasher = new Blake2b(64);
-    nextChallangeHasher.update(hashResponse);
+    const nextChallengeHasher = new Blake2b(64);
+    nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
     await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
@@ -2042,9 +2042,9 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
-    currentContribution.nextChallange = nextChallangeHasher.digest();
+    currentContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(formatHash(currentContribution.nextChallange, "Next Challange Hash: "));
+    if (logger) logger.info(formatHash(currentContribution.nextChallenge, "Next Challenge Hash: "));
 
     contributions.push(currentContribution);
 
@@ -2054,7 +2054,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     await fdNew.close();
     await fdOld.close();
 
-    return currentContribution.nextChallange;
+    return currentContribution.nextChallenge;
 
     async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
 
@@ -2111,7 +2111,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
             const buffU = await G.batchLEMtoU(buffLEM);
 
-            nextChallangeHasher.update(buffU);
+            nextChallengeHasher.update(buffU);
         }
 
         fdTo.pos = oldPos;
@@ -2124,97 +2124,97 @@ const sameRatio$1 = sameRatio;
 async function verifyContribution(curve, cur, prev, logger) {
     let sr;
     if (cur.type == 1) {    // Verify the beacon.
-        const beaconKey = keyFromBeacon(curve, prev.nextChallange, cur.beaconHash, cur.numIterationsExp);
+        const beaconKey = keyFromBeacon(curve, prev.nextChallenge, cur.beaconHash, cur.numIterationsExp);
 
         if (!curve.G1.eq(cur.key.tau.g1_s, beaconKey.tau.g1_s)) {
-            if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.tau.g1_sx, beaconKey.tau.g1_sx)) {
-            if (logger) logger.error(`BEACON key (tauG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.tau.g2_spx, beaconKey.tau.g2_spx)) {
-            if (logger) logger.error(`BEACON key (tauG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (tauG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
 
         if (!curve.G1.eq(cur.key.alpha.g1_s, beaconKey.alpha.g1_s)) {
-            if (logger) logger.error(`BEACON key (alphaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.alpha.g1_sx, beaconKey.alpha.g1_sx)) {
-            if (logger) logger.error(`BEACON key (alphaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.alpha.g2_spx, beaconKey.alpha.g2_spx)) {
-            if (logger) logger.error(`BEACON key (alphaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (alphaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
 
         if (!curve.G1.eq(cur.key.beta.g1_s, beaconKey.beta.g1_s)) {
-            if (logger) logger.error(`BEACON key (betaG1_s) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G1.eq(cur.key.beta.g1_sx, beaconKey.beta.g1_sx)) {
-            if (logger) logger.error(`BEACON key (betaG1_sx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
         if (!curve.G2.eq(cur.key.beta.g2_spx, beaconKey.beta.g2_spx)) {
-            if (logger) logger.error(`BEACON key (betaG2_spx) is not generated correctly in challange #${cur.id}  ${cur.name || ""}` );
+            if (logger) logger.error(`BEACON key (betaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
             return false;
         }
     }
 
-    cur.key.tau.g2_sp = curve.G2.toAffine(getG2sp(curve, 0, prev.nextChallange, cur.key.tau.g1_s, cur.key.tau.g1_sx));
-    cur.key.alpha.g2_sp = curve.G2.toAffine(getG2sp(curve, 1, prev.nextChallange, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
-    cur.key.beta.g2_sp = curve.G2.toAffine(getG2sp(curve, 2, prev.nextChallange, cur.key.beta.g1_s, cur.key.beta.g1_sx));
+    cur.key.tau.g2_sp = curve.G2.toAffine(getG2sp(curve, 0, prev.nextChallenge, cur.key.tau.g1_s, cur.key.tau.g1_sx));
+    cur.key.alpha.g2_sp = curve.G2.toAffine(getG2sp(curve, 1, prev.nextChallenge, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
+    cur.key.beta.g2_sp = curve.G2.toAffine(getG2sp(curve, 2, prev.nextChallenge, cur.key.beta.g1_s, cur.key.beta.g1_sx));
 
     sr = await sameRatio$1(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (tau) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (tau) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio$1(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (alpha) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (alpha) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio$1(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID key (beta) in challange #"+cur.id);
+        if (logger) logger.error("INVALID key (beta) in challenge #"+cur.id);
         return false;
     }
 
     sr = await sameRatio$1(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID tau*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio$1(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
     if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G2. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID tau*G2. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio$1(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID alpha*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID alpha*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio$1(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G1. challange #"+cur.id+" It does not follow the previous contribution");
+        if (logger) logger.error("INVALID beta*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
     sr = await sameRatio$1(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
     if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G2. challange #"+cur.id+"It does not follow the previous contribution");
+        if (logger) logger.error("INVALID beta*G2. challenge #"+cur.id+"It does not follow the previous contribution");
         return false;
     }
 
@@ -2240,7 +2240,7 @@ async function verify(tauFilename, logger) {
         alphaG1: curve.G1.g,
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
-        nextChallange: calculateFirstChallangeHash(curve, ceremonyPower, logger),
+        nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
         responseHash: Blake2b(64).digest()
     };
 
@@ -2264,7 +2264,7 @@ async function verify(tauFilename, logger) {
     const nextContributionHasher = Blake2b(64);
     nextContributionHasher.update(curContr.responseHash);
 
-    // Verify powers and compute nextChallangeHash
+    // Verify powers and compute nextChallengeHash
 
     // await test();
 
@@ -2340,13 +2340,13 @@ async function verify(tauFilename, logger) {
 
     const nextContributionHash = nextContributionHasher.digest();
 
-    // Check the nextChallangeHash
-    if (!hashIsEqual(nextContributionHash,curContr.nextChallange)) {
-        if (logger) logger.error("Hash of the values does not match the next challange of the last contributor in the contributions section");
+    // Check the nextChallengeHash
+    if (!hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
+        if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
         return false;
     }
 
-    if (logger) logger.info(formatHash(nextContributionHash, "Next challange hash: "));
+    if (logger) logger.info(formatHash(nextContributionHash, "Next challenge hash: "));
 
     // Verify Previous contributions
 
@@ -2386,7 +2386,7 @@ async function verify(tauFilename, logger) {
         logger.info("-----------------------------------------------------");
         logger.info(`Contribution #${curContr.id}: ${curContr.name ||""}`);
 
-        logger.info(formatHash(curContr.nextChallange, "Next Challange: "));
+        logger.info(formatHash(curContr.nextChallenge, "Next Challenge: "));
 
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
@@ -2398,7 +2398,7 @@ async function verify(tauFilename, logger) {
 
         logger.info(formatHash(responseHash, "Response Hash:"));
 
-        logger.info(formatHash(prevContr.nextChallange, "Response Hash:"));
+        logger.info(formatHash(prevContr.nextChallenge, "Response Hash:"));
 
         if (curContr.type == 1) {
             logger.info(`Beacon generator: ${byteArray2hex(curContr.beaconHash)}`);
@@ -2555,7 +2555,7 @@ async function verify(tauFilename, logger) {
     This function creates a new section in the fdTo file with id idSection.
     It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
-    It also updates the newChallangeHasher with the new points
+    It also updates the newChallengeHasher with the new points
 */
 
 async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger) {
@@ -2584,7 +2584,7 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
 
 
 
-async function applyKeyToChallangeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
+async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
     const G = curve[groupName];
     const sG = G.F.n8*2;
     const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
@@ -2610,10 +2610,10 @@ async function applyKeyToChallangeSection(fdOld, fdNew, responseHasher, curve, g
 
 // Format of the output
 
-async function challangeContribute(curve, challangeFilename, responesFileName, entropy, logger) {
+async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
     await Blake2b.ready();
 
-    const fdFrom = await readExisting$1(challangeFilename);
+    const fdFrom = await readExisting$1(challengeFilename);
 
 
     const sG1 = curve.F1.n64*8*2;
@@ -2634,21 +2634,21 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
     const fdTo = await createOverride(responesFileName);
 
     // Calculate the hash
-    if (logger) logger.debug("Hashing challange");
-    const challangeHasher = Blake2b(64);
+    if (logger) logger.debug("Hashing challenge");
+    const challengeHasher = Blake2b(64);
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
         const buff = await fdFrom.read(s);
-        challangeHasher.update(buff);
+        challengeHasher.update(buff);
     }
 
     const claimedHash = await fdFrom.read(64, 0);
     if (logger) logger.info(formatHash(claimedHash, "Claimed Previus Response Hash: "));
 
-    const challangeHash = challangeHasher.digest();
-    if (logger) logger.info(formatHash(challangeHash, "Current Challange Hash: "));
+    const challengeHash = challengeHasher.digest();
+    if (logger) logger.info(formatHash(challengeHash, "Current Challenge Hash: "));
 
-    const key = createPTauKey(curve, challangeHash, rng);
+    const key = createPTauKey(curve, challengeHash, rng);
 
     if (logger) {
         ["tau", "alpha", "beta"].forEach( (k) => {
@@ -2662,14 +2662,14 @@ async function challangeContribute(curve, challangeFilename, responesFileName, e
 
     const responseHasher = Blake2b(64);
 
-    await fdTo.write(challangeHash);
-    responseHasher.update(challangeHash);
+    await fdTo.write(challengeHash);
+    responseHasher.update(challengeHash);
 
-    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , logger );
-    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G2", (1<<power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , logger );
-    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", logger );
-    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , logger );
-    await applyKeyToChallangeSection(fdFrom, fdTo, responseHasher, curve, "G2", 1             , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG2" , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", (1<<power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", 1             , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG2" , logger );
 
     // Write and hash key
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -2722,18 +2722,18 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
         beaconHash: beaconHash
     };
 
-    let lastChallangeHash;
+    let lastChallengeHash;
 
     if (contributions.length>0) {
-        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
     } else {
-        lastChallangeHash = calculateFirstChallangeHash(curve, power, logger);
+        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
     }
 
-    curContribution.key = keyFromBeacon(curve, lastChallangeHash, beaconHash, numIterationsExp);
+    curContribution.key = keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
     const responseHasher = new Blake2b(64);
-    responseHasher.update(lastChallangeHash);
+    responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
     await writePTauHeader(fdNew, curve, power);
@@ -2763,8 +2763,8 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallangeHasher = new Blake2b(64);
-    nextChallangeHasher.update(hashResponse);
+    const nextChallengeHasher = new Blake2b(64);
+    nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
     await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
@@ -2772,9 +2772,9 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
     await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
-    curContribution.nextChallange = nextChallangeHasher.digest();
+    curContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(formatHash(curContribution.nextChallange, "Next Challange Hash: "));
+    if (logger) logger.info(formatHash(curContribution.nextChallenge, "Next Challenge Hash: "));
 
     contributions.push(curContribution);
 
@@ -2844,7 +2844,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
 
             const buffU = await G.batchLEMtoU(buffLEM);
 
-            nextChallangeHasher.update(buffU);
+            nextChallengeHasher.update(buffU);
         }
 
         fdTo.pos = oldPos;
@@ -2871,24 +2871,24 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
         type: 0, // Beacon
     };
 
-    let lastChallangeHash;
+    let lastChallengeHash;
 
     const rng = await getRandomRng(entropy);
 
     if (contributions.length>0) {
-        lastChallangeHash = contributions[contributions.length-1].nextChallange;
+        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
     } else {
-        lastChallangeHash = calculateFirstChallangeHash(curve, power, logger);
+        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
     }
 
     // Generate a random key
 
 
-    curContribution.key = createPTauKey(curve, lastChallangeHash, rng);
+    curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
     const responseHasher = new Blake2b(64);
-    responseHasher.update(lastChallangeHash);
+    responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
     await writePTauHeader(fdNew, curve, power);
@@ -2918,8 +2918,8 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallangeHasher = new Blake2b(64);
-    nextChallangeHasher.update(hashResponse);
+    const nextChallengeHasher = new Blake2b(64);
+    nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1");
     await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2");
@@ -2927,9 +2927,9 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1");
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
 
-    curContribution.nextChallange = nextChallangeHasher.digest();
+    curContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(formatHash(curContribution.nextChallange, "Next Challange Hash: "));
+    if (logger) logger.info(formatHash(curContribution.nextChallenge, "Next Challenge Hash: "));
 
     contributions.push(curContribution);
 
@@ -2999,7 +2999,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
             const buffU = await G.batchLEMtoU(buffLEM);
 
-            nextChallangeHasher.update(buffU);
+            nextChallengeHasher.update(buffU);
         }
 
         fdTo.pos = oldPos;
@@ -4900,7 +4900,7 @@ async function zkeyExportJson(zkeyFileName, verbose) {
 
 // Format of the output
 
-async function bellmanContribute(curve, challangeFilename, responesFileName, entropy, logger) {
+async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
     await Blake2b.ready();
 
     const rng = await getRandomRng(entropy);
@@ -4911,7 +4911,7 @@ async function bellmanContribute(curve, challangeFilename, responesFileName, ent
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await readExisting$1(challangeFilename);
+    const fdFrom = await readExisting$1(challengeFilename);
     const fdTo = await createOverride(responesFileName);
 
 
@@ -4934,12 +4934,12 @@ async function bellmanContribute(curve, challangeFilename, responesFileName, ent
     // H
     const nH = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nH);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
+    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
 
     // L
     const nL = await fdFrom.readUBE32();
     await fdTo.writeUBE32(nL);
-    await applyKeyToChallangeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
+    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
 
     // A
     const nA = await fdFrom.readUBE32();
@@ -5647,18 +5647,18 @@ const commands = [
         action: powersOfTawContribute
     },
     {
-        cmd: "powersoftau export challange <powersoftau_0000.ptau> [challange]",
-        description: "Creates a challange",
+        cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
+        description: "Creates a challenge",
         alias: ["ptec"],
         options: "-verbose|v",
-        action: powersOfTawExportChallange
+        action: powersOfTawExportChallenge
     },
     {
-        cmd: "powersoftau challange contribute <curve> <challange> [response]",
-        description: "Contribute to a challange",
+        cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
+        description: "Contribute to a challenge",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
-        action: powersOfTawChallangeContribute
+        action: powersOfTawChallengeContribute
     },
     {
         cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
@@ -6202,41 +6202,41 @@ async function powersOfTawNew(params, options) {
     return await newAccumulator(curve, power, ptauName, logger);
 }
 
-async function powersOfTawExportChallange(params, options) {
+async function powersOfTawExportChallenge(params, options) {
     let ptauName;
-    let challangeName;
+    let challengeName;
 
     ptauName = params[0];
 
     if (params.length < 2) {
-        challangeName = "challange";
+        challengeName = "challenge";
     } else {
-        challangeName = params[1];
+        challengeName = params[1];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await exportChallange(ptauName, challangeName, logger);
+    return await exportChallenge(ptauName, challengeName, logger);
 }
 
-// powersoftau challange contribute <curve> <challange> [response]
-async function powersOfTawChallangeContribute(params, options) {
-    let challangeName;
+// powersoftau challenge contribute <curve> <challenge> [response]
+async function powersOfTawChallengeContribute(params, options) {
+    let challengeName;
     let responseName;
 
     const curve = await getCurveFromName(params[0]);
 
-    challangeName = params[1];
+    challengeName = params[1];
 
     if (params.length < 3) {
-        responseName = changeExt(challangeName, "response");
+        responseName = changeExt(challengeName, "response");
     } else {
         responseName = params[2];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await challangeContribute(curve, challangeName, responseName, options.entropy, logger);
+    return await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
 
@@ -6472,22 +6472,22 @@ async function zkeyBeacon(params, options) {
 }
 
 
-// zkey challange contribute <curve> <challange> [response]",
+// zkey challenge contribute <curve> <challenge> [response]",
 async function zkeyBellmanContribute(params, options) {
-    let challangeName;
+    let challengeName;
     let responseName;
 
     const curve = await getCurveFromName(params[0]);
 
-    challangeName = params[1];
+    challengeName = params[1];
 
     if (params.length < 3) {
-        responseName = changeExt(challangeName, "response");
+        responseName = changeExt(challengeName, "response");
     } else {
         responseName = params[2];
     }
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return bellmanContribute(curve, challangeName, responseName, options.entropy, logger);
+    return bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 }
