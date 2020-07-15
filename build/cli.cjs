@@ -739,7 +739,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.3.4";
+var version = "0.3.5";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
@@ -2634,9 +2634,9 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
     const fdTo = await createOverride(responesFileName);
 
     // Calculate the hash
-    if (logger) logger.debug("Hashing challenge");
     const challengeHasher = Blake2b(64);
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
+        if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
         const buff = await fdFrom.read(s);
         challengeHasher.update(buff);
