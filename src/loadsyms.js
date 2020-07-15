@@ -1,4 +1,4 @@
-import * as fastFile from "fastFile";
+import * as fastFile from "fastfile";
 
 export default async function loadSymbols(symFileName) {
     const sym = {
