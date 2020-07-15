@@ -47,9 +47,9 @@ export default async function challengeContribute(curve, challengeFilename, resp
     const fdTo = await fastFile.createOverride(responesFileName);
 
     // Calculate the hash
-    if (logger) logger.debug("Hashing challenge");
     const challengeHasher = Blake2b(64);
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
+        if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
         const buff = await fdFrom.read(s);
         challengeHasher.update(buff);
