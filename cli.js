@@ -171,7 +171,7 @@ const commands = [
     },
     {
         cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
-        description: "contributes to a llallange file in bellman format",
+        description: "contributes to a challenge file in bellman format",
         alias: ["zkbc"],
         options: "-verbose|v  -entropy|e",
         action: zkeyBellmanContribute
