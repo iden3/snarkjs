@@ -1215,7 +1215,7 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var name = "snarkjs";
 var type = "module";
-var version = "0.3.6";
+var version = "0.3.7";
 var description = "zkSNARKs implementation in JavaScript";
 var main = "./build/main.cjs";
 var module$1 = "./main.js";
