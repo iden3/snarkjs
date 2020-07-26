@@ -6,11 +6,11 @@ function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'defau
 
 var fs = _interopDefault(require('fs'));
 var ffjavascript = require('ffjavascript');
+var path = _interopDefault(require('path'));
 var Blake2b = _interopDefault(require('blake2b-wasm'));
 var readline = _interopDefault(require('readline'));
 var crypto = _interopDefault(require('crypto'));
 var circomRuntime = _interopDefault(require('circom_runtime'));
-var path = _interopDefault(require('path'));
 var Logger = _interopDefault(require('logplease'));
 
 async function open(fileName, openFlags, cacheSize) {
@@ -886,7 +886,7 @@ class FastFile$1 {
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v.setUint32(0, v, true);
+        tmpBuff32v.setUint32(0, v, false);
 
         await self.write(tmpBuff32, pos);
     }
@@ -952,6 +952,11 @@ function readExisting$2(o) {
     return fd;
 }
 
+const tmpBuff32$1 = new Uint8Array(4);
+const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
+const tmpBuff64$1 = new Uint8Array(8);
+const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
+
 class MemFile$1 {
 
     constructor() {
@@ -1008,32 +1013,33 @@ class MemFile$1 {
     async discard() {
     }
 
+
     async writeULE32(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v);
+        tmpBuff32v$1.setUint32(0, v, true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        const buff = new Uint8Array(4);
-        const buffV = new DataView(buff.buffer);
-        buffV.setUint32(0, v, false);
+        tmpBuff32v$1.setUint32(0, v, false);
 
-        await self.write(buff, pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v & 0xFFFFFFFF, Math.floor(v / 0x100000000));
+        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
+        await self.write(tmpBuff64$1, pos);
     }
+
 
     async readULE32(pos) {
         const self = this;
@@ -1213,87 +1219,19 @@ async function r1csExportJson(r1csFileName, logger) {
     return cir;
 }
 
-var name = "snarkjs";
-var type = "module";
-var version = "0.3.7";
-var description = "zkSNARKs implementation in JavaScript";
-var main = "./build/main.cjs";
-var module$1 = "./main.js";
-var exports$1 = {
-	"import": "./main.js",
-	require: "./build/main.cjs"
-};
-var scripts = {
-	test: "mocha",
-	build: "rollup -c config/rollup.cjs.config.js",
-	buildcli: "rollup -c config/rollup.cli.config.js",
-	buildiife: "BROWSER=true rollup -c config/rollup.iife.config.js",
-	buildiifemin: "BROWSER=true rollup -c config/rollup.iife_min.config.js"
-};
-var bin = {
-	snarkjs: "build/cli.cjs"
-};
-var directories = {
-	templates: "templates"
-};
-var keywords = [
-	"zksnark",
-	"zcash",
-	"ethereum",
-	"zero",
-	"knowlage",
-	"cryptography",
-	"circuit"
-];
-var author = "Jordi Baylina";
-var license = "GPL-3.0";
-var repository = {
-	type: "git",
-	url: "https://github.com/iden3/snarkjs.git"
-};
-var dependencies = {
-	"blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
-	circom_runtime: "0.0.9",
-	fastfile: "0.0.9",
-	ffjavascript: "0.2.4",
-	keccak: "^3.0.0",
-	logplease: "^1.2.15",
-	r1csfile: "0.0.12",
-	yargs: "^12.0.5"
-};
-var devDependencies = {
-	chai: "^4.2.0",
-	eslint: "^6.8.0",
-	lodash: "^4.17.15",
-	mocha: "^7.1.1",
-	rollup: "^2.20.0",
-	"rollup-plugin-commonjs": "^10.1.0",
-	"rollup-plugin-ignore": "^1.0.6",
-	"rollup-plugin-json": "^4.0.0",
-	"rollup-plugin-node-resolve": "^5.2.0",
-	"rollup-plugin-replace": "^2.2.0",
-	"rollup-plugin-terser": "^6.1.0"
-};
-var pkg = {
-	name: name,
-	type: type,
-	version: version,
-	description: description,
-	main: main,
-	module: module$1,
-	exports: exports$1,
-	scripts: scripts,
-	bin: bin,
-	directories: directories,
-	keywords: keywords,
-	author: author,
-	license: license,
-	repository: repository,
-	dependencies: dependencies,
-	devDependencies: devDependencies
-};
+/*
+import pkg from "../package.json";
+const version = pkg.version;
+*/
+let pkgS;
+try {
+    pkgS = fs.readFileSync("package.json");
+} catch (err) {
+    pkgS = fs.readFileSync(path.join("..","package.json"));
+}
 
-const version$1 = pkg.version;
+const pkg = JSON.parse(pkgS);
+const version = pkg.version;
 let selectedCommand = null;
 
 async function clProcessor(commands) {
@@ -1447,7 +1385,7 @@ async function clProcessor(commands) {
     }
 
     function printVersion() {
-        console.log("snarkjs@"+version$1);
+        console.log("snarkjs@"+version);
     }
 
     function epilog() {

@@ -1,4 +1,18 @@
+/*
 import pkg from "../package.json";
+const version = pkg.version;
+*/
+
+import path from "path";
+import fs from "fs";
+let pkgS;
+try {
+    pkgS = fs.readFileSync("package.json");
+} catch (err) {
+    pkgS = fs.readFileSync(path.join("..","package.json"));
+}
+
+const pkg = JSON.parse(pkgS);
 const version = pkg.version;
 let selectedCommand = null;
 
