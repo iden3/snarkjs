@@ -231,7 +231,7 @@ This information fits with our mental map of the circuit we created: we had two 
 
 ### 12. Print the constraints
 ```sh
-snarkjs r1cs print circuit.r1cs
+snarkjs r1cs print circuit.r1cs circuit.sym
 ```
 
 To double check, we print the constraints of the circuit.
