@@ -94,7 +94,7 @@ snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="First con
 
 The `contribute` command creates a ptau file with a new contribution.
 
-You'll be prompted to enter some random text as an extra source of entropy.
+You'll be prompted to enter some random text to provide an extra source of entropy.
 
 `contribute` takes as input the transcript of the protocol so far, in this case `pot12_0000.ptau`, and outputs a new transcript, in this case `pot12_0001.ptau`, which includes the computation carried out by the new contributor (`ptau` files contain a history of all the challenges and responses that have taken place so far).
 
@@ -141,7 +141,7 @@ snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090
 
 The `beacon` command creates a `ptau` file with a contribution applied in the form of a random beacon.
 
-We need to do apply a random beacon in order to finalise phase 1 of the trusted setup.
+We need to apply a random beacon in order to finalise phase 1 of the trusted setup.
 
 > To paraphrase Sean Bowe and Ariel Gabizon, a random beacon is a source of public randomness that is not available before a fixed time. The beacon itself can be a delayed hash function (e.g. 2^40 iterations of SHA256) evaluated on some high entropy and publicly available data. Possible sources of data include: the closing value of the stock market on a certain date in the future, the output of a selected set of national lotteries, or the value of a block at a particular height in one or more blockchains. E.g. the hash of the 11 millionth Ethereum block (which as of this writing is some 3 months in the future). See [here](https://eprint.iacr.org/2017/1050.pdf) for more on the importance of a random beacon.
 
@@ -167,7 +167,7 @@ The `verify` command verifies a powers of tau file.
 
 Before we go ahead and create the circuit, we perform a final check and verify the final protocol transcript.
 
-> Notice there is no longer a warning informing you that the file does not contain phase2 precalculated values.
+> Notice there is no longer a warning informing you that the file does not contain phase 2 precalculated values.
 
 ### 9. Create the circuit
 ```sh
@@ -257,13 +257,13 @@ snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
 
 The `zkey new` command creates an initial `zkey` file with zero contributions.
 
-The `zkey` is a zero-knowledge key that includes both the proving and verification keys as well as phase2 contributions.
+The `zkey` is a zero-knowledge key that includes both the proving and verification keys as well as phase 2 contributions.
 
 Importantly, one can verify whether a `zkey` belongs to a specific circuit or not.
 
 Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not include any contributions yet, so it cannot be used in a final circuit.
 
-*The following steps (15-20) are similar to the equivalent phase1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
+*The following steps (15-20) are similar to the equivalent phase 1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
 
 ### 15. Contribute to the phase2 ceremony
 ```sh
