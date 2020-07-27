@@ -250,7 +250,7 @@ cat circuit.r1cs.json
 
 We export `r1cs` to `json` format to make it human readable.
 
-### 14. Generate the reference `zkey` without phase2 contributions
+### 14. Generate the reference `zkey` without phase 2 contributions
 ```sh
 snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
@@ -265,7 +265,7 @@ Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not
 
 *The following steps (15-20) are similar to the equivalent phase 1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
 
-### 15. Contribute to the phase2 ceremony
+### 15. Contribute to the phase 2 ceremony
 ```sh
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
@@ -275,7 +275,7 @@ The `zkey contribute` command creates a `zkey` file with a new contribution.
 As in phase 1, you'll be prompted to enter some random text to provide an extra source of entropy.
 
 
-### 16. Provide a second phase2 contribution
+### 16. Provide a second contribution
 ```sh
 snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contribution Name" -v -e="Another random entropy"
 ```
