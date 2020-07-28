@@ -25,7 +25,7 @@ export async function writePTauHeader(fd, curve, power, ceremonyPower) {
 
     const oldPos = fd.pos;
 
-    fd.writeULE64(headerSize, pHeaderSize);
+    await fd.writeULE64(headerSize, pHeaderSize);
 
     fd.pos = oldPos;
 }
@@ -287,7 +287,7 @@ export async function writeContributions(fd, curve, contributions) {
 
     const oldPos = fd.pos;
 
-    fd.writeULE64(contributionsSize, pContributionsSize);
+    await fd.writeULE64(contributionsSize, pContributionsSize);
     fd.pos = oldPos;
 }
 
