@@ -63,7 +63,7 @@ export async function endWriteSection(fd) {
     const sectionSize = fd.pos - fd.writingSection.pSectionSize - 8;
     const oldPos = fd.pos;
     fd.pos = fd.writingSection.pSectionSize;
-    fd.writeULE64(sectionSize);
+    await fd.writeULE64(sectionSize);
     fd.pos = oldPos;
     delete fd.writingSection;
 }
