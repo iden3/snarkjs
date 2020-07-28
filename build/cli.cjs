@@ -1727,7 +1727,7 @@ async function writePTauHeader(fd, curve, power, ceremonyPower) {
 
     const oldPos = fd.pos;
 
-    fd.writeULE64(headerSize, pHeaderSize);
+    await fd.writeULE64(headerSize, pHeaderSize);
 
     fd.pos = oldPos;
 }
@@ -1989,7 +1989,7 @@ async function writeContributions(fd, curve, contributions) {
 
     const oldPos = fd.pos;
 
-    fd.writeULE64(contributionsSize, pContributionsSize);
+    await fd.writeULE64(contributionsSize, pContributionsSize);
     fd.pos = oldPos;
 }
 
@@ -2110,7 +2110,7 @@ async function endWriteSection(fd) {
     const sectionSize = fd.pos - fd.writingSection.pSectionSize - 8;
     const oldPos = fd.pos;
     fd.pos = fd.writingSection.pSectionSize;
-    fd.writeULE64(sectionSize);
+    await fd.writeULE64(sectionSize);
     fd.pos = oldPos;
     delete fd.writingSection;
 }
