@@ -3059,7 +3059,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
     }
 
     const claimedHash = await fdFrom.read(64, 0);
-    if (logger) logger.info(formatHash(claimedHash, "Claimed Previus Response Hash: "));
+    if (logger) logger.info(formatHash(claimedHash, "Claimed Previous Response Hash: "));
 
     const challengeHash = challengeHasher.digest();
     if (logger) logger.info(formatHash(challengeHash, "Current Challenge Hash: "));
@@ -6175,7 +6175,7 @@ const commands = [
     },
     {
         cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
-        description: "contributes to a llallange file in bellman format",
+        description: "contributes to a challenge file in bellman format",
         alias: ["zkbc"],
         options: "-verbose|v  -entropy|e",
         action: zkeyBellmanContribute
