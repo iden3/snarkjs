@@ -196,8 +196,8 @@ class FastFile {
             r = r-l;
             p ++;
             o = 0;
+            setImmediate(self._triggerWrite.bind(self));
         }
-        setImmediate(self._triggerWrite.bind(self));
     }
 
     async read(len, pos) {

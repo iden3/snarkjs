@@ -800,8 +800,8 @@ class FastFile$1 {
             r = r-l;
             p ++;
             o = 0;
+            setImmediate(self._triggerWrite.bind(self));
         }
-        setImmediate(self._triggerWrite.bind(self));
     }
 
     async read(len, pos) {
@@ -1223,11 +1223,13 @@ async function r1csExportJson(r1csFileName, logger) {
 import pkg from "../package.json";
 const version = pkg.version;
 */
+const __dirname$1 = path.dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
+
 let pkgS;
 try {
-    pkgS = fs.readFileSync("package.json");
+    pkgS = fs.readFileSync(path.join(__dirname$1, "package.json"));
 } catch (err) {
-    pkgS = fs.readFileSync(path.join("..","package.json"));
+    pkgS = fs.readFileSync(path.join(__dirname$1, "..","package.json"));
 }
 
 const pkg = JSON.parse(pkgS);

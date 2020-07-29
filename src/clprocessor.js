@@ -3,13 +3,16 @@ import pkg from "../package.json";
 const version = pkg.version;
 */
 
+
 import path from "path";
 import fs from "fs";
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+
 let pkgS;
 try {
-    pkgS = fs.readFileSync("package.json");
+    pkgS = fs.readFileSync(path.join(__dirname, "package.json"));
 } catch (err) {
-    pkgS = fs.readFileSync(path.join("..","package.json"));
+    pkgS = fs.readFileSync(path.join(__dirname, "..","package.json"));
 }
 
 const pkg = JSON.parse(pkgS);
