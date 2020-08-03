@@ -3273,7 +3273,6 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
             const G = curve[Gstr];
             const Fr = curve.Fr;
-            const PFr = curve.PFr;
             const sGin = G.F.n8*2;
             const sGmid = G.F.n8*3;
 
@@ -3307,8 +3306,8 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
                 for (let j=0; j<nGroups; j++) {
                     for (let k=0; k <nChunksPerGroup/2; k++) {
                         if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
-                        const first = Fr.pow( PFr.w[i], k*pointsPerChunk);
-                        const inc = PFr.w[i];
+                        const first = Fr.exp( Fr.w[i], k*pointsPerChunk);
+                        const inc = Fr.w[i];
                         const o1 = j*nChunksPerGroup + k;
                         const o2 = j*nChunksPerGroup + k + nChunksPerGroup/2;
 
