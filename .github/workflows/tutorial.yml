@@ -1,0 +1,127 @@
+name: Check snarkjs tutorial
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [12.x, 14.x]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v1
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: npm install -g circom@latest
+    - run: npm install
+    - run: npm link
+    - name: 1. Start a new powers of tau ceremony
+      run: snarkjs powersoftau new bn128 12 pot12_0000.ptau -v
+    - name: 2. Contribute to the ceremony
+      run: snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau -e="some random text" --name="First contribution" -v
+    - name: 3. Provide a second contribution
+      run: snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution" -e="some random text" -v
+    - name: 4. Provide a third contribution using third party software
+      run: |
+        snarkjs powersoftau export challenge pot12_0002.ptau challenge_0003
+        snarkjs powersoftau challenge contribute bn128 challenge_0003 response_0003 -e="some random text"
+        snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
+    - name: 5. Verify the protocol so far
+      run: snarkjs powersoftau verify pot12_0003.ptau
+    - name: 6. Apply a random beacon
+      run: snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
+    - name: 7. Prepare phase 2
+      run: snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
+    - name: 8. Verify the final ptau
+      run: snarkjs powersoftau verify pot12_final.ptau -v
+    - name: 9. Create the circuit
+      run: |
+        cat <<EOT > circuit.circom
+        template Multiplier(n) {
+            signal private input a;
+            signal private input b;
+            signal output c;
+
+            signal int[n];
+
+            int[0] <== a*a + b;
+            for (var i=1; i<n; i++) {
+            int[i] <== int[i-1]*int[i-1] + b;
+            }
+
+            c <== int[n-1];
+        }
+
+        component main = Multiplier(1000);
+        EOT
+    - name: 10. Compile the circuit
+      run: circom circuit.circom --r1cs --wasm --sym -v
+    - name: 11. View information about the circuit
+      run: snarkjs r1cs info circuit.r1cs
+    - name: 12. Print the constraints
+      run: snarkjs r1cs print circuit.r1cs circuit.sym
+    - name: 13. Export r1cs to json
+      run: | 
+        snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
+        cat circuit.r1cs.json
+    - name: 14. Generate the reference zkey without phase 2 contributions
+      run: snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
+    - name: 15. Contribute to the phase 2 ceremony
+      run: snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -e="some random text" -v
+    - name: 16. Provide a second contribution
+      run: snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contribution Name" -e="some random text" -v
+    - name: 17. Provide a third contribution using third party software
+      run: |
+        snarkjs zkey export bellman circuit_0002.zkey  challenge_phase2_0003
+        snarkjs zkey bellman contribute bn128 challenge_phase2_0003 response_phase2_0003 -e="some random text"
+        snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
+    - name: 18. Verify the latest zkey
+      run: snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
+    - name: 19. Apply a random beacon
+      run: snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
+    - name: 20. Verify the final zkey
+      run: snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
+    - name: 21. Export the verification key
+      run: snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
+    - name: 22. Calculate the witness
+      run: |
+        cat <<EOT > input.json
+        {"a": 3, "b": 11}
+        EOT
+        snarkjs wtns calculate circuit.wasm input.json witness.wtns
+    - name: 23. Debug the final witness calculation
+      run: snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
+    - name: 24. Create the proof
+      run: snarkjs groth16 prove circuit_final.zkey witness.wtns proof.json public.json
+    - name: 25. Verify the proof
+      run: snarkjs groth16 verify verification_key.json public.json proof.json
+    - name: 26. Turn the verifier into a smart contract
+      run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+    - name: 27. Simulate a verification call
+      run: snarkjs zkey export soliditycalldata public.json proof.json
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
