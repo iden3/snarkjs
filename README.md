@@ -1,4 +1,5 @@
-![Check%20snarkjs%20tutorial](https://github.com/iden3/snarkjs/workflows/Check%20snarkjs%20tutorial/badge.svg)
+
+![tests](https://github.com/iden3/snarkjs/workflows/tests/badge.svg)![Check%20snarkjs%20tutorial](https://github.com/iden3/snarkjs/workflows/Check%20snarkjs%20tutorial/badge.svg)
 
 # snarkjs
 
