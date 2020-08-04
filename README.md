@@ -1,3 +1,6 @@
+
+![tests](https://github.com/iden3/snarkjs/workflows/tests/badge.svg)![Check%20snarkjs%20tutorial](https://github.com/iden3/snarkjs/workflows/Check%20snarkjs%20tutorial/badge.svg)
+
 # snarkjs
 
 This is a **JavaScript and Pure Web Assembly implementation of zkSNARK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings).
