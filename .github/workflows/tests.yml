@@ -22,4 +22,4 @@ jobs:
     - run: npm install -g circom@latest
     - run: npm install
     - name: mocha tests
-    - run: npm run test
+      run: npm run test
