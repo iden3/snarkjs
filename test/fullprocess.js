@@ -4,7 +4,7 @@ import assert from "assert";
 import path from "path";
 
 describe("Full process", function ()  {
-    this.timeout(100000);
+    this.timeout(1000000);
 
     let curve;
     const ptau_0 = {type: "mem"};
