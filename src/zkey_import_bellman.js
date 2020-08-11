@@ -113,6 +113,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     const buffTauLEM = await curve.G1.batchUtoLEM(buffTauU);
     buffH = new Uint8Array(zkeyHeader.domainSize*sG1);
     buffH.set(buffTauLEM);   // Let the last one to zero.
+    curve.G1.toRprLEM(buffH, sG1*(zkeyHeader.domainSize-1), curve.G1.zeroAffine);
     const n2Inv = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
     const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
     buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", logger);

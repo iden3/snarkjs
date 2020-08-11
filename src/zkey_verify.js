@@ -270,6 +270,7 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
             const e = curve.Fr.fromRng(rng);
             curve.Fr.toRprLE(buff_r, i*zkey.n8r, e);
         }
+        curve.Fr.toRprLE(buff_r, (zkey.domainSize-1)*zkey.n8r, curve.Fr.zero);
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {

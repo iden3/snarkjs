@@ -3653,8 +3653,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const cirPower = log2(r1cs.nConstraints + r1cs.nPubInputs + r1cs.nOutputs +1 -1) +1;
 
-    if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints} > 2**${power}`);
+    if (cirPower > power+1) {
+        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints}*2 > 2**${power}`);
         return -1;
     }
 
@@ -4667,6 +4667,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const buffTauLEM = await curve.G1.batchUtoLEM(buffTauU);
     buffH = new Uint8Array(zkeyHeader.domainSize*sG1);
     buffH.set(buffTauLEM);   // Let the last one to zero.
+    curve.G1.toRprLEM(buffH, sG1*(zkeyHeader.domainSize-1), curve.G1.zeroAffine);
     const n2Inv = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
     const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
     buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", logger);
@@ -5012,6 +5013,7 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
             const e = curve.Fr.fromRng(rng);
             curve.Fr.toRprLE(buff_r, i*zkey.n8r, e);
         }
+        curve.Fr.toRprLE(buff_r, (zkey.domainSize-1)*zkey.n8r, curve.Fr.zero);
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
