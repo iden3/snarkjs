@@ -4989,6 +4989,8 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
         await endReadSection$1(fd1);
         await endReadSection$1(fd2);
 
+        if (nPoints == 0) return true;
+
         sr = await sameRatio$2(curve, R1, R2, g2sp, g2spx);
         if (sr !== true) return false;
 

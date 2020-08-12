@@ -246,6 +246,8 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
         await binFileUtils.endReadSection(fd1);
         await binFileUtils.endReadSection(fd2);
 
+        if (nPoints == 0) return true;
+
         sr = await sameRatio(curve, R1, R2, g2sp, g2spx);
         if (sr !== true) return false;
 
