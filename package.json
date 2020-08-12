@@ -41,7 +41,7 @@
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
     "circom_runtime": "0.0.9",
     "fastfile": "0.0.12",
-    "ffjavascript": "0.2.5",
+    "ffjavascript": "0.2.6",
     "logplease": "^1.2.15",
     "r1csfile": "0.0.12"
   },
