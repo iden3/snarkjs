@@ -3631,6 +3631,85 @@ async function exportJson(pTauFilename, verbose) {
 
 }
 
+const SUBARRAY_SIZE = 0x40000;
+
+const BigArrayHandler = {
+    get: function(obj, prop) {
+        if (!isNaN(prop)) {
+            return obj.getElement(prop);
+        } else return obj[prop];
+    },
+    set: function(obj, prop, value) {
+        if (!isNaN(prop)) {
+            return obj.setElement(prop, value);
+        } else {
+            obj[prop] = value;
+            return true;
+        }
+    }
+};
+
+class _BigArray {
+    constructor (initSize) {
+        this.length = initSize || 0;
+        this.arr = new Array(SUBARRAY_SIZE);
+
+        for (let i=0; i<initSize; i+=SUBARRAY_SIZE) {
+            this.arr[i/SUBARRAY_SIZE] = new Array(Math.min(SUBARRAY_SIZE, initSize - i));
+        }
+        return this;
+    }
+    push () {
+        for (let i=0; i<arguments.length; i++) {
+            this.setElement (this.length, arguments[i]);
+        }
+    }
+
+    slice (f, t) {
+        const arr = new Array(t-f);
+        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
+        return arr;
+    }
+    getElement(idx) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        const idx2 = idx % SUBARRAY_SIZE;
+        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
+    }
+    setElement(idx, value) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        if (!this.arr[idx1]) {
+            this.arr[idx1] = new Array(SUBARRAY_SIZE);
+        }
+        const idx2 = idx % SUBARRAY_SIZE;
+        this.arr[idx1][idx2] = value;
+        if (idx >= this.length) this.length = idx+1;
+        return true;
+    }
+    getKeys() {
+        const newA = new BigArray();
+        for (let i=0; i<this.arr.length; i++) {
+            if (this.arr[i]) {
+                for (let j=0; j<this.arr[i].length; j++) {
+                    if (typeof this.arr[i][j] !== "undefined") {
+                        newA.push(i*SUBARRAY_SIZE+j);
+                    }
+                }
+            }
+        }
+        return newA;
+    }
+}
+
+class BigArray {
+    constructor( initSize ) {
+        const obj = new _BigArray(initSize);
+        const extObj = new Proxy(obj, BigArrayHandler);
+        return extObj;
+    }
+}
+
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await Blake2b.ready();
     const csHasher = Blake2b(64);
@@ -3728,11 +3807,14 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await endWriteSection(fdZKey);
 
 
-    const A = new Array(r1cs.nVars);
-    const B1 = new Array(r1cs.nVars);
-    const B2 = new Array(r1cs.nVars);
-    const C = new Array(r1cs.nVars- nPublic -1);
+    const A = new BigArray(r1cs.nVars);
+    const B1 = new BigArray(r1cs.nVars);
+    const B2 = new BigArray(r1cs.nVars);
+    const C = new BigArray(r1cs.nVars- nPublic -1);
     const IC = new Array(nPublic+1);
+
+    const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
+    const buffCoeffV = new DataView(buffCoeff.buffer);
 
     const lTauG1 = sectionsPTau[12][0].p + ((1 << cirPower) -1)*sG1;
     const lTauG2 = sectionsPTau[13][0].p + ((1 << cirPower) -1)*sG2;
@@ -3746,7 +3828,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     let nCoefs = 0;
     fdZKey.pos += 4;
     for (let c=0; c<r1cs.nConstraints; c++) {
-        if ((logger)&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
+        if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
         const nA = await fdR1cs.readULE32();
         for (let i=0; i<nA; i++) {
             const s = await fdR1cs.readULE32();
@@ -3764,10 +3846,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
                 C[s - nPublic -1].push([l2, coef]);
             }
-            await fdZKey.writeULE32(0);
-            await fdZKey.writeULE32(c);
-            await fdZKey.writeULE32(s);
-            await writeFr2(coef);
+            await writeCoef(0, c, s, coef);
             nCoefs ++;
         }
 
@@ -3791,10 +3870,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
                 C[s- nPublic -1].push([l3, coef]);
             }
-            await fdZKey.writeULE32(1);
-            await fdZKey.writeULE32(c);
-            await fdZKey.writeULE32(s);
-            await writeFr2(coef);
+
+            await writeCoef(1, c, s, coef);
             nCoefs ++;
         }
 
@@ -3823,10 +3900,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         A[s].push([l1, bOne]);
         if (typeof IC[s] === "undefined") IC[s] = [];
         IC[s].push([l2, bOne]);
-        await fdZKey.writeULE32(0);
-        await fdZKey.writeULE32(r1cs.nConstraints + s);
-        await fdZKey.writeULE32(s);
-        await writeFr2(bOne);
+        await writeCoef(0, r1cs.nConstraints + s, s, bOne);
         nCoefs ++;
     }
 
@@ -3879,17 +3953,18 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     return csHash;
 
-    async function writeFr2(buff) {
-        const n = curve.Fr.fromRprLE(buff, 0);
+    async function writeCoef(a, c, s, coef) {
+        const n = curve.Fr.fromRprLE(coef, 0);
         const nR2 = curve.Fr.mul(n, R2r);
-        const buff2 = new Uint8Array(curve.Fr.n8);
-        curve.Fr.toRprLE(buff2, 0, nR2);
-        await fdZKey.write(buff2);
+        buffCoeffV.setUint32(0, a, true);
+        buffCoeffV.setUint32(4, c, true);
+        buffCoeffV.setUint32(8, s, true);
+        curve.Fr.toRprLE(buffCoeff, 12, nR2);
+        await fdZKey.write(buffCoeff);
     }
 
-
     async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
-        const CHUNK_SIZE= 1<<18;
+        const CHUNK_SIZE= 1<<16;
 
         hashU32(arr.length);
         await startWriteSection(fdZKey, idSection);
