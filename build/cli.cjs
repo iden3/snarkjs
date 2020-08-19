@@ -778,7 +778,6 @@ class FastFile$1 {
         if (self.pendingClose)
             throw new Error("Writing a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos+buff.byteLength-1) / self.pageSize);
 
         // for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
@@ -818,27 +817,24 @@ class FastFile$1 {
         if (self.pendingClose)
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos+len-1) / self.pageSize);
-
-        for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
         let buff = new Uint8Array(len);
-        let dstView = new Uint8Array(buff);
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
         while (r>0) {
+            await self._loadPage(p);
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            buff.set(srcView, dstView.byteLength-r);
+            buff.set(srcView, len-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
+            setImmediate(self._triggerLoad.bind(self));
         }
-        setImmediate(self._triggerLoad.bind(self));
         return buff;
     }
 
@@ -1070,6 +1066,177 @@ class MemFile$1 {
 
 }
 
+const PAGE_SIZE = 1<<22;
+
+function createNew$1(o) {
+    const initialSize = o.initialSize || 0;
+    const fd = new BigMemFile();
+    fd.o = o;
+    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE)+1 : 0;
+    fd.o.data = [];
+    for (let i=0; i<nPages-1; i++) {
+        fd.o.data.push( new Uint8Array(PAGE_SIZE));
+    }
+    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE*(nPages-1)));
+    fd.totalSize = 0;
+    fd.readOnly = false;
+    fd.pos = 0;
+    return fd;
+}
+
+function readExisting$3(o) {
+    const fd = new BigMemFile();
+    fd.o = o;
+    fd.totalSize = (o.data.length-1)* PAGE_SIZE + o.data[o.data.length-1].byteLength;
+    fd.readOnly = true;
+    fd.pos = 0;
+    return fd;
+}
+
+const tmpBuff32$2 = new Uint8Array(4);
+const tmpBuff32v$2 = new DataView(tmpBuff32$2.buffer);
+const tmpBuff64$2 = new Uint8Array(8);
+const tmpBuff64v$2 = new DataView(tmpBuff64$2.buffer);
+
+class BigMemFile {
+
+    constructor() {
+        this.pageSize = 1 << 14;  // for compatibility
+    }
+
+    _resizeIfNeeded(newLen) {
+
+        if (newLen <= this.totalSize) return;
+
+        if (this.readOnly) throw new Error("Reading out of file bounds");
+
+        const nPages = Math.floor((newLen - 1) / PAGE_SIZE)+1;
+        for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
+            const newSize = i<nPages-1 ? PAGE_SIZE : newLen - (nPages-1)*PAGE_SIZE;
+            const p = new Uint8Array(newSize);
+            if (i == this.o.data.length-1) p.set(this.o.data[i]);
+            this.o.data[i] = p;
+        }
+        this.totalSize = newLen;
+    }
+
+    async write(buff, pos) {
+        const self =this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) throw new Error("Writing a read only file");
+
+        this._resizeIfNeeded(pos + buff.byteLength);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE);
+
+        let p = firstPage;
+        let o = pos % PAGE_SIZE;
+        let r = buff.byteLength;
+        while (r>0) {
+            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
+            const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
+            const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
+            dstView.set(srcView);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + buff.byteLength;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) {
+            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
+        }
+        this._resizeIfNeeded(pos + len);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE);
+
+        let buff = new Uint8Array(len);
+        let p = firstPage;
+        let o = pos % PAGE_SIZE;
+        // Remaining bytes to read
+        let r = len;
+        while (r>0) {
+            // bytes to copy from this page
+            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
+            const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
+            buff.set(srcView, len-r);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + len;
+        return buff;
+    }
+
+    close() {
+    }
+
+    async discard() {
+    }
+
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$2.setUint32(0, v, true);
+
+        await self.write(tmpBuff32$2, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$2.setUint32(0, v, false);
+
+        await self.write(tmpBuff32$2, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        tmpBuff64v$2.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$2.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64$2, pos);
+    }
+
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+}
+
 /* global fetch */
 
 
@@ -1085,12 +1252,14 @@ async function createOverride(o, b) {
         return await open$1(o.fileName, "w+", o.cacheSize);
     } else if (o.type == "mem") {
         return createNew(o);
+    } else if (o.type == "bigMem") {
+        return createNew$1(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
-async function readExisting$3(o, b) {
+async function readExisting$4(o, b) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -1122,6 +1291,8 @@ async function readExisting$3(o, b) {
         return await open$1(o.fileName, "r", o.cacheSize);
     } else if (o.type == "mem") {
         return await readExisting$2(o);
+    } else if (o.type == "bigMem") {
+        return await readExisting$3(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -1133,7 +1304,7 @@ async function loadSymbols(symFileName) {
         varIdx2Name: [ "one" ],
         componentIdx2Name: []
     };
-    const fd = await readExisting$3(symFileName);
+    const fd = await readExisting$4(symFileName);
     const buff = await fd.read(fd.totalSize);
     const symsStr = new TextDecoder("utf-8").decode(buff);
     const lines = symsStr.split("\n");
@@ -2053,7 +2224,7 @@ function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
 
 async function readBinFile$1(fileName, type, maxVersion) {
 
-    const fd = await readExisting$3(fileName);
+    const fd = await readExisting$4(fileName);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -2393,7 +2564,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const sG2 = curve.F2.n8*2;
     const scG2 = curve.F2.n8; // Compresed size
 
-    const fdResponse = await readExisting$3(contributionFilename);
+    const fdResponse = await readExisting$4(contributionFilename);
 
     if  (fdResponse.totalSize !=
         64 +                            // Old Hash
@@ -3029,7 +3200,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
     await Blake2b.ready();
 
-    const fdFrom = await readExisting$3(challengeFilename);
+    const fdFrom = await readExisting$4(challengeFilename);
 
 
     const sG1 = curve.F1.n64*8*2;
@@ -3433,7 +3604,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
     await writePTauHeader(fdNew, curve, power);
 
     // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-    const fdTmp = await createOverride({type: "mem"});
+    const fdTmp = await createOverride({type: "bigMem"});
 
     await copySection(fdOld, sections, fdNew, 2);
     await copySection(fdOld, sections, fdNew, 3);
@@ -4645,7 +4816,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await readExisting$3(mpcparamsName);
+    const fdMPCParams = await readExisting$4(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -5405,7 +5576,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await readExisting$3(challengeFilename);
+    const fdFrom = await readExisting$4(challengeFilename);
     const fdTo = await createOverride(responesFileName);
 
 
@@ -5605,7 +5776,7 @@ async function exportSolidityVerifier(zKeyName, templateName, logger) {
 
     const verificationKey = await zkeyExportVerificationKey(zKeyName);
 
-    const fd = await readExisting$3(templateName);
+    const fd = await readExisting$4(templateName);
     const buff = await fd.read(fd.totalSize);
     let template = new TextDecoder("utf-8").decode(buff);
 
@@ -5955,7 +6126,7 @@ const { WitnessCalculatorBuilder } = circomRuntime;
 
 async function wtnsCalculate(input, wasmFileName, wtnsFileName, options) {
 
-    const fdWasm = await readExisting$3(wasmFileName);
+    const fdWasm = await readExisting$4(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -6054,7 +6225,7 @@ const { WitnessCalculatorBuilder: WitnessCalculatorBuilder$1 } = circomRuntime;
 
 async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, logger) {
 
-    const fdWasm = await readExisting$3(wasmFileName);
+    const fdWasm = await readExisting$4(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 

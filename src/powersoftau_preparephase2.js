@@ -12,7 +12,7 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
     await utils.writePTauHeader(fdNew, curve, power);
 
     // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-    const fdTmp = await fastFile.createOverride({type: "mem"});
+    const fdTmp = await fastFile.createOverride({type: "bigMem"});
 
     await binFileUtils.copySection(fdOld, sections, fdNew, 2);
     await binFileUtils.copySection(fdOld, sections, fdNew, 3);
