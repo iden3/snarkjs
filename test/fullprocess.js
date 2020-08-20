@@ -49,7 +49,7 @@ describe("Full process", function ()  {
     });
 
     it ("powersoftau import response", async () => {
-        await snarkjs.powersOfTau.importResponse(ptau_1, ptau_response2, ptau_2, "C2");
+        await snarkjs.powersOfTau.importResponse(ptau_1, ptau_response2, ptau_2, "C2", true);
     });
 
     it ("powersoftau beacon", async () => {
