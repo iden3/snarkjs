@@ -68,7 +68,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
     const nTauG1 = (1 << power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
         await fd.write(buffG1);
-        if ((logger)&&((i%100000) == 0)&&i) logger.info("tauG1: " + i);
+        if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG1: " + i);
     }
     await binFileUtils.endWriteSection(fd);
 

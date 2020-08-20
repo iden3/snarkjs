@@ -8,6 +8,9 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     await Blake2b.ready();
 
+    const noHash = new Uint8Array(64);
+    for (let i=0; i<64; i++) noHash[i] = 0xFF;
+
     const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdOld, sections);
     const contributions = await utils.readContributions(fdOld, curve, sections);
@@ -40,10 +43,15 @@ export default async function importResponse(oldPtauFilename, contributionFilena
         lastChallengeHash = utils.calculateFirstChallengeHash(curve, power, logger);
     }
 
-    const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
+    const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, importPoints ? 7: 2);
     await utils.writePTauHeader(fdNew, curve, power);
 
     const contributionPreviousHash = await fdResponse.read(64);
+
+    if (misc.hashIsEqual(noHash,lastChallengeHash)) {
+        lastChallengeHash = contributionPreviousHash;
+        contributions[contributions.length-1].nextChallenge = lastChallengeHash;
+    }
 
     if(!misc.hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. this contribution is not based on the previus hash");
@@ -76,18 +84,22 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b(64);
-    nextChallengeHasher.update(hashResponse);
+    if (importPoints) {
+        const nextChallengeHasher = new Blake2b(64);
+        nextChallengeHasher.update(hashResponse);
 
-    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
-    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
-    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
-    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
-    await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G2", 6, 1                  , "betaG2", logger);
 
-    currentContribution.nextChallenge = nextChallengeHasher.digest();
+        currentContribution.nextChallenge = nextChallengeHasher.digest();
 
-    if (logger) logger.info(misc.formatHash(currentContribution.nextChallenge, "Next Challenge Hash: "));
+        if (logger) logger.info(misc.formatHash(currentContribution.nextChallenge, "Next Challenge Hash: "));
+    } else {
+        currentContribution.nextChallenge = noHash;
+    }
 
     contributions.push(currentContribution);
 
@@ -100,6 +112,14 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     return currentContribution.nextChallenge;
 
     async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
+        if (importPoints) {
+            return await processSectionImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName);
+        } else {
+            return await processSectionNoImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName);
+        }
+    }
+
+    async function processSectionImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
 
         const G = curve[groupName];
         const scG = G.F.n8;
@@ -137,7 +157,36 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     }
 
 
-    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName, logger) {
+    async function processSectionNoImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
+
+        const G = curve[groupName];
+        const scG = G.F.n8;
+
+        const singularPoints = [];
+
+        const nPointsChunk = Math.floor((1<<24)/scG);
+
+        for (let i=0; i< nPoints; i += nPointsChunk) {
+            if (logger) logger.debug(`Importing ${sectionName}: ${i}/${nPoints}`);
+            const n = Math.min(nPoints-i, nPointsChunk);
+
+            const buffC = await fdFrom.read(n * scG);
+            hasherResponse.update(buffC);
+
+            for (let j=0; j<singularPointIndexes.length; j++) {
+                const sp = singularPointIndexes[j];
+                if ((sp >=i) && (sp < i+n)) {
+                    const P = G.fromRprCompressed(buffC, (sp-i)*scG);
+                    singularPoints.push(P);
+                }
+            }
+        }
+
+        return singularPoints;
+    }
+
+
+    async function hashSection(nextChallengeHasher, fdTo, groupName, sectionId, nPoints, sectionName, logger) {
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
