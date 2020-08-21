@@ -1526,7 +1526,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
 
     const cutPoints = [];
     for (let i=0; i<concurrency; i++) {
-        cutPoints.push( getCutPoint( Math.floor(i*zkey.domainSize /concurrency) ));
+        cutPoints.push( getCutPoint( Math.floor(i*elementsPerChunk) ));
     }
     cutPoints.push(coeffs.byteLength);
 
