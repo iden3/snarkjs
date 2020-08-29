@@ -86,7 +86,7 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
                 const nChunksPerGroup = nChunks / nGroups;
                 for (let j=0; j<nGroups; j++) {
                     for (let k=0; k <nChunksPerGroup/2; k++) {
-                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
+                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k+1}/${nChunksPerGroup/2}`);
                         const first = Fr.exp( Fr.w[i], k*pointsPerChunk);
                         const inc = Fr.w[i];
                         const o1 = j*nChunksPerGroup + k;

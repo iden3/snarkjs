@@ -3,7 +3,7 @@ import * as utils from "./powersoftau_utils.js";
 import * as keyPair from "./keypair.js";
 import crypto from "crypto";
 import * as binFileUtils from "./binfileutils.js";
-import { ChaCha } from "ffjavascript";
+import { ChaCha, BigBuffer } from "ffjavascript";
 import * as misc from "./misc.js";
 const sameRatio = misc.sameRatio;
 
@@ -388,9 +388,6 @@ export default async function verify(tauFilename, logger) {
             seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
         }
 
-        const rng = new ChaCha(seed);
-
-
         for (let p=0; p<= power; p ++) {
             const res = await verifyPower(p);
             if (!res) return false;
@@ -402,30 +399,53 @@ export default async function verify(tauFilename, logger) {
             if (logger) logger.debug(`Power ${p}...`);
             const n8r = curve.Fr.n8;
             const nPoints = 1<<p;
-            let buff_r = new Uint8Array(nPoints * n8r);
+            let buff_r = new Uint32Array(nPoints);
             let buffG;
 
+            let rng = new ChaCha(seed);
+
+            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
             for (let i=0; i<nPoints; i++) {
-                const e = curve.Fr.fromRng(rng);
-                curve.Fr.toRprLE(buff_r, i*n8r, e);
+                buff_r[i] = rng.nextU32();
             }
 
+            buff_r = new Uint8Array(buff_r.buffer, buff_r.byteOffset, buff_r.byteLength);
+
+            if (logger) logger.debug(`reading points Powers${p}...`);
             await binFileUtils.startReadUniqueSection(fd, sections, tauSection);
-            buffG = await fd.read(nPoints*sG);
+            buffG = new BigBuffer(nPoints*sG);
+            await fd.readToBuffer(buffG, 0, nPoints*sG);
             await binFileUtils.endReadSection(fd, true);
 
-            const resTau = await G.multiExpAffine(buffG, buff_r);
+            const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);
 
+            buff_r = new BigBuffer(nPoints * n8r);
+
+            rng = new ChaCha(seed);
+
+            const buff4 = new Uint8Array(4);
+            const buff4V = new DataView(buff4.buffer);
+
+            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
+            for (let i=0; i<nPoints; i++) {
+                buff4V.setUint32(0, rng.nextU32(), true);
+                buff_r.set(buff4, i*n8r);
+            }
+
+            if (logger) logger.debug(`batchToMontgomery ${p}...`);
             buff_r = await curve.Fr.batchToMontgomery(buff_r);
+            if (logger) logger.debug(`fft ${p}...`);
             buff_r = await curve.Fr.fft(buff_r);
+            if (logger) logger.debug(`batchFromMontgomery ${p}...`);
             buff_r = await curve.Fr.batchFromMontgomery(buff_r);
 
+            if (logger) logger.debug(`reading points Lagrange${p}...`);
             await binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
             fd.pos += sG*((1 << p)-1);
-            buffG = await fd.read(nPoints*sG);
+            await fd.readToBuffer(buffG, 0, nPoints*sG);
             await binFileUtils.endReadSection(fd, true);
 
-            const resLagrange = await G.multiExpAffine(buffG, buff_r);
+            const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
 
             if (!G.eq(resTau, resLagrange)) {
                 if (logger) logger.error("Phase2 caclutation does not match with powers of tau");

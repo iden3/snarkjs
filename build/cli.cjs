@@ -615,7 +615,7 @@ async function load(fileName, loadConstraints, loadMap) {
     }
 }
 
-async function open$1(fileName, openFlags, cacheSize) {
+async function open$1(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
@@ -623,7 +623,7 @@ async function open$1(fileName, openFlags, cacheSize) {
 
     const stats = await fd.stat();
 
-    return  new FastFile$1(fd, stats, cacheSize, fileName);
+    return  new FastFile$1(fd, stats, cacheSize, pageSize, fileName);
 }
 
 const tmpBuff32 = new Uint8Array(4);
@@ -633,14 +633,12 @@ const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
 class FastFile$1 {
 
-    constructor(fd, stats, cacheSize, fileName) {
+    constructor(fd, stats, cacheSize, pageSize, fileName) {
         this.fileName = fileName;
         this.fd = fd;
         this.pos = 0;
-        this.pageBits = 8;
-        this.pageSize = (1 << this.pageBits);
+        this.pageSize = pageSize || (1 << 8);
         while (this.pageSize < stats.blksize*4) {
-            this.pageBits ++;
             this.pageSize *= 2;
         }
         this.totalSize = stats.size;
@@ -804,8 +802,16 @@ class FastFile$1 {
     }
 
     async read(len, pos) {
+        const self = this;
+        let buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
-            return new Uint8Array(0);
+            return;
         }
         const self = this;
         if (len > self.pageSize*self.maxPagesLoaded*0.8) {
@@ -818,7 +824,6 @@ class FastFile$1 {
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
@@ -828,15 +833,18 @@ class FastFile$1 {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
             setImmediate(self._triggerLoad.bind(self));
         }
-        return buff;
+
+        this.pos = pos + len;
+
     }
+
 
     _tryClose() {
         const self = this;
@@ -987,7 +995,7 @@ class MemFile$1 {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDest, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -995,8 +1003,19 @@ class MemFile$1 {
         }
         this._resizeIfNeeded(pos + len);
 
-        const buff = this.o.data.slice(pos, pos+len);
+        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
+
+        buffDest.set(buffSrc, offset);
+
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 
@@ -1145,7 +1164,7 @@ class BigMemFile {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDst, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -1155,7 +1174,6 @@ class BigMemFile {
 
         const firstPage = Math.floor(pos / PAGE_SIZE);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % PAGE_SIZE;
         // Remaining bytes to read
@@ -1164,13 +1182,21 @@ class BigMemFile {
             // bytes to copy from this page
             const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
             const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             r = r-l;
             p ++;
             o = 0;
         }
 
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        const buff = new Uint8Array(len);
+
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 
@@ -1240,16 +1266,17 @@ class BigMemFile {
 /* global fetch */
 
 
-async function createOverride(o, b) {
+async function createOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return await open$1(o.fileName, "w+", o.cacheSize);
+        return await open$1(o.fileName, "w+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return createNew(o);
     } else if (o.type == "bigMem") {
@@ -1259,7 +1286,7 @@ async function createOverride(o, b) {
     }
 }
 
-async function readExisting$4(o, b) {
+async function readExisting$4(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -1283,12 +1310,13 @@ async function readExisting$4(o, b) {
             o = {
                 type: "file",
                 fileName: o,
-                cacheSize: b
+                cacheSize: b,
+                pageSize: c || (1 << 24)
             };
         }
     }
     if (o.type == "file") {
-        return await open$1(o.fileName, "r", o.cacheSize);
+        return await open$1(o.fileName, "r", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await readExisting$2(o);
     } else if (o.type == "bigMem") {
@@ -3138,9 +3166,6 @@ async function verify(tauFilename, logger) {
             seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
         }
 
-        const rng = new ffjavascript.ChaCha(seed);
-
-
         for (let p=0; p<= power; p ++) {
             const res = await verifyPower(p);
             if (!res) return false;
@@ -3152,30 +3177,53 @@ async function verify(tauFilename, logger) {
             if (logger) logger.debug(`Power ${p}...`);
             const n8r = curve.Fr.n8;
             const nPoints = 1<<p;
-            let buff_r = new Uint8Array(nPoints * n8r);
+            let buff_r = new Uint32Array(nPoints);
             let buffG;
 
+            let rng = new ffjavascript.ChaCha(seed);
+
+            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
             for (let i=0; i<nPoints; i++) {
-                const e = curve.Fr.fromRng(rng);
-                curve.Fr.toRprLE(buff_r, i*n8r, e);
+                buff_r[i] = rng.nextU32();
             }
 
+            buff_r = new Uint8Array(buff_r.buffer, buff_r.byteOffset, buff_r.byteLength);
+
+            if (logger) logger.debug(`reading points Powers${p}...`);
             await startReadUniqueSection$1(fd, sections, tauSection);
-            buffG = await fd.read(nPoints*sG);
+            buffG = new ffjavascript.BigBuffer(nPoints*sG);
+            await fd.readToBuffer(buffG, 0, nPoints*sG);
             await endReadSection$1(fd, true);
 
-            const resTau = await G.multiExpAffine(buffG, buff_r);
+            const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);
 
+            buff_r = new ffjavascript.BigBuffer(nPoints * n8r);
+
+            rng = new ffjavascript.ChaCha(seed);
+
+            const buff4 = new Uint8Array(4);
+            const buff4V = new DataView(buff4.buffer);
+
+            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
+            for (let i=0; i<nPoints; i++) {
+                buff4V.setUint32(0, rng.nextU32(), true);
+                buff_r.set(buff4, i*n8r);
+            }
+
+            if (logger) logger.debug(`batchToMontgomery ${p}...`);
             buff_r = await curve.Fr.batchToMontgomery(buff_r);
+            if (logger) logger.debug(`fft ${p}...`);
             buff_r = await curve.Fr.fft(buff_r);
+            if (logger) logger.debug(`batchFromMontgomery ${p}...`);
             buff_r = await curve.Fr.batchFromMontgomery(buff_r);
 
+            if (logger) logger.debug(`reading points Lagrange${p}...`);
             await startReadUniqueSection$1(fd, sections, lagrangeSection);
             fd.pos += sG*((1 << p)-1);
-            buffG = await fd.read(nPoints*sG);
+            await fd.readToBuffer(buffG, 0, nPoints*sG);
             await endReadSection$1(fd, true);
 
-            const resLagrange = await G.multiExpAffine(buffG, buff_r);
+            const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
 
             if (!G.eq(resTau, resLagrange)) {
                 if (logger) logger.error("Phase2 caclutation does not match with powers of tau");
@@ -3727,7 +3775,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
                 const nChunksPerGroup = nChunks / nGroups;
                 for (let j=0; j<nGroups; j++) {
                     for (let k=0; k <nChunksPerGroup/2; k++) {
-                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k}/${nChunksPerGroup/2}`);
+                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k+1}/${nChunksPerGroup/2}`);
                         const first = Fr.exp( Fr.w[i], k*pointsPerChunk);
                         const inc = Fr.w[i];
                         const o1 = j*nChunksPerGroup + k;
@@ -6345,6 +6393,8 @@ const {stringifyBigInts: stringifyBigInts$2, unstringifyBigInts: unstringifyBigI
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
+const __dirname$2 = path.dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
+
 const commands = [
     {
         cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
@@ -6823,10 +6873,10 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     let templateName;
     try {
-        templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
+        templateName = path.join( __dirname$2, "templates", "verifier_groth16.sol");
         await fs.promises.stat(templateName);
     } catch (err) {
-        templateName = path.join( __dirname, "..", "templates", "verifier_groth16.sol");
+        templateName = path.join( __dirname$2, "..", "templates", "verifier_groth16.sol");
     }
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templateName);

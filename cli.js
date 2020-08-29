@@ -43,6 +43,8 @@ import Logger from "logplease";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+
 const commands = [
     {
         cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
