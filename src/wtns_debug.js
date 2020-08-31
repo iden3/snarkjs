@@ -38,7 +38,7 @@ export default async function wtnsDebug(input, wasmFileName, wtnsFileName, symNa
             if (logger) logger.info("FINISH: " + sym.componentIdx2Name[cIdx]);
         };
     }
-
+    wcOps.sym = sym;
 
     const wc = await WitnessCalculatorBuilder(wasm, wcOps);
     const w = await wc.calculateWitness(input);
