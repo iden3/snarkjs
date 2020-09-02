@@ -30,7 +30,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const cirPower = log2(r1cs.nConstraints + r1cs.nPubInputs + r1cs.nOutputs +1 -1) +1;
 
-    if (cirPower > power+1) {
+    if (cirPower > power) {
         if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints}*2 > 2**${power}`);
         return -1;
     }

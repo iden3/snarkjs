@@ -33,7 +33,7 @@ describe("Full process", function ()  {
     });
 
     it ("powersoftau new", async () => {
-        await snarkjs.powersOfTau.newAccumulator(curve, 12, ptau_0);
+        await snarkjs.powersOfTau.newAccumulator(curve, 11, ptau_0);
     });
 
     it ("powersoftau contribute ", async () => {

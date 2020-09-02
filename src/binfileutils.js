@@ -97,17 +97,20 @@ export async function readBigInt(fd, n8, pos) {
     return Scalar.fromRprLE(buff, 0, n8);
 }
 
-export async function copySection(fdFrom, sections, fdTo, sectionId) {
+export async function copySection(fdFrom, sections, fdTo, sectionId, size) {
+    if (typeof size === "undefined") {
+        size = sections[sectionId][0].size;
+    }
     const chunkSize = fdFrom.pageSize;
     await startReadUniqueSection(fdFrom, sections, sectionId);
     await startWriteSection(fdTo, sectionId);
-    for (let p=0; p<sections[sectionId][0].size; p+=chunkSize) {
-        const l = Math.min(sections[sectionId][0].size -p, chunkSize);
+    for (let p=0; p<size; p+=chunkSize) {
+        const l = Math.min(size -p, chunkSize);
         const buff = await fdFrom.read(l);
         await fdTo.write(buff);
     }
     await endWriteSection(fdTo);
-    await endReadSection(fdFrom);
+    await endReadSection(fdFrom, size != sections[sectionId][0].size);
 
 }
 

@@ -44,6 +44,10 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
             await processSectionPower(p);
         }
 
+        if (oldSectionId == 2) {
+            await processSectionPower(power+1);
+        }
+
         await binFileUtils.endWriteSection(fdNew);
 
         async function processSectionPower(p) {
@@ -63,7 +67,13 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
             for (let i=0; i<nChunks; i++) {
                 let buff;
                 if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
-                buff = await fdOld.read(pointsPerChunk*sGin);
+                if ((oldSectionId == 2)&&(p==power+1)) {
+                    buff = new Uint8Array(pointsPerChunk*sGin);
+                    await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
+                    buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
+                } else {
+                    buff = await fdOld.read(pointsPerChunk*sGin);
+                }
                 buff = await G.batchToJacobian(buff);
                 for (let j=0; j<pointsPerChunk; j++) {
                     fdTmp.pos = bitReverse(i*pointsPerChunk+j, p)*sGmid;

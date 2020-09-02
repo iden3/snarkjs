@@ -227,9 +227,11 @@ export default async function verify(tauFilename, logger) {
     const nextContributionHash = nextContributionHasher.digest();
 
     // Check the nextChallengeHash
-    if (!misc.hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
-        if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
-        return false;
+    if (power == ceremonyPower) {
+        if (!misc.hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
+            if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
+            return false;
+        }
     }
 
     if (logger) logger.info(misc.formatHash(nextContributionHash, "Next challenge hash: "));
@@ -264,6 +266,8 @@ export default async function verify(tauFilename, logger) {
     }
 
     await fd.close();
+
+    if (logger) logger.info("Powers of Tau Ok!");
 
     return true;
 
@@ -393,6 +397,11 @@ export default async function verify(tauFilename, logger) {
             if (!res) return false;
         }
 
+        if (tauSection == 2) {
+            const res = await verifyPower(power+1);
+            if (!res) return false;
+        }
+
         return true;
 
         async function verifyPower(p) {
@@ -414,7 +423,12 @@ export default async function verify(tauFilename, logger) {
             if (logger) logger.debug(`reading points Powers${p}...`);
             await binFileUtils.startReadUniqueSection(fd, sections, tauSection);
             buffG = new BigBuffer(nPoints*sG);
-            await fd.readToBuffer(buffG, 0, nPoints*sG);
+            if (p == power+1) {
+                await fd.readToBuffer(buffG, 0, (nPoints-1)*sG);
+                buffG.set(curve.G1.zeroAffine, (nPoints-1)*sG);
+            } else {
+                await fd.readToBuffer(buffG, 0, nPoints*sG);
+            }
             await binFileUtils.endReadSection(fd, true);
 
             const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);

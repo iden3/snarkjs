@@ -7,4 +7,6 @@ export {default as challengeContribute} from "./powersoftau_challenge_contribute
 export {default as beacon} from "./powersoftau_beacon.js";
 export {default as contribute} from "./powersoftau_contribute.js";
 export {default as preparePhase2} from "./powersoftau_preparephase2.js";
+export {default as truncate} from "./powersoftau_truncate.js";
+export {default as convert} from "./powersoftau_convert.js";
 export {default as exportJson} from "./powersoftau_export_json.js";

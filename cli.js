@@ -28,7 +28,7 @@ import * as r1cs from "./src/r1cs.js";
 
 import clProcessor from "./src/clprocessor.js";
 
-import * as powersOfTaw from "./src/powersoftau.js";
+import * as powersOfTau from "./src/powersoftau.js";
 
 import {  utils }   from "ffjavascript";
 const {stringifyBigInts, unstringifyBigInts} = utils;
@@ -51,42 +51,42 @@ const commands = [
         description: "Starts a powers of tau ceremony",
         alias: ["ptn"],
         options: "-verbose|v",
-        action: powersOfTawNew
+        action: powersOfTauNew
     },
     {
         cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "creates a ptau file with a new contribution",
         alias: ["ptc"],
         options: "-verbose|v -name|n -entropy|e",
-        action: powersOfTawContribute
+        action: powersOfTauContribute
     },
     {
         cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
         description: "Creates a challenge",
         alias: ["ptec"],
         options: "-verbose|v",
-        action: powersOfTawExportChallenge
+        action: powersOfTauExportChallenge
     },
     {
         cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
         description: "Contribute to a challenge",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
-        action: powersOfTawChallengeContribute
+        action: powersOfTauChallengeContribute
     },
     {
         cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
         description: "import a response to a ptau file",
         alias: ["ptir"],
         options: "-verbose|v -nopoints -nocheck -name|n",
-        action: powersOfTawImport
+        action: powersOfTauImport
     },
     {
         cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
         description: "adds a beacon",
         alias: ["ptb"],
         options: "-verbose|v -name|n",
-        action: powersOfTawBeacon
+        action: powersOfTauBeacon
     },
     {
         cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
@@ -94,21 +94,37 @@ const commands = [
         longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
         alias: ["pt2"],
         options: "-verbose|v",
-        action: powersOfTawPreparePhase2
+        action: powersOfTauPreparePhase2
+    },
+    {
+        cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
+        description: "Convert ptau",
+        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        alias: ["ptcv"],
+        options: "-verbose|v",
+        action: powersOfTauConvert
+    },
+    {
+        cmd: "powersoftau truncate <powersoftau.ptau>",
+        description: "Generate diferent powers of tau with smoller sizes ",
+        longDescription: " This process generates smaller ptau files from a bigger power ptau",
+        alias: ["ptt"],
+        options: "-verbose|v",
+        action: powersOfTauTruncate
     },
     {
         cmd: "powersoftau verify <powersoftau.ptau>",
         description: "verifies a powers of tau file",
         alias: ["ptv"],
         options: "-verbose|v",
-        action: powersOfTawVerify
+        action: powersOfTauVerify
     },
     {
         cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
         description: "Exports a power of tau file to a JSON",
         alias: ["ptej"],
         options: "-verbose|v",
-        action: powersOfTawExportJson
+        action: powersOfTauExportJson
     },
     {
         cmd: "r1cs info [circuit.r1cs]",
@@ -591,7 +607,7 @@ async function zkeyExportSolidityCalldata(params, options) {
 }
 
 // powersoftau new <curve> <power> [powersoftau_0000.ptau]",
-async function powersOfTawNew(params, options) {
+async function powersOfTauNew(params, options) {
     let curveName;
     let power;
     let ptauName;
@@ -604,7 +620,7 @@ async function powersOfTawNew(params, options) {
     }
 
     if (params.length < 3) {
-        ptauName = "powersOfTaw" + power + "_0000.ptau";
+        ptauName = "powersOfTau" + power + "_0000.ptau";
     } else {
         ptauName = params[2];
     }
@@ -613,10 +629,10 @@ async function powersOfTawNew(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.newAccumulator(curve, power, ptauName, logger);
+    return await powersOfTau.newAccumulator(curve, power, ptauName, logger);
 }
 
-async function powersOfTawExportChallenge(params, options) {
+async function powersOfTauExportChallenge(params, options) {
     let ptauName;
     let challengeName;
 
@@ -630,11 +646,11 @@ async function powersOfTawExportChallenge(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.exportChallenge(ptauName, challengeName, logger);
+    return await powersOfTau.exportChallenge(ptauName, challengeName, logger);
 }
 
 // powersoftau challenge contribute <curve> <challenge> [response]
-async function powersOfTawChallengeContribute(params, options) {
+async function powersOfTauChallengeContribute(params, options) {
     let challengeName;
     let responseName;
 
@@ -650,11 +666,11 @@ async function powersOfTawChallengeContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+    return await powersOfTau.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
 
-async function powersOfTawImport(params, options) {
+async function powersOfTauImport(params, options) {
     let oldPtauName;
     let response;
     let newPtauName;
@@ -670,7 +686,7 @@ async function powersOfTawImport(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await powersOfTaw.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
+    const res = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
     if (res) return res;
     if (!doCheck) return;
@@ -678,14 +694,14 @@ async function powersOfTawImport(params, options) {
     // TODO Verify
 }
 
-async function powersOfTawVerify(params, options) {
+async function powersOfTauVerify(params, options) {
     let ptauName;
 
     ptauName = params[0];
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await powersOfTaw.verify(ptauName, logger);
+    const res = await powersOfTau.verify(ptauName, logger);
     if (res === true) {
         return 0;
     } else {
@@ -693,7 +709,7 @@ async function powersOfTawVerify(params, options) {
     }
 }
 
-async function powersOfTawBeacon(params, options) {
+async function powersOfTauBeacon(params, options) {
     let oldPtauName;
     let newPtauName;
     let beaconHashStr;
@@ -706,10 +722,10 @@ async function powersOfTawBeacon(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
+    return await powersOfTau.beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
-async function powersOfTawContribute(params, options) {
+async function powersOfTauContribute(params, options) {
     let oldPtauName;
     let newPtauName;
 
@@ -718,10 +734,10 @@ async function powersOfTawContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
+    return await powersOfTau.contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
 }
 
-async function powersOfTawPreparePhase2(params, options) {
+async function powersOfTauPreparePhase2(params, options) {
     let oldPtauName;
     let newPtauName;
 
@@ -730,11 +746,39 @@ async function powersOfTawPreparePhase2(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTaw.preparePhase2(oldPtauName, newPtauName, logger);
+    return await powersOfTau.preparePhase2(oldPtauName, newPtauName, logger);
+}
+
+async function powersOfTauConvert(params, options) {
+    let oldPtauName;
+    let newPtauName;
+
+    oldPtauName = params[0];
+    newPtauName = params[1];
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTau.convert(oldPtauName, newPtauName, logger);
+}
+
+
+async function powersOfTauTruncate(params, options) {
+    let ptauName;
+
+    ptauName = params[0];
+
+    let template = ptauName;
+    while ((template.length>0) && (template[template.length-1] != ".")) template = template.slice(0, template.length-1);
+    template = template.slice(0, template.length-1);
+    template = template+"_";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await powersOfTau.truncate(ptauName, template, logger);
 }
 
 // powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
-async function powersOfTawExportJson(params, options) {
+async function powersOfTauExportJson(params, options) {
     let ptauName;
     let jsonName;
 
@@ -743,7 +787,7 @@ async function powersOfTawExportJson(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const pTau = await powersOfTaw.exportJson(ptauName, logger);
+    const pTau = await powersOfTau.exportJson(ptauName, logger);
 
     const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
     await fs.promises.writeFile(jsonName, S);

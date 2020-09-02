@@ -2345,17 +2345,20 @@ async function readBigInt$1(fd, n8, pos) {
     return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
 }
 
-async function copySection(fdFrom, sections, fdTo, sectionId) {
+async function copySection(fdFrom, sections, fdTo, sectionId, size) {
+    if (typeof size === "undefined") {
+        size = sections[sectionId][0].size;
+    }
     const chunkSize = fdFrom.pageSize;
     await startReadUniqueSection$1(fdFrom, sections, sectionId);
     await startWriteSection(fdTo, sectionId);
-    for (let p=0; p<sections[sectionId][0].size; p+=chunkSize) {
-        const l = Math.min(sections[sectionId][0].size -p, chunkSize);
+    for (let p=0; p<size; p+=chunkSize) {
+        const l = Math.min(size -p, chunkSize);
         const buff = await fdFrom.read(l);
         await fdTo.write(buff);
     }
     await endWriteSection(fdTo);
-    await endReadSection$1(fdFrom);
+    await endReadSection$1(fdFrom, size != sections[sectionId][0].size);
 
 }
 
@@ -3005,9 +3008,11 @@ async function verify(tauFilename, logger) {
     const nextContributionHash = nextContributionHasher.digest();
 
     // Check the nextChallengeHash
-    if (!hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
-        if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
-        return false;
+    if (power == ceremonyPower) {
+        if (!hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
+            if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
+            return false;
+        }
     }
 
     if (logger) logger.info(formatHash(nextContributionHash, "Next challenge hash: "));
@@ -3042,6 +3047,8 @@ async function verify(tauFilename, logger) {
     }
 
     await fd.close();
+
+    if (logger) logger.info("Powers of Tau Ok!");
 
     return true;
 
@@ -3171,6 +3178,11 @@ async function verify(tauFilename, logger) {
             if (!res) return false;
         }
 
+        if (tauSection == 2) {
+            const res = await verifyPower(power+1);
+            if (!res) return false;
+        }
+
         return true;
 
         async function verifyPower(p) {
@@ -3192,7 +3204,12 @@ async function verify(tauFilename, logger) {
             if (logger) logger.debug(`reading points Powers${p}...`);
             await startReadUniqueSection$1(fd, sections, tauSection);
             buffG = new ffjavascript.BigBuffer(nPoints*sG);
-            await fd.readToBuffer(buffG, 0, nPoints*sG);
+            if (p == power+1) {
+                await fd.readToBuffer(buffG, 0, (nPoints-1)*sG);
+                buffG.set(curve.G1.zeroAffine, (nPoints-1)*sG);
+            } else {
+                await fd.readToBuffer(buffG, 0, nPoints*sG);
+            }
             await endReadSection$1(fd, true);
 
             const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);
@@ -3733,6 +3750,10 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             await processSectionPower(p);
         }
 
+        if (oldSectionId == 2) {
+            await processSectionPower(power+1);
+        }
+
         await endWriteSection(fdNew);
 
         async function processSectionPower(p) {
@@ -3752,7 +3773,213 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             for (let i=0; i<nChunks; i++) {
                 let buff;
                 if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
-                buff = await fdOld.read(pointsPerChunk*sGin);
+                if ((oldSectionId == 2)&&(p==power+1)) {
+                    buff = new Uint8Array(pointsPerChunk*sGin);
+                    await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
+                    buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
+                } else {
+                    buff = await fdOld.read(pointsPerChunk*sGin);
+                }
+                buff = await G.batchToJacobian(buff);
+                for (let j=0; j<pointsPerChunk; j++) {
+                    fdTmp.pos = bitReverse(i*pointsPerChunk+j, p)*sGmid;
+                    await fdTmp.write(buff.slice(j*sGmid, (j+1)*sGmid ));
+                }
+            }
+            await endReadSection$1(fdOld, true);
+
+            for (let j=0; j<nChunks; j++) {
+                if (logger) logger.debug(`${sectionName} ${p} FFTMix ${j+1}/${nChunks}`);
+                let buff;
+                fdTmp.pos = (j*pointsPerChunk)*sGmid;
+                buff = await fdTmp.read(pointsPerChunk*sGmid);
+                buff = await G.fftMix(buff);
+                fdTmp.pos = (j*pointsPerChunk)*sGmid;
+                await fdTmp.write(buff);
+            }
+            for (let i=chunkPower+1; i<= p; i++) {
+                const nGroups = 1 << (p - i);
+                const nChunksPerGroup = nChunks / nGroups;
+                for (let j=0; j<nGroups; j++) {
+                    for (let k=0; k <nChunksPerGroup/2; k++) {
+                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k+1}/${nChunksPerGroup/2}`);
+                        const first = Fr.exp( Fr.w[i], k*pointsPerChunk);
+                        const inc = Fr.w[i];
+                        const o1 = j*nChunksPerGroup + k;
+                        const o2 = j*nChunksPerGroup + k + nChunksPerGroup/2;
+
+                        let buff1, buff2;
+                        fdTmp.pos = o1*pointsPerChunk*sGmid;
+                        buff1 = await fdTmp.read(pointsPerChunk * sGmid);
+                        fdTmp.pos = o2*pointsPerChunk*sGmid;
+                        buff2 = await fdTmp.read(pointsPerChunk * sGmid);
+
+                        [buff1, buff2] = await G.fftJoin(buff1, buff2, first, inc);
+
+                        fdTmp.pos = o1*pointsPerChunk*sGmid;
+                        await fdTmp.write(buff1);
+                        fdTmp.pos = o2*pointsPerChunk*sGmid;
+                        await fdTmp.write(buff2);
+                    }
+                }
+            }
+            await finalInverse(p);
+        }
+        async function finalInverse(p) {
+            const G = curve[Gstr];
+            const Fr = curve.Fr;
+            const sGmid = G.F.n8*3;
+            const sGout = G.F.n8*2;
+
+            const chunkPower = p > CHUNKPOW ? CHUNKPOW : p;
+            const pointsPerChunk = 1<<chunkPower;
+            const nPoints = 1 << p;
+            const nChunks = nPoints / pointsPerChunk;
+
+            const o = fdNew.pos;
+            fdTmp.pos = 0;
+            const factor = Fr.inv( Fr.e( 1<< p));
+            for (let i=0; i<nChunks; i++) {
+                if (logger) logger.debug(`${sectionName} ${p} FFTFinal ${i+1}/${nChunks}`);
+                let buff;
+                buff = await fdTmp.read(pointsPerChunk * sGmid);
+                buff = await G.fftFinal(buff, factor);
+
+                if ( i == 0) {
+                    fdNew.pos = o;
+                    await fdNew.write(buff.slice((pointsPerChunk-1)*sGout));
+                    fdNew.pos = o + ((nChunks - 1)*pointsPerChunk + 1) * sGout;
+                    await fdNew.write(buff.slice(0, (pointsPerChunk-1)*sGout));
+                } else {
+                    fdNew.pos = o + ((nChunks - 1 - i)*pointsPerChunk + 1) * sGout;
+                    await fdNew.write(buff);
+                }
+            }
+            fdNew.pos = o + nChunks * pointsPerChunk * sGout;
+        }
+    }
+}
+
+async function truncate(ptauFilename, template, logger) {
+
+    const {fd: fdOld, sections} = await readBinFile$1(ptauFilename, "ptau", 1);
+    const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
+
+    const sG1 = curve.G1.F.n8*2;
+    const sG2 = curve.G2.F.n8*2;
+
+    for (let p=1; p<power; p++) {
+        await generateTruncate(p);
+    }
+
+    await fdOld.close();
+
+    return true;
+
+    async function generateTruncate(p) {
+
+        let sP = p.toString();
+        while (sP.length<2) sP = "0" + sP;
+
+        if (logger) logger.debug("Writing Power: "+sP);
+
+        const fdNew = await createBinFile(template + sP + ".ptau", "ptau", 1, 11);
+        await writePTauHeader(fdNew, curve, p, ceremonyPower);
+
+        await copySection(fdOld, sections, fdNew, 2, ((1<<p)*2-1) * sG1 ); // tagG1
+        await copySection(fdOld, sections, fdNew, 3, (1<<p) * sG2); // tauG2
+        await copySection(fdOld, sections, fdNew, 4, (1<<p) * sG1); // alfaTauG1
+        await copySection(fdOld, sections, fdNew, 5, (1<<p) * sG1); // betaTauG1
+        await copySection(fdOld, sections, fdNew, 6,  sG2); // betaTauG2
+        await copySection(fdOld, sections, fdNew, 7); // contributions
+        await copySection(fdOld, sections, fdNew, 12, ((1<<p)*2 -1) * sG1); // L_tauG1
+        await copySection(fdOld, sections, fdNew, 13, ((1<<p)*2 -1) * sG2); // L_tauG2
+        await copySection(fdOld, sections, fdNew, 14, ((1<<p)*2 -1) * sG1); // L_alfaTauG1
+        await copySection(fdOld, sections, fdNew, 15, ((1<<p)*2 -1) * sG1); // L_betaTauG1
+
+        await fdNew.close();
+    }
+
+
+}
+
+async function convert(oldPtauFilename, newPTauFilename, logger) {
+
+    const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
+    const {curve, power} = await readPTauHeader(fdOld, sections);
+
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 11);
+    await writePTauHeader(fdNew, curve, power);
+
+    // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
+    const fdTmp = await createOverride({type: "bigMem"});
+
+    await copySection(fdOld, sections, fdNew, 2);
+    await copySection(fdOld, sections, fdNew, 3);
+    await copySection(fdOld, sections, fdNew, 4);
+    await copySection(fdOld, sections, fdNew, 5);
+    await copySection(fdOld, sections, fdNew, 6);
+    await copySection(fdOld, sections, fdNew, 7);
+
+    await processSection(2, 12, "G1", "tauG1" );
+    await copySection(fdOld, sections, fdNew, 13);
+    await copySection(fdOld, sections, fdNew, 14);
+    await copySection(fdOld, sections, fdNew, 15);
+
+    await fdOld.close();
+    await fdNew.close();
+    await fdTmp.close();
+
+    // await fs.promises.unlink(newPTauFilename+ ".tmp");
+
+    return;
+
+    async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
+        const CHUNKPOW = 16;
+        if (logger) logger.debug("Starting section: "+sectionName);
+
+        await startWriteSection(fdNew, newSectionId);
+
+        const size = sections[newSectionId][0].size;
+        const chunkSize = fdOld.pageSize;
+        await startReadUniqueSection$1(fdOld, sections, newSectionId);
+        for (let p=0; p<size; p+=chunkSize) {
+            const l = Math.min(size -p, chunkSize);
+            const buff = await fdOld.read(l);
+            await fdNew.write(buff);
+        }
+        await endReadSection$1(fdOld);
+
+        if (oldSectionId == 2) {
+            await processSectionPower(power+1);
+        }
+
+        await endWriteSection(fdNew);
+
+        async function processSectionPower(p) {
+            const chunkPower = p > CHUNKPOW ? CHUNKPOW : p;
+            const pointsPerChunk = 1<<chunkPower;
+            const nPoints = 1 << p;
+            const nChunks = nPoints / pointsPerChunk;
+
+            const G = curve[Gstr];
+            const Fr = curve.Fr;
+            const sGin = G.F.n8*2;
+            const sGmid = G.F.n8*3;
+
+            await startReadUniqueSection$1(fdOld, sections, oldSectionId);
+            // Build the initial tmp Buff
+            fdTmp.pos =0;
+            for (let i=0; i<nChunks; i++) {
+                let buff;
+                if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
+                if ((oldSectionId == 2)&&(p==power+1)) {
+                    buff = new Uint8Array(pointsPerChunk*sGin);
+                    await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
+                    buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
+                } else {
+                    buff = await fdOld.read(pointsPerChunk*sGin);
+                }
                 buff = await G.batchToJacobian(buff);
                 for (let j=0; j<pointsPerChunk; j++) {
                     fdTmp.pos = bitReverse(i*pointsPerChunk+j, p)*sGmid;
@@ -4000,7 +4227,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const cirPower = log2(r1cs.nConstraints + r1cs.nPubInputs + r1cs.nOutputs +1 -1) +1;
 
-    if (cirPower > power+1) {
+    if (cirPower > power) {
         if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints}*2 > 2**${power}`);
         return -1;
     }
@@ -6401,42 +6628,42 @@ const commands = [
         description: "Starts a powers of tau ceremony",
         alias: ["ptn"],
         options: "-verbose|v",
-        action: powersOfTawNew
+        action: powersOfTauNew
     },
     {
         cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "creates a ptau file with a new contribution",
         alias: ["ptc"],
         options: "-verbose|v -name|n -entropy|e",
-        action: powersOfTawContribute
+        action: powersOfTauContribute
     },
     {
         cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
         description: "Creates a challenge",
         alias: ["ptec"],
         options: "-verbose|v",
-        action: powersOfTawExportChallenge
+        action: powersOfTauExportChallenge
     },
     {
         cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
         description: "Contribute to a challenge",
         alias: ["ptcc"],
         options: "-verbose|v -entropy|e",
-        action: powersOfTawChallengeContribute
+        action: powersOfTauChallengeContribute
     },
     {
         cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
         description: "import a response to a ptau file",
         alias: ["ptir"],
         options: "-verbose|v -nopoints -nocheck -name|n",
-        action: powersOfTawImport
+        action: powersOfTauImport
     },
     {
         cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
         description: "adds a beacon",
         alias: ["ptb"],
         options: "-verbose|v -name|n",
-        action: powersOfTawBeacon
+        action: powersOfTauBeacon
     },
     {
         cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
@@ -6444,21 +6671,37 @@ const commands = [
         longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
         alias: ["pt2"],
         options: "-verbose|v",
-        action: powersOfTawPreparePhase2
+        action: powersOfTauPreparePhase2
+    },
+    {
+        cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
+        description: "Convert ptau",
+        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        alias: ["ptcv"],
+        options: "-verbose|v",
+        action: powersOfTauConvert
+    },
+    {
+        cmd: "powersoftau truncate <powersoftau.ptau>",
+        description: "Generate diferent powers of tau with smoller sizes ",
+        longDescription: " This process generates smaller ptau files from a bigger power ptau",
+        alias: ["ptt"],
+        options: "-verbose|v",
+        action: powersOfTauTruncate
     },
     {
         cmd: "powersoftau verify <powersoftau.ptau>",
         description: "verifies a powers of tau file",
         alias: ["ptv"],
         options: "-verbose|v",
-        action: powersOfTawVerify
+        action: powersOfTauVerify
     },
     {
         cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
         description: "Exports a power of tau file to a JSON",
         alias: ["ptej"],
         options: "-verbose|v",
-        action: powersOfTawExportJson
+        action: powersOfTauExportJson
     },
     {
         cmd: "r1cs info [circuit.r1cs]",
@@ -6941,7 +7184,7 @@ async function zkeyExportSolidityCalldata(params, options) {
 }
 
 // powersoftau new <curve> <power> [powersoftau_0000.ptau]",
-async function powersOfTawNew(params, options) {
+async function powersOfTauNew(params, options) {
     let curveName;
     let power;
     let ptauName;
@@ -6954,7 +7197,7 @@ async function powersOfTawNew(params, options) {
     }
 
     if (params.length < 3) {
-        ptauName = "powersOfTaw" + power + "_0000.ptau";
+        ptauName = "powersOfTau" + power + "_0000.ptau";
     } else {
         ptauName = params[2];
     }
@@ -6966,7 +7209,7 @@ async function powersOfTawNew(params, options) {
     return await newAccumulator(curve, power, ptauName, logger);
 }
 
-async function powersOfTawExportChallenge(params, options) {
+async function powersOfTauExportChallenge(params, options) {
     let ptauName;
     let challengeName;
 
@@ -6984,7 +7227,7 @@ async function powersOfTawExportChallenge(params, options) {
 }
 
 // powersoftau challenge contribute <curve> <challenge> [response]
-async function powersOfTawChallengeContribute(params, options) {
+async function powersOfTauChallengeContribute(params, options) {
     let challengeName;
     let responseName;
 
@@ -7004,7 +7247,7 @@ async function powersOfTawChallengeContribute(params, options) {
 }
 
 
-async function powersOfTawImport(params, options) {
+async function powersOfTauImport(params, options) {
     let oldPtauName;
     let response;
     let newPtauName;
@@ -7028,7 +7271,7 @@ async function powersOfTawImport(params, options) {
     // TODO Verify
 }
 
-async function powersOfTawVerify(params, options) {
+async function powersOfTauVerify(params, options) {
     let ptauName;
 
     ptauName = params[0];
@@ -7043,7 +7286,7 @@ async function powersOfTawVerify(params, options) {
     }
 }
 
-async function powersOfTawBeacon(params, options) {
+async function powersOfTauBeacon(params, options) {
     let oldPtauName;
     let newPtauName;
     let beaconHashStr;
@@ -7059,7 +7302,7 @@ async function powersOfTawBeacon(params, options) {
     return await beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
-async function powersOfTawContribute(params, options) {
+async function powersOfTauContribute(params, options) {
     let oldPtauName;
     let newPtauName;
 
@@ -7071,7 +7314,7 @@ async function powersOfTawContribute(params, options) {
     return await contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
 }
 
-async function powersOfTawPreparePhase2(params, options) {
+async function powersOfTauPreparePhase2(params, options) {
     let oldPtauName;
     let newPtauName;
 
@@ -7083,8 +7326,36 @@ async function powersOfTawPreparePhase2(params, options) {
     return await preparePhase2(oldPtauName, newPtauName, logger);
 }
 
+async function powersOfTauConvert(params, options) {
+    let oldPtauName;
+    let newPtauName;
+
+    oldPtauName = params[0];
+    newPtauName = params[1];
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await convert(oldPtauName, newPtauName, logger);
+}
+
+
+async function powersOfTauTruncate(params, options) {
+    let ptauName;
+
+    ptauName = params[0];
+
+    let template = ptauName;
+    while ((template.length>0) && (template[template.length-1] != ".")) template = template.slice(0, template.length-1);
+    template = template.slice(0, template.length-1);
+    template = template+"_";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await truncate(ptauName, template, logger);
+}
+
 // powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
-async function powersOfTawExportJson(params, options) {
+async function powersOfTauExportJson(params, options) {
     let ptauName;
     let jsonName;
 
