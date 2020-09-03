@@ -3571,7 +3571,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             for (let i=0; i<nChunks; i++) {
                 let buff;
                 if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
-                if ((oldSectionId == 2)&&(p==power+1)) {
+                if ((i==nChunks-1)&&(oldSectionId == 2)&&(p==power+1)) {
                     buff = new Uint8Array(pointsPerChunk*sGin);
                     await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
                     buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
@@ -3771,7 +3771,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             for (let i=0; i<nChunks; i++) {
                 let buff;
                 if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
-                if ((oldSectionId == 2)&&(p==power+1)) {
+                if ((i==nChunks-1)&&(oldSectionId == 2)&&(p==power+1)) {
                     buff = new Uint8Array(pointsPerChunk*sGin);
                     await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
                     buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
