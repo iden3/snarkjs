@@ -3569,13 +3569,18 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             }
             await endReadSection(fdOld, true);
 
+
+            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
+            await fdNew.write(buff);
+
+/*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
             } else if (p == curve.Fr.s+1) {
                 const smallM = 1<<curve.Fr.s;
-                let t0 = new ffjavascript.BigBuffer( smallM * sGmid );
-                let t1 = new ffjavascript.BigBuffer( smallM * sGmid );
+                let t0 = new BigBuffer( smallM * sGmid );
+                let t1 = new BigBuffer( smallM * sGmid );
 
                 const shift_to_small_m = Fr.exp(Fr.shift, smallM);
                 const one_over_denom = Fr.inv(Fr.sub(shift_to_small_m, Fr.one));
@@ -3616,10 +3621,8 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
                 if (logger) logger.error("Power too big");
                 throw new Error("Power to big");
             }
-
+*/
         }
-
-
     }
 }
 
@@ -3737,19 +3740,24 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             }
             await endReadSection(fdOld, true);
 
+            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
+            await fdNew.write(buff);
+
+/*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
             } else if (p == curve.Fr.s+1) {
                 const smallM = 1<<curve.Fr.s;
-                let t0 = new ffjavascript.BigBuffer( smallM * sGmid );
-                let t1 = new ffjavascript.BigBuffer( smallM * sGmid );
+                let t0 = new BigBuffer( smallM * sGmid );
+                let t1 = new BigBuffer( smallM * sGmid );
 
                 const shift_to_small_m = Fr.exp(Fr.shift, smallM);
                 const one_over_denom = Fr.inv(Fr.sub(shift_to_small_m, Fr.one));
 
                 let sInvAcc = Fr.one;
                 for (let i=0; i<smallM; i++) {
+                    if (i%10000) logger.debug(`sectionName prepare L calc: ${sectionName}, ${i}/${smallM}`);
                     const ti =  buff.slice(i*sGin, (i+1)*sGin);
                     const tmi = buff.slice((i+smallM)*sGin, (i+smallM+1)*sGin);
 
@@ -3777,14 +3785,14 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
                 t0 = await G.ifft(t0, "jacobian", "affine", logger, sectionName + " t0");
                 await fdNew.write(t0);
                 t0 = null;
-                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t0");
+                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t1");
                 await fdNew.write(t1);
 
             } else {
                 if (logger) logger.error("Power too big");
                 throw new Error("Power to big");
             }
-
+*/
         }
 
 

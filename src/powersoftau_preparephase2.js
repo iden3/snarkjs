@@ -64,6 +64,11 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
             }
             await binFileUtils.endReadSection(fdOld, true);
 
+
+            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
+            await fdNew.write(buff);
+
+/*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -111,10 +116,8 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
                 if (logger) logger.error("Power too big");
                 throw new Error("Power to big");
             }
-
+*/
         }
-
-
     }
 }
 

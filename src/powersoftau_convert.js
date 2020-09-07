@@ -74,6 +74,10 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
             }
             await binFileUtils.endReadSection(fdOld, true);
 
+            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
+            await fdNew.write(buff);
+
+/*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -87,6 +91,7 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
 
                 let sInvAcc = Fr.one;
                 for (let i=0; i<smallM; i++) {
+                    if (i%10000) logger.debug(`sectionName prepare L calc: ${sectionName}, ${i}/${smallM}`);
                     const ti =  buff.slice(i*sGin, (i+1)*sGin);
                     const tmi = buff.slice((i+smallM)*sGin, (i+smallM+1)*sGin);
 
@@ -114,14 +119,14 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
                 t0 = await G.ifft(t0, "jacobian", "affine", logger, sectionName + " t0");
                 await fdNew.write(t0);
                 t0 = null;
-                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t0");
+                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t1");
                 await fdNew.write(t1);
 
             } else {
                 if (logger) logger.error("Power too big");
                 throw new Error("Power to big");
             }
-
+*/
         }
 
 
