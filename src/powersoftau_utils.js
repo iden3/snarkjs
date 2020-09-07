@@ -305,10 +305,10 @@ export function calculateFirstChallengeHash(curve, power, logger) {
 
     let n;
 
-    n=(1 << power)*2 -1;
+    n=(2 ** power)*2 -1;
     if (logger) logger.debug("Calculate Initial Hash: tauG1");
     hashBlock(vG1, n);
-    n= 1 << power;
+    n= 2 ** power;
     if (logger) logger.debug("Calculate Initial Hash: tauG2");
     hashBlock(vG2, n);
     if (logger) logger.debug("Calculate Initial Hash: alphaTauG1");

@@ -11,10 +11,10 @@ export default async function exportJson(pTauFilename, verbose) {
     pTau.power = power;
     pTau.contributions = await utils.readContributions(fd, curve, sections);
 
-    pTau.tauG1 = await exportSection(2, "G1", (1 << power)*2 -1, "tauG1");
-    pTau.tauG2 = await exportSection(3, "G2", (1 << power), "tauG2");
-    pTau.alphaTauG1 = await exportSection(4, "G1", (1 << power), "alphaTauG1");
-    pTau.betaTauG1 = await exportSection(5, "G1", (1 << power), "betaTauG1");
+    pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
+    pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
+    pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
+    pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
     pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
 
     pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
@@ -53,7 +53,7 @@ export default async function exportJson(pTauFilename, verbose) {
         for (let p=0; p<=power; p++) {
             if (verbose) console.log(`${sectionName}: Power: ${p}`);
             res[p] = [];
-            const nPoints = (1<<p);
+            const nPoints = (2 ** p);
             for (let i=0; i<nPoints; i++) {
                 if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ${i}/${nPoints}`);
                 const buff = await fd.read(sG);

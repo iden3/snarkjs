@@ -156,7 +156,7 @@ export default async function verify(tauFilename, logger) {
 
     // Verify Section tau*G1
     if (logger) logger.debug("Verifying powers in tau*G1 section");
-    const rTau1 = await processSection(2, "G1", "tauG1", (1 << power)*2-1, [0, 1], logger);
+    const rTau1 = await processSection(2, "G1", "tauG1", (2 ** power)*2-1, [0, 1], logger);
     sr = await sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("tauG1 section. Powers do not match");
@@ -175,7 +175,7 @@ export default async function verify(tauFilename, logger) {
 
     // Verify Section tau*G2
     if (logger) logger.debug("Verifying powers in tau*G2 section");
-    const rTau2 = await processSection(3, "G2", "tauG2", 1 << power, [0, 1],  logger);
+    const rTau2 = await processSection(3, "G2", "tauG2", 2 ** power, [0, 1],  logger);
     sr = await sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2);
     if (sr !== true) {
         if (logger) logger.error("tauG2 section. Powers do not match");
@@ -192,7 +192,7 @@ export default async function verify(tauFilename, logger) {
 
     // Verify Section alpha*tau*G1
     if (logger) logger.debug("Verifying powers in alpha*tau*G1 section");
-    const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 1 << power, [0], logger);
+    const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 2 ** power, [0], logger);
     sr = await sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("alphaTauG1 section. Powers do not match");
@@ -205,7 +205,7 @@ export default async function verify(tauFilename, logger) {
 
     // Verify Section beta*tau*G1
     if (logger) logger.debug("Verifying powers in beta*tau*G1 section");
-    const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 1 << power, [0], logger);
+    const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 2 ** power, [0], logger);
     sr = await sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("betaTauG1 section. Powers do not match");
@@ -407,7 +407,7 @@ export default async function verify(tauFilename, logger) {
         async function verifyPower(p) {
             if (logger) logger.debug(`Power ${p}...`);
             const n8r = curve.Fr.n8;
-            const nPoints = 1<<p;
+            const nPoints = 2 ** p;
             let buff_r = new Uint32Array(nPoints);
             let buffG;
 
@@ -415,7 +415,11 @@ export default async function verify(tauFilename, logger) {
 
             if (logger) logger.debug(`Creating random numbers Powers${p}...`);
             for (let i=0; i<nPoints; i++) {
-                buff_r[i] = rng.nextU32();
+                if ((p == power+1)&&(i == nPoints-1)) {
+                    buff_r[i] = 0;
+                } else {
+                    buff_r[i] = rng.nextU32();
+                }
             }
 
             buff_r = new Uint8Array(buff_r.buffer, buff_r.byteOffset, buff_r.byteLength);
@@ -442,8 +446,10 @@ export default async function verify(tauFilename, logger) {
 
             if (logger) logger.debug(`Creating random numbers Powers${p}...`);
             for (let i=0; i<nPoints; i++) {
-                buff4V.setUint32(0, rng.nextU32(), true);
-                buff_r.set(buff4, i*n8r);
+                if ((i != nPoints-1) || (p != power+1)) {
+                    buff4V.setUint32(0, rng.nextU32(), true);
+                    buff_r.set(buff4, i*n8r);
+                }
             }
 
             if (logger) logger.debug(`batchToMontgomery ${p}...`);
@@ -455,7 +461,7 @@ export default async function verify(tauFilename, logger) {
 
             if (logger) logger.debug(`reading points Lagrange${p}...`);
             await binFileUtils.startReadUniqueSection(fd, sections, lagrangeSection);
-            fd.pos += sG*((1 << p)-1);
+            fd.pos += sG*((2 ** p)-1);
             await fd.readToBuffer(buffG, 0, nPoints*sG);
             await binFileUtils.endReadSection(fd, true);
 

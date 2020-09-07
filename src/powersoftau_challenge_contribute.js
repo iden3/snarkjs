@@ -39,7 +39,7 @@ export default async function challengeContribute(curve, challengeFilename, resp
         power += 1;
     }
 
-    if (1<<power != domainSize) throw new Error("Invalid file size");
+    if (2 ** power != domainSize) throw new Error("Invalid file size");
     if (logger) logger.debug("Power to tau size: "+power);
 
     const rng = await misc.getRandomRng(entropy);
@@ -78,10 +78,10 @@ export default async function challengeContribute(curve, challengeFilename, resp
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
 
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", (1<<power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (1<<power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", (2 ** power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", logger );
+    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , logger );
     await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", 1             , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG2" , logger );
 
     // Write and hash key

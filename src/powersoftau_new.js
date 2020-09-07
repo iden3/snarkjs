@@ -4,19 +4,19 @@ Header(1)
     prime
     power
 tauG1(2)
-    {(1<<power)*2-1} [
+    {(2 ** power)*2-1} [
         G1, tau*G1, tau^2 * G1, ....
     ]
 tauG2(3)
-    {1<<power}[
+    {2 ** power}[
         G2, tau*G2, tau^2 * G2, ...
     ]
 alphaTauG1(4)
-    {1<<power}[
+    {2 ** power}[
         alpha*G1, alpha*tau*G1, alpha*tau^2*G1,....
     ]
 betaTauG1(5)
-    {1<<power} []
+    {2 ** power} []
         beta*G1, beta*tau*G1, beta*tau^2*G1, ....
     ]
 betaG2(6)
@@ -65,7 +65,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
     // Write tauG1
     ///////////
     await binFileUtils.startWriteSection(fd, 2);
-    const nTauG1 = (1 << power) * 2 -1;
+    const nTauG1 = (2 ** power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG1: " + i);
@@ -75,7 +75,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
     // Write tauG2
     ///////////
     await binFileUtils.startWriteSection(fd, 3);
-    const nTauG2 = (1 << power);
+    const nTauG2 = (2 ** power);
     for (let i=0; i< nTauG2; i++) {
         await fd.write(buffG2);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG2: " + i);
@@ -85,7 +85,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
     // Write alphaTauG1
     ///////////
     await binFileUtils.startWriteSection(fd, 4);
-    const nAlfaTauG1 = (1 << power);
+    const nAlfaTauG1 = (2 ** power);
     for (let i=0; i< nAlfaTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("alphaTauG1: " + i);
@@ -95,7 +95,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
     // Write betaTauG1
     ///////////
     await binFileUtils.startWriteSection(fd, 5);
-    const nBetaTauG1 = (1 << power);
+    const nBetaTauG1 = (2 ** power);
     for (let i=0; i< nBetaTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("betaTauG1: " + i);

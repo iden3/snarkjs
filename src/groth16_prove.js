@@ -40,16 +40,18 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
 
+    const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
+
     const buffA = await Fr.ifft(buffA_T);
-    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), curve.Fr.w[power+1]);
+    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
     const buffAodd_T = await Fr.fft(buffAodd);
 
     const buffB = await Fr.ifft(buffB_T);
-    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), curve.Fr.w[power+1]);
+    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
     const buffBodd_T = await Fr.fft(buffBodd);
 
     const buffC = await Fr.ifft(buffC_T);
-    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), curve.Fr.w[power+1]);
+    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
     const buffCodd_T = await Fr.fft(buffCodd);
 
     const buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T);

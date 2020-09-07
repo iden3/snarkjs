@@ -3,7 +3,7 @@ import {loadHeader as loadR1csHeader} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "./binfileutils.js";
 import { log2, formatHash } from "./misc.js";
-import { Scalar } from "ffjavascript";
+import { Scalar, BigBuffer } from "ffjavascript";
 import Blake2b from "blake2b-wasm";
 import BigArray from "./bigarray.js";
 
@@ -41,7 +41,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
-    const domainSize = 1 << cirPower;
+    const domainSize = 2 ** cirPower;
 
     // Write the header
     ///////////
@@ -114,10 +114,10 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
     const buffCoeffV = new DataView(buffCoeff.buffer);
 
-    const lTauG1 = sectionsPTau[12][0].p + ((1 << cirPower) -1)*sG1;
-    const lTauG2 = sectionsPTau[13][0].p + ((1 << cirPower) -1)*sG2;
-    const lAlphaTauG1 = sectionsPTau[14][0].p + ((1 << cirPower) -1)*sG1;
-    const lBetaTauG1 = sectionsPTau[15][0].p + ((1 << cirPower) -1)*sG1;
+    const lTauG1 = sectionsPTau[12][0].p + ((2 ** cirPower) -1)*sG1;
+    const lTauG2 = sectionsPTau[13][0].p + ((2 ** cirPower) -1)*sG2;
+    const lAlphaTauG1 = sectionsPTau[14][0].p + ((2 ** cirPower) -1)*sG1;
+    const lBetaTauG1 = sectionsPTau[15][0].p + ((2 ** cirPower) -1)*sG1;
 
     await binFileUtils.startWriteSection(fdZKey, 4);
     await binFileUtils.startReadUniqueSection(fdR1cs, sectionsR1cs, 2);
@@ -222,10 +222,20 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     // Write Hs
     await binFileUtils.startWriteSection(fdZKey, 9);
-    const o = sectionsPTau[12][0].p + ((1 << (cirPower+1)) -1)*sG1;
-    for (let i=0; i< domainSize; i++) {
-        const buff = await fdPTau.read(sG1, o + (i*2+1)*sG1 );
+    const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
+
+    if (cirPower < curve.Fr.s) {
+        for (let i=0; i< domainSize; i++) {
+            const buff = await fdPTau.read(sG1, o + (i*2+1)*sG1 );
+            await fdZKey.write(buff);
+        }
+    } else if (cirPower == curve.Fr.s) {
+        const buff = new BigBuffer(domainSize * sG1);
+        await fdPTau.readToBuffer(buff, 0, domainSize*sG1, o + domainSize*sG1);
         await fdZKey.write(buff);
+    } else {
+        if (logger) logger.error("Circuit too big");
+        throw new Error("Circuit too big for this curve");
     }
     await binFileUtils.endWriteSection(fdZKey);
     await hashHPoints();

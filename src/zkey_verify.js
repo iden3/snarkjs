@@ -257,6 +257,7 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
     async function sameRatioH() {
         const MAX_CHUNK_SIZE = 1<<20;
         const G = curve.G1;
+        const Fr = curve.Fr;
         const sG = G.F.n8*2;
 
         const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(pTauFileName, "ptau", 1);
@@ -269,10 +270,10 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
         }
         const rng = new ChaCha(seed);
         for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero
-            const e = curve.Fr.fromRng(rng);
-            curve.Fr.toRprLE(buff_r, i*zkey.n8r, e);
+            const e = Fr.fromRng(rng);
+            Fr.toRprLE(buff_r, i*zkey.n8r, e);
         }
-        curve.Fr.toRprLE(buff_r, (zkey.domainSize-1)*zkey.n8r, curve.Fr.zero);
+        Fr.toRprLE(buff_r, (zkey.domainSize-1)*zkey.n8r, Fr.zero);
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
@@ -291,15 +292,26 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
 
         // Caluclate odd coeficients in transformed domain
 
-        buff_r = await curve.Fr.batchToMontgomery(buff_r);
+        buff_r = await Fr.batchToMontgomery(buff_r);
         // const first = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
         // Works*2   const first = curve.Fr.neg(curve.Fr.e(2));
-        const first = curve.Fr.neg(curve.Fr.e(2));
+
+
+        let first;
+
+        if (zkey.power < Fr.s) {
+            first = Fr.neg(Fr.e(2));
+        } else {
+            const small_m  = 2 ** Fr.s;
+            const shift_to_small_m = Fr.exp(Fr.shift, small_m);
+            first = Fr.sub( shift_to_small_m, Fr.one);
+        }
+
         // const inc = curve.Fr.inv(curve.PFr.w[zkey.power+1]);
-        const inc = curve.Fr.w[zkey.power+1];
-        buff_r = await curve.Fr.batchApplyKey(buff_r, first, inc);
-        buff_r = await curve.Fr.fft(buff_r);
-        buff_r = await curve.Fr.batchFromMontgomery(buff_r);
+        const inc = zkey.power < Fr.s ? Fr.w[zkey.power+1] : Fr.shift;
+        buff_r = await Fr.batchApplyKey(buff_r, first, inc);
+        buff_r = await Fr.fft(buff_r);
+        buff_r = await Fr.batchFromMontgomery(buff_r);
 
         await binFileUtils.startReadUniqueSection(fd, sections, 9);
         let R2 = G.zero;

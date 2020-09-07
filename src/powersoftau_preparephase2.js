@@ -1,7 +1,6 @@
 import * as binFileUtils from "./binfileutils.js";
 import * as utils from "./powersoftau_utils.js";
-import * as fastFile from "fastfile";
-import { bitReverse } from "./misc.js";
+import {BigBuffer} from "ffjavascript";
 
 export default async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
@@ -10,9 +9,6 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 11);
     await utils.writePTauHeader(fdNew, curve, power);
-
-    // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-    const fdTmp = await fastFile.createOverride({type: "bigMem"});
 
     await binFileUtils.copySection(fdOld, sections, fdNew, 2);
     await binFileUtils.copySection(fdOld, sections, fdNew, 3);
@@ -28,14 +24,12 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
 
     await fdOld.close();
     await fdNew.close();
-    await fdTmp.close();
 
     // await fs.promises.unlink(newPTauFilename+ ".tmp");
 
     return;
 
     async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
-        const CHUNKPOW = 16;
         if (logger) logger.debug("Starting section: "+sectionName);
 
         await binFileUtils.startWriteSection(fdNew, newSectionId);
@@ -50,107 +44,77 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
 
         await binFileUtils.endWriteSection(fdNew);
 
-        async function processSectionPower(p) {
-            const chunkPower = p > CHUNKPOW ? CHUNKPOW : p;
-            const pointsPerChunk = 1<<chunkPower;
-            const nPoints = 1 << p;
-            const nChunks = nPoints / pointsPerChunk;
 
+        async function processSectionPower(p) {
+            const nPoints = 2 ** p;
             const G = curve[Gstr];
             const Fr = curve.Fr;
             const sGin = G.F.n8*2;
             const sGmid = G.F.n8*3;
 
+            let buff;
+            buff = new BigBuffer(nPoints*sGin);
+
             await binFileUtils.startReadUniqueSection(fdOld, sections, oldSectionId);
-            // Build the initial tmp Buff
-            fdTmp.pos =0;
-            for (let i=0; i<nChunks; i++) {
-                let buff;
-                if (logger) logger.debug(`${sectionName} Prepare ${i+1}/${nChunks}`);
-                if ((i==nChunks-1)&&(oldSectionId == 2)&&(p==power+1)) {
-                    buff = new Uint8Array(pointsPerChunk*sGin);
-                    await fdOld.readToBuffer(buff, 0,(pointsPerChunk-1)*sGin );
-                    buff.set(curve.G1.zeroAffine, (pointsPerChunk-1)*sGin );
-                } else {
-                    buff = await fdOld.read(pointsPerChunk*sGin);
-                }
-                buff = await G.batchToJacobian(buff);
-                for (let j=0; j<pointsPerChunk; j++) {
-                    fdTmp.pos = bitReverse(i*pointsPerChunk+j, p)*sGmid;
-                    await fdTmp.write(buff.slice(j*sGmid, (j+1)*sGmid ));
-                }
+            if ((oldSectionId == 2)&&(p==power+1)) {
+                await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
+                buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
+            } else {
+                await fdOld.readToBuffer(buff, 0,nPoints*sGin );
             }
             await binFileUtils.endReadSection(fdOld, true);
 
-            for (let j=0; j<nChunks; j++) {
-                if (logger) logger.debug(`${sectionName} ${p} FFTMix ${j+1}/${nChunks}`);
-                let buff;
-                fdTmp.pos = (j*pointsPerChunk)*sGmid;
-                buff = await fdTmp.read(pointsPerChunk*sGmid);
-                buff = await G.fftMix(buff);
-                fdTmp.pos = (j*pointsPerChunk)*sGmid;
-                await fdTmp.write(buff);
-            }
-            for (let i=chunkPower+1; i<= p; i++) {
-                const nGroups = 1 << (p - i);
-                const nChunksPerGroup = nChunks / nGroups;
-                for (let j=0; j<nGroups; j++) {
-                    for (let k=0; k <nChunksPerGroup/2; k++) {
-                        if (logger) logger.debug(`${sectionName} ${i}/${p} FFTJoin ${j+1}/${nGroups} ${k+1}/${nChunksPerGroup/2}`);
-                        const first = Fr.exp( Fr.w[i], k*pointsPerChunk);
-                        const inc = Fr.w[i];
-                        const o1 = j*nChunksPerGroup + k;
-                        const o2 = j*nChunksPerGroup + k + nChunksPerGroup/2;
+            if (p <= curve.Fr.s) {
+                buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
+                await fdNew.write(buff);
+            } else if (p == curve.Fr.s+1) {
+                const smallM = 1<<curve.Fr.s;
+                let t0 = new BigBuffer( smallM * sGmid );
+                let t1 = new BigBuffer( smallM * sGmid );
 
-                        let buff1, buff2;
-                        fdTmp.pos = o1*pointsPerChunk*sGmid;
-                        buff1 = await fdTmp.read(pointsPerChunk * sGmid);
-                        fdTmp.pos = o2*pointsPerChunk*sGmid;
-                        buff2 = await fdTmp.read(pointsPerChunk * sGmid);
+                const shift_to_small_m = Fr.exp(Fr.shift, smallM);
+                const one_over_denom = Fr.inv(Fr.sub(shift_to_small_m, Fr.one));
 
-                        [buff1, buff2] = await G.fftJoin(buff1, buff2, first, inc);
+                let sInvAcc = Fr.one;
+                for (let i=0; i<smallM; i++) {
+                    const ti =  buff.slice(i*sGin, (i+1)*sGin);
+                    const tmi = buff.slice((i+smallM)*sGin, (i+smallM+1)*sGin);
 
-                        fdTmp.pos = o1*pointsPerChunk*sGmid;
-                        await fdTmp.write(buff1);
-                        fdTmp.pos = o2*pointsPerChunk*sGmid;
-                        await fdTmp.write(buff2);
-                    }
+                    t0.set(
+                        G.timesFr(
+                            G.sub(
+                                G.timesFr(ti , shift_to_small_m),
+                                tmi
+                            ),
+                            one_over_denom
+                        ),
+                        i*sGmid
+                    );
+                    t1.set(
+                        G.timesFr(
+                            G.sub( tmi, ti),
+                            Fr.mul(sInvAcc, one_over_denom)
+                        ),
+                        i*sGmid
+                    );
+
+
+                    sInvAcc = Fr.mul(sInvAcc, Fr.shiftInv);
                 }
+                t0 = await G.ifft(t0, "jacobian", "affine", logger, sectionName + " t0");
+                await fdNew.write(t0);
+                t0 = null;
+                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t0");
+                await fdNew.write(t1);
+
+            } else {
+                if (logger) logger.error("Power too big");
+                throw new Error("Power to big");
             }
-            await finalInverse(p);
+
         }
-        async function finalInverse(p) {
-            const G = curve[Gstr];
-            const Fr = curve.Fr;
-            const sGmid = G.F.n8*3;
-            const sGout = G.F.n8*2;
 
-            const chunkPower = p > CHUNKPOW ? CHUNKPOW : p;
-            const pointsPerChunk = 1<<chunkPower;
-            const nPoints = 1 << p;
-            const nChunks = nPoints / pointsPerChunk;
 
-            const o = fdNew.pos;
-            fdTmp.pos = 0;
-            const factor = Fr.inv( Fr.e( 1<< p));
-            for (let i=0; i<nChunks; i++) {
-                if (logger) logger.debug(`${sectionName} ${p} FFTFinal ${i+1}/${nChunks}`);
-                let buff;
-                buff = await fdTmp.read(pointsPerChunk * sGmid);
-                buff = await G.fftFinal(buff, factor);
-
-                if ( i == 0) {
-                    fdNew.pos = o;
-                    await fdNew.write(buff.slice((pointsPerChunk-1)*sGout));
-                    fdNew.pos = o + ((nChunks - 1)*pointsPerChunk + 1) * sGout;
-                    await fdNew.write(buff.slice(0, (pointsPerChunk-1)*sGout));
-                } else {
-                    fdNew.pos = o + ((nChunks - 1 - i)*pointsPerChunk + 1) * sGout;
-                    await fdNew.write(buff);
-                }
-            }
-            fdNew.pos = o + nChunks * pointsPerChunk * sGout;
-        }
     }
 }
 

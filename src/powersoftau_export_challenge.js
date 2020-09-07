@@ -39,10 +39,10 @@ export default async function exportChallenge(pTauFilename, challengeFilename, l
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
-    await exportSection(2, "G1", (1 << power) * 2 -1, "tauG1");
-    await exportSection(3, "G2", (1 << power)       , "tauG2");
-    await exportSection(4, "G1", (1 << power)       , "alphaTauG1");
-    await exportSection(5, "G1", (1 << power)       , "betaTauG1");
+    await exportSection(2, "G1", (2 ** power) * 2 -1, "tauG1");
+    await exportSection(3, "G2", (2 ** power)       , "tauG2");
+    await exportSection(4, "G1", (2 ** power)       , "alphaTauG1");
+    await exportSection(5, "G1", (2 ** power)       , "betaTauG1");
     await exportSection(6, "G2", 1                  , "betaG2");
 
     await fdFrom.close();

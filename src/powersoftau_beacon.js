@@ -63,13 +63,13 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
     const startSections = [];
 
     let firstPoints;
-    firstPoints = await processSection(2, "G1",  (1<<power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1", logger );
+    firstPoints = await processSection(2, "G1",  (2 ** power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1", logger );
     curContribution.tauG1 = firstPoints[1];
-    firstPoints = await processSection(3, "G2",  (1<<power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2", logger );
+    firstPoints = await processSection(3, "G2",  (2 ** power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2", logger );
     curContribution.tauG2 = firstPoints[1];
-    firstPoints = await processSection(4, "G1",  (1<<power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1", logger );
+    firstPoints = await processSection(4, "G1",  (2 ** power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1", logger );
     curContribution.alphaG1 = firstPoints[0];
-    firstPoints = await processSection(5, "G1",  (1<<power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1", logger );
+    firstPoints = await processSection(5, "G1",  (2 ** power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1", logger );
     curContribution.betaG1 = firstPoints[0];
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
     curContribution.betaG2 = firstPoints[0];
@@ -88,10 +88,10 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
     const nextChallengeHasher = new Blake2b(64);
     nextChallengeHasher.update(hashResponse);
 
-    await hashSection(fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
-    await hashSection(fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
-    await hashSection(fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
-    await hashSection(fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
+    await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
+    await hashSection(fdNew, "G2", 3, (2 ** power)       , "tauG2", logger);
+    await hashSection(fdNew, "G1", 4, (2 ** power)       , "alphaTauG1", logger);
+    await hashSection(fdNew, "G1", 5, (2 ** power)       , "betaTauG1", logger);
     await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
 
     curContribution.nextChallenge = nextChallengeHasher.digest();
@@ -128,7 +128,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
             /* Code to test the case where we don't have the 2^m-2 component
             if (sectionName== "tauG1") {
                 const bz = new Uint8Array(64);
-                buffOutLEM.set(bz, 64*((1 << power) - 1 ));
+                buffOutLEM.set(bz, 64*((2 ** power) - 1 ));
             }
             */
 

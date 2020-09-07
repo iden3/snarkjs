@@ -63,14 +63,23 @@ export default async function clProcessor(commands) {
 
     function calculateMatch(cmd, cl) {
         const alias = [];
-        alias.push(parseLine(cmd.cmd));
+        const m = parseLine(cmd.cmd);
+        alias.push(m);
         if (cmd.alias) {
             if (Array.isArray(cmd.alias)) {
                 for (let i=0; i<cmd.alias.length; i++) {
-                    alias.push(parseLine(cmd.alias[i]));
+                    const a = parseLine(cmd.alias[i]);
+                    alias.push({
+                        cmd: a.cmd,
+                        params: m.params
+                    });
                 }
             } else {
-                alias.push(parseLine(cmd.alias));
+                const a = parseLine(cmd.alias);
+                alias.push({
+                    cmd: a.cmd,
+                    params: m.params
+                });
             }
         }
         for (let i=0; i<cl.length; i++) {
@@ -147,6 +156,7 @@ export default async function clProcessor(commands) {
 
 
     function areParamsValid(cmd, params) {
+        while ((params.length)&&(!params[params.length-1])) params.pop();
         const pl = parseLine(cmd);
         if (params.length > pl.params.length) return false;
         let minParams = pl.params.length;

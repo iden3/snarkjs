@@ -40,8 +40,8 @@
   "dependencies": {
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
     "circom_runtime": "0.1.5",
-    "fastfile": "0.0.14",
-    "ffjavascript": "0.2.13",
+    "fastfile": "0.0.15",
+    "ffjavascript": "0.2.14",
     "logplease": "^1.2.15",
     "r1csfile": "0.0.12"
   },

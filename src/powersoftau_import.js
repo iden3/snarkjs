@@ -27,10 +27,10 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     if  (fdResponse.totalSize !=
         64 +                            // Old Hash
-        ((1<<power)*2-1)*scG1 +
-        (1<<power)*scG2 +
-        (1<<power)*scG1 +
-        (1<<power)*scG1 +
+        ((2 ** power)*2-1)*scG1 +
+        (2 ** power)*scG2 +
+        (2 ** power)*scG1 +
+        (2 ** power)*scG1 +
         scG2 +
         sG1*6 + sG2*3)
         throw new Error("Size of the contribution is invalid");
@@ -61,13 +61,13 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
     const startSections = [];
     let res;
-    res = await processSection(fdResponse, fdNew, "G1", 2, (1 << power) * 2 -1, [1], "tauG1");
+    res = await processSection(fdResponse, fdNew, "G1", 2, (2 ** power) * 2 -1, [1], "tauG1");
     currentContribution.tauG1 = res[0];
-    res = await processSection(fdResponse, fdNew, "G2", 3, (1 << power)       , [1], "tauG2");
+    res = await processSection(fdResponse, fdNew, "G2", 3, (2 ** power)       , [1], "tauG2");
     currentContribution.tauG2 = res[0];
-    res = await processSection(fdResponse, fdNew, "G1", 4, (1 << power)       , [0], "alphaG1");
+    res = await processSection(fdResponse, fdNew, "G1", 4, (2 ** power)       , [0], "alphaG1");
     currentContribution.alphaG1 = res[0];
-    res = await processSection(fdResponse, fdNew, "G1", 5, (1 << power)       , [0], "betaG1");
+    res = await processSection(fdResponse, fdNew, "G1", 5, (2 ** power)       , [0], "betaG1");
     currentContribution.betaG1 = res[0];
     res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
     currentContribution.betaG2 = res[0];
@@ -88,10 +88,10 @@ export default async function importResponse(oldPtauFilename, contributionFilena
         const nextChallengeHasher = new Blake2b(64);
         nextChallengeHasher.update(hashResponse);
 
-        await hashSection(nextChallengeHasher, fdNew, "G1", 2, (1 << power) * 2 -1, "tauG1", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G2", 3, (1 << power)       , "tauG2", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G1", 4, (1 << power)       , "alphaTauG1", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G1", 5, (1 << power)       , "betaTauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G2", 3, (2 ** power)       , "tauG2", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 4, (2 ** power)       , "alphaTauG1", logger);
+        await hashSection(nextChallengeHasher, fdNew, "G1", 5, (2 ** power)       , "betaTauG1", logger);
         await hashSection(nextChallengeHasher, fdNew, "G2", 6, 1                  , "betaG2", logger);
 
         currentContribution.nextChallenge = nextChallengeHasher.digest();

@@ -16,7 +16,7 @@ export async function getCurveFromR(r) {
         throw new Error(`Curve not supported: ${Scalar.toString(r)}`);
     }
     return curve;
-};
+}
 
 export async function getCurveFromQ(q) {
     let curve;
@@ -28,7 +28,7 @@ export async function getCurveFromQ(q) {
         throw new Error(`Curve not supported: ${Scalar.toString(q)}`);
     }
     return curve;
-};
+}
 
 export async function getCurveFromName(name) {
     let curve;
@@ -46,5 +46,5 @@ export async function getCurveFromName(name) {
         return n.toUpperCase().match(/[A-Za-z0-9]+/g).join("");
     }
 
-};
+}
 
