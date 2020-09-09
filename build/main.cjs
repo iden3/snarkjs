@@ -3678,7 +3678,6 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     await writePTauHeader(fdNew, curve, power);
 
     // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-    const fdTmp = await createOverride({type: "bigMem"});
 
     await copySection(fdOld, sections, fdNew, 2);
     await copySection(fdOld, sections, fdNew, 3);
@@ -3694,7 +3693,6 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
 
     await fdOld.close();
     await fdNew.close();
-    await fdTmp.close();
 
     // await fs.promises.unlink(newPTauFilename+ ".tmp");
 
@@ -3724,9 +3722,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            const Fr = curve.Fr;
             const sGin = G.F.n8*2;
-            const sGmid = G.F.n8*3;
 
             let buff;
             buff = new ffjavascript.BigBuffer(nPoints*sGin);

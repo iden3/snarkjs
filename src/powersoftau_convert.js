@@ -12,7 +12,6 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
     await utils.writePTauHeader(fdNew, curve, power);
 
     // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-    const fdTmp = await fastFile.createOverride({type: "bigMem"});
 
     await binFileUtils.copySection(fdOld, sections, fdNew, 2);
     await binFileUtils.copySection(fdOld, sections, fdNew, 3);
@@ -28,7 +27,6 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
 
     await fdOld.close();
     await fdNew.close();
-    await fdTmp.close();
 
     // await fs.promises.unlink(newPTauFilename+ ".tmp");
 
@@ -58,9 +56,7 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            const Fr = curve.Fr;
             const sGin = G.F.n8*2;
-            const sGmid = G.F.n8*3;
 
             let buff;
             buff = new BigBuffer(nPoints*sGin);
