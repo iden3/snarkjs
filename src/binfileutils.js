@@ -36,7 +36,7 @@ export async function readBinFile(fileName, type, maxVersion) {
 
 export async function createBinFile(fileName, type, version, nSections) {
 
-    const fd = await fastFile.createOverride(fileName, null, 1<<24);
+    const fd = await fastFile.createOverride(fileName, null, 1<<7);
 
     const buff = new Uint8Array(4);
     for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
