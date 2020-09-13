@@ -4,7 +4,7 @@ import assert from "assert";
 import path from "path";
 
 describe("Full process", function ()  {
-    this.timeout(1000000);
+    this.timeout(1000000000);
 
     let curve;
     const ptau_0 = {type: "mem"};
@@ -27,7 +27,7 @@ describe("Full process", function ()  {
 
     before( async () => {
         curve = await getCurveFromName("bn128");
-        // curve.Fr.s = 10;
+        curve.Fr.s = 10;
     });
     after( async () => {
         await curve.terminate();
