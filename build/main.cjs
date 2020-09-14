@@ -3634,7 +3634,7 @@ async function truncate(ptauFilename, template, logger) {
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    for (let p=0; p<power; p++) {
+    for (let p=1; p<power; p++) {
         await generateTruncate(p);
     }
 
