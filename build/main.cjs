@@ -3634,7 +3634,7 @@ async function truncate(ptauFilename, template, logger) {
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    for (let p=1; p<power; p++) {
+    for (let p=0; p<power; p++) {
         await generateTruncate(p);
     }
 
@@ -3658,7 +3658,7 @@ async function truncate(ptauFilename, template, logger) {
         await copySection(fdOld, sections, fdNew, 5, (2 ** p) * sG1); // betaTauG1
         await copySection(fdOld, sections, fdNew, 6,  sG2); // betaTauG2
         await copySection(fdOld, sections, fdNew, 7); // contributions
-        await copySection(fdOld, sections, fdNew, 12, ((2 ** p)*2 -1) * sG1); // L_tauG1
+        await copySection(fdOld, sections, fdNew, 12, ((2 ** (p+1))*2 -1) * sG1); // L_tauG1
         await copySection(fdOld, sections, fdNew, 13, ((2 ** p)*2 -1) * sG2); // L_tauG2
         await copySection(fdOld, sections, fdNew, 14, ((2 ** p)*2 -1) * sG1); // L_alfaTauG1
         await copySection(fdOld, sections, fdNew, 15, ((2 ** p)*2 -1) * sG1); // L_betaTauG1
