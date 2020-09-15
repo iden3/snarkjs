@@ -478,6 +478,6 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         csHasher.update(buff);
     }
 
-};
+}
 
 

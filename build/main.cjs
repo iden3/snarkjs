@@ -756,7 +756,7 @@ async function readBinFile(fileName, type, maxVersion) {
 
 async function createBinFile(fileName, type, version, nSections) {
 
-    const fd = await createOverride(fileName, null, 1<<7);
+    const fd = await createOverride(fileName, null);
 
     const buff = new Uint8Array(4);
     for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
