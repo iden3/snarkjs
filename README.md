@@ -161,6 +161,29 @@ We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
 
 Under the hood,  the `prepare phase2` command calculates the encrypted evaluation of the Lagrange polynomials at tau for `tau`, `alpha*tau` and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step, and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
 
+---
+**NOTE**
+
+A ptau file for bn128 with the peraperPhase2 54 contributions and a beacon, can be found here:
+
+https://www.dropbox.com/sh/mn47gnepqu88mzl/AACaJkBU7mmCq8uU8ml0-0fma?dl=0
+
+There is a file truncated for each power of two.
+
+The complete file is [powersOfTau28_hez_final.ptau](https://www.dropbox.com/sh/mn47gnepqu88mzl/AADgFSy_UnsSoDwOPy64tpCWa/powersOfTau28_hez_final.ptau?dl=0) which includes 2**28 powers.
+
+And it's blake2b hash is:
+
+55c77ce8562366c91e7cda394cf7b7c15a06c12d8c905e8b36ba9cf5e13eb37d1a429c589e8eaba4c591bc4b88a0e2828745a53e170eac300236f5c1a326f41a
+
+You can find more information about the ceremony [here](https://github.com/weijiekoh/perpetualpowersoftau)
+
+The last ptau file was geneerated using this procedure:
+
+https://www.reddit.com/r/ethereum/comments/iftos6/powers_of_tau_selection_for_hermez_rollup/
+
+---
+
 ### 8. Verify the final `ptau`
 ```sh
 snarkjs powersoftau verify pot12_final.ptau
