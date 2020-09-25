@@ -272,48 +272,51 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
-        const CHUNK_SIZE= 1<<16;
+        const CHUNK_SIZE= 1<<13;
+        const G = curve[groupName];
 
         hashU32(arr.length);
         await binFileUtils.startWriteSection(fdZKey, idSection);
 
-        for (let i=0; i<arr.length; i+= CHUNK_SIZE) {
-            if (logger)  logger.debug(`Writing points ${sectionName}: ${i}/${arr.length}`);
-            const n = Math.min(arr.length -i, CHUNK_SIZE);
-            const subArr = arr.slice(i, i + n);
-            await composeAndWritePointsChunk(groupName, subArr);
+        let opPromises = [];
+
+        let i=0;
+        while (i<arr.length) {
+
+            let t=0;
+            while ((i<arr.length)&&(t<curve.tm.concurrency)) {
+                if (logger)  logger.debug(`Writing points start ${sectionName}: ${i}/${arr.length}`);
+                let n = 1;
+                let nP = (arr[i] ? arr[i].length : 0);
+                while ((i + n < arr.length) && (nP + (arr[i+n] ? arr[i+n].length : 0) < CHUNK_SIZE)) {
+                    nP += (arr[i+n] ? arr[i+n].length : 0);
+                    n ++;
+                }
+                const subArr = arr.slice(i, i + n);
+                const _i = i;
+                opPromises.push(composeAndWritePointsThread(groupName, subArr, logger, sectionName).then( (r) => {
+                    if (logger)  logger.debug(`Writing points end ${sectionName}: ${_i}/${arr.length}`);
+                    return r;
+                }));
+                i += n;
+                t++;
+            }
+
+            const result = await Promise.all(opPromises);
+
+            for (let k=0; k<result.length; k++) {
+                await fdZKey.write(result[k][0]);
+                const buff = await G.batchLEMtoU(result[k][0]);
+                csHasher.update(buff);
+            }
+            opPromises = [];
+
         }
         await binFileUtils.endWriteSection(fdZKey);
+
     }
 
-    async function composeAndWritePointsChunk(groupName, arr) {
-        const concurrency= curve.tm.concurrency;
-        const nElementsPerThread = Math.floor(arr.length / concurrency);
-        const opPromises = [];
-        const G = curve[groupName];
-        for (let i=0; i<concurrency; i++) {
-            let n;
-            if (i< concurrency-1) {
-                n = nElementsPerThread;
-            } else {
-                n = arr.length - i*nElementsPerThread;
-            }
-            if (n==0) continue;
-
-            const subArr = arr.slice(i*nElementsPerThread, i*nElementsPerThread + n);
-            opPromises.push(composeAndWritePointsThread(groupName, subArr));
-        }
-
-        const result = await Promise.all(opPromises);
-
-        for (let i=0; i<result.length; i++) {
-            await fdZKey.write(result[i][0]);
-            const buff = await G.batchLEMtoU(result[i][0]);
-            csHasher.update(buff);
-        }
-    }
-
-    async function composeAndWritePointsThread(groupName, arr) {
+    async function composeAndWritePointsThread(groupName, arr, logger, sectionName) {
         const G = curve[groupName];
         const sGin = G.F.n8*2;
         const sGmid = G.F.n8*3;
@@ -334,65 +337,96 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         }
         let acc =0;
         for (let i=0; i<arr.length; i++) acc += arr[i] ? arr[i].length : 0;
-        const bBases = new Uint8Array(acc*sGin);
-        const bScalars = new Uint8Array(acc*curve.Fr.n8);
+        let bBases, bScalars;
+        if (acc> 2<<14) {
+            bBases = new BigBuffer(acc*sGin);
+            bScalars = new BigBuffer(acc*curve.Fr.n8);
+        } else {
+            bBases = new Uint8Array(acc*sGin);
+            bScalars = new Uint8Array(acc*curve.Fr.n8);
+        }
         let pB =0;
         let pS =0;
+
+        let readOps = [];
+        let scalars = [];
+        let offset = 0;
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
-                const bBase = await fdPTau.read(sGin, arr[i][j][0]);
-                bBases.set(bBase, pB);
-                pB += sGin;
-                bScalars.set(arr[i][j][1], pS);
-                pS += curve.Fr.n8;
+                if (readOps.length > 2<<14) {
+                    logger.debug(`${sectionName}: Long MExp Load ${j}/${arr[i].length}`);
+
+                    const points = await Promise.all(readOps);
+                    for (let k=0; k<points.length; k++) {
+                        bBases.set(points[k], (offset+k)*sGin);
+                        bScalars.set(scalars[k], (offset+k)*curve.Fr.n8);
+                    }
+                    offset += readOps.length;
+                    readOps = [];
+                    scalars = [];
+                }
+                scalars.push(arr[i][j][1]);
+                readOps.push(fdPTau.read(sGin, arr[i][j][0]));
             }
         }
-        const task = [];
-        task.push({cmd: "ALLOCSET", var: 0, buff: bBases});
-        task.push({cmd: "ALLOCSET", var: 1, buff: bScalars});
-        task.push({cmd: "ALLOC", var: 2, len: arr.length*sGmid});
-        pB = 0;
-        pS = 0;
-        let pD =0;
-        for (let i=0; i<arr.length; i++) {
-            if (!arr[i]) {
-                task.push({cmd: "CALL", fnName: fnZero, params: [
-                    {var: 2, offset: pD}
-                ]});
+
+        const points = await Promise.all(readOps);
+        for (let i=0; i<points.length; i++) {
+            bBases.set(points[i], (offset+i)*sGin);
+            bScalars.set(scalars[i], (offset+i)*curve.Fr.n8);
+        }
+
+        if (arr.length>1) {
+            const task = [];
+            task.push({cmd: "ALLOCSET", var: 0, buff: bBases});
+            task.push({cmd: "ALLOCSET", var: 1, buff: bScalars});
+            task.push({cmd: "ALLOC", var: 2, len: arr.length*sGmid});
+            pB = 0;
+            pS = 0;
+            let pD =0;
+            for (let i=0; i<arr.length; i++) {
+                if (!arr[i]) {
+                    task.push({cmd: "CALL", fnName: fnZero, params: [
+                        {var: 2, offset: pD}
+                    ]});
+                    pD += sGmid;
+                    continue;
+                }
+                if (arr[i].length == 1) {
+                    task.push({cmd: "CALL", fnName: fnExp, params: [
+                        {var: 0, offset: pB},
+                        {var: 1, offset: pS},
+                        {val: curve.Fr.n8},
+                        {var: 2, offset: pD}
+                    ]});
+                } else {
+                    task.push({cmd: "CALL", fnName: fnMultiExp, params: [
+                        {var: 0, offset: pB},
+                        {var: 1, offset: pS},
+                        {val: curve.Fr.n8},
+                        {val: arr[i].length},
+                        {var: 2, offset: pD}
+                    ]});
+                }
+                pB += sGin*arr[i].length;
+                pS += curve.Fr.n8*arr[i].length;
                 pD += sGmid;
-                continue;
             }
-            if (arr[i].length == 1) {
-                task.push({cmd: "CALL", fnName: fnExp, params: [
-                    {var: 0, offset: pB},
-                    {var: 1, offset: pS},
-                    {val: curve.Fr.n8},
-                    {var: 2, offset: pD}
-                ]});
-            } else {
-                task.push({cmd: "CALL", fnName: fnMultiExp, params: [
-                    {var: 0, offset: pB},
-                    {var: 1, offset: pS},
-                    {val: curve.Fr.n8},
-                    {val: arr[i].length},
-                    {var: 2, offset: pD}
-                ]});
-            }
-            pB += sGin*arr[i].length;
-            pS += curve.Fr.n8*arr[i].length;
-            pD += sGmid;
+            task.push({cmd: "CALL", fnName: fnBatchToAffine, params: [
+                {var: 2},
+                {val: arr.length},
+                {var: 2},
+            ]});
+            task.push({cmd: "GET", out: 0, var: 2, len: arr.length*sGout});
+
+            const res = await curve.tm.queueAction(task);
+            return res;
+        } else {
+            let res = await G.multiExpAffine(bBases, bScalars, logger, sectionName);
+            res = [ G.toAffine(res) ];
+            return res;
         }
-        task.push({cmd: "CALL", fnName: fnBatchToAffine, params: [
-            {var: 2},
-            {val: arr.length},
-            {var: 2},
-        ]});
-        task.push({cmd: "GET", out: 0, var: 2, len: arr.length*sGout});
-
-        const res = await curve.tm.queueAction(task);
-
-        return res;
     }
 
 

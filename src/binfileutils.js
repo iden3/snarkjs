@@ -2,9 +2,9 @@
 import  { Scalar } from "ffjavascript";
 import * as fastFile from "fastfile";
 
-export async function readBinFile(fileName, type, maxVersion) {
+export async function readBinFile(fileName, type, maxVersion, cacheSize, pageSize) {
 
-    const fd = await fastFile.readExisting(fileName);
+    const fd = await fastFile.readExisting(fileName, cacheSize, pageSize);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -34,9 +34,9 @@ export async function readBinFile(fileName, type, maxVersion) {
     return {fd, sections};
 }
 
-export async function createBinFile(fileName, type, version, nSections) {
+export async function createBinFile(fileName, type, version, nSections, cacheSize, pageSize) {
 
-    const fd = await fastFile.createOverride(fileName, null);
+    const fd = await fastFile.createOverride(fileName, cacheSize, pageSize);
 
     const buff = new Uint8Array(4);
     for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
