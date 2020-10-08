@@ -11,7 +11,7 @@ export default function r1csPrint(r1cs, syms, logger) {
                 let name = syms.varIdx2Name[k];
                 if (name == "one") name = "";
 
-                let vs = r1cs.Fr.toString(lc[k]);
+                let vs = r1cs.curve.Fr.toString(lc[k]);
                 if (vs == "1") vs = "";  // Do not show ones
                 if (vs == "-1") vs = "-";  // Do not show ones
                 if ((S!="")&&(vs[0]!="-")) vs = "+"+vs;
