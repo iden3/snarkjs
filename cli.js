@@ -351,7 +351,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1cs.exportJson(r1csName, logger);
 
-    const S = JSON.stringify(utils.stringifyBigInts(r1csObj), null, 1);
+    const S = JSON.stringify(r1csObj, null, 1);
     await fs.promises.writeFile(jsonName, S);
 
     return 0;

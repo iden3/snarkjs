@@ -1132,11 +1132,33 @@ async function r1csInfo(r1csName, logger) {
     return cir;
 }
 
+function stringifyBigInts(Fr, o) {
+    if (o instanceof Uint8Array)  {
+        return Fr.toString(o);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigInts.bind(null, Fr));
+    } else if (typeof o == "object") {
+        const res = {};
+        const keys = Object.keys(o);
+        keys.forEach( (k) => {
+            res[k] = stringifyBigInts(Fr, o[k]);
+        });
+        return res;
+    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else {
+        return o;
+    }
+}
+
+
 async function r1csExportJson(r1csFileName, logger) {
 
     const cir = await readR1cs(r1csFileName, true, true);
+    const Fr=cir.curve.Fr;
+    delete cir.curve;
 
-    return cir;
+    return stringifyBigInts(Fr, cir);
 }
 
 /*
@@ -5768,7 +5790,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
 
 }
 
-const {stringifyBigInts} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
 
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
@@ -5806,7 +5828,7 @@ async function zkeyExportVerificationKey(zkeyName, logger) {
     }
     await endReadSection$1(fd);
 
-    vKey = stringifyBigInts(vKey);
+    vKey = stringifyBigInts$1(vKey);
 
     await fd.close();
 
@@ -5931,7 +5953,7 @@ async function read(fileName) {
     return res;
 }
 
-const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2);
@@ -6027,8 +6049,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     await fdZKey.close();
     await fdWtns.close();
 
-    proof = stringifyBigInts$1(proof);
-    publicSignals = stringifyBigInts$1(publicSignals);
+    proof = stringifyBigInts$2(proof);
+    publicSignals = stringifyBigInts$2(publicSignals);
 
     return {proof, publicSignals};
 }
@@ -6340,7 +6362,7 @@ async function wtnsExportJson(wtnsFileName) {
     You should have received a copy of the GNU General Public License
     along with jaz. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts: stringifyBigInts$2, unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$3, unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
@@ -6652,7 +6674,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1csExportJson(r1csName);
 
-    const S = JSON.stringify(ffjavascript.utils.stringifyBigInts(r1csObj), null, 1);
+    const S = JSON.stringify(r1csObj, null, 1);
     await fs.promises.writeFile(jsonName, S);
 
     return 0;
@@ -6702,7 +6724,7 @@ async function wtnsExportJson$1(params, options) {
 
     const w = await wtnsExportJson(wtnsName);
 
-    await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts$2(w), null, 1));
+    await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts$3(w), null, 1));
 
     return 0;
 }
@@ -6744,8 +6766,8 @@ async function groth16Prove$1(params, options) {
 
     const {proof, publicSignals} = await groth16Prove(zkeyName, witnessName, logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$2(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$2(publicSignals), null, 1), "utf-8");
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
 
     return 0;
 }
@@ -6765,8 +6787,8 @@ async function groth16FullProve$1(params, options) {
 
     const {proof, publicSignals} = await groth16FullProve(input, wasmName, zkeyName,  logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$2(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$2(publicSignals), null, 1), "utf-8");
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
 
     return 0;
 }
@@ -7090,7 +7112,7 @@ async function powersOfTauExportJson(params, options) {
 
     const pTau = await exportJson(ptauName, logger);
 
-    const S = JSON.stringify(stringifyBigInts$2(pTau), null, 1);
+    const S = JSON.stringify(stringifyBigInts$3(pTau), null, 1);
     await fs.promises.writeFile(jsonName, S);
 
 }

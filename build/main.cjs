@@ -4249,11 +4249,33 @@ async function r1csInfo(r1csName, logger) {
     return cir;
 }
 
+function stringifyBigInts$1(Fr, o) {
+    if (o instanceof Uint8Array)  {
+        return Fr.toString(o);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigInts$1.bind(null, Fr));
+    } else if (typeof o == "object") {
+        const res = {};
+        const keys = Object.keys(o);
+        keys.forEach( (k) => {
+            res[k] = stringifyBigInts$1(Fr, o[k]);
+        });
+        return res;
+    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else {
+        return o;
+    }
+}
+
+
 async function r1csExportJson(r1csFileName, logger) {
 
     const cir = await readR1cs(r1csFileName, true, true);
+    const Fr=cir.curve.Fr;
+    delete cir.curve;
 
-    return cir;
+    return stringifyBigInts$1(Fr, cir);
 }
 
 var r1cs = /*#__PURE__*/Object.freeze({
@@ -6004,7 +6026,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
 
 }
 
-const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
 
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
@@ -6042,7 +6064,7 @@ async function zkeyExportVerificationKey(zkeyName, logger) {
     }
     await endReadSection(fd);
 
-    vKey = stringifyBigInts$1(vKey);
+    vKey = stringifyBigInts$2(vKey);
 
     await fd.close();
 
