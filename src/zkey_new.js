@@ -1,5 +1,5 @@
 
-import {loadHeader as loadR1csHeader} from "r1csfile";
+import {readR1csHeader} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "./binfileutils.js";
 import { log2, formatHash } from "./misc.js";
@@ -13,7 +13,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1);
-    const r1cs = await loadR1csHeader(fdR1cs, sectionsR1cs);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs);
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);

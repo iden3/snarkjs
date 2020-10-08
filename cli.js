@@ -21,7 +21,7 @@
 
 import fs from "fs";
 
-import {load as loadR1cs} from "r1csfile";
+import {readR1cs} from "r1csfile";
 
 import loadSyms from "./src/loadsyms.js";
 import * as r1cs from "./src/r1cs.js";
@@ -332,7 +332,7 @@ async function r1csPrint(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const cir = await loadR1cs(r1csName, true, true);
+    const cir = await readR1cs(r1csName, true, true);
 
     const sym = await loadSyms(symName);
 
@@ -417,7 +417,7 @@ async function zksnarkSetup(params, options) {
 
     const protocol = options.protocol || "groth16";
 
-    const cir = await loadR1cs(r1csName, true);
+    const cir = await readR1cs(r1csName, true);
 
     if (!zkSnark[protocol]) throw new Error("Invalid protocol");
     const setup = zkSnark[protocol].setup(cir, options.verbose);

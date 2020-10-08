@@ -13,6 +13,85 @@ var crypto = _interopDefault(require('crypto'));
 var circomRuntime = _interopDefault(require('circom_runtime'));
 var Logger = _interopDefault(require('logplease'));
 
+const SUBARRAY_SIZE = 0x40000;
+
+const BigArrayHandler = {
+    get: function(obj, prop) {
+        if (!isNaN(prop)) {
+            return obj.getElement(prop);
+        } else return obj[prop];
+    },
+    set: function(obj, prop, value) {
+        if (!isNaN(prop)) {
+            return obj.setElement(prop, value);
+        } else {
+            obj[prop] = value;
+            return true;
+        }
+    }
+};
+
+class _BigArray {
+    constructor (initSize) {
+        this.length = initSize || 0;
+        this.arr = new Array(SUBARRAY_SIZE);
+
+        for (let i=0; i<initSize; i+=SUBARRAY_SIZE) {
+            this.arr[i/SUBARRAY_SIZE] = new Array(Math.min(SUBARRAY_SIZE, initSize - i));
+        }
+        return this;
+    }
+    push () {
+        for (let i=0; i<arguments.length; i++) {
+            this.setElement (this.length, arguments[i]);
+        }
+    }
+
+    slice (f, t) {
+        const arr = new Array(t-f);
+        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
+        return arr;
+    }
+    getElement(idx) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        const idx2 = idx % SUBARRAY_SIZE;
+        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
+    }
+    setElement(idx, value) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        if (!this.arr[idx1]) {
+            this.arr[idx1] = new Array(SUBARRAY_SIZE);
+        }
+        const idx2 = idx % SUBARRAY_SIZE;
+        this.arr[idx1][idx2] = value;
+        if (idx >= this.length) this.length = idx+1;
+        return true;
+    }
+    getKeys() {
+        const newA = new BigArray();
+        for (let i=0; i<this.arr.length; i++) {
+            if (this.arr[i]) {
+                for (let j=0; j<this.arr[i].length; j++) {
+                    if (typeof this.arr[i][j] !== "undefined") {
+                        newA.push(i*SUBARRAY_SIZE+j);
+                    }
+                }
+            }
+        }
+        return newA;
+    }
+}
+
+class BigArray {
+    constructor( initSize ) {
+        const obj = new _BigArray(initSize);
+        const extObj = new Proxy(obj, BigArrayHandler);
+        return extObj;
+    }
+}
+
 async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
@@ -827,88 +906,9 @@ async function readExisting$2(o, b, c) {
     }
 }
 
-const SUBARRAY_SIZE = 0x40000;
+async function readBinFile(fileName, type, maxVersion, cacheSize, pageSize) {
 
-const BigArrayHandler = {
-    get: function(obj, prop) {
-        if (!isNaN(prop)) {
-            return obj.getElement(prop);
-        } else return obj[prop];
-    },
-    set: function(obj, prop, value) {
-        if (!isNaN(prop)) {
-            return obj.setElement(prop, value);
-        } else {
-            obj[prop] = value;
-            return true;
-        }
-    }
-};
-
-class _BigArray {
-    constructor (initSize) {
-        this.length = initSize || 0;
-        this.arr = new Array(SUBARRAY_SIZE);
-
-        for (let i=0; i<initSize; i+=SUBARRAY_SIZE) {
-            this.arr[i/SUBARRAY_SIZE] = new Array(Math.min(SUBARRAY_SIZE, initSize - i));
-        }
-        return this;
-    }
-    push () {
-        for (let i=0; i<arguments.length; i++) {
-            this.setElement (this.length, arguments[i]);
-        }
-    }
-
-    slice (f, t) {
-        const arr = new Array(t-f);
-        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
-        return arr;
-    }
-    getElement(idx) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
-        const idx2 = idx % SUBARRAY_SIZE;
-        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
-    }
-    setElement(idx, value) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
-        if (!this.arr[idx1]) {
-            this.arr[idx1] = new Array(SUBARRAY_SIZE);
-        }
-        const idx2 = idx % SUBARRAY_SIZE;
-        this.arr[idx1][idx2] = value;
-        if (idx >= this.length) this.length = idx+1;
-        return true;
-    }
-    getKeys() {
-        const newA = new BigArray();
-        for (let i=0; i<this.arr.length; i++) {
-            if (this.arr[i]) {
-                for (let j=0; j<this.arr[i].length; j++) {
-                    if (typeof this.arr[i][j] !== "undefined") {
-                        newA.push(i*SUBARRAY_SIZE+j);
-                    }
-                }
-            }
-        }
-        return newA;
-    }
-}
-
-class BigArray {
-    constructor( initSize ) {
-        const obj = new _BigArray(initSize);
-        const extObj = new Proxy(obj, BigArrayHandler);
-        return extObj;
-    }
-}
-
-async function readBinFile(fileName, type, maxVersion) {
-
-    const fd = await readExisting$2(fileName, 1<<27, 1<<29);
+    const fd = await readExisting$2(fileName, cacheSize, pageSize);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -939,8 +939,7 @@ async function readBinFile(fileName, type, maxVersion) {
 }
 
 async function startReadUniqueSection(fd, sections, idSection) {
-    if (typeof fd.readingSection != "undefined")
-        throw new Error("Already reading a section");
+    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
     if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
     if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
 
@@ -950,22 +949,19 @@ async function startReadUniqueSection(fd, sections, idSection) {
 }
 
 async function endReadSection(fd, noCheck) {
-    if (typeof fd.readingSection == "undefined")
-        throw new Error("Not reading a section");
+    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
     if (!noCheck) {
-        if (fd.pos-fd.readingSection.p != fd.readingSection.size)
-            throw new Error("Invalid section size");
+        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
     }
     delete fd.readingSection;
 }
-
 
 async function readBigInt(fd, n8, pos) {
     const buff = await fd.read(n8, pos);
     return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
 }
 
-async function loadHeader(fd,sections) {
+async function readR1csHeader(fd,sections) {
 
 
     const res = {};
@@ -973,7 +969,8 @@ async function loadHeader(fd,sections) {
     // Read Header
     res.n8 = await fd.readULE32();
     res.prime = await readBigInt(fd, res.n8);
-    res.Fr = new ffjavascript.ZqField(res.prime);
+
+    res.curve = await ffjavascript.getCurveFromR(res.prime, true);
 
     res.nVars = await fd.readULE32();
     res.nOutputs = await fd.readULE32();
@@ -986,10 +983,10 @@ async function loadHeader(fd,sections) {
     return res;
 }
 
-async function load(fileName, loadConstraints, loadMap, logger) {
+async function readR1cs(fileName, loadConstraints, loadMap, logger, loggerCtx) {
 
-    const {fd, sections} = await readBinFile(fileName, "r1cs", 1);
-    const res = await loadHeader(fd, sections);
+    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<22, 1<<25);
+    const res = await readR1csHeader(fd, sections);
 
 
     if (loadConstraints) {
@@ -1000,7 +997,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
             res.constraints = [];
         }
         for (let i=0; i<res.nConstraints; i++) {
-            if ((logger)&&(i%10000 == 0)) logger.info(`Loading constraints: ${i}/${res.nConstraints}`);
+            if ((logger)&&(i%100000 == 0)) logger.info(`${loggerCtx}: Loading constraints: ${i}/${res.nConstraints}`);
             const c = await readConstraint();
             res.constraints.push(c);
         }
@@ -1017,6 +1014,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
             res.map = [];
         }
         for (let i=0; i<res.nVars; i++) {
+            if ((logger)&&(i%10000 == 0)) logger.info(`${loggerCtx}: Loading map: ${i}/${res.nVars}`);
             const idx = await fd.readULE64();
             res.map.push(idx);
         }
@@ -1042,7 +1040,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
         const buffV = new DataView(buff.buffer);
         for (let i=0; i<nIdx; i++) {
             const idx = buffV.getUint32(i*(4+res.n8), true);
-            const val = res.Fr.fromRprLE(buff, i*(4+res.n8)+4);
+            const val = res.curve.Fr.fromRprLE(buff, i*(4+res.n8)+4);
             lc[idx] = val;
         }
         return lc;
@@ -1116,7 +1114,7 @@ const bn128r = ffjavascript.Scalar.e("218882428718392752222464057452572750885483
 
 async function r1csInfo(r1csName, logger) {
 
-    const cir = await load(r1csName);
+    const cir = await readR1cs(r1csName);
 
     if (ffjavascript.Scalar.eq(cir.prime, bn128r)) {
         if (logger) logger.info("Curve: bn-128");
@@ -1136,7 +1134,7 @@ async function r1csInfo(r1csName, logger) {
 
 async function r1csExportJson(r1csFileName, logger) {
 
-    const cir = await load(r1csFileName, true, true);
+    const cir = await readR1cs(r1csFileName, true, true);
 
     return cir;
 }
@@ -3878,7 +3876,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1);
-    const r1cs = await loadHeader(fdR1cs, sectionsR1cs);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs);
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -6635,7 +6633,7 @@ async function r1csPrint$1(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const cir = await load(r1csName, true, true);
+    const cir = await readR1cs(r1csName, true, true);
 
     const sym = await loadSymbols(symName);
 
@@ -6720,7 +6718,7 @@ async function zksnarkSetup(params, options) {
 
     const protocol = options.protocol || "groth16";
 
-    const cir = await loadR1cs(r1csName, true);
+    const cir = await readR1cs(r1csName, true);
 
     if (!zkSnark[protocol]) throw new Error("Invalid protocol");
     const setup = zkSnark[protocol].setup(cir, options.verbose);

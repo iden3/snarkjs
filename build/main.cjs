@@ -4085,9 +4085,9 @@ class BigArray {
     }
 }
 
-async function readBinFile$1(fileName, type, maxVersion) {
+async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
-    const fd = await readExisting$2(fileName, 1<<27, 1<<29);
+    const fd = await readExisting$2(fileName, cacheSize, pageSize);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -4118,8 +4118,7 @@ async function readBinFile$1(fileName, type, maxVersion) {
 }
 
 async function startReadUniqueSection$1(fd, sections, idSection) {
-    if (typeof fd.readingSection != "undefined")
-        throw new Error("Already reading a section");
+    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
     if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
     if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
 
@@ -4129,22 +4128,19 @@ async function startReadUniqueSection$1(fd, sections, idSection) {
 }
 
 async function endReadSection$1(fd, noCheck) {
-    if (typeof fd.readingSection == "undefined")
-        throw new Error("Not reading a section");
+    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
     if (!noCheck) {
-        if (fd.pos-fd.readingSection.p != fd.readingSection.size)
-            throw new Error("Invalid section size");
+        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
     }
     delete fd.readingSection;
 }
-
 
 async function readBigInt$1(fd, n8, pos) {
     const buff = await fd.read(n8, pos);
     return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
 }
 
-async function loadHeader(fd,sections) {
+async function readR1csHeader(fd,sections) {
 
 
     const res = {};
@@ -4152,7 +4148,8 @@ async function loadHeader(fd,sections) {
     // Read Header
     res.n8 = await fd.readULE32();
     res.prime = await readBigInt$1(fd, res.n8);
-    res.Fr = new ffjavascript.ZqField(res.prime);
+
+    res.curve = await ffjavascript.getCurveFromR(res.prime, true);
 
     res.nVars = await fd.readULE32();
     res.nOutputs = await fd.readULE32();
@@ -4165,10 +4162,10 @@ async function loadHeader(fd,sections) {
     return res;
 }
 
-async function load(fileName, loadConstraints, loadMap, logger) {
+async function readR1cs(fileName, loadConstraints, loadMap, logger, loggerCtx) {
 
-    const {fd, sections} = await readBinFile$1(fileName, "r1cs", 1);
-    const res = await loadHeader(fd, sections);
+    const {fd, sections} = await readBinFile$1(fileName, "r1cs", 1, 1<<22, 1<<25);
+    const res = await readR1csHeader(fd, sections);
 
 
     if (loadConstraints) {
@@ -4179,7 +4176,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
             res.constraints = [];
         }
         for (let i=0; i<res.nConstraints; i++) {
-            if ((logger)&&(i%10000 == 0)) logger.info(`Loading constraints: ${i}/${res.nConstraints}`);
+            if ((logger)&&(i%100000 == 0)) logger.info(`${loggerCtx}: Loading constraints: ${i}/${res.nConstraints}`);
             const c = await readConstraint();
             res.constraints.push(c);
         }
@@ -4196,6 +4193,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
             res.map = [];
         }
         for (let i=0; i<res.nVars; i++) {
+            if ((logger)&&(i%10000 == 0)) logger.info(`${loggerCtx}: Loading map: ${i}/${res.nVars}`);
             const idx = await fd.readULE64();
             res.map.push(idx);
         }
@@ -4221,7 +4219,7 @@ async function load(fileName, loadConstraints, loadMap, logger) {
         const buffV = new DataView(buff.buffer);
         for (let i=0; i<nIdx; i++) {
             const idx = buffV.getUint32(i*(4+res.n8), true);
-            const val = res.Fr.fromRprLE(buff, i*(4+res.n8)+4);
+            const val = res.curve.Fr.fromRprLE(buff, i*(4+res.n8)+4);
             lc[idx] = val;
         }
         return lc;
@@ -4233,7 +4231,7 @@ const bn128r$1 = ffjavascript.Scalar.e("2188824287183927522224640574525727508854
 
 async function r1csInfo(r1csName, logger) {
 
-    const cir = await load(r1csName);
+    const cir = await readR1cs(r1csName);
 
     if (ffjavascript.Scalar.eq(cir.prime, bn128r$1)) {
         if (logger) logger.info("Curve: bn-128");
@@ -4253,7 +4251,7 @@ async function r1csInfo(r1csName, logger) {
 
 async function r1csExportJson(r1csFileName, logger) {
 
-    const cir = await load(r1csFileName, true, true);
+    const cir = await readR1cs(r1csFileName, true, true);
 
     return cir;
 }
@@ -4444,7 +4442,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1);
-    const r1cs = await loadHeader(fdR1cs, sectionsR1cs);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs);
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
