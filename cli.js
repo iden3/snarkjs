@@ -332,7 +332,7 @@ async function r1csPrint(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const cir = await readR1cs(r1csName, true, true);
+    const cir = await readR1cs(r1csName, true, true, false);
 
     const sym = await loadSyms(symName);
 

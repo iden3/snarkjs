@@ -1154,7 +1154,7 @@ function stringifyBigInts(Fr, o) {
 
 async function r1csExportJson(r1csFileName, logger) {
 
-    const cir = await readR1cs(r1csFileName, true, true);
+    const cir = await readR1cs(r1csFileName, true, true, true);
     const Fr=cir.curve.Fr;
     delete cir.curve;
 
@@ -6655,7 +6655,7 @@ async function r1csPrint$1(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const cir = await readR1cs(r1csName, true, true);
+    const cir = await readR1cs(r1csName, true, true, false);
 
     const sym = await loadSymbols(symName);
 
