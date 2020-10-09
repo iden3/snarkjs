@@ -961,7 +961,7 @@ async function readBigInt(fd, n8, pos) {
     return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
 }
 
-async function readR1csHeader(fd,sections) {
+async function readR1csHeader(fd,sections,singleThread) {
 
 
     const res = {};
@@ -970,7 +970,7 @@ async function readR1csHeader(fd,sections) {
     res.n8 = await fd.readULE32();
     res.prime = await readBigInt(fd, res.n8);
 
-    res.curve = await ffjavascript.getCurveFromR(res.prime, true);
+    res.curve = await ffjavascript.getCurveFromR(res.prime, singleThread);
 
     res.nVars = await fd.readULE32();
     res.nOutputs = await fd.readULE32();
@@ -983,10 +983,10 @@ async function readR1csHeader(fd,sections) {
     return res;
 }
 
-async function readR1cs(fileName, loadConstraints, loadMap, logger, loggerCtx) {
+async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
 
     const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<22, 1<<25);
-    const res = await readR1csHeader(fd, sections);
+    const res = await readR1csHeader(fd, sections, singleThread);
 
 
     if (loadConstraints) {
@@ -1154,7 +1154,7 @@ function stringifyBigInts(Fr, o) {
 
 async function r1csExportJson(r1csFileName, logger) {
 
-    const cir = await readR1cs(r1csFileName, true, true, true);
+    const cir = await readR1cs(r1csFileName, true, true, true, logger);
     const Fr=cir.curve.Fr;
     delete cir.curve;
 
@@ -3898,7 +3898,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = Blake2b(64);
 
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1);
-    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -6672,7 +6672,7 @@ async function r1csExportJSON(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const r1csObj = await r1csExportJson(r1csName);
+    const r1csObj = await r1csExportJson(r1csName, logger);
 
     const S = JSON.stringify(r1csObj, null, 1);
     await fs.promises.writeFile(jsonName, S);
