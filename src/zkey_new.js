@@ -12,13 +12,13 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await Blake2b.ready();
     const csHasher = Blake2b(64);
 
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10);
+    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
