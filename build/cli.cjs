@@ -3920,7 +3920,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1, 1<<22, 1<<24);
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
-    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
@@ -4019,23 +4019,38 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
     const buffCoeffV = new DataView(buffCoeff.buffer);
 
-    const sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-    const sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
-    const sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
-    const sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
+    let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+    let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+    let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
     await startWriteSection(fdZKey, 4);
-    await startReadUniqueSection$1(fdR1cs, sectionsR1cs, 2);
+
+    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
+    let r1csPos = 0;
+
+    function r1cs_readULE32() {
+        const buff = sR1cs.slice(r1csPos, r1csPos+4);
+        r1csPos += 4;
+        const buffV = new DataView(buff.buffer);
+        return buffV.getUint32(0, true);
+    }
+
+    function r1cs_readBigInt() {
+        const buff = sR1cs.slice(r1csPos, r1csPos+r1cs.n8);
+        r1csPos += r1cs.n8;
+        return buff;
+    }
 
     const pNCoefs =  fdZKey.pos;
     let nCoefs = 0;
     fdZKey.pos += 4;
     for (let c=0; c<r1cs.nConstraints; c++) {
         if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
-        const nA = await fdR1cs.readULE32();
+        const nA = r1cs_readULE32();
         for (let i=0; i<nA; i++) {
-            const s = await fdR1cs.readULE32();
-            const coef = await fdR1cs.read(r1cs.n8);
+            const s = r1cs_readULE32();
+            const coef = r1cs_readBigInt();
 
             const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
             const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
@@ -4053,10 +4068,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             nCoefs ++;
         }
 
-        const nB = await fdR1cs.readULE32();
+        const nB = r1cs_readULE32();
         for (let i=0; i<nB; i++) {
-            const s = await fdR1cs.readULE32();
-            const coef = await fdR1cs.read(r1cs.n8);
+            const s = r1cs_readULE32();
+            const coef = r1cs_readBigInt();
 
             const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
             const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
@@ -4078,10 +4093,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             nCoefs ++;
         }
 
-        const nC = await fdR1cs.readULE32();
+        const nC = r1cs_readULE32();
         for (let i=0; i<nC; i++) {
-            const s = await fdR1cs.readULE32();
-            const coef = await fdR1cs.read(r1cs.n8);
+            const s = r1cs_readULE32();
+            const coef = r1cs_readBigInt();
 
             const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
             if (s <= nPublic) {
@@ -4112,36 +4127,28 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     fdZKey.pos = oldPos;
 
     await endWriteSection(fdZKey);
-    await endReadSection$1(fdR1cs);
-
-/*
-    zKey.hExps = new Array(zKey.domainSize-1);
-    for (let i=0; i< zKey.domainSize; i++) {
-        const t1 = await readEvaluation("tauG1", i);
-        const t2 = await readEvaluation("tauG1", i+zKey.domainSize);
-        zKey.hExps[i] = curve.G1.sub(t2, t1);
-    }
-*/
 
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     // Write Hs
     await startWriteSection(fdZKey, 9);
-    const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
 
+
+    const buffOut = new ffjavascript.BigBuffer(domainSize*sG1);
     if (cirPower < curve.Fr.s) {
+        let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
         for (let i=0; i< domainSize; i++) {
-            const buff = await fdPTau.read(sG1, o + (i*2+1)*sG1 );
-            await fdZKey.write(buff);
+            const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
+            buffOut.set(buff, i*sG1);
         }
     } else if (cirPower == curve.Fr.s) {
-        const buff = new ffjavascript.BigBuffer(domainSize * sG1);
-        await fdPTau.readToBuffer(buff, 0, domainSize*sG1, o + domainSize*sG1);
-        await fdZKey.write(buff);
+        const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
+        await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, o + domainSize*sG1);
     } else {
         if (logger) logger.error("Circuit too big");
         throw new Error("Circuit too big for this curve");
     }
+    await fdZKey.write(buffOut);
     await endWriteSection(fdZKey);
     await hashHPoints();
 

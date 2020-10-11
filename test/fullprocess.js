@@ -27,7 +27,7 @@ describe("Full process", function ()  {
 
     before( async () => {
         curve = await getCurveFromName("bn128");
-        curve.Fr.s = 10;
+//        curve.Fr.s = 10;
     });
     after( async () => {
         await curve.terminate();
