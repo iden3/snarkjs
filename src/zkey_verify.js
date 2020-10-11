@@ -1,4 +1,4 @@
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import Blake2b from "blake2b-wasm";

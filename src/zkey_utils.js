@@ -27,7 +27,7 @@
 // Contributions(10)
 
 import { Scalar, F1Field } from "ffjavascript";
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";

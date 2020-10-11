@@ -1,6 +1,6 @@
 import { Scalar } from "ffjavascript";
 
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 
 
 export async function write(fd, witness, prime) {

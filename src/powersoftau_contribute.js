@@ -8,7 +8,7 @@
 import Blake2b from "blake2b-wasm";
 import * as utils from "./powersoftau_utils.js";
 import * as keyPair from "./keypair.js";
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 import * as misc from "./misc.js";
 
 export default async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {

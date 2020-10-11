@@ -1,5 +1,5 @@
 import * as utils from "./powersoftau_utils.js";
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);

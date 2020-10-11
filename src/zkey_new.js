@@ -1,7 +1,16 @@
 
 import {readR1csHeader} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
-import * as binFileUtils from "./binfileutils.js";
+import {
+    readBinFile,
+    createBinFile,
+    readSection,
+    writeBigInt,
+    startWriteSection,
+    endWriteSection,
+    startReadUniqueSection,
+    endReadSection
+} from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
 import Blake2b from "blake2b-wasm";
@@ -12,13 +21,13 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await Blake2b.ready();
     const csHasher = Blake2b(64);
 
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
-    const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
+    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
@@ -45,14 +54,14 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     // Write the header
     ///////////
-    await binFileUtils.startWriteSection(fdZKey, 1);
+    await startWriteSection(fdZKey, 1);
     await fdZKey.writeULE32(1); // Groth
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
     // Write the Groth header section
     ///////////
 
-    await binFileUtils.startWriteSection(fdZKey, 2);
+    await startWriteSection(fdZKey, 2);
     const primeQ = curve.q;
     const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
@@ -62,9 +71,9 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const R2r = curve.Fr.e(Scalar.mod(Scalar.mul(Rr,Rr), primeR));
 
     await fdZKey.writeULE32(n8q);
-    await binFileUtils.writeBigInt(fdZKey, primeQ, n8q);
+    await writeBigInt(fdZKey, primeQ, n8q);
     await fdZKey.writeULE32(n8r);
-    await binFileUtils.writeBigInt(fdZKey, primeR, n8r);
+    await writeBigInt(fdZKey, primeR, n8r);
     await fdZKey.writeULE32(r1cs.nVars);                         // Total number of bars
     await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
     await fdZKey.writeULE32(domainSize);                  // domainSize
@@ -102,7 +111,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // gamma2
     csHasher.update(bg1U);      // delta1
     csHasher.update(bg2U);      // delta2
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
 
     const A = new BigArray(r1cs.nVars);
@@ -114,13 +123,13 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
     const buffCoeffV = new DataView(buffCoeff.buffer);
 
-    const lTauG1 = sectionsPTau[12][0].p + ((2 ** cirPower) -1)*sG1;
-    const lTauG2 = sectionsPTau[13][0].p + ((2 ** cirPower) -1)*sG2;
-    const lAlphaTauG1 = sectionsPTau[14][0].p + ((2 ** cirPower) -1)*sG1;
-    const lBetaTauG1 = sectionsPTau[15][0].p + ((2 ** cirPower) -1)*sG1;
+    const sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+    const sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    const sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+    const sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
-    await binFileUtils.startWriteSection(fdZKey, 4);
-    await binFileUtils.startReadUniqueSection(fdR1cs, sectionsR1cs, 2);
+    await startWriteSection(fdZKey, 4);
+    await startReadUniqueSection(fdR1cs, sectionsR1cs, 2);
 
     const pNCoefs =  fdZKey.pos;
     let nCoefs = 0;
@@ -132,8 +141,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
-            const l2 = lBetaTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+            const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
             if (typeof A[s] === "undefined") A[s] = [];
             A[s].push([l1, coef]);
 
@@ -153,9 +162,9 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
-            const l2 = lTauG2 + sG2*c;
-            const l3 = lAlphaTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+            const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
+            const l3 = sAlphaTauG1.slice(sG1*c, sG1*c + sG1);
             if (typeof B1[s] === "undefined") B1[s] = [];
             B1[s].push([l1, coef]);
             if (typeof B2[s] === "undefined") B2[s] = [];
@@ -178,7 +187,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
             if (s <= nPublic) {
                 if (typeof IC[s] === "undefined") IC[s] = [];
                 IC[s].push([l1, coef]);
@@ -192,8 +201,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const bOne = new Uint8Array(curve.Fr.n8);
     curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
     for (let s = 0; s <= nPublic ; s++) {
-        const l1 = lTauG1 + sG1*(r1cs.nConstraints + s);
-        const l2 = lBetaTauG1 + sG1*(r1cs.nConstraints + s);
+        const l1 = sTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
+        const l2 = sBetaTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
         if (typeof A[s] === "undefined") A[s] = [];
         A[s].push([l1, bOne]);
         if (typeof IC[s] === "undefined") IC[s] = [];
@@ -206,8 +215,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await fdZKey.writeULE32(nCoefs, pNCoefs);
     fdZKey.pos = oldPos;
 
-    await binFileUtils.endWriteSection(fdZKey);
-    await binFileUtils.endReadSection(fdR1cs);
+    await endWriteSection(fdZKey);
+    await endReadSection(fdR1cs);
 
 /*
     zKey.hExps = new Array(zKey.domainSize-1);
@@ -221,7 +230,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     // Write Hs
-    await binFileUtils.startWriteSection(fdZKey, 9);
+    await startWriteSection(fdZKey, 9);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
 
     if (cirPower < curve.Fr.s) {
@@ -237,7 +246,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         if (logger) logger.error("Circuit too big");
         throw new Error("Circuit too big for this curve");
     }
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
     await hashHPoints();
 
     await composeAndWritePoints(8, "G1", C, "C");
@@ -247,10 +256,10 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const csHash = csHasher.digest();
     // Contributions section
-    await binFileUtils.startWriteSection(fdZKey, 10);
+    await startWriteSection(fdZKey, 10);
     await fdZKey.write(csHash);
     await fdZKey.writeULE32(0);
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
     if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
 
@@ -276,7 +285,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const G = curve[groupName];
 
         hashU32(arr.length);
-        await binFileUtils.startWriteSection(fdZKey, idSection);
+        await startWriteSection(fdZKey, idSection);
 
         let opPromises = [];
 
@@ -312,7 +321,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             opPromises = [];
 
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
 
     }
 
@@ -348,34 +357,16 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         let pB =0;
         let pS =0;
 
-        let readOps = [];
-        let scalars = [];
         let offset = 0;
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
-                if (readOps.length > 2<<14) {
-                    logger.debug(`${sectionName}: Long MExp Load ${j}/${arr[i].length}`);
-
-                    const points = await Promise.all(readOps);
-                    for (let k=0; k<points.length; k++) {
-                        bBases.set(points[k], (offset+k)*sGin);
-                        bScalars.set(scalars[k], (offset+k)*curve.Fr.n8);
-                    }
-                    offset += readOps.length;
-                    readOps = [];
-                    scalars = [];
-                }
-                scalars.push(arr[i][j][1]);
-                readOps.push(fdPTau.read(sGin, arr[i][j][0]));
+                bBases.set(arr[i][j][0], offset*sGin);
+                bScalars.set(arr[i][j][1], offset*curve.Fr.n8);
+                offset ++;
             }
         }
 
-        const points = await Promise.all(readOps);
-        for (let i=0; i<points.length; i++) {
-            bBases.set(points[i], (offset+i)*sGin);
-            bScalars.set(scalars[i], (offset+i)*curve.Fr.n8);
-        }
 
         if (arr.length>1) {
             const task = [];

@@ -2,7 +2,7 @@ import Blake2b from "blake2b-wasm";
 import * as utils from "./powersoftau_utils.js";
 import * as keyPair from "./keypair.js";
 import crypto from "crypto";
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 import { ChaCha, BigBuffer } from "ffjavascript";
 import * as misc from "./misc.js";
 const sameRatio = misc.sameRatio;

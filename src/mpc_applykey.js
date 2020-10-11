@@ -1,5 +1,5 @@
 
-import * as binFileUtils from "./binfileutils.js";
+import * as binFileUtils from "@iden3/binfileutils";
 
 /*
     This function creates a new section in the fdTo file with id idSection.

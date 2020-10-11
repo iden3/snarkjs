@@ -2114,6 +2114,26 @@ async function readFullSection(fd, sections, idSection) {
     return res;
 }
 
+async function readSection(fd, sections, idSection, offset, length) {
+
+    offset = (typeof offset === "undefined") ? 0 : offset;
+    length = (typeof length === "undefined") ? sections[idSection][0].size - offset : length;
+
+    if (offset + length > sections[idSection][0].size) {
+        throw new Error("Reading out of the range of the section");
+    }
+
+    let buff;
+    if (length < (1 << 30) ) {
+        buff = new Uint8Array(length);
+    } else {
+        buff = new ffjavascript.BigBuffer(length);
+    }
+
+    await fd.readToBuffer(buff, 0, length, sections[idSection][0].p + offset);
+    return buff;
+}
+
 async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
     const MAX_BUFF_SIZE = fd1.pageSize * 16;
     await startReadUniqueSection$1(fd1, sections1, idSection);
@@ -3999,10 +4019,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
     const buffCoeffV = new DataView(buffCoeff.buffer);
 
-    const lTauG1 = sectionsPTau[12][0].p + ((2 ** cirPower) -1)*sG1;
-    const lTauG2 = sectionsPTau[13][0].p + ((2 ** cirPower) -1)*sG2;
-    const lAlphaTauG1 = sectionsPTau[14][0].p + ((2 ** cirPower) -1)*sG1;
-    const lBetaTauG1 = sectionsPTau[15][0].p + ((2 ** cirPower) -1)*sG1;
+    const sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+    const sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    const sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+    const sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
     await startWriteSection(fdZKey, 4);
     await startReadUniqueSection$1(fdR1cs, sectionsR1cs, 2);
@@ -4017,8 +4037,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
-            const l2 = lBetaTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+            const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
             if (typeof A[s] === "undefined") A[s] = [];
             A[s].push([l1, coef]);
 
@@ -4038,9 +4058,9 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
-            const l2 = lTauG2 + sG2*c;
-            const l3 = lAlphaTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+            const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
+            const l3 = sAlphaTauG1.slice(sG1*c, sG1*c + sG1);
             if (typeof B1[s] === "undefined") B1[s] = [];
             B1[s].push([l1, coef]);
             if (typeof B2[s] === "undefined") B2[s] = [];
@@ -4063,7 +4083,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             const s = await fdR1cs.readULE32();
             const coef = await fdR1cs.read(r1cs.n8);
 
-            const l1 = lTauG1 + sG1*c;
+            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
             if (s <= nPublic) {
                 if (typeof IC[s] === "undefined") IC[s] = [];
                 IC[s].push([l1, coef]);
@@ -4077,8 +4097,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const bOne = new Uint8Array(curve.Fr.n8);
     curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
     for (let s = 0; s <= nPublic ; s++) {
-        const l1 = lTauG1 + sG1*(r1cs.nConstraints + s);
-        const l2 = lBetaTauG1 + sG1*(r1cs.nConstraints + s);
+        const l1 = sTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
+        const l2 = sBetaTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
         if (typeof A[s] === "undefined") A[s] = [];
         A[s].push([l1, bOne]);
         if (typeof IC[s] === "undefined") IC[s] = [];
@@ -4233,34 +4253,16 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         let pB =0;
         let pS =0;
 
-        let readOps = [];
-        let scalars = [];
         let offset = 0;
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
-                if (readOps.length > 2<<14) {
-                    logger.debug(`${sectionName}: Long MExp Load ${j}/${arr[i].length}`);
-
-                    const points = await Promise.all(readOps);
-                    for (let k=0; k<points.length; k++) {
-                        bBases.set(points[k], (offset+k)*sGin);
-                        bScalars.set(scalars[k], (offset+k)*curve.Fr.n8);
-                    }
-                    offset += readOps.length;
-                    readOps = [];
-                    scalars = [];
-                }
-                scalars.push(arr[i][j][1]);
-                readOps.push(fdPTau.read(sGin, arr[i][j][0]));
+                bBases.set(arr[i][j][0], offset*sGin);
+                bScalars.set(arr[i][j][1], offset*curve.Fr.n8);
+                offset ++;
             }
         }
 
-        const points = await Promise.all(readOps);
-        for (let i=0; i<points.length; i++) {
-            bBases.set(points[i], (offset+i)*sGin);
-            bScalars.set(scalars[i], (offset+i)*curve.Fr.n8);
-        }
 
         if (arr.length>1) {
             const task = [];
