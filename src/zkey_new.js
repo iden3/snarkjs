@@ -8,8 +8,6 @@ import {
     writeBigInt,
     startWriteSection,
     endWriteSection,
-    startReadUniqueSection,
-    endReadSection
 } from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
@@ -120,140 +118,12 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const C = new BigArray(r1cs.nVars- nPublic -1);
     const IC = new Array(nPublic+1);
 
-    const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
-    const buffCoeffV = new DataView(buffCoeff.buffer);
-
-    let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-    let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
-    let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
-    let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
-
-    await startWriteSection(fdZKey, 4);
-
-    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
-    let r1csPos = 0;
-
-    function r1cs_readULE32() {
-        const buff = sR1cs.slice(r1csPos, r1csPos+4);
-        r1csPos += 4;
-        const buffV = new DataView(buff.buffer);
-        return buffV.getUint32(0, true);
-    }
-
-    function r1cs_readBigInt() {
-        const buff = sR1cs.slice(r1csPos, r1csPos+r1cs.n8);
-        r1csPos += r1cs.n8;
-        return buff;
-    }
-
-    const pNCoefs =  fdZKey.pos;
-    let nCoefs = 0;
-    fdZKey.pos += 4;
-    for (let c=0; c<r1cs.nConstraints; c++) {
-        if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
-        const nA = r1cs_readULE32();
-        for (let i=0; i<nA; i++) {
-            const s = r1cs_readULE32();
-            const coef = r1cs_readBigInt();
-
-            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
-            const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
-            if (typeof A[s] === "undefined") A[s] = [];
-            A[s].push([l1, coef]);
-
-            if (s <= nPublic) {
-                if (typeof IC[s] === "undefined") IC[s] = [];
-                IC[s].push([l2, coef]);
-            } else {
-                if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                C[s - nPublic -1].push([l2, coef]);
-            }
-            await writeCoef(0, c, s, coef);
-            nCoefs ++;
-        }
-
-        const nB = r1cs_readULE32();
-        for (let i=0; i<nB; i++) {
-            const s = r1cs_readULE32();
-            const coef = r1cs_readBigInt();
-
-            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
-            const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
-            const l3 = sAlphaTauG1.slice(sG1*c, sG1*c + sG1);
-            if (typeof B1[s] === "undefined") B1[s] = [];
-            B1[s].push([l1, coef]);
-            if (typeof B2[s] === "undefined") B2[s] = [];
-            B2[s].push([l2, coef]);
-
-            if (s <= nPublic) {
-                if (typeof IC[s] === "undefined") IC[s] = [];
-                IC[s].push([l3, coef]);
-            } else {
-                if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                C[s- nPublic -1].push([l3, coef]);
-            }
-
-            await writeCoef(1, c, s, coef);
-            nCoefs ++;
-        }
-
-        const nC = r1cs_readULE32();
-        for (let i=0; i<nC; i++) {
-            const s = r1cs_readULE32();
-            const coef = r1cs_readBigInt();
-
-            const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
-            if (s <= nPublic) {
-                if (typeof IC[s] === "undefined") IC[s] = [];
-                IC[s].push([l1, coef]);
-            } else {
-                if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                C[s- nPublic -1].push([l1, coef]);
-            }
-        }
-    }
-
-    const bOne = new Uint8Array(curve.Fr.n8);
-    curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
-    for (let s = 0; s <= nPublic ; s++) {
-        const l1 = sTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
-        const l2 = sBetaTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
-        if (typeof A[s] === "undefined") A[s] = [];
-        A[s].push([l1, bOne]);
-        if (typeof IC[s] === "undefined") IC[s] = [];
-        IC[s].push([l2, bOne]);
-        await writeCoef(0, r1cs.nConstraints + s, s, bOne);
-        nCoefs ++;
-    }
-
-    const oldPos = fdZKey.pos;
-    await fdZKey.writeULE32(nCoefs, pNCoefs);
-    fdZKey.pos = oldPos;
-
-    await endWriteSection(fdZKey);
+    await processConstraints();
 
     await composeAndWritePoints(3, "G1", IC, "IC");
 
-    // Write Hs
-    await startWriteSection(fdZKey, 9);
+    await writeHs();
 
-
-    const buffOut = new BigBuffer(domainSize*sG1);
-    if (cirPower < curve.Fr.s) {
-        let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
-        for (let i=0; i< domainSize; i++) {
-            const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
-            buffOut.set(buff, i*sG1);
-        }
-    } else if (cirPower == curve.Fr.s) {
-        const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
-        await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, o + domainSize*sG1);
-    } else {
-        if (logger) logger.error("Circuit too big");
-        throw new Error("Circuit too big for this curve");
-    }
-    await fdZKey.write(buffOut);
-    await endWriteSection(fdZKey);
     await hashHPoints();
 
     await composeAndWritePoints(8, "G1", C, "C");
@@ -270,21 +140,157 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
 
-
     await fdZKey.close();
     await fdPTau.close();
     await fdR1cs.close();
 
     return csHash;
 
-    async function writeCoef(a, c, s, coef) {
-        const n = curve.Fr.fromRprLE(coef, 0);
-        const nR2 = curve.Fr.mul(n, R2r);
-        buffCoeffV.setUint32(0, a, true);
-        buffCoeffV.setUint32(4, c, true);
-        buffCoeffV.setUint32(8, s, true);
-        curve.Fr.toRprLE(buffCoeff, 12, nR2);
-        await fdZKey.write(buffCoeff);
+    async function writeHs() {
+        await startWriteSection(fdZKey, 9);
+        const buffOut = new BigBuffer(domainSize*sG1);
+        if (cirPower < curve.Fr.s) {
+            let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
+            for (let i=0; i< domainSize; i++) {
+                if ((logger)&&(i%10000 == 0)) logger.debug(`spliting buffer: ${i}/${domainSize}`);
+                const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
+                buffOut.set(buff, i*sG1);
+            }
+        } else if (cirPower == curve.Fr.s) {
+            const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
+            await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, o + domainSize*sG1);
+        } else {
+            if (logger) logger.error("Circuit too big");
+            throw new Error("Circuit too big for this curve");
+        }
+        await fdZKey.write(buffOut);
+        await endWriteSection(fdZKey);
+    }
+
+    async function processConstraints() {
+        const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
+        const buffCoeffV = new DataView(buffCoeff.buffer);
+
+        let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+        let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+        let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+        let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
+
+        await startWriteSection(fdZKey, 4);
+
+        let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
+        let r1csPos = 0;
+
+        function r1cs_readULE32() {
+            const buff = sR1cs.slice(r1csPos, r1csPos+4);
+            r1csPos += 4;
+            const buffV = new DataView(buff.buffer);
+            return buffV.getUint32(0, true);
+        }
+
+        function r1cs_readBigInt() {
+            const buff = sR1cs.slice(r1csPos, r1csPos+r1cs.n8);
+            r1csPos += r1cs.n8;
+            return buff;
+        }
+
+        const pNCoefs =  fdZKey.pos;
+        let nCoefs = 0;
+        fdZKey.pos += 4;
+        for (let c=0; c<r1cs.nConstraints; c++) {
+            if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
+            const nA = r1cs_readULE32();
+            for (let i=0; i<nA; i++) {
+                const s = r1cs_readULE32();
+                const coef = r1cs_readBigInt();
+
+                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+                const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
+                if (typeof A[s] === "undefined") A[s] = [];
+                A[s].push([l1, coef]);
+
+                if (s <= nPublic) {
+                    if (typeof IC[s] === "undefined") IC[s] = [];
+                    IC[s].push([l2, coef]);
+                } else {
+                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
+                    C[s - nPublic -1].push([l2, coef]);
+                }
+                await writeCoef(0, c, s, coef);
+                nCoefs ++;
+            }
+
+            const nB = r1cs_readULE32();
+            for (let i=0; i<nB; i++) {
+                const s = r1cs_readULE32();
+                const coef = r1cs_readBigInt();
+
+                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+                const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
+                const l3 = sAlphaTauG1.slice(sG1*c, sG1*c + sG1);
+                if (typeof B1[s] === "undefined") B1[s] = [];
+                B1[s].push([l1, coef]);
+                if (typeof B2[s] === "undefined") B2[s] = [];
+                B2[s].push([l2, coef]);
+
+                if (s <= nPublic) {
+                    if (typeof IC[s] === "undefined") IC[s] = [];
+                    IC[s].push([l3, coef]);
+                } else {
+                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
+                    C[s- nPublic -1].push([l3, coef]);
+                }
+
+                await writeCoef(1, c, s, coef);
+                nCoefs ++;
+            }
+
+            const nC = r1cs_readULE32();
+            for (let i=0; i<nC; i++) {
+                const s = r1cs_readULE32();
+                const coef = r1cs_readBigInt();
+
+                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+                if (s <= nPublic) {
+                    if (typeof IC[s] === "undefined") IC[s] = [];
+                    IC[s].push([l1, coef]);
+                } else {
+                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
+                    C[s- nPublic -1].push([l1, coef]);
+                }
+            }
+        }
+
+        const bOne = new Uint8Array(curve.Fr.n8);
+        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
+        for (let s = 0; s <= nPublic ; s++) {
+            const l1 = sTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
+            const l2 = sBetaTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
+            if (typeof A[s] === "undefined") A[s] = [];
+            A[s].push([l1, bOne]);
+            if (typeof IC[s] === "undefined") IC[s] = [];
+            IC[s].push([l2, bOne]);
+            await writeCoef(0, r1cs.nConstraints + s, s, bOne);
+            nCoefs ++;
+        }
+
+        const oldPos = fdZKey.pos;
+        await fdZKey.writeULE32(nCoefs, pNCoefs);
+        fdZKey.pos = oldPos;
+
+        await endWriteSection(fdZKey);
+
+
+        async function writeCoef(a, c, s, coef) {
+            const n = curve.Fr.fromRprLE(coef, 0);
+            const nR2 = curve.Fr.mul(n, R2r);
+            buffCoeffV.setUint32(0, a, true);
+            buffCoeffV.setUint32(4, c, true);
+            buffCoeffV.setUint32(8, s, true);
+            curve.Fr.toRprLE(buffCoeff, 12, nR2);
+            await fdZKey.write(buffCoeff);
+        }
+
     }
 
     async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
