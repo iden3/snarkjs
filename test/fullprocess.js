@@ -31,6 +31,8 @@ describe("Full process", function ()  {
     });
     after( async () => {
         await curve.terminate();
+        // console.log(process._getActiveHandles());
+        // console.log(process._getActiveRequests());
     });
 
     it ("powersoftau new", async () => {
@@ -89,11 +91,7 @@ describe("Full process", function ()  {
     it ("zkey beacon", async () => {
         await snarkjs.zKey.beacon(zkey_2, zkey_final, "B3", "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 10);
     });
-/*
-    it ("zkey beacon", async () => {
-        await snarkjs.zKey.beacon(zkey_1, zkey_final, "B3", "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 10);
-    });
-*/
+
     it ("zkey verify", async () => {
         const res = await snarkjs.zKey.verify(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_final);
         assert(res);

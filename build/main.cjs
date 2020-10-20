@@ -4105,69 +4105,14 @@ class BigArray {
     }
 }
 
-async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
-
-    const fd = await readExisting$2(fileName, cacheSize, pageSize);
-
-    const b = await fd.read(4);
-    let readedType = "";
-    for (let i=0; i<4; i++) readedType += String.fromCharCode(b[i]);
-
-    if (readedType != type) throw new Error(fileName + ": Invalid File format");
-
-    let v = await fd.readULE32();
-
-    if (v>maxVersion) throw new Error("Version not supported");
-
-    const nSections = await fd.readULE32();
-
-    // Scan sections
-    let sections = [];
-    for (let i=0; i<nSections; i++) {
-        let ht = await fd.readULE32();
-        let hl = await fd.readULE64();
-        if (typeof sections[ht] == "undefined") sections[ht] = [];
-        sections[ht].push({
-            p: fd.pos,
-            size: hl
-        });
-        fd.pos += hl;
-    }
-
-    return {fd, sections};
-}
-
-async function startReadUniqueSection$1(fd, sections, idSection) {
-    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
-    if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
-    if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
-
-    fd.pos = sections[idSection][0].p;
-
-    fd.readingSection = sections[idSection][0];
-}
-
-async function endReadSection$1(fd, noCheck) {
-    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
-    if (!noCheck) {
-        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
-    }
-    delete fd.readingSection;
-}
-
-async function readBigInt$1(fd, n8, pos) {
-    const buff = await fd.read(n8, pos);
-    return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
-}
-
 async function readR1csHeader(fd,sections,singleThread) {
 
 
     const res = {};
-    await startReadUniqueSection$1(fd, sections, 1);
+    await startReadUniqueSection(fd, sections, 1);
     // Read Header
     res.n8 = await fd.readULE32();
-    res.prime = await readBigInt$1(fd, res.n8);
+    res.prime = await readBigInt(fd, res.n8);
 
     res.curve = await ffjavascript.getCurveFromR(res.prime, singleThread);
 
@@ -4177,73 +4122,106 @@ async function readR1csHeader(fd,sections,singleThread) {
     res.nPrvInputs = await fd.readULE32();
     res.nLabels = await fd.readULE64();
     res.nConstraints = await fd.readULE32();
-    await endReadSection$1(fd);
+    await endReadSection(fd);
 
     return res;
 }
 
+async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
+    const bR1cs = await readSection(fd, sections, 2);
+    let bR1csPos = 0;
+    let constraints;
+    if (r1cs.nConstraints>1<<20) {
+        constraints = new BigArray();
+    } else {
+        constraints = [];
+    }
+    for (let i=0; i<r1cs.nConstraints; i++) {
+        if ((logger)&&(i%100000 == 0)) logger.info(`${loggerCtx}: Loading constraints: ${i}/${r1cs.nConstraints}`);
+        const c = readConstraint();
+        constraints.push(c);
+    }
+    return constraints;
+
+
+    function readConstraint() {
+        const c = [];
+        c[0] = readLC();
+        c[1] = readLC();
+        c[2] = readLC();
+        return c;
+    }
+
+    function readLC() {
+        const lc= {};
+
+        const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos+4);
+        bR1csPos += 4;
+        const buffUL32V = new DataView(buffUL32.buffer);
+        const nIdx = buffUL32V.getUint32(0, true);
+
+        const buff = bR1cs.slice(bR1csPos, bR1csPos + (4+r1cs.n8)*nIdx );
+        bR1csPos += (4+r1cs.n8)*nIdx;
+        const buffV = new DataView(buff.buffer);
+        for (let i=0; i<nIdx; i++) {
+            const idx = buffV.getUint32(i*(4+r1cs.n8), true);
+            const val = r1cs.curve.Fr.fromRprLE(buff, i*(4+r1cs.n8)+4);
+            lc[idx] = val;
+        }
+        return lc;
+    }
+}
+
+async function readMap(fd, sections, r1cs, logger, loggerCtx) {
+    const bMap = await readSection(fd, sections, 3);
+    let bMapPos = 0;
+    let map;
+
+    if (r1cs.nVars>1<<20) {
+        map = new BigArray();
+    } else {
+        map = [];
+    }
+    for (let i=0; i<r1cs.nVars; i++) {
+        if ((logger)&&(i%10000 == 0)) logger.info(`${loggerCtx}: Loading map: ${i}/${r1cs.nVars}`);
+        const idx = readULE64();
+        map.push(idx);
+    }
+
+    return map;
+
+    function readULE64() {
+        const buffULE64 = bMap.slice(bMapPos, bMapPos+8);
+        bMapPos += 8;
+        const buffULE64V = new DataView(buffULE64.buffer);
+        const LSB = buffULE64V.getUint32(0, true);
+        const MSB = buffULE64V.getUint32(4, true);
+
+        return MSB * 0x100000000 + LSB;
+    }
+
+}
+
 async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
 
-    const {fd, sections} = await readBinFile$1(fileName, "r1cs", 1, 1<<22, 1<<25);
+    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<22, 1<<25);
+
     const res = await readR1csHeader(fd, sections, singleThread);
 
 
     if (loadConstraints) {
-        await startReadUniqueSection$1(fd, sections, 2);
-        if (res.nConstraints>1<<20) {
-            res.constraints = new BigArray();
-        } else {
-            res.constraints = [];
-        }
-        for (let i=0; i<res.nConstraints; i++) {
-            if ((logger)&&(i%100000 == 0)) logger.info(`${loggerCtx}: Loading constraints: ${i}/${res.nConstraints}`);
-            const c = await readConstraint();
-            res.constraints.push(c);
-        }
-        await endReadSection$1(fd);
+        res.constraints = await readConstraints(fd, sections, res, logger, loggerCtx);
     }
 
     // Read Labels
 
     if (loadMap) {
-        await startReadUniqueSection$1(fd, sections, 3);
-        if (res.nVars>1<<20) {
-            res.map = new BigArray();
-        } else {
-            res.map = [];
-        }
-        for (let i=0; i<res.nVars; i++) {
-            if ((logger)&&(i%10000 == 0)) logger.info(`${loggerCtx}: Loading map: ${i}/${res.nVars}`);
-            const idx = await fd.readULE64();
-            res.map.push(idx);
-        }
-        await endReadSection$1(fd);
+        res.map = await readMap(fd, sections, res, logger, loggerCtx);
     }
 
     await fd.close();
 
     return res;
-
-    async function readConstraint() {
-        const c = [];
-        c[0] = await readLC();
-        c[1] = await readLC();
-        c[2] = await readLC();
-        return c;
-    }
-
-    async function readLC() {
-        const lc= {};
-        const nIdx = await fd.readULE32();
-        const buff = await fd.read( (4+res.n8)*nIdx );
-        const buffV = new DataView(buff.buffer);
-        for (let i=0; i<nIdx; i++) {
-            const idx = buffV.getUint32(i*(4+res.n8), true);
-            const val = res.curve.Fr.fromRprLE(buff, i*(4+res.n8)+4);
-            lc[idx] = val;
-        }
-        return lc;
-    }
 }
 
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
@@ -4480,14 +4458,18 @@ class BigArray$1 {
 }
 
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
+
+    const TAU_G1 = 0;
+    const TAU_G2 = 1;
+    const ALPHATAU_G1 = 2;
+    const BETATAU_G1 = 3;
     await Blake2b.ready();
     const csHasher = Blake2b(64);
 
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
-    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
-
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
 
@@ -4575,12 +4557,23 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // delta2
     await endWriteSection(fdZKey);
 
+    if (logger) logger.info("Reading r1cs");
+    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
 
     const A = new BigArray$1(r1cs.nVars);
     const B1 = new BigArray$1(r1cs.nVars);
     const B2 = new BigArray$1(r1cs.nVars);
     const C = new BigArray$1(r1cs.nVars- nPublic -1);
     const IC = new Array(nPublic+1);
+
+    if (logger) logger.info("Reading tauG1");
+    let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+    if (logger) logger.info("Reading tauG2");
+    let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    if (logger) logger.info("Reading alphatauG1");
+    let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+    if (logger) logger.info("Reading betatauG1");
+    let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
     await processConstraints();
 
@@ -4604,9 +4597,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
 
+
     await fdZKey.close();
-    await fdPTau.close();
     await fdR1cs.close();
+    await fdPTau.close();
 
     return csHash;
 
@@ -4634,15 +4628,9 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     async function processConstraints() {
         const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
         const buffCoeffV = new DataView(buffCoeff.buffer);
+        const bOne = new Uint8Array(curve.Fr.n8);
+        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
 
-        let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-        let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
-        let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
-        let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
-
-        await startWriteSection(fdZKey, 4);
-
-        let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
         let r1csPos = 0;
 
         function r1cs_readULE32() {
@@ -4652,107 +4640,122 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             return buffV.getUint32(0, true);
         }
 
-        function r1cs_readBigInt() {
-            const buff = sR1cs.slice(r1csPos, r1csPos+r1cs.n8);
-            r1csPos += r1cs.n8;
-            return buff;
-        }
-
-        const pNCoefs =  fdZKey.pos;
-        let nCoefs = 0;
-        fdZKey.pos += 4;
+        const coefs = new BigArray$1();
         for (let c=0; c<r1cs.nConstraints; c++) {
             if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
             const nA = r1cs_readULE32();
             for (let i=0; i<nA; i++) {
                 const s = r1cs_readULE32();
-                const coef = r1cs_readBigInt();
+                const coefp = r1csPos;
+                r1csPos += curve.Fr.n8;
 
-                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
-                const l2 = sBetaTauG1.slice(sG1*c, sG1*c + sG1);
+                const l1t = TAU_G1;
+                const l1 = sG1*c;
+                const l2t = BETATAU_G1;
+                const l2 = sG1*c;
                 if (typeof A[s] === "undefined") A[s] = [];
-                A[s].push([l1, coef]);
+                A[s].push([l1t, l1, coefp]);
 
                 if (s <= nPublic) {
                     if (typeof IC[s] === "undefined") IC[s] = [];
-                    IC[s].push([l2, coef]);
+                    IC[s].push([l2t, l2, coefp]);
                 } else {
                     if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s - nPublic -1].push([l2, coef]);
+                    C[s - nPublic -1].push([l2t, l2, coefp]);
                 }
-                await writeCoef(0, c, s, coef);
-                nCoefs ++;
+                coefs.push([0, c, s, coefp]);
             }
 
             const nB = r1cs_readULE32();
             for (let i=0; i<nB; i++) {
                 const s = r1cs_readULE32();
-                const coef = r1cs_readBigInt();
+                const coefp = r1csPos;
+                r1csPos += curve.Fr.n8;
 
-                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
-                const l2 = sTauG2.slice(sG2*c, sG2*c + sG2);
-                const l3 = sAlphaTauG1.slice(sG1*c, sG1*c + sG1);
+                const l1t = TAU_G1;
+                const l1 = sG1*c;
+                const l2t = TAU_G2;
+                const l2 = sG2*c;
+                const l3t = ALPHATAU_G1;
+                const l3 = sG1*c;
                 if (typeof B1[s] === "undefined") B1[s] = [];
-                B1[s].push([l1, coef]);
+                B1[s].push([l1t, l1, coefp]);
                 if (typeof B2[s] === "undefined") B2[s] = [];
-                B2[s].push([l2, coef]);
+                B2[s].push([l2t, l2, coefp]);
 
                 if (s <= nPublic) {
                     if (typeof IC[s] === "undefined") IC[s] = [];
-                    IC[s].push([l3, coef]);
+                    IC[s].push([l3t, l3, coefp]);
                 } else {
                     if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s- nPublic -1].push([l3, coef]);
+                    C[s- nPublic -1].push([l3t, l3, coefp]);
                 }
 
-                await writeCoef(1, c, s, coef);
-                nCoefs ++;
+                coefs.push([1, c, s, coefp]);
             }
 
             const nC = r1cs_readULE32();
             for (let i=0; i<nC; i++) {
                 const s = r1cs_readULE32();
-                const coef = r1cs_readBigInt();
+                const coefp = r1csPos;
+                r1csPos += curve.Fr.n8;
 
-                const l1 = sTauG1.slice(sG1*c, sG1*c + sG1);
+                const l1t = TAU_G1;
+                const l1 = sG1*c;
                 if (s <= nPublic) {
                     if (typeof IC[s] === "undefined") IC[s] = [];
-                    IC[s].push([l1, coef]);
+                    IC[s].push([l1t, l1, coefp]);
                 } else {
                     if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s- nPublic -1].push([l1, coef]);
+                    C[s- nPublic -1].push([l1t, l1, coefp]);
                 }
             }
         }
 
-        const bOne = new Uint8Array(curve.Fr.n8);
-        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
         for (let s = 0; s <= nPublic ; s++) {
-            const l1 = sTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
-            const l2 = sBetaTauG1.slice(sG1*(r1cs.nConstraints + s), sG1*(r1cs.nConstraints + s) + sG1);
+            const l1t = TAU_G1;
+            const l1 = sG1*(r1cs.nConstraints + s);
+            const l2t = BETATAU_G1;
+            const l2 = sG1*(r1cs.nConstraints + s);
             if (typeof A[s] === "undefined") A[s] = [];
-            A[s].push([l1, bOne]);
+            A[s].push([l1t, l1, -1]);
             if (typeof IC[s] === "undefined") IC[s] = [];
-            IC[s].push([l2, bOne]);
-            await writeCoef(0, r1cs.nConstraints + s, s, bOne);
-            nCoefs ++;
+            IC[s].push([l2t, l2, -1]);
+            coefs.push([0, r1cs.nConstraints + s, s, -1]);
         }
 
-        const oldPos = fdZKey.pos;
-        await fdZKey.writeULE32(nCoefs, pNCoefs);
-        fdZKey.pos = oldPos;
 
+        await startWriteSection(fdZKey, 4);
+
+        const buffSection = new ffjavascript.BigBuffer(coefs.length*(12+curve.Fr.n8) + 4);
+
+        const buff4 = new Uint8Array(4);
+        const buff4V = new DataView(buff4.buffer);
+        buff4V.setUint32(0, coefs.length, true);
+        buffSection.set(buff4);
+        let coefsPos = 4;
+        for (let i=0; i<coefs.length; i++) {
+            if ((logger)&&(i%100000 == 0)) logger.debug(`writing coeffs: ${i}/${coefs.length}`);
+            writeCoef(coefs[i]);
+        }
+
+        await fdZKey.write(buffSection);
         await endWriteSection(fdZKey);
 
-
-        async function writeCoef(a, c, s, coef) {
-            const n = curve.Fr.fromRprLE(coef, 0);
+        function writeCoef(c) {
+            buffCoeffV.setUint32(0, c[0], true);
+            buffCoeffV.setUint32(4, c[1], true);
+            buffCoeffV.setUint32(8, c[2], true);
+            let n;
+            if (c[3]>=0) {
+                n = curve.Fr.fromRprLE(sR1cs.slice(c[3], c[3] + curve.Fr.n8), 0);
+            } else {
+                n = curve.Fr.fromRprLE(bOne, 0);
+            }
             const nR2 = curve.Fr.mul(n, R2r);
-            buffCoeffV.setUint32(0, a, true);
-            buffCoeffV.setUint32(4, c, true);
-            buffCoeffV.setUint32(8, s, true);
             curve.Fr.toRprLE(buffCoeff, 12, nR2);
-            await fdZKey.write(buffCoeff);
+            buffSection.set(buffCoeff, coefsPos);
+            coefsPos += buffCoeff.length;
         }
 
     }
@@ -4834,16 +4837,40 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         let pB =0;
         let pS =0;
 
+        const sBuffs = [
+            sTauG1,
+            sTauG2,
+            sAlphaTauG1,
+            sBetaTauG1
+        ];
+
+        const bOne = new Uint8Array(curve.Fr.n8);
+        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
+
         let offset = 0;
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
-                bBases.set(arr[i][j][0], offset*sGin);
-                bScalars.set(arr[i][j][1], offset*curve.Fr.n8);
+                bBases.set(
+                    sBuffs[arr[i][j][0]].slice(
+                        arr[i][j][1],
+                        arr[i][j][1] + sGin
+                    ), offset*sGin
+                );
+                if (arr[i][j][2]>=0) {
+                    bScalars.set(
+                        sR1cs.slice(
+                            arr[i][j][2],
+                            arr[i][j][2] + curve.Fr.n8
+                        ),
+                        offset*curve.Fr.n8
+                    );
+                } else {
+                    bScalars.set(bOne, offset*curve.Fr.n8);
+                }
                 offset ++;
             }
         }
-
 
         if (arr.length>1) {
             const task = [];
