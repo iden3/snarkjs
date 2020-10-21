@@ -4761,7 +4761,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
-        const CHUNK_SIZE= 1<<13;
+        const CHUNK_SIZE= 1<<15;
         const G = curve[groupName];
 
         hashU32(arr.length);
@@ -4777,7 +4777,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 if (logger)  logger.debug(`Writing points start ${sectionName}: ${i}/${arr.length}`);
                 let n = 1;
                 let nP = (arr[i] ? arr[i].length : 0);
-                while ((i + n < arr.length) && (nP + (arr[i+n] ? arr[i+n].length : 0) < CHUNK_SIZE)) {
+                while ((i + n < arr.length) && (nP + (arr[i+n] ? arr[i+n].length : 0) < CHUNK_SIZE) && (n<CHUNK_SIZE)) {
                     nP += (arr[i+n] ? arr[i+n].length : 0);
                     n ++;
                 }
@@ -4851,6 +4851,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
+                if ((logger)&&(j)&&(j%10000 == 0))  logger.debug(`Configuring big array ${sectionName}: ${j}/${arr[i].length}`);
                 bBases.set(
                     sBuffs[arr[i][j][0]].slice(
                         arr[i][j][1],
