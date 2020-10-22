@@ -937,13 +937,6 @@ async function copySection(fdFrom, sections, fdTo, sectionId, size) {
 
 }
 
-async function readFullSection(fd, sections, idSection) {
-    await startReadUniqueSection(fd, sections, idSection);
-    const res = await fd.read(fd.readingSection.size);
-    await endReadSection(fd);
-    return res;
-}
-
 async function readSection(fd, sections, idSection, offset, length) {
 
     offset = (typeof offset === "undefined") ? 0 : offset;
@@ -1587,13 +1580,13 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
 
     const power = log2(zkey.domainSize);
 
-    const buffWitness = await readFullSection(fdWtns, sectionsWtns, 2);
-    const buffCoeffs = await readFullSection(fdZKey, sectionsZKey, 4);
-    const buffBasesA = await readFullSection(fdZKey, sectionsZKey, 5);
-    const buffBasesB1 = await readFullSection(fdZKey, sectionsZKey, 6);
-    const buffBasesB2 = await readFullSection(fdZKey, sectionsZKey, 7);
-    const buffBasesC = await readFullSection(fdZKey, sectionsZKey, 8);
-    const buffBasesH = await readFullSection(fdZKey, sectionsZKey, 9);
+    const buffWitness = await readSection(fdWtns, sectionsWtns, 2);
+    const buffCoeffs = await readSection(fdZKey, sectionsZKey, 4);
+    const buffBasesA = await readSection(fdZKey, sectionsZKey, 5);
+    const buffBasesB1 = await readSection(fdZKey, sectionsZKey, 6);
+    const buffBasesB2 = await readSection(fdZKey, sectionsZKey, 7);
+    const buffBasesC = await readSection(fdZKey, sectionsZKey, 8);
+    const buffBasesH = await readSection(fdZKey, sectionsZKey, 9);
 
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
 
@@ -4105,14 +4098,89 @@ class BigArray {
     }
 }
 
+async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
+
+    const fd = await readExisting$2(fileName, cacheSize, pageSize);
+
+    const b = await fd.read(4);
+    let readedType = "";
+    for (let i=0; i<4; i++) readedType += String.fromCharCode(b[i]);
+
+    if (readedType != type) throw new Error(fileName + ": Invalid File format");
+
+    let v = await fd.readULE32();
+
+    if (v>maxVersion) throw new Error("Version not supported");
+
+    const nSections = await fd.readULE32();
+
+    // Scan sections
+    let sections = [];
+    for (let i=0; i<nSections; i++) {
+        let ht = await fd.readULE32();
+        let hl = await fd.readULE64();
+        if (typeof sections[ht] == "undefined") sections[ht] = [];
+        sections[ht].push({
+            p: fd.pos,
+            size: hl
+        });
+        fd.pos += hl;
+    }
+
+    return {fd, sections};
+}
+
+async function startReadUniqueSection$1(fd, sections, idSection) {
+    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
+    if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
+    if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
+
+    fd.pos = sections[idSection][0].p;
+
+    fd.readingSection = sections[idSection][0];
+}
+
+async function endReadSection$1(fd, noCheck) {
+    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
+    if (!noCheck) {
+        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
+    }
+    delete fd.readingSection;
+}
+
+async function readBigInt$1(fd, n8, pos) {
+    const buff = await fd.read(n8, pos);
+    return ffjavascript.Scalar.fromRprLE(buff, 0, n8);
+}
+
+async function readSection$1(fd, sections, idSection, offset, length) {
+
+    offset = (typeof offset === "undefined") ? 0 : offset;
+    length = (typeof length === "undefined") ? sections[idSection][0].size - offset : length;
+
+    if (offset + length > sections[idSection][0].size) {
+        throw new Error("Reading out of the range of the section");
+    }
+
+    let buff;
+    if (length < (1 << 30) ) {
+        buff = new Uint8Array(length);
+    } else {
+        buff = new ffjavascript.BigBuffer(length);
+    }
+
+    await fd.readToBuffer(buff, 0, length, sections[idSection][0].p + offset);
+    return buff;
+}
+
 async function readR1csHeader(fd,sections,singleThread) {
 
 
     const res = {};
-    await startReadUniqueSection(fd, sections, 1);
+    await startReadUniqueSection$1(fd, sections, 1);
     // Read Header
     res.n8 = await fd.readULE32();
-    res.prime = await readBigInt(fd, res.n8);
+    res.prime = await readBigInt$1(fd, res.n8);
 
     res.curve = await ffjavascript.getCurveFromR(res.prime, singleThread);
 
@@ -4122,13 +4190,13 @@ async function readR1csHeader(fd,sections,singleThread) {
     res.nPrvInputs = await fd.readULE32();
     res.nLabels = await fd.readULE64();
     res.nConstraints = await fd.readULE32();
-    await endReadSection(fd);
+    await endReadSection$1(fd);
 
     return res;
 }
 
 async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
-    const bR1cs = await readSection(fd, sections, 2);
+    const bR1cs = await readSection$1(fd, sections, 2);
     let bR1csPos = 0;
     let constraints;
     if (r1cs.nConstraints>1<<20) {
@@ -4173,7 +4241,7 @@ async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
 }
 
 async function readMap(fd, sections, r1cs, logger, loggerCtx) {
-    const bMap = await readSection(fd, sections, 3);
+    const bMap = await readSection$1(fd, sections, 3);
     let bMapPos = 0;
     let map;
 
@@ -4204,7 +4272,7 @@ async function readMap(fd, sections, r1cs, logger, loggerCtx) {
 
 async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
 
-    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<25, 1<<22);
+    const {fd, sections} = await readBinFile$1(fileName, "r1cs", 1, 1<<25, 1<<22);
 
     const res = await readR1csHeader(fd, sections, singleThread);
 
@@ -5035,7 +5103,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     // IC
     let buffBasesIC;
-    buffBasesIC = await readFullSection(fdZKey, sectionsZKey, 3);
+    buffBasesIC = await readSection(fdZKey, sectionsZKey, 3);
     buffBasesIC = await curve.G1.batchLEMtoU(buffBasesIC);
 
     await writePointArray("G1", buffBasesIC);
@@ -5043,7 +5111,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     /////////////////////
     // h Section
     /////////////////////
-    const buffBasesH_Lodd = await readFullSection(fdZKey, sectionsZKey, 9);
+    const buffBasesH_Lodd = await readSection(fdZKey, sectionsZKey, 9);
 
     let buffBasesH_Tau;
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
@@ -5058,7 +5126,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // L section
     /////////////////////
     let buffBasesC;
-    buffBasesC = await readFullSection(fdZKey, sectionsZKey, 8);
+    buffBasesC = await readSection(fdZKey, sectionsZKey, 8);
     buffBasesC = await curve.G1.batchLEMtoU(buffBasesC);
     await writePointArray("G1", buffBasesC);
 
@@ -5066,7 +5134,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // A Section (C section)
     /////////////////////
     let buffBasesA;
-    buffBasesA = await readFullSection(fdZKey, sectionsZKey, 5);
+    buffBasesA = await readSection(fdZKey, sectionsZKey, 5);
     buffBasesA = await curve.G1.batchLEMtoU(buffBasesA);
     await writePointArray("G1", buffBasesA);
 
@@ -5074,7 +5142,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // B1 Section
     /////////////////////
     let buffBasesB1;
-    buffBasesB1 = await readFullSection(fdZKey, sectionsZKey, 6);
+    buffBasesB1 = await readSection(fdZKey, sectionsZKey, 6);
     buffBasesB1 = await curve.G1.batchLEMtoU(buffBasesB1);
     await writePointArray("G1", buffBasesB1);
 
@@ -5082,7 +5150,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // B2 Section
     /////////////////////
     let buffBasesB2;
-    buffBasesB2 = await readFullSection(fdZKey, sectionsZKey, 7);
+    buffBasesB2 = await readSection(fdZKey, sectionsZKey, 7);
     buffBasesB2 = await curve.G2.batchLEMtoU(buffBasesB2);
     await writePointArray("G2", buffBasesB2);
 

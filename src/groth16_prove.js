@@ -30,13 +30,13 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     const power = log2(zkey.domainSize);
 
-    const buffWitness = await binFileUtils.readFullSection(fdWtns, sectionsWtns, 2);
-    const buffCoeffs = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 4);
-    const buffBasesA = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 5);
-    const buffBasesB1 = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 6);
-    const buffBasesB2 = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 7);
-    const buffBasesC = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 8);
-    const buffBasesH = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 9);
+    const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
+    const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
+    const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
+    const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
+    const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
+    const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
+    const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
 
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
 

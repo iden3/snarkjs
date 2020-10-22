@@ -29,7 +29,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
 
     // IC
     let buffBasesIC;
-    buffBasesIC = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 3);
+    buffBasesIC = await binFileUtils.readSection(fdZKey, sectionsZKey, 3);
     buffBasesIC = await curve.G1.batchLEMtoU(buffBasesIC);
 
     await writePointArray("G1", buffBasesIC);
@@ -37,7 +37,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     /////////////////////
     // h Section
     /////////////////////
-    const buffBasesH_Lodd = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 9);
+    const buffBasesH_Lodd = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
 
     let buffBasesH_Tau;
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
@@ -52,7 +52,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     // L section
     /////////////////////
     let buffBasesC;
-    buffBasesC = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 8);
+    buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
     buffBasesC = await curve.G1.batchLEMtoU(buffBasesC);
     await writePointArray("G1", buffBasesC);
 
@@ -60,7 +60,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     // A Section (C section)
     /////////////////////
     let buffBasesA;
-    buffBasesA = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 5);
+    buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
     buffBasesA = await curve.G1.batchLEMtoU(buffBasesA);
     await writePointArray("G1", buffBasesA);
 
@@ -68,7 +68,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     // B1 Section
     /////////////////////
     let buffBasesB1;
-    buffBasesB1 = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 6);
+    buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
     buffBasesB1 = await curve.G1.batchLEMtoU(buffBasesB1);
     await writePointArray("G1", buffBasesB1);
 
@@ -76,7 +76,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     // B2 Section
     /////////////////////
     let buffBasesB2;
-    buffBasesB2 = await binFileUtils.readFullSection(fdZKey, sectionsZKey, 7);
+    buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
     buffBasesB2 = await curve.G2.batchLEMtoU(buffBasesB2);
     await writePointArray("G2", buffBasesB2);
 
