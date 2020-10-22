@@ -1161,7 +1161,7 @@ async function readMap(fd, sections, r1cs, logger, loggerCtx) {
 
 async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
 
-    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<22, 1<<25);
+    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<25, 1<<22);
 
     const res = await readR1csHeader(fd, sections, singleThread);
 
