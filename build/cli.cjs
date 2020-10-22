@@ -6180,8 +6180,25 @@ async function buldABC(curve, zkey, witness, coeffs) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
+    let getUint32;
+
+    if (coeffs instanceof ffjavascript.BigBuffer) {
+        const coeffsDV = [];
+        const PAGE_LEN = coeffs[0].length;
+        for (let i=0; i< coeffs.buffers.length; i++) {
+            coeffsDV.push(new DataView(coeffs.buffers[i]));
+        }
+        getUint32 = function (pos) {
+            return coeffsDV[Math.floor(pos/PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
+        };
+    } else {
+        const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
+        getUint32 = function (pos) {
+            return coeffsDV.getUint32(pos, true);
+        };
+    }
+
     const elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
-    const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
     const promises = [];
 
     const cutPoints = [];
@@ -6239,10 +6256,10 @@ async function buldABC(curve, zkey, witness, coeffs) {
 
     function getCutPoint(v) {
         let m = 0;
-        let n = coeffsDV.getUint32(0, true);
+        let n = getUint32(0);
         while (m < n) {
             var k = (n + m) >> 1;
-            const va = coeffsDV.getUint32(4 + k*sCoef + 4, true);
+            const va = getUint32(4 + k*sCoef + 4);
             if (va > v) {
                 n = k - 1;
             } else if (va < v) {
