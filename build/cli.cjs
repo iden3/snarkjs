@@ -6184,7 +6184,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
 
     if (coeffs instanceof ffjavascript.BigBuffer) {
         const coeffsDV = [];
-        const PAGE_LEN = coeffs[0].length;
+        const PAGE_LEN = coeffs.buffers[0].length;
         for (let i=0; i< coeffs.buffers.length; i++) {
             coeffsDV.push(new DataView(coeffs.buffers[i]));
         }
