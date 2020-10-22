@@ -1747,7 +1747,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
         let m = 0;
         let n = getUint32(0);
         while (m < n) {
-            var k = (n + m) / 2;
+            var k = Math.floor((n + m) / 2);
             const va = getUint32(4 + k*sCoef + 4);
             if (va > v) {
                 n = k - 1;
