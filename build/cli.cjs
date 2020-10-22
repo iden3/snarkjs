@@ -6069,11 +6069,11 @@ async function read(fileName) {
 const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger) {
-    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2);
+    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader$1(fdWtns, sectionsWtns);
 
-    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile$1(zkeyFileName, "zkey", 2);
+    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile$1(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
     const zkey = await readHeader(fdZKey, sectionsZKey, "groth16");
 
@@ -6092,12 +6092,19 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
 
     const power = log2(zkey.domainSize);
 
+    if (logger) logger.debug("Reading Wtns");
     const buffWitness = await readSection$1(fdWtns, sectionsWtns, 2);
+    if (logger) logger.debug("Reading Coeffs");
     const buffCoeffs = await readSection$1(fdZKey, sectionsZKey, 4);
+    if (logger) logger.debug("Reading A Points");
     const buffBasesA = await readSection$1(fdZKey, sectionsZKey, 5);
+    if (logger) logger.debug("Reading B1 Points");
     const buffBasesB1 = await readSection$1(fdZKey, sectionsZKey, 6);
+    if (logger) logger.debug("Reading B2 Points");
     const buffBasesB2 = await readSection$1(fdZKey, sectionsZKey, 7);
+    if (logger) logger.debug("Reading C Points");
     const buffBasesC = await readSection$1(fdZKey, sectionsZKey, 8);
+    if (logger) logger.debug("Reading H Points");
     const buffBasesH = await readSection$1(fdZKey, sectionsZKey, 9);
 
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);

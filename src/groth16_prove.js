@@ -7,11 +7,11 @@ import { Scalar, utils } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
 export default async function groth16Prove(zkeyFileName, witnessFileName, logger) {
-    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2);
+    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
 
-    const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
+    const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
     const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
 
@@ -30,12 +30,19 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     const power = log2(zkey.domainSize);
 
+    if (logger) logger.debug("Reading Wtns");
     const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
+    if (logger) logger.debug("Reading Coeffs");
     const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
+    if (logger) logger.debug("Reading A Points");
     const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
+    if (logger) logger.debug("Reading B1 Points");
     const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
+    if (logger) logger.debug("Reading B2 Points");
     const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
+    if (logger) logger.debug("Reading C Points");
     const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
+    if (logger) logger.debug("Reading H Points");
     const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
 
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
