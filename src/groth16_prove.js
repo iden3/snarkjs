@@ -124,7 +124,7 @@ async function buldABC(curve, zkey, witness, coeffs) {
         const coeffsDV = [];
         const PAGE_LEN = coeffs.buffers[0].length;
         for (let i=0; i< coeffs.buffers.length; i++) {
-            coeffsDV.push(new DataView(coeffs.buffers[i]));
+            coeffsDV.push(new DataView(coeffs.buffers[i].buffer));
         }
         getUint32 = function (pos) {
             return coeffsDV[Math.floor(pos/PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
