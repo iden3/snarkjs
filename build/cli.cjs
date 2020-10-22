@@ -6107,6 +6107,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     if (logger) logger.debug("Reading H Points");
     const buffBasesH = await readSection$1(fdZKey, sectionsZKey, 9);
 
+    if (logger) logger.debug("Building ABC");
     const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
 
     const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
@@ -6241,9 +6242,9 @@ async function buldABC(curve, zkey, witness, coeffs) {
 
     const result = await Promise.all(promises);
 
-    const outBuffA = new Uint8Array(zkey.domainSize * curve.Fr.n8);
-    const outBuffB = new Uint8Array(zkey.domainSize * curve.Fr.n8);
-    const outBuffC = new Uint8Array(zkey.domainSize * curve.Fr.n8);
+    const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffC = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
     let p=0;
     for (let i=0; i<result.length; i++) {
         outBuffA.set(result[i][0], p);
