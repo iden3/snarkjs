@@ -1596,7 +1596,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const buffBasesH = await readSection(fdZKey, sectionsZKey, 9);
 
     if (logger) logger.debug("Building ABC");
-    const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs);
+    const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs, logger);
 
     const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
@@ -1665,7 +1665,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
 }
 
 
-async function buldABC(curve, zkey, witness, coeffs) {
+async function buldABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
@@ -1696,39 +1696,72 @@ async function buldABC(curve, zkey, witness, coeffs) {
     }
     cutPoints.push(coeffs.byteLength);
 
-    for (let i=0; i<concurrency; i++) {
-        let n;
-        if (i< concurrency-1) {
-            n = elementsPerChunk;
-        } else {
-            n = zkey.domainSize - i*elementsPerChunk;
+    const chunkSize = 2**26;
+    for (let s=0 ; s<zkey.nVars ; s+= chunkSize) {
+        if (logger) logger.debug(`QAP ${s}: ${s}/${zkey.nVars}`);
+        const ns= Math.min(zkey.nVars-s, chunkSize );
+
+        for (let i=0; i<concurrency; i++) {
+            let n;
+            if (i< concurrency-1) {
+                n = elementsPerChunk;
+            } else {
+                n = zkey.domainSize - i*elementsPerChunk;
+            }
+            if (n==0) continue;
+
+            const task = [];
+
+            task.push({cmd: "ALLOCSET", var: 0, buff: coeffs.slice(cutPoints[i], cutPoints[i+1])});
+            task.push({cmd: "ALLOCSET", var: 1, buff: witness.slice(s*curve.Fr.n8, (s+ns)*curve.Fr.n8)});
+            task.push({cmd: "ALLOC", var: 2, len: n*curve.Fr.n8});
+            task.push({cmd: "ALLOC", var: 3, len: n*curve.Fr.n8});
+            task.push({cmd: "ALLOC", var: 4, len: n*curve.Fr.n8});
+            task.push({cmd: "CALL", fnName: "qap_buildABC", params:[
+                {var: 0},
+                {val: (cutPoints[i+1] - cutPoints[i])/sCoef},
+                {var: 1},
+                {var: 2},
+                {var: 3},
+                {var: 4},
+                {val: i*elementsPerChunk},
+                {val: n},
+                {val: s},
+                {val: ns}
+            ]});
+            task.push({cmd: "GET", out: 0, var: 2, len: n*curve.Fr.n8});
+            task.push({cmd: "GET", out: 1, var: 3, len: n*curve.Fr.n8});
+            task.push({cmd: "GET", out: 2, var: 4, len: n*curve.Fr.n8});
+            promises.push(curve.tm.queueAction(task));
         }
-        if (n==0) continue;
-
-        const task = [];
-
-        task.push({cmd: "ALLOCSET", var: 0, buff: coeffs.slice(cutPoints[i], cutPoints[i+1])});
-        task.push({cmd: "ALLOCSET", var: 1, buff: witness.slice()});
-        task.push({cmd: "ALLOC", var: 2, len: n*curve.Fr.n8});
-        task.push({cmd: "ALLOC", var: 3, len: n*curve.Fr.n8});
-        task.push({cmd: "ALLOC", var: 4, len: n*curve.Fr.n8});
-        task.push({cmd: "CALL", fnName: "qap_buildABC", params:[
-            {var: 0},
-            {val: (cutPoints[i+1] - cutPoints[i])/sCoef},
-            {var: 1},
-            {var: 2},
-            {var: 3},
-            {var: 4},
-            {val: i*elementsPerChunk},
-            {val: n}
-        ]});
-        task.push({cmd: "GET", out: 0, var: 2, len: n*curve.Fr.n8});
-        task.push({cmd: "GET", out: 1, var: 3, len: n*curve.Fr.n8});
-        task.push({cmd: "GET", out: 2, var: 4, len: n*curve.Fr.n8});
-        promises.push(curve.tm.queueAction(task));
     }
 
-    const result = await Promise.all(promises);
+    let result = await Promise.all(promises);
+
+    const nGroups = result.length / concurrency;
+    if (nGroups>1) {
+        const promises2 = [];
+        for (let i=0; i<concurrency; i++) {
+            const task=[];
+            task.push({cmd: "ALLOC", var: 0, len: result[i][0].byteLength});
+            task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
+            for (let m=0; m<3; m++) {
+                task.push({cmd: "SET", var: 0, buff: result[i][m]});
+                for (let s=1; s<nGroups; s++) {
+                    task.push({cmd: "SET", var: 1, buff: result[s*concurrency + i][m]});
+                    task.push({cmd: "CALL", fnName: "qap_batchAdd", params:[
+                        {var: 0},
+                        {var: 1},
+                        {val: result[i][m].length/curve.Fr.n8},
+                        {var: 0}
+                    ]});
+                }
+                task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
+            }
+            promises2.push(curve.tm.queueAction(task));
+        }
+        result = await Promise.all(promises2);
+    }
 
     const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
     const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
