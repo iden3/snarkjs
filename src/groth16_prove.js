@@ -34,6 +34,10 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
     if (logger) logger.debug("Reading Coeffs");
     const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
+
+    if (logger) logger.debug("Building ABC");
+    const [buffA_T, buffB_T, buffC_T] = await buldABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+
     if (logger) logger.debug("Reading A Points");
     const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
     if (logger) logger.debug("Reading B1 Points");
@@ -44,9 +48,6 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
     if (logger) logger.debug("Reading H Points");
     const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
-
-    if (logger) logger.debug("Building ABC");
-    const [buffA_T, buffB_T, buffC_T] = await buldABC(curve, zkey, buffWitness, buffCoeffs, logger);
 
     const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
@@ -112,6 +113,49 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     publicSignals = stringifyBigInts(publicSignals);
 
     return {proof, publicSignals};
+}
+
+
+async function buldABC1(curve, zkey, witness, coeffs, logger) {
+    const n8 = curve.Fr.n8;
+    const sCoef = 4*3 + zkey.n8r;
+    const nCoef = (coeffs.byteLength-4) / sCoef;
+
+    const outBuffA = new BigBuffer(zkey.domainSize * n8);
+    const outBuffB = new BigBuffer(zkey.domainSize * n8);
+    const outBuffC = new BigBuffer(zkey.domainSize * n8);
+
+    const outBuf = [ outBuffA, outBuffB ];
+    for (let i=0; i<nCoef; i++) {
+        if ((logger)&&(i%100000 == 0)) logger.debug(`QAP AB: ${i}/${nCoef}`);
+        const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
+        const buffCoefV = new DataView(buffCoef.buffer);
+        const m= buffCoefV.getUint32(0, true);
+        const c= buffCoefV.getUint32(4, true);
+        const s= buffCoefV.getUint32(8, true);
+        const coef = buffCoef.slice(12);
+        outBuf[m].set(
+            curve.Fr.add(
+                outBuf[m].slice(c*n8, c*n8+n8),
+                curve.Fr.mul(coef, witness.slice(s*n8, s*n8+n8))
+            ),
+            c*n8
+        );
+    }
+
+    for (let i=0; i<zkey.domainSize; i++) {
+        if ((logger)&&(i%100000 == 0)) logger.debug(`QAP C: ${i}/${zkey.domainSize}`);
+        outBuffC.set(
+            curve.Fr.mul(
+                outBuffA.slice(i*n8, i*n8+n8),
+                outBuffB.slice(i*n8, i*n8+n8),
+            ),
+            i*n8
+        );
+    }
+
+    return [outBuffA, outBuffB, outBuffC];
+
 }
 
 
