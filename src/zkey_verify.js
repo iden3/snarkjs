@@ -84,7 +84,7 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
 
     // const initFileName = "~" + zkeyFileName + ".init";
     const initFileName = {type: "mem"};
-    await newZKey(r1csFileName, pTauFileName, initFileName);
+    await newZKey(r1csFileName, pTauFileName, initFileName, logger);
 
     const {fd: fdInit, sections: sectionsInit} = await binFileUtils.readBinFile(initFileName, "zkey", 2);
     const zkeyInit = await zkeyUtils.readHeader(fdInit, sectionsInit, "groth16");
