@@ -6265,7 +6265,13 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 
     const result = await Promise.all(promises);
 
-    const outBuff = new Uint8Array(a.byteLength);
+    let outBuff;
+    if (a instanceof ffjavascript.BigBuffer) {
+        outBuff = new ffjavascript.BigBuffer(a.byteLength);
+    } else {
+        outBuff = new Uint8Array(a.byteLength);
+    }
+
     let p=0;
     for (let i=0; i<result.length; i++) {
         outBuff.set(result[i][0], p);
