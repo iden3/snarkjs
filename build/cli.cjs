@@ -5420,7 +5420,7 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
         const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(pTauFileName, "ptau", 1);
 
-        let buff_r = new Uint8Array(zkey.domainSize * zkey.n8r);
+        let buff_r = new ffjavascript.BigBuffer(zkey.domainSize * zkey.n8r);
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {

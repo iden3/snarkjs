@@ -8,7 +8,7 @@ const sameRatio = misc.sameRatio;
 import crypto from "crypto";
 import newZKey from "./zkey_new.js";
 import {hashG1, hashPubKey} from "./zkey_utils.js";
-import { Scalar, ChaCha } from "ffjavascript";
+import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
 
 
@@ -262,7 +262,7 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
 
         const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(pTauFileName, "ptau", 1);
 
-        let buff_r = new Uint8Array(zkey.domainSize * zkey.n8r);
+        let buff_r = new BigBuffer(zkey.domainSize * zkey.n8r);
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
