@@ -5654,7 +5654,7 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
             const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*MAX_CHUNK_SIZE*sG);
 
             const buffB = await batchSubstract(buff1, buff2);
-            const buffS = buff_r.slice((i*MAX_CHUNK_SIZE)*zkey.n8r, (i*MAX_CHUNK_SIZE+n)*zkey.n8r);
+            const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
             const r = await G.multiExpAffine(buffB, buffS);
 
             R1 = G.add(R1, r);
