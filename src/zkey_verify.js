@@ -123,12 +123,12 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
         return false;
     }
     if (!curve.G1.eq(zkey.vk_delta_1, curDelta)) {
-        if (logger) logger.error("INVALID:  Invalud delta1");
+        if (logger) logger.error("INVALID:  Invalid delta1");
         return false;
     }
     sr = await sameRatio(curve, curve.G1.g, curDelta, curve.G2.g, zkey.vk_delta_2);
     if (sr !== true) {
-        if (logger) logger.error("INVALID:  Invalud delta2");
+        if (logger) logger.error("INVALID:  Invalid delta2");
         return false;
     }
 
@@ -320,7 +320,7 @@ export default async function phase2verify(r1csFileName, pTauFileName, zkeyFileN
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff = await fd.read(sG*n);
-            const buffS = buff_r.slice((i*MAX_CHUNK_SIZE)*zkey.n8r, (i*MAX_CHUNK_SIZE+n)*zkey.n8r);
+            const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
             const r = await G.multiExpAffine(buff, buffS);
 
             R2 = G.add(R2, r);
