@@ -95,7 +95,15 @@ export function askEntropy() {
     }
 }
 
+
 export async function getRandomRng(entropy) {
+    let seed = await getRandomRngSeed(entropy);
+    const rng = new ChaCha(seed);
+    return rng;
+}
+
+
+export async function getRandomRngSeed(entropy) {
     // Generate a random Rng
     while (!entropy) {
         entropy = await askEntropy();
@@ -110,9 +118,9 @@ export async function getRandomRng(entropy) {
     for (let i=0;i<8;i++) {
         seed[i] = hash.readUInt32BE(i*4);
     }
-    const rng = new ChaCha(seed);
-    return rng;
+    return seed;
 }
+
 
 export function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let nIterationsInner;

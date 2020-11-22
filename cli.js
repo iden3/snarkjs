@@ -22,6 +22,7 @@
 import fs from "fs";
 
 import {readR1cs} from "r1csfile";
+import { ChaCha } from "ffjavascript";
 
 import loadSyms from "./src/loadsyms.js";
 import * as r1cs from "./src/r1cs.js";
@@ -33,6 +34,7 @@ import * as powersOfTau from "./src/powersoftau.js";
 import {  utils }   from "ffjavascript";
 const {stringifyBigInts, unstringifyBigInts} = utils;
 
+import * as misc from "./src/misc.js";
 import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
 import * as wtns from "./src/wtns.js";
@@ -172,6 +174,19 @@ const commands = [
         alias: ["zkn"],
         options: "-verbose|v",
         action: zkeyNew
+    },
+    {
+        cmd: "seed",
+        description: "outputs a chacha seed for passing to deterministic functions",
+        options: "-verbose|v  -entropy|e",
+        action: seedChaCha
+    },
+    {
+        cmd: "zkey contributed <circuit_old.zkey> <circuit_new.zkey> <seed(Dec)>",
+        description: "creates a zkey file with a new contribution and preselected seed (8 base 10 comma seperated format). ex 154371446,2002121034,667872606,2638247688,380608643,3552636353,155813996,126752436",
+        alias: ["zkcd"],
+        options: "-verbose|v",
+        action: zkeyContributed
     },
     {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
@@ -898,6 +913,37 @@ async function zkeyVerify(params, options) {
 
 }
 
+// seed
+async function seedChaCha(params, options) {
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    let seed = await misc.getRandomRngSeed(options.entropy);
+
+    if (logger) logger.info(`Seed: ${seed}`);
+    return 0;
+}
+
+// zkey contributed <circuit_old.zkey> <circuit_new.zkey> <seed(Dec)>
+async function zkeyContributed(params, options) {
+    let zkeyOldName;
+    let zkeyNewName;
+    let seedString;
+
+    zkeyOldName = params[0];
+    zkeyNewName = params[1];
+    seedString = params[2];
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    // todo check that there are 8 numbers? anything else
+    let seed = seedString.split(',').map(s => Number(s));
+
+    if (logger) logger.info(`Seed: ${seed}`);
+
+    const rng = new ChaCha(seed);
+
+    return zkey.contributed(zkeyOldName, zkeyNewName, options.name, rng, logger);
+}
 
 // zkey contribute <circuit_old.zkey> <circuit_new.zkey>
 async function zkeyContribute(params, options) {
