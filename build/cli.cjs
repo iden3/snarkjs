@@ -5568,7 +5568,7 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
 }
 
-async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
+async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, seed) {
     await Blake2b.ready();
 
     const {fd: fdOld, sections: sections} = await readBinFile$1(zkeyNameOld, "zkey", 2);
@@ -5580,89 +5580,11 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
 
-
-    const rng = await getRandomRng(entropy);
+    const rng = (seed === "undefined") ? await getRandomRng(entropy) : seed;
 
     const transcriptHasher = Blake2b(64);
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
-        hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
-    }
-
-    const curContribution = {};
-    curContribution.delta = {};
-    curContribution.delta.prvKey = curve.Fr.fromRng(rng);
-    curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, curContribution.delta.prvKey));
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
-    curContribution.transcript = transcriptHasher.digest();
-    curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, curContribution.delta.prvKey));
-
-    zkey.vk_delta_1 = curve.G1.timesFr(zkey.vk_delta_1, curContribution.delta.prvKey);
-    zkey.vk_delta_2 = curve.G2.timesFr(zkey.vk_delta_2, curContribution.delta.prvKey);
-
-    curContribution.deltaAfter = zkey.vk_delta_1;
-
-    curContribution.type = 0;
-    if (name) curContribution.name = name;
-
-    mpcParams.contributions.push(curContribution);
-
-    await writeHeader(fdNew, zkey);
-
-    // IC
-    await copySection(fdOld, sections, fdNew, 3);
-
-    // Coeffs (Keep original)
-    await copySection(fdOld, sections, fdNew, 4);
-
-    // A Section
-    await copySection(fdOld, sections, fdNew, 5);
-
-    // B1 Section
-    await copySection(fdOld, sections, fdNew, 6);
-
-    // B2 Section
-    await copySection(fdOld, sections, fdNew, 7);
-
-    const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
-
-    await writeMPCParams(fdNew, curve, mpcParams);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    const contributionHasher = Blake2b(64);
-    hashPubKey(contributionHasher, curve, curContribution);
-
-    const contribuionHash = contributionHasher.digest();
-
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
-
-    return contribuionHash;
-}
-
-async function phase2contributed(zkeyNameOld, zkeyNameNew, name, rng, logger) {
-    await Blake2b.ready();
-
-    const { fd: fdOld, sections: sections } = await readBinFile$1(zkeyNameOld, "zkey", 2);
-    const zkey = await readHeader(fdOld, sections, "groth16");
-
-    const curve = await getCurveFromQ(zkey.q);
-
-    const mpcParams = await readMPCParams(fdOld, curve, sections);
-
-    const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
-
-
-
-    const transcriptHasher = Blake2b(64);
-    transcriptHasher.update(mpcParams.csHash);
-    for (let i = 0; i < mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
 
@@ -7437,7 +7359,7 @@ async function zkeyContributed(params, options) {
 
     const rng = new ffjavascript.ChaCha(seed);
 
-    return phase2contributed(zkeyOldName, zkeyNewName, options.name, rng, logger);
+    return phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger, rng);
 }
 
 // zkey contribute <circuit_old.zkey> <circuit_new.zkey>

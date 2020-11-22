@@ -3,7 +3,6 @@ export {default as exportBellman} from "./zkey_export_bellman.js";
 export {default as importBellman} from "./zkey_import_bellman.js";
 export {default as verify} from "./zkey_verify.js";
 export {default as contribute} from "./zkey_contribute.js";
-export { default as contributed } from "./zkey_contributed.js";
 export {default as beacon} from "./zkey_beacon.js";
 export {default as exportJson} from "./zkey_export_json.js";
 export {default as bellmanContribute} from "./zkey_bellman_contribute.js";

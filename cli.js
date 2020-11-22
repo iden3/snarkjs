@@ -942,7 +942,7 @@ async function zkeyContributed(params, options) {
 
     const rng = new ChaCha(seed);
 
-    return zkey.contributed(zkeyOldName, zkeyNewName, options.name, rng, logger);
+    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger, rng);
 }
 
 // zkey contribute <circuit_old.zkey> <circuit_new.zkey>
