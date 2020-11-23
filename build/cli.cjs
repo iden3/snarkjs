@@ -1607,15 +1607,7 @@ function askEntropy() {
     }
 }
 
-
 async function getRandomRng(entropy) {
-    let seed = await getRandomRngSeed(entropy);
-    const rng = new ffjavascript.ChaCha(seed);
-    return rng;
-}
-
-
-async function getRandomRngSeed(entropy) {
     // Generate a random Rng
     while (!entropy) {
         entropy = await askEntropy();
@@ -1630,9 +1622,9 @@ async function getRandomRngSeed(entropy) {
     for (let i=0;i<8;i++) {
         seed[i] = hash.readUInt32BE(i*4);
     }
-    return seed;
+    const rng = new ffjavascript.ChaCha(seed);
+    return rng;
 }
-
 
 function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let nIterationsInner;
@@ -5446,8 +5438,8 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
             if (logger) logger.debug(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
-            const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*sG);
-            const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*sG);
+            const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*MAX_CHUNK_SIZE*sG);
+            const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*MAX_CHUNK_SIZE*sG);
 
             const buffB = await batchSubstract(buff1, buff2);
             const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
@@ -5568,7 +5560,7 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
 }
 
-async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, seed) {
+async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
     await Blake2b.ready();
 
     const {fd: fdOld, sections: sections} = await readBinFile$1(zkeyNameOld, "zkey", 2);
@@ -5580,7 +5572,8 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger,
 
     const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
 
-    const rng = (seed === "undefined") ? await getRandomRng(entropy) : seed;
+
+    const rng = await getRandomRng(entropy);
 
     const transcriptHasher = Blake2b(64);
     transcriptHasher.update(mpcParams.csHash);
@@ -6593,19 +6586,6 @@ const commands = [
         action: zkeyNew
     },
     {
-        cmd: "seed",
-        description: "outputs a chacha seed for passing to deterministic functions",
-        options: "-verbose|v  -entropy|e",
-        action: seedChaCha
-    },
-    {
-        cmd: "zkey contributed <circuit_old.zkey> <circuit_new.zkey> <seed(Dec)>",
-        description: "creates a zkey file with a new contribution and preselected seed (8 base 10 comma seperated format). ex 154371446,2002121034,667872606,2638247688,380608643,3552636353,155813996,126752436",
-        alias: ["zkcd"],
-        options: "-verbose|v",
-        action: zkeyContributed
-    },
-    {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
         description: "creates a zkey file with a new contribution",
         alias: ["zkc"],
@@ -7330,37 +7310,6 @@ async function zkeyVerify(params, options) {
 
 }
 
-// seed
-async function seedChaCha(params, options) {
-    if (options.verbose) Logger.setLogLevel("DEBUG");
-
-    let seed = await getRandomRngSeed(options.entropy);
-
-    if (logger) logger.info(`Seed: ${seed}`);
-    return 0;
-}
-
-// zkey contributed <circuit_old.zkey> <circuit_new.zkey> <seed(Dec)>
-async function zkeyContributed(params, options) {
-    let zkeyOldName;
-    let zkeyNewName;
-    let seedString;
-
-    zkeyOldName = params[0];
-    zkeyNewName = params[1];
-    seedString = params[2];
-
-    if (options.verbose) Logger.setLogLevel("DEBUG");
-
-    // todo check that there are 8 numbers? anything else
-    let seed = seedString.split(',').map(s => Number(s));
-
-    if (logger) logger.info(`Seed: ${seed}`);
-
-    const rng = new ffjavascript.ChaCha(seed);
-
-    return phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger, rng);
-}
 
 // zkey contribute <circuit_old.zkey> <circuit_new.zkey>
 async function zkeyContribute(params, options) {
