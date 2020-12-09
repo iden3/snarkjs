@@ -54,12 +54,14 @@ export default async function clProcessor(commands) {
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
                 helpCmd(cmd);
+                return 99;
             }
             return;
         }
     }
     if (cl.length>0) console.log("Invalid command");
     helpAll();
+    return 99;
 
     function calculateMatch(cmd, cl) {
         const alias = [];
