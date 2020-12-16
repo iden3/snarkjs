@@ -5650,8 +5650,8 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
             if (logger) logger.debug(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
-            const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*MAX_CHUNK_SIZE*sG);
-            const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*MAX_CHUNK_SIZE*sG);
+            const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*sG);
+            const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*sG);
 
             const buffB = await batchSubstract(buff1, buff2);
             const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);

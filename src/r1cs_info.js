@@ -19,6 +19,7 @@ export default async function r1csInfo(r1csName, logger) {
     if (logger) logger.info(`# of Constraints: ${cir.nConstraints}`);
     if (logger) logger.info(`# of Private Inputs: ${cir.nPrvInputs}`);
     if (logger) logger.info(`# of Public Inputs: ${cir.nPubInputs}`);
+    if (logger) logger.info(`# of Labels: ${cir.nLabels}`);
     if (logger) logger.info(`# of Outputs: ${cir.nOutputs}`);
 
     return cir;
