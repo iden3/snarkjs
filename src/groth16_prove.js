@@ -41,12 +41,8 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
     const buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-    console.log(curve.Fr.toString(buffA.slice(0, 32)));
-    console.log(curve.Fr.toString(buffA.slice(32, 64)));
     const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
     const buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
-    console.log(curve.Fr.toString(buffAodd_T.slice(0, 32)));
-    console.log(curve.Fr.toString(buffAodd_T.slice(32, 64)));
 
     const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
     const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
@@ -81,12 +77,8 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
     const resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
 
-    console.log(curve.G1.toString(curve.G1.toAffine(resH)));
-
-//    const r = curve.Fr.random();
-//    const s = curve.Fr.random();
-    const r = curve.Fr.zero;
-    const s = curve.Fr.zero;
+    const r = curve.Fr.random();
+    const s = curve.Fr.random();
 
     proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));

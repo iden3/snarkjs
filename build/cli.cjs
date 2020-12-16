@@ -1180,6 +1180,7 @@ async function r1csInfo(r1csName, logger) {
     if (logger) logger.info(`# of Constraints: ${cir.nConstraints}`);
     if (logger) logger.info(`# of Private Inputs: ${cir.nPrvInputs}`);
     if (logger) logger.info(`# of Public Inputs: ${cir.nPubInputs}`);
+    if (logger) logger.info(`# of Labels: ${cir.nLabels}`);
     if (logger) logger.info(`# of Outputs: ${cir.nOutputs}`);
 
     return cir;
@@ -6907,7 +6908,7 @@ async function groth16Verify$1(params, options) {
 // zkey export vkey [circuit.zkey] [verification_key.json]",
 async function zkeyExportVKey(params, options) {
     const zkeyName = params[0] || "circuit.zkey";
-    const verificationKeyName = params[2] || "verification_key.json";
+    const verificationKeyName = params[1] || "verification_key.json";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
