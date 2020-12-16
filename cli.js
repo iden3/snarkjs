@@ -495,7 +495,7 @@ async function groth16Verify(params, options) {
 // zkey export vkey [circuit.zkey] [verification_key.json]",
 async function zkeyExportVKey(params, options) {
     const zkeyName = params[0] || "circuit.zkey";
-    const verificationKeyName = params[2] || "verification_key.json";
+    const verificationKeyName = params[1] || "verification_key.json";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
