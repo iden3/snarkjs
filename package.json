@@ -1,7 +1,7 @@
 {
   "name": "snarkjs",
   "type": "module",
-  "version": "0.3.44",
+  "version": "0.3.45",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
   "module": "./main.js",
