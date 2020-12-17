@@ -81,6 +81,7 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
 
     const contribuionHash = contributionHasher.digest();
 
+    if (logger) logger.info(misc.formatHash(mpcParams.csHash, "Circuit Hash: "));
     if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
 
     return contribuionHash;

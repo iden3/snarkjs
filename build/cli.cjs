@@ -5634,6 +5634,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const contribuionHash = contributionHasher.digest();
 
+    if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
     if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
 
     return contribuionHash;
