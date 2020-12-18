@@ -92,8 +92,13 @@ describe("Full process", function ()  {
         await snarkjs.zKey.beacon(zkey_2, zkey_final, "B3", "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 10);
     });
 
-    it ("zkey verify", async () => {
-        const res = await snarkjs.zKey.verify(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_final);
+    it ("zkey verify r1cs", async () => {
+        const res = await snarkjs.zKey.verifyFromR1cs(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_final);
+        assert(res);
+    });
+
+    it ("zkey verify init", async () => {
+        const res = await snarkjs.zKey.verifyFromInit(zkey_0, ptau_final, zkey_final);
         assert(res);
     });
 

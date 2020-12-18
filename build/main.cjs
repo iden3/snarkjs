@@ -5383,7 +5383,7 @@ const sameRatio$2 = sameRatio;
 
 
 
-async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
+async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
     await Blake2b.ready();
@@ -5451,11 +5451,6 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
         curDelta = c.deltaAfter;
     }
 
-
-
-    // const initFileName = "~" + zkeyFileName + ".init";
-    const initFileName = {type: "bigMem"};
-    await newZKey(r1csFileName, pTauFileName, initFileName, logger);
 
     const {fd: fdInit, sections: sectionsInit} = await readBinFile(initFileName, "zkey", 2);
     const zkeyInit = await readHeader(fdInit, sectionsInit, "groth16");
@@ -5771,6 +5766,15 @@ async function phase2verify(r1csFileName, pTauFileName, zkeyFileName, logger) {
         return res;
     }
 
+}
+
+async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, logger) {
+
+    // const initFileName = "~" + zkeyFileName + ".init";
+    const initFileName = {type: "bigMem"};
+    await newZKey(r1csFileName, pTauFileName, initFileName, logger);
+
+    return await phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName);
 }
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
@@ -6217,7 +6221,8 @@ var zkey = /*#__PURE__*/Object.freeze({
     newZKey: newZKey,
     exportBellman: phase2exportMPCParams,
     importBellman: phase2importMPCParams,
-    verify: phase2verify,
+    verifyFromR1cs: phase2verifyFromR1cs,
+    verifyFromInit: phase2verifyFromInit,
     contribute: phase2contribute,
     beacon: beacon$1,
     exportJson: zkeyExportJson,
