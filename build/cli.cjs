@@ -7345,7 +7345,7 @@ async function zkeyVerifyFromInit(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await phase2verifyFromInit(initZKeyName, zkeyName, logger);
+    const res = await phase2verifyFromInit(initZKeyName, ptauName, zkeyName, logger);
     if (res === true) {
         return 0;
     } else {
