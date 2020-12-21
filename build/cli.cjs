@@ -5562,7 +5562,7 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
     const initFileName = {type: "bigMem"};
     await newZKey(r1csFileName, pTauFileName, initFileName, logger);
 
-    return await phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName);
+    return await phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger);
 }
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
