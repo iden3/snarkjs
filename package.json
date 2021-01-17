@@ -44,7 +44,7 @@
     "fastfile": "0.0.19",
     "ffjavascript": "0.2.32",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.28"
+    "r1csfile": "0.0.30"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.0.0",
