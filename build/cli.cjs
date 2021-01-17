@@ -2,16 +2,24 @@
 
 'use strict';
 
-function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
-
-var fs = _interopDefault(require('fs'));
+var fs = require('fs');
 var ffjavascript = require('ffjavascript');
-var path = _interopDefault(require('path'));
-var Blake2b = _interopDefault(require('blake2b-wasm'));
-var readline = _interopDefault(require('readline'));
-var crypto = _interopDefault(require('crypto'));
-var circomRuntime = _interopDefault(require('circom_runtime'));
-var Logger = _interopDefault(require('logplease'));
+var path = require('path');
+var Blake2b = require('blake2b-wasm');
+var readline = require('readline');
+var crypto = require('crypto');
+var circomRuntime = require('circom_runtime');
+var Logger = require('logplease');
+
+function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
+
+var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
+var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
+var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
+var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
+var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
+var circomRuntime__default = /*#__PURE__*/_interopDefaultLegacy(circomRuntime);
+var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
 
 const SUBARRAY_SIZE = 0x40000;
 
@@ -96,7 +104,7 @@ async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
-    const fd =await fs.promises.open(fileName, openFlags);
+    const fd =await fs__default['default'].promises.open(fileName, openFlags);
 
     const stats = await fd.stat();
 
@@ -445,7 +453,7 @@ class FastFile {
     async discard() {
         const self = this;
         await self.close();
-        await fs.promises.unlink(this.fileName);
+        await fs__default['default'].promises.unlink(this.fileName);
     }
 
     async writeULE32(v, pos) {
@@ -1219,13 +1227,13 @@ async function r1csExportJson(r1csFileName, logger) {
 import pkg from "../package.json";
 const version = pkg.version;
 */
-const __dirname$1 = path.dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
+const __dirname$1 = path__default['default'].dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
 
 let pkgS;
 try {
-    pkgS = fs.readFileSync(path.join(__dirname$1, "package.json"));
+    pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1, "package.json"));
 } catch (err) {
-    pkgS = fs.readFileSync(path.join(__dirname$1, "..","package.json"));
+    pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1, "..","package.json"));
 }
 
 const pkg = JSON.parse(pkgS);
@@ -1490,7 +1498,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = Blake2b(64);
+    const h = Blake2b__default['default'](64);
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -1579,7 +1587,7 @@ function hashIsEqual(h1, h2) {
 
 function cloneHasher(h) {
     const ph = h.getPartialHash();
-    const res = Blake2b(64);
+    const res = Blake2b__default['default'](64);
     res.setPartialHash(ph);
     return res;
 }
@@ -1599,7 +1607,7 @@ function askEntropy() {
     if (process.browser) {
         return window.prompt("Enter a random text. (Entropy): ", "");
     } else {
-        const rl = readline.createInterface({
+        const rl = readline__default['default'].createInterface({
             input: process.stdin,
             output: process.stdout
         });
@@ -1615,8 +1623,8 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = Blake2b(64);
-    hasher.update(crypto.randomBytes(64));
+    const hasher = Blake2b__default['default'](64);
+    hasher.update(crypto__default['default'].randomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
     const hash = Buffer.from(hasher.digest());
@@ -1643,7 +1651,7 @@ function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let curHash = beaconHash;
     for (let i=0; i<nIterationsOuter; i++) {
         for (let j=0; j<nIterationsInner; j++) {
-            curHash = crypto.createHash("sha256").update(curHash).digest();
+            curHash = crypto__default['default'].createHash("sha256").update(curHash).digest();
         }
     }
 
@@ -1861,7 +1869,7 @@ async function readContribution(fd, curve) {
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
     toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
 
-    const responseHasher = Blake2b(64);
+    const responseHasher = Blake2b__default['default'](64);
     responseHasher.setPartialHash(c.partialHash);
     responseHasher.update(buffV);
     c.responseHash = responseHasher.digest();
@@ -1998,14 +2006,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = new Blake2b(64);
+    const hasher = new Blake2b__default['default'](64);
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(Blake2b(64).digest());
+    hasher.update(Blake2b__default['default'](64).digest());
 
     let n;
 
@@ -2250,7 +2258,7 @@ contributions(7)
 
 async function newAccumulator(curve, power, fileName, logger) {
 
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const fd = await createBinFile(fileName, "ptau", 1, 7);
 
@@ -2315,7 +2323,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(Blake2b(64).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(Blake2b__default['default'](64).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -2326,7 +2334,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 // Format of the outpu
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
     const {fd: fdFrom, sections} = await readBinFile$1(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fdFrom, sections);
@@ -2334,7 +2342,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = Blake2b(64).digest();
+        lastResponseHash = Blake2b__default['default'](64).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -2348,7 +2356,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
     const fdTo = await createOverride(challengeFilename);
 
-    const toHash = Blake2b(64);
+    const toHash = Blake2b__default['default'](64);
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -2395,7 +2403,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const noHash = new Uint8Array(64);
     for (let i=0; i<64; i++) noHash[i] = 0xFF;
@@ -2445,7 +2453,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. this contribution is not based on the previus hash");
 
-    const hasherResponse = new Blake2b(64);
+    const hasherResponse = new Blake2b__default['default'](64);
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -2474,7 +2482,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = new Blake2b(64);
+        const nextChallengeHasher = new Blake2b__default['default'](64);
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -2705,7 +2713,7 @@ async function verifyContribution(curve, cur, prev, logger) {
 
 async function verify(tauFilename, logger) {
     let sr;
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const {fd, sections} = await readBinFile$1(tauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
@@ -2722,7 +2730,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: Blake2b(64).digest()
+        responseHash: Blake2b__default['default'](64).digest()
     };
 
     if (contrs.length == 0) {
@@ -2742,7 +2750,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = Blake2b(64);
+    const nextContributionHasher = Blake2b__default['default'](64);
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -2876,7 +2884,7 @@ async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher = Blake2b(64);
+        const responseHasher = Blake2b__default['default'](64);
         responseHasher.setPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
@@ -2938,12 +2946,12 @@ async function verify(tauFilename, logger) {
             nextContributionHasher.update(basesU);
 
             const scalars = new Uint8Array(4*(n-1));
-            crypto.randomFillSync(scalars);
+            crypto__default['default'].randomFillSync(scalars);
 
 
             if (i>0) {
                 const firstBase = G.fromRprLEM(bases, 0);
-                const r = crypto.randomBytes(4).readUInt32BE(0, true);
+                const r = crypto__default['default'].randomBytes(4).readUInt32BE(0, true);
 
                 R1 = G.add(R1, G.timesScalar(lastBase, r));
                 R2 = G.add(R2, G.timesScalar(firstBase, r));
@@ -2984,7 +2992,7 @@ async function verify(tauFilename, logger) {
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
-            seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
+            seed[i] = crypto__default['default'].randomBytes(4).readUInt32BE(0, true);
         }
 
         for (let p=0; p<= power; p ++) {
@@ -3132,7 +3140,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 // Format of the output
 
 async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const fdFrom = await readExisting$2(challengeFilename);
 
@@ -3155,7 +3163,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
     const fdTo = await createOverride(responesFileName);
 
     // Calculate the hash
-    const challengeHasher = Blake2b(64);
+    const challengeHasher = Blake2b__default['default'](64);
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -3181,7 +3189,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
         });
     }
 
-    const responseHasher = Blake2b(64);
+    const responseHasher = Blake2b__default['default'](64);
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -3224,7 +3232,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
     }
 
 
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
@@ -3253,7 +3261,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
 
     curContribution.key = keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = new Blake2b(64);
+    const responseHasher = new Blake2b__default['default'](64);
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3284,7 +3292,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b(64);
+    const nextChallengeHasher = new Blake2b__default['default'](64);
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -3375,7 +3383,7 @@ async function beacon(oldPtauFilename, newPTauFilename, name,  beaconHashStr,num
 // Format of the output
 
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
@@ -3408,7 +3416,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = new Blake2b(64);
+    const responseHasher = new Blake2b__default['default'](64);
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3439,7 +3447,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b(64);
+    const nextChallengeHasher = new Blake2b__default['default'](64);
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -3968,8 +3976,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    await Blake2b.ready();
-    const csHasher = Blake2b(64);
+    await Blake2b__default['default'].ready();
+    const csHasher = Blake2b__default['default'](64);
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -5176,7 +5184,7 @@ const sameRatio$2 = sameRatio;
 async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const {fd, sections} = await readBinFile$1(zkeyFileName, "zkey", 2);
     const zkey = await readHeader(fd, sections, "groth16");
@@ -5187,7 +5195,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = Blake2b(64);
+    const accumulatedHasher = Blake2b__default['default'](64);
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -5233,7 +5241,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = Blake2b(64);
+        const contributionHasher = Blake2b__default['default'](64);
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -5390,7 +5398,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
             const bases2 = await fd2.read(n*sG);
 
             const scalars = new Uint8Array(4*n);
-            crypto.randomFillSync(scalars);
+            crypto__default['default'].randomFillSync(scalars);
 
 
             const r1 = await G.multiExpAffine(bases1, scalars);
@@ -5422,7 +5430,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
-            seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
+            seed[i] = crypto__default['default'].randomBytes(4).readUInt32BE(0, true);
         }
         const rng = new ffjavascript.ChaCha(seed);
         for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero
@@ -5568,7 +5576,7 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
 }
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const {fd: fdOld, sections: sections} = await readBinFile$1(zkeyNameOld, "zkey", 2);
     const zkey = await readHeader(fdOld, sections, "groth16");
@@ -5582,7 +5590,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = Blake2b(64);
+    const transcriptHasher = Blake2b__default['default'](64);
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5635,7 +5643,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b(64);
+    const contributionHasher = Blake2b__default['default'](64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contribuionHash = contributionHasher.digest();
@@ -5647,7 +5655,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 }
 
 async function beacon$1(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const beaconHash = hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
@@ -5679,7 +5687,7 @@ async function beacon$1(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterat
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = Blake2b(64);
+    const transcriptHasher = Blake2b__default['default'](64);
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5735,7 +5743,7 @@ async function beacon$1(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterat
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b(64);
+    const contributionHasher = Blake2b__default['default'](64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contribuionHash = contributionHasher.digest();
@@ -5755,7 +5763,7 @@ async function zkeyExportJson(zkeyFileName, verbose) {
 // Format of the output
 
 async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b.ready();
+    await Blake2b__default['default'].ready();
 
     const rng = await getRandomRng(entropy);
 
@@ -5814,7 +5822,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = Blake2b(64);
+    const transcriptHasher = Blake2b__default['default'](64);
 
     const mpcParams = {};
     // csHash
@@ -5865,7 +5873,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = Blake2b(64);
+    const contributionHasher = Blake2b__default['default'](64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
@@ -6289,7 +6297,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     return outBuff;
 }
 
-const { WitnessCalculatorBuilder } = circomRuntime;
+const { WitnessCalculatorBuilder } = circomRuntime__default['default'];
 
 async function wtnsCalculate(input, wasmFileName, wtnsFileName, options) {
 
@@ -6388,7 +6396,7 @@ async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
     return true;
 }
 
-const { WitnessCalculatorBuilder: WitnessCalculatorBuilder$1 } = circomRuntime;
+const { WitnessCalculatorBuilder: WitnessCalculatorBuilder$1 } = circomRuntime__default['default'];
 
 async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, logger) {
 
@@ -6460,10 +6468,10 @@ async function wtnsExportJson(wtnsFileName) {
     along with jaz. If not, see <https://www.gnu.org/licenses/>.
 */
 const {stringifyBigInts: stringifyBigInts$3, unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
-const logger = Logger.create("snarkJS", {showTimestamp:false});
-Logger.setLogLevel("INFO");
+const logger = Logger__default['default'].create("snarkJS", {showTimestamp:false});
+Logger__default['default'].setLogLevel("INFO");
 
-const __dirname$2 = path.dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
+const __dirname$2 = path__default['default'].dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
 
 const commands = [
     {
@@ -6744,7 +6752,7 @@ function changeExt(fileName, newExt) {
 async function r1csInfo$1(params, options) {
     const r1csName = params[0] ||  "circuit.r1cs";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     await r1csInfo(r1csName, logger);
 
@@ -6757,7 +6765,7 @@ async function r1csPrint$1(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const symName = params[1] || changeExt(r1csName, "sym");
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const cir = await readR1cs(r1csName, true, true, false);
 
@@ -6774,12 +6782,12 @@ async function r1csExportJSON(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const jsonName = params[1] || changeExt(r1csName, "json");
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const r1csObj = await r1csExportJson(r1csName, logger);
 
     const S = JSON.stringify(r1csObj, null, 1);
-    await fs.promises.writeFile(jsonName, S);
+    await fs__default['default'].promises.writeFile(jsonName, S);
 
     return 0;
 }
@@ -6790,9 +6798,9 @@ async function wtnsCalculate$1(params, options) {
     const inputName = params[1] || "input.json";
     const witnessName = params[2] || "witness.wtns";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts$1(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = unstringifyBigInts$1(JSON.parse(await fs__default['default'].promises.readFile(inputName, "utf8")));
 
     await wtnsCalculate(input, wasmName, witnessName);
 
@@ -6808,9 +6816,9 @@ async function wtnsDebug$1(params, options) {
     const witnessName = params[2] || "witness.wtns";
     const symName = params[3] || changeExt(wasmName, "sym");
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts$1(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = unstringifyBigInts$1(JSON.parse(await fs__default['default'].promises.readFile(inputName, "utf8")));
 
     await wtnsDebug(input, wasmName, witnessName, symName, options, logger);
 
@@ -6824,11 +6832,11 @@ async function wtnsExportJson$1(params, options) {
     const wtnsName = params[0] || "witness.wtns";
     const jsonName = params[1] || "witness.json";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const w = await wtnsExportJson(wtnsName);
 
-    await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts$3(w), null, 1));
+    await fs__default['default'].promises.writeFile(jsonName, JSON.stringify(stringifyBigInts$3(w), null, 1));
 
     return 0;
 }
@@ -6866,12 +6874,12 @@ async function groth16Prove$1(params, options) {
     const proofName = params[2] || "proof.json";
     const publicName = params[3] || "public.json";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const {proof, publicSignals} = await groth16Prove(zkeyName, witnessName, logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
+    await fs__default['default'].promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
+    await fs__default['default'].promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
 
     return 0;
 }
@@ -6885,14 +6893,14 @@ async function groth16FullProve$1(params, options) {
     const proofName = params[3] || "proof.json";
     const publicName = params[4] || "public.json";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts$1(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = unstringifyBigInts$1(JSON.parse(await fs__default['default'].promises.readFile(inputName, "utf8")));
 
     const {proof, publicSignals} = await groth16FullProve(input, wasmName, zkeyName,  logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
+    await fs__default['default'].promises.writeFile(proofName, JSON.stringify(stringifyBigInts$3(proof), null, 1), "utf-8");
+    await fs__default['default'].promises.writeFile(publicName, JSON.stringify(stringifyBigInts$3(publicSignals), null, 1), "utf-8");
 
     return 0;
 }
@@ -6904,11 +6912,11 @@ async function groth16Verify$1(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = unstringifyBigInts$1(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-    const pub = unstringifyBigInts$1(JSON.parse(fs.readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts$1(JSON.parse(fs.readFileSync(proofName, "utf8")));
+    const verificationKey = unstringifyBigInts$1(JSON.parse(fs__default['default'].readFileSync(verificationKeyName, "utf8")));
+    const pub = unstringifyBigInts$1(JSON.parse(fs__default['default'].readFileSync(publicName, "utf8")));
+    const proof = unstringifyBigInts$1(JSON.parse(fs__default['default'].readFileSync(proofName, "utf8")));
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const isValid = await groth16Verify(verificationKey, pub, proof, logger);
 
@@ -6924,12 +6932,12 @@ async function zkeyExportVKey(params, options) {
     const zkeyName = params[0] || "circuit_final.zkey";
     const verificationKeyName = params[1] || "verification_key.json";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const vKey = await zkeyExportVerificationKey(zkeyName);
 
     const S = JSON.stringify(ffjavascript.utils.stringifyBigInts(vKey), null, 1);
-    await fs.promises.writeFile(verificationKeyName, S);
+    await fs__default['default'].promises.writeFile(verificationKeyName, S);
 }
 
 // zkey export json [circuit_final.zkey] [circuit.zkey.json]",
@@ -6937,12 +6945,12 @@ async function zkeyExportJson$1(params, options) {
     const zkeyName = params[0] || "circuit_final.zkey";
     const zkeyJsonName = params[1] || "circuit_final.zkey.json";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const zKey = await zkeyExportJson(zkeyName);
 
     const S = JSON.stringify(ffjavascript.utils.stringifyBigInts(zKey), null, 1);
-    await fs.promises.writeFile(zkeyJsonName, S);
+    await fs__default['default'].promises.writeFile(zkeyJsonName, S);
 }
 
 // solidity genverifier [circuit_final.zkey] [verifier.sol]
@@ -6962,19 +6970,19 @@ async function zkeyExportSolidityVerifier(params, options) {
         verifierName = params[1];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     let templateName;
     try {
-        templateName = path.join( __dirname$2, "templates", "verifier_groth16.sol");
-        await fs.promises.stat(templateName);
+        templateName = path__default['default'].join( __dirname$2, "templates", "verifier_groth16.sol");
+        await fs__default['default'].promises.stat(templateName);
     } catch (err) {
-        templateName = path.join( __dirname$2, "..", "templates", "verifier_groth16.sol");
+        templateName = path__default['default'].join( __dirname$2, "..", "templates", "verifier_groth16.sol");
     }
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templateName);
 
-    fs.writeFileSync(verifierName, verifierCode, "utf-8");
+    fs__default['default'].writeFileSync(verifierName, verifierCode, "utf-8");
 
     return 0;
 }
@@ -6997,10 +7005,10 @@ async function zkeyExportSolidityCalldata(params, options) {
         proofName = params[1];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
-    const pub = unstringifyBigInts$1(JSON.parse(fs.readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts$1(JSON.parse(fs.readFileSync(proofName, "utf8")));
+    const pub = unstringifyBigInts$1(JSON.parse(fs__default['default'].readFileSync(publicName, "utf8")));
+    const proof = unstringifyBigInts$1(JSON.parse(fs__default['default'].readFileSync(proofName, "utf8")));
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -7054,7 +7062,7 @@ async function powersOfTauNew(params, options) {
 
     const curve = await getCurveFromName(curveName);
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await newAccumulator(curve, power, ptauName, logger);
 }
@@ -7071,7 +7079,7 @@ async function powersOfTauExportChallenge(params, options) {
         challengeName = params[1];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await exportChallenge(ptauName, challengeName, logger);
 }
@@ -7091,7 +7099,7 @@ async function powersOfTauChallengeContribute(params, options) {
         responseName = params[2];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 }
@@ -7111,7 +7119,7 @@ async function powersOfTauImport(params, options) {
     if (options.nopoints) importPoints = false;
     if (options.nocheck) doCheck = false;
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const res = await importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
@@ -7126,7 +7134,7 @@ async function powersOfTauVerify(params, options) {
 
     ptauName = params[0];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const res = await verify(ptauName, logger);
     if (res === true) {
@@ -7147,7 +7155,7 @@ async function powersOfTauBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
@@ -7159,7 +7167,7 @@ async function powersOfTauContribute(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
 }
@@ -7171,7 +7179,7 @@ async function powersOfTauPreparePhase2(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await preparePhase2(oldPtauName, newPtauName, logger);
 }
@@ -7183,7 +7191,7 @@ async function powersOfTauConvert(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await convert(oldPtauName, newPtauName, logger);
 }
@@ -7199,7 +7207,7 @@ async function powersOfTauTruncate(params, options) {
     template = template.slice(0, template.length-1);
     template = template+"_";
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await truncate(ptauName, template, logger);
 }
@@ -7212,12 +7220,12 @@ async function powersOfTauExportJson(params, options) {
     ptauName = params[0];
     jsonName = params[1];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const pTau = await exportJson(ptauName, logger);
 
     const S = JSON.stringify(stringifyBigInts$3(pTau), null, 1);
-    await fs.promises.writeFile(jsonName, S);
+    await fs__default['default'].promises.writeFile(jsonName, S);
 
 }
 
@@ -7246,7 +7254,7 @@ async function zkeyNew(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return newZKey(r1csName, ptauName, zkeyName, logger);
 }
@@ -7264,7 +7272,7 @@ async function zkeyExportBellman(params, options) {
         mpcparamsName = params[1];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return phase2exportMPCParams(zkeyName, mpcparamsName, logger);
 
@@ -7281,7 +7289,7 @@ async function zkeyImportBellman(params, options) {
     mpcParamsName = params[1];
     zkeyNameNew = params[2];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return phase2importMPCParams(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
 }
@@ -7310,7 +7318,7 @@ async function zkeyVerifyFromR1cs(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const res = await phase2verifyFromR1cs(r1csName, ptauName, zkeyName, logger);
     if (res === true) {
@@ -7345,7 +7353,7 @@ async function zkeyVerifyFromInit(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     const res = await phase2verifyFromInit(initZKeyName, ptauName, zkeyName, logger);
     if (res === true) {
@@ -7363,7 +7371,7 @@ async function zkeyContribute(params, options) {
     zkeyOldName = params[0];
     zkeyNewName = params[1];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
 }
@@ -7380,7 +7388,7 @@ async function zkeyBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return await beacon$1(zkeyOldName, zkeyNewName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
@@ -7401,7 +7409,7 @@ async function zkeyBellmanContribute(params, options) {
         responseName = params[2];
     }
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
 
     return bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 }

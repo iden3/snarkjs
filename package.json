@@ -40,7 +40,7 @@
   "dependencies": {
     "@iden3/binfileutils": "0.0.7",
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
-    "circom_runtime": "0.1.5",
+    "circom_runtime": "0.1.10",
     "fastfile": "0.0.18",
     "ffjavascript": "0.2.32",
     "logplease": "^1.2.15",
