@@ -1,6 +1,6 @@
-import resolve from "rollup-plugin-node-resolve";
-import commonJS from "rollup-plugin-commonjs";
-import json from "rollup-plugin-json";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import commonJS from "@rollup/plugin-commonjs";
+import json from '@rollup/plugin-json';
 
 export default {
     input: "cli.js",
@@ -27,7 +27,7 @@ export default {
         "logplease",
     ],
     plugins: [
-        resolve({
+        nodeResolve({
             preferBuiltins: true,
         }),
         commonJS({

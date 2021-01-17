@@ -1,7 +1,9 @@
-import resolve from "rollup-plugin-node-resolve";
-import commonJS from "rollup-plugin-commonjs";
-import ignore from "rollup-plugin-ignore";
-import replace from "rollup-plugin-replace";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import commonJS from "@rollup/plugin-commonjs";
+import virtual from '@rollup/plugin-virtual';
+import replace from '@rollup/plugin-replace';
+
+const empty = 'export default {}';
 
 export default {
     input: "main.js",
@@ -15,8 +17,14 @@ export default {
         name: "snarkjs"
     },
     plugins: [
-        ignore(["fs", "os", "crypto", "readline", "worker_threads"]),
-        resolve(),
+        virtual({
+            fs: empty,
+            os: empty,
+            crypto: empty,
+            readline: empty,
+            worker_threads: empty,
+        }),
+        nodeResolve(),
         commonJS(),
         replace({ "process.browser": !!process.env.BROWSER }),
     ]
