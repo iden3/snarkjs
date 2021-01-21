@@ -1,9 +1,7 @@
 import * as fastFile from "fastfile";
-import circomRuntime from "circom_runtime";
+import { WitnessCalculatorBuilder } from "circom_runtime";
 import * as wtnsUtils from "./wtns_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
-
-const { WitnessCalculatorBuilder } = circomRuntime;
 
 export default async function wtnsCalculate(input, wasmFileName, wtnsFileName, options) {
 
