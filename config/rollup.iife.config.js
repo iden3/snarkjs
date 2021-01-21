@@ -1,9 +1,10 @@
 import { nodeResolve } from "@rollup/plugin-node-resolve";
 import commonJS from "@rollup/plugin-commonjs";
-import virtual from '@rollup/plugin-virtual';
-import replace from '@rollup/plugin-replace';
+import virtual from "@rollup/plugin-virtual";
+import replace from "@rollup/plugin-replace";
+import visualizer from "rollup-plugin-visualizer";
 
-const empty = 'export default {}';
+const empty = "export default {}";
 
 export default {
     input: "main.js",
@@ -27,5 +28,6 @@ export default {
         nodeResolve(),
         commonJS(),
         replace({ "process.browser": !!process.env.BROWSER }),
+        visualizer(),
     ]
 };
