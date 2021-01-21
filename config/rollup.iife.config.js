@@ -25,9 +25,13 @@ export default {
             readline: empty,
             worker_threads: empty,
         }),
-        nodeResolve(),
+        nodeResolve({
+            browser: true
+        }),
         commonJS(),
-        replace({ "process.browser": !!process.env.BROWSER }),
+        replace({
+            "process.browser": !!process.env.BROWSER
+        }),
         visualizer(),
     ]
 };
