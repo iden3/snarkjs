@@ -8,7 +8,7 @@ var path = require('path');
 var Blake2b = require('blake2b-wasm');
 var readline = require('readline');
 var crypto = require('crypto');
-var circomRuntime = require('circom_runtime');
+var circom_runtime = require('circom_runtime');
 var Logger = require('logplease');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
@@ -18,7 +18,6 @@ var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
 var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
-var circomRuntime__default = /*#__PURE__*/_interopDefaultLegacy(circomRuntime);
 var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
 
 const SUBARRAY_SIZE = 0x40000;
@@ -6223,15 +6222,13 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     return outBuff;
 }
 
-const { WitnessCalculatorBuilder } = circomRuntime__default['default'];
-
 async function wtnsCalculate(input, wasmFileName, wtnsFileName, options) {
 
     const fdWasm = await readExisting$2(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await WitnessCalculatorBuilder(wasm);
+    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
     const w = await wc.calculateBinWitness(input);
 
     const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
@@ -6322,8 +6319,6 @@ async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
     return true;
 }
 
-const { WitnessCalculatorBuilder: WitnessCalculatorBuilder$1 } = circomRuntime__default['default'];
-
 async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, logger) {
 
     const fdWasm = await readExisting$2(wasmFileName);
@@ -6358,7 +6353,7 @@ async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, lo
     }
     wcOps.sym = sym;
 
-    const wc = await WitnessCalculatorBuilder$1(wasm, wcOps);
+    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
     const w = await wc.calculateWitness(input);
 
     const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
