@@ -38,13 +38,13 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "0.0.7",
+    "@iden3/binfileutils": "0.0.8",
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
-    "circom_runtime": "0.1.10",
+    "circom_runtime": "0.1.11",
     "fastfile": "0.0.19",
-    "ffjavascript": "0.2.32",
+    "ffjavascript": "0.2.34",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.30"
+    "r1csfile": "0.0.31"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.0.0",
