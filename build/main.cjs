@@ -4257,6 +4257,15 @@ var r1cs = /*#__PURE__*/Object.freeze({
     exportJson: r1csExportJson
 });
 
+async function wtnsConvertJson(jsonFileName, wtnsFileName, prime) {
+    const w = JSON.parse(fs.readFileSync(jsonFileName));
+    const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
+
+    const p = ffjavascript.Scalar.fromString(prime, 10);
+    await write(fdWtns, w, p);
+    await fdWtns.close();
+}
+
 async function loadSymbols(symFileName) {
     const sym = {
         labelIdx2Name: [ "one" ],
@@ -4346,6 +4355,7 @@ async function wtnsExportJson(wtnsFileName) {
 var wtns = /*#__PURE__*/Object.freeze({
     __proto__: null,
     calculate: wtnsCalculate,
+    convert: wtnsConvertJson,
     debug: wtnsDebug,
     exportJson: wtnsExportJson
 });

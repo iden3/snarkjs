@@ -6319,6 +6319,15 @@ async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
     return true;
 }
 
+async function wtnsConvertJson(jsonFileName, wtnsFileName, prime) {
+    const w = JSON.parse(fs.readFileSync(jsonFileName));
+    const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
+
+    const p = ffjavascript.Scalar.fromString(prime, 10);
+    await write(fdWtns, w, p);
+    await fdWtns.close();
+}
+
 async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, logger) {
 
     const fdWasm = await readExisting$2(wasmFileName);
@@ -6506,6 +6515,14 @@ const commands = [
         options: "-get|g -set|s -trigger|t",
         alias: ["wd"],
         action: wtnsDebug$1
+    },
+    {
+        cmd: "wtns convert json [witness.json] [witness.wtns] [prime]",
+        description: "Convert a witness JSON file to .wtns format",
+        longDescription: "Convert a witness JSON file to .wtns format. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-verbose|v",
+        alias: ["wcj"],
+        action: wtnsConvertJson$1
     },
     {
         cmd: "wtns export json [witness.wtns] [witnes.json]",
@@ -6746,6 +6763,16 @@ async function wtnsDebug$1(params, options) {
     return 0;
 }
 
+// wtns convert json [witness.json] [witness.wtns]
+async function wtnsConvertJson$1(params, options) {
+    const jsonName = params[0] || "witness.json";
+    const wtnsName = params[1] || "witness.wtns";
+    const prime = params[2] || "21888242871839275222246405745257275088548364400416034343698204186575808495617";
+
+    if (options.verbose) Logger__default['default'].setLogLevel("DEBUG");
+
+    await wtnsConvertJson(jsonName, wtnsName, prime);
+}
 
 // wtns export json  [witness.wtns] [witness.json]
 // -get|g -set|s -trigger|t
