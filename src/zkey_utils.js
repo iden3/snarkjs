@@ -172,19 +172,21 @@ async function writeG2(fd, curve, p) {
     await fd.write(buff);
 }
 
-async function readG1(fd, curve) {
+async function readG1(fd, curve, toObject) {
     const buff = await fd.read(curve.G1.F.n8*2);
-    return curve.G1.fromRprLEM(buff, 0);
+    const res = curve.G1.fromRprLEM(buff, 0);
+    return toObject ? curve.G1.toObject(res) : res;
 }
 
-async function readG2(fd, curve) {
+async function readG2(fd, curve, toObject) {
     const buff = await fd.read(curve.G2.F.n8*2);
-    return curve.G2.fromRprLEM(buff, 0);
+    const res = curve.G2.fromRprLEM(buff, 0);
+    return toObject ? curve.G2.toObject(res) : res;
 }
 
 
 
-export async function readHeader(fd, sections, protocol) {
+export async function readHeader(fd, sections, protocol, toObject) {
     if (protocol != "groth16") throw new Error("Protocol not supported: "+protocol);
 
     const zkey = {};
@@ -214,36 +216,36 @@ export async function readHeader(fd, sections, protocol) {
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
     zkey.power = log2(zkey.domainSize);
-    zkey.vk_alpha_1 = await readG1(fd, curve);
-    zkey.vk_beta_1 = await readG1(fd, curve);
-    zkey.vk_beta_2 = await readG2(fd, curve);
-    zkey.vk_gamma_2 = await readG2(fd, curve);
-    zkey.vk_delta_1 = await readG1(fd, curve);
-    zkey.vk_delta_2 = await readG2(fd, curve);
+    zkey.vk_alpha_1 = await readG1(fd, curve, toObject);
+    zkey.vk_beta_1 = await readG1(fd, curve, toObject);
+    zkey.vk_beta_2 = await readG2(fd, curve, toObject);
+    zkey.vk_gamma_2 = await readG2(fd, curve, toObject);
+    zkey.vk_delta_1 = await readG1(fd, curve, toObject);
+    zkey.vk_delta_2 = await readG2(fd, curve, toObject);
     await binFileUtils.endReadSection(fd);
 
     return zkey;
 
 }
 
-export async function readZKey(fileName) {
+export async function readZKey(fileName, toObject) {
     const {fd, sections} = await binFileUtils.readBinFile(fileName, "zkey", 1);
 
-    const zkey = await readHeader(fd, sections, "groth16");
+    const zkey = await readHeader(fd, sections, "groth16", toObject);
 
     const Fr = new F1Field(zkey.r);
     const Rr = Scalar.mod(Scalar.shl(1, zkey.n8r*8), zkey.r);
     const Rri = Fr.inv(Rr);
     const Rri2 = Fr.mul(Rri, Rri);
 
-    let curve = getCurve(zkey.q);
+    let curve = await getCurve(zkey.q);
 
     // Read IC Section
     ///////////
     await binFileUtils.startReadUniqueSection(fd, sections, 3);
     zkey.IC = [];
     for (let i=0; i<= zkey.nPublic; i++) {
-        const P = await readG1(fd, curve);
+        const P = await readG1(fd, curve, toObject);
         zkey.IC.push(P);
     }
     await binFileUtils.endReadSection(fd);
@@ -258,7 +260,7 @@ export async function readZKey(fileName) {
         const m = await fd.readULE32();
         const c = await fd.readULE32();
         const s = await fd.readULE32();
-        const v = await readFr2();
+        const v = await readFr2(toObject);
         zkey.ccoefs.push({
             matrix: m,
             constraint: c,
@@ -273,7 +275,7 @@ export async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 5);
     zkey.A = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const A = await readG1(fd, curve);
+        const A = await readG1(fd, curve, toObject);
         zkey.A[i] = A;
     }
     await binFileUtils.endReadSection(fd);
@@ -284,7 +286,7 @@ export async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 6);
     zkey.B1 = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const B1 = await readG1(fd, curve);
+        const B1 = await readG1(fd, curve, toObject);
 
         zkey.B1[i] = B1;
     }
@@ -296,7 +298,7 @@ export async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 7);
     zkey.B2 = [];
     for (let i=0; i<zkey.nVars; i++) {
-        const B2 = await readG2(fd, curve);
+        const B2 = await readG2(fd, curve, toObject);
         zkey.B2[i] = B2;
     }
     await binFileUtils.endReadSection(fd);
@@ -307,7 +309,7 @@ export async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 8);
     zkey.C = [];
     for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
-        const C = await readG1(fd, curve);
+        const C = await readG1(fd, curve, toObject);
 
         zkey.C[i] = C;
     }
@@ -319,7 +321,7 @@ export async function readZKey(fileName) {
     await binFileUtils.startReadUniqueSection(fd, sections, 9);
     zkey.hExps = [];
     for (let i=0; i<zkey.domainSize; i++) {
-        const H = await readG1(fd, curve);
+        const H = await readG1(fd, curve, toObject);
         zkey.hExps.push(H);
     }
     await binFileUtils.endReadSection(fd);
@@ -328,7 +330,7 @@ export async function readZKey(fileName) {
 
     return zkey;
 
-    async function readFr2() {
+    async function readFr2(toObject) {
         const n = await binFileUtils.readBigInt(fd, zkey.n8r);
         return Fr.mul(n, Rri2);
     }
@@ -336,12 +338,12 @@ export async function readZKey(fileName) {
 }
 
 
-async function readContribution(fd, curve) {
+async function readContribution(fd, curve, toObject) {
     const c = {delta:{}};
-    c.deltaAfter = await readG1(fd, curve);
-    c.delta.g1_s = await readG1(fd, curve);
-    c.delta.g1_sx = await readG1(fd, curve);
-    c.delta.g2_spx = await readG2(fd, curve);
+    c.deltaAfter = await readG1(fd, curve, toObject);
+    c.delta.g1_s = await readG1(fd, curve, toObject);
+    c.delta.g1_sx = await readG1(fd, curve, toObject);
+    c.delta.g2_spx = await readG2(fd, curve, toObject);
     c.transcript = await fd.read(64);
     c.type = await fd.readULE32();
 
