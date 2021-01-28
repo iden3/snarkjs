@@ -87,7 +87,7 @@ The `new` command is used to start a powers of tau ceremony.
 
 The first parameter after `new` refers to the type of curve you wish to use. At the moment, we support both `bn128` and `bls12-381`.
 
-The second parameter, in this case `12`, is the power of two of the maximum number of contraints that the ceremony can accept: in this case, the number of constraints is `2 ^ 12 = 4096`. The maximum value supported here is `28`, which means you can use `snarkjs` to securely generate zk-snark parameters for circuits with up to `2 ^ 28` (≈268 million) constraints.
+The second parameter, in this case `12`, is the power of two of the maximum number of constraints that the ceremony can accept: in this case, the number of constraints is `2 ^ 12 = 4096`. The maximum value supported here is `28`, which means you can use `snarkjs` to securely generate zk-snark parameters for circuits with up to `2 ^ 28` (≈268 million) constraints.
 
 
 ### 2. Contribute to the ceremony
@@ -217,7 +217,7 @@ component main = Multiplier(1000);
 EOT
 ```
 
-We create a circom file that allows us to easily test the system with a different number of contraints.
+We create a circom file that allows us to easily test the system with a different number of constraints.
 
 In this case, we've chosen `1000`,  but we can change this to anything we want (as long as the value we choose is below the number we defined in step 1).
 
