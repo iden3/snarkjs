@@ -23,10 +23,11 @@ export default {
             os: empty,
             crypto: empty,
             readline: empty,
-            worker_threads: empty,
         }),
         nodeResolve({
-            browser: true
+            browser: true,
+            preferBuiltins: false,
+            exportConditions: ['browser', 'default', 'module', 'require']
         }),
         commonJS(),
         replace({

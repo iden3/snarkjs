@@ -1,36 +1,15 @@
-import { nodeResolve } from "@rollup/plugin-node-resolve";
-import commonJS from "@rollup/plugin-commonjs";
-import virtual from '@rollup/plugin-virtual';
-import replace from '@rollup/plugin-replace';
+import config from './rollup.iife.config';
 import { terser } from "rollup-plugin-terser";
 
-const empty = 'export default {}';
-
 export default {
-    input: "main.js",
+    ...config,
     output: {
+        ...config.output,
         file: "build/snarkjs.min.js",
-        format: "iife",
-        globals: {
-            os: "null"
-        },
-        name: "snarkjs"
+        sourcemap: false,
     },
     plugins: [
-        virtual({
-            fs: empty,
-            os: empty,
-            crypto: empty,
-            readline: empty,
-            worker_threads: empty,
-        }),
-        nodeResolve({
-            browser: true
-        }),
-        commonJS(),
-        replace({
-            "process.browser": !!process.env.BROWSER
-        }),
-        terser()
+        ...config.plugins,
+        terser(),
     ]
 };
