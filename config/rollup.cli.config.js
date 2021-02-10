@@ -1,6 +1,7 @@
-import { nodeResolve } from "@rollup/plugin-node-resolve";
-import commonJS from "@rollup/plugin-commonjs";
-import json from '@rollup/plugin-json';
+import fs from "fs";
+import { builtinModules as builtin } from "module";
+
+const pkg = JSON.parse(fs.readFileSync("./package.json"));
 
 export default {
     input: "cli.js",
@@ -10,31 +11,7 @@ export default {
         banner: "#! /usr/bin/env node\n",
     },
     external: [
-        "fs",
-        "os",
-        "worker_threads",
-        "readline",
-        "crypto",
-        "path",
-        "big-integer",
-        "wasmsnark",
-        "circom_runtime",
-        "blake2b-wasm",
-
-        "ffjavascript",
-        "keccak",
-        "yargs",
-        "logplease",
-    ],
-    plugins: [
-        nodeResolve({
-            preferBuiltins: true,
-        }),
-        commonJS({
-            preserveSymlinks: true,
-            include: "node_modules/**",
-            exclude: "node_modules/big-integer/**"
-        }),
-        json()
+        ...Object.keys(pkg.dependencies),
+        ...builtin,
     ]
 };
