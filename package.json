@@ -40,11 +40,11 @@
   "dependencies": {
     "@iden3/binfileutils": "0.0.8",
     "blake2b-wasm": "https://github.com/jbaylina/blake2b-wasm.git",
-    "circom_runtime": "0.1.11",
+    "circom_runtime": "0.1.13",
     "fastfile": "0.0.19",
-    "ffjavascript": "0.2.34",
+    "ffjavascript": "0.2.35",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.31"
+    "r1csfile": "0.0.32"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.0.0",
