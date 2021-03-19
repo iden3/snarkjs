@@ -3,6 +3,7 @@
 'use strict';
 
 var fs = require('fs');
+var os =require('os');
 var r1csfile = require('r1csfile');
 var fastFile = require('fastfile');
 var ffjavascript = require('ffjavascript');
@@ -148,7 +149,11 @@ let pkgS;
 try {
     pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1, "package.json"));
 } catch (err) {
-    pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1, "..","package.json"));
+    if (os.type() !== 'Windows_NT') {
+        pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1, "..","package.json"));
+    } else {
+        pkgS = fs__default['default'].readFileSync(path__default['default'].join(__dirname$1.slice(1,__dirname$1.length), "..","package.json"));
+    }
 }
 
 const pkg = JSON.parse(pkgS);
@@ -5741,7 +5746,11 @@ async function zkeyExportSolidityVerifier(params, options) {
         templateName = path__default['default'].join( __dirname$2, "templates", "verifier_groth16.sol");
         await fs__default['default'].promises.stat(templateName);
     } catch (err) {
-        templateName = path__default['default'].join( __dirname$2, "..", "templates", "verifier_groth16.sol");
+        if (os.type() !== 'Windows_NT') {
+            templateName = path__default['default'].join( __dirname$2, "..", "templates", "verifier_groth16.sol");
+        } else {
+            templateName = fs__default['default'].readFileSync(path__default['default'].join(__dirname$2.slice(1,__dirname$1.length), "..","templates","verifier_groth16.sol"));
+        }
     }
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templateName);
