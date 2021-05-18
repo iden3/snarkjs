@@ -35,6 +35,7 @@ const {stringifyBigInts, unstringifyBigInts} = utils;
 
 import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
+import * as plonk from "./src/plonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
@@ -267,7 +268,34 @@ const commands = [
         alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
         action: groth16Verify
     },
-
+    {
+        cmd: "plonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial PLONK pkey ",
+        alias: ["pks"],
+        options: "-verbose|v",
+        action: plonkSetup
+    },
+    {
+        cmd: "plonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a PLONK Proof from witness",
+        alias: ["pkp"],
+        options: "-verbose|v -protocol",
+        action: plonkProve
+    },
+    {
+        cmd: "plonk fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
+        description: "Generates a PLONK Proof from input",
+        alias: ["pkf"],
+        options: "-verbose|v -protocol",
+        action: plonkFullProve
+    },
+    {
+        cmd: "plonk verify [verification_key.json] [public.json] [proof.json]",
+        description: "Verify a PLONK Proof",
+        alias: ["pkv"],
+        options: "-verbose|v",
+        action: plonkVerify
+    }
 ];
 
 
@@ -986,3 +1014,96 @@ async function zkeyBellmanContribute(params, options) {
     return zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
+
+// plonk setup <circuit.r1cs> <powersoftau.ptau> <circuit.zkey>
+async function plonkSetup(params, options) {
+    let r1csName;
+    let ptauName;
+    let zkeyName;
+
+    if (params.length < 1) {
+        r1csName = "circuit.r1cs";
+    } else {
+        r1csName = params[0];
+    }
+
+    if (params.length < 2) {
+        ptauName = "powersoftau.ptau";
+    } else {
+        ptauName = params[1];
+    }
+
+    if (params.length < 3) {
+        zkeyName = "circuit.zkey";
+    } else {
+        zkeyName = params[2];
+    }
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return plonk.setup(r1csName, ptauName, zkeyName, logger);
+}
+
+
+// plonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
+async function plonkProve(params, options) {
+
+    const zkeyName = params[0] || "circuit.zkey";
+    const witnessName = params[1] || "witness.wtns";
+    const proofName = params[2] || "proof.json";
+    const publicName = params[3] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
+
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+
+    return 0;
+}
+
+
+// plonk fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]
+async function plonkFullProve(params, options) {
+
+    const inputName = params[0] || "input.json";
+    const wasmName = params[1] || "circuit.wasm";
+    const zkeyName = params[2] || "circuit.zkey";
+    const proofName = params[3] || "proof.json";
+    const publicName = params[4] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+
+    const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName,  logger);
+
+    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
+    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+
+    return 0;
+}
+
+
+// plonk verify [verification_key.json] [public.json] [proof.json]
+async function plonkVerify(params, options) {
+
+    const verificationKeyName = params[0] || "verification_key.json";
+    const publicName = params[1] || "public.json";
+    const proofName = params[2] || "proof.json";
+
+    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
+    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
+    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const isValid = await plonk.verify(verificationKey, pub, proof, logger);
+
+    if (isValid) {
+        return 0;
+    } else {
+        return 1;
+    }
+}

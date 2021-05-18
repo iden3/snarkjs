@@ -6,7 +6,6 @@ import * as misc from "./misc.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 const sameRatio = misc.sameRatio;
 import crypto from "crypto";
-import newZKey from "./zkey_new.js";
 import {hashG1, hashPubKey} from "./zkey_utils.js";
 import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
@@ -18,11 +17,13 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
     await Blake2b.ready();
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
-    const zkey = await zkeyUtils.readHeader(fd, sections, "groth16");
+    const zkey = await zkeyUtils.readHeader(fd, sections);
+    if (zkey.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
 
     const curve = await getCurve(zkey.q);
     const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
 
     const mpcParams = await zkeyUtils.readMPCParams(fd, curve, sections);
 

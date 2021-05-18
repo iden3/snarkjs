@@ -31,7 +31,12 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
 
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
-    const zkey = await zkeyUtils.readHeader(fdOld, sections, "groth16");
+    const zkey = await zkeyUtils.readHeader(fdOld, sections);
+
+    if (zkey.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
+
 
     const curve = await getCurve(zkey.q);
 

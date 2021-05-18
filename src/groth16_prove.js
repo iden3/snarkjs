@@ -13,7 +13,11 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
+    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
+
+    if (zkey.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
 
     if (!Scalar.eq(zkey.r,  wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
@@ -162,7 +166,7 @@ async function buldABC1(curve, zkey, witness, coeffs, logger) {
 
 }
 
-
+/*
 async function buldABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
@@ -291,7 +295,7 @@ async function buldABC(curve, zkey, witness, coeffs, logger) {
         return 4 + m*sCoef;
     }
 }
-
+*/
 
 async function joinABC(curve, zkey, a, b, c, logger) {
     const MAX_CHUNK_SIZE = 1 << 22;

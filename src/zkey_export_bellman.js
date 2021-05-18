@@ -7,7 +7,10 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 export default async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
-    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
+    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
+    if (zkey.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
 
     const curve = await getCurve(zkey.q);
     const sG1 = curve.G1.F.n8*2;
@@ -133,4 +136,4 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
 
 
 
-};
+}

@@ -1,0 +1,70 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "plonk setup",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "pks",
+                "test/plonk_circuit/circuit.r1cs",
+                "test/plonk_circuit/powersOfTau15_final.ptau", 
+                "test/plonk_circuit/circuit.zkey"
+            ]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "plonk prove",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "pkp",
+                "test/plonk_circuit/circuit.zkey",
+                "test/plonk_circuit/witness.wtns", 
+                "test/plonk_circuit/proof.json",
+                "test/plonk_circuit/public.json",
+                "-v"
+            ]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "plonk export vk",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkev",
+                "test/plonk_circuit/circuit.zkey",
+                "test/plonk_circuit/verification_key.json",
+            ]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "plonk verify",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "pkv",
+                "test/plonk_circuit/verification_key.json",
+                "test/plonk_circuit/public.json",
+                "test/plonk_circuit/proof.json",
+                "-v"
+            ]
+        }
+    ]
+}
