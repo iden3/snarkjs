@@ -104,18 +104,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await writeSigma(12, "sigma");
     await writeLs(13, "lagrange polynomials");
 
-    // Write Lagrange Points Section
-    ///////////
-    await startWriteSection(fdZKey, 14);
-    await fdZKey.write(LPoints);
-    await endWriteSection(fdZKey);
-
     // Write PTau points
     ////////////
 
-    await startWriteSection(fdZKey, 15);
-    const buffOut = new BigBuffer(domainSize*sG1);
-    await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, sectionsPTau[2][0].p);
+    await startWriteSection(fdZKey, 14);
+    const buffOut = new BigBuffer((domainSize+6)*sG1);
+    await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await endWriteSection(fdZKey);
 
@@ -384,26 +378,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);
-
-        let bX;
-        bX = await fdPTau.read(sG1, sectionsPTau[2][0].p + sG1);
-        await fdZKey.write(bX);
-
-        let bX2;
-        bX2 = await fdPTau.read(sG1, sectionsPTau[2][0].p + sG1*2);
-        await fdZKey.write(bX2);
-
-        let bXtoM;
-        bXtoM = await fdPTau.read(sG1, sectionsPTau[2][0].p + sG1*domainSize);
-        await fdZKey.write(bXtoM);
-
-        let bXtoMplus1;
-        bXtoMplus1 = await fdPTau.read(sG1, sectionsPTau[2][0].p + sG1*(domainSize+1));
-        await fdZKey.write(bXtoMplus1);
-
-        let bXtoMplus2;
-        bXtoMplus2 = await fdPTau.read(sG1, sectionsPTau[2][0].p + sG1*(domainSize+2));
-        await fdZKey.write(bXtoMplus2);
 
         await fdZKey.write(G1.toAffine(vk.Qm));
         await fdZKey.write(G1.toAffine(vk.Ql));

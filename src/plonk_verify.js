@@ -208,15 +208,6 @@ function calculateChallanges(curve, proof) {
     G1.toRprUncompressed(transcript6, G1.F.n8*2, proof.Wxiw);
     res.u = hashToFr(curve, transcript6);
 
-    // TODO: remove
-    // res.v[1] = Fr.zero;
-    // res.v[2] = Fr.zero;
-    // res.v[3] = Fr.zero; 
-    // res.v[4] = Fr.zero; 
-    // res.v[5] = Fr.zero; 
-    // res.v[6] = Fr.zero; 
-    // res.u = Fr.zero;
-
     return res;
 }
 

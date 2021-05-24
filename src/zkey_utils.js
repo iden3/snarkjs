@@ -268,12 +268,6 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.k1 = await fd.read(n8r);
     zkey.k2 = await fd.read(n8r);
 
-    zkey.X = await readG1(fd, curve, toObject);
-    zkey.Xto2 = await readG1(fd, curve, toObject);
-    zkey.XtoM = await readG1(fd, curve, toObject);
-    zkey.XtoMplus1 = await readG1(fd, curve, toObject);
-    zkey.XtoMplus2 = await readG1(fd, curve, toObject);
-
     zkey.Qm = await readG1(fd, curve, toObject);
     zkey.Ql = await readG1(fd, curve, toObject);
     zkey.Qr = await readG1(fd, curve, toObject);
