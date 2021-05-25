@@ -159,6 +159,14 @@ const commands = [
         action: wtnsDebug
     },
     {
+        cmd: "wtns convert json [witness.json] [witness.wtns] [prime]",
+        description: "Convert a witness JSON file to .wtns format",
+        longDescription: "Convert a witness JSON file to .wtns format. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-verbose|v",
+        alias: ["wcj"],
+        action: wtnsConvertJson
+    },
+    {
         cmd: "wtns export json [witness.wtns] [witnes.json]",
         description: "Calculate the witness with debug info.",
         longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
@@ -397,6 +405,16 @@ async function wtnsDebug(params, options) {
     return 0;
 }
 
+// wtns convert json [witness.json] [witness.wtns]
+async function wtnsConvertJson(params, options) {
+    const jsonName = params[0] || "witness.json";
+    const wtnsName = params[1] || "witness.wtns";
+    const prime = params[2] || "21888242871839275222246405745257275088548364400416034343698204186575808495617";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    await wtns.convert(jsonName, wtnsName, prime);
+}
 
 // wtns export json  [witness.wtns] [witness.json]
 // -get|g -set|s -trigger|t
