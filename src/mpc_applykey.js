@@ -3,16 +3,17 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 /*
     This function creates a new section in the fdTo file with id idSection.
-    It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
+    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
     It also updates the newChallengeHasher with the new points
 */
 
-export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger) {
+export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger, progress) {
     const MAX_CHUNK_SIZE = 1 << 16;
     const G = curve[groupName];
     const sG = G.F.n8*2;
     const nPoints = sections[idSection][0].size / sG;
+    progress.reportFrequency = 1000;
 
     await binFileUtils.startReadUniqueSection(fdOld, sections,idSection );
     await binFileUtils.startWriteSection(fdNew, idSection);
@@ -23,7 +24,7 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
         const n= Math.min(nPoints - i, MAX_CHUNK_SIZE);
         let buff;
         buff = await fdOld.read(n*sG);
-        buff = await G.batchApplyKey(buff, t, inc);
+        buff = await G.batchApplyKey(buff, t, inc, progress);
         await fdNew.write(buff);
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
