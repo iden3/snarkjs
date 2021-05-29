@@ -13,7 +13,7 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
     const G = curve[groupName];
     const sG = G.F.n8*2;
     const nPoints = sections[idSection][0].size / sG;
-    progress.reportFrequency = 1000;
+    if (progress) progress.reportFrequency = 1000;
 
     await binFileUtils.startReadUniqueSection(fdOld, sections,idSection );
     await binFileUtils.startWriteSection(fdNew, idSection);
