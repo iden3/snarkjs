@@ -101,7 +101,9 @@ async function plonkVk(zkey) {
         S2: curve.G1.toObject(zkey.S2),
         S3: curve.G1.toObject(zkey.S3),
 
-        X_2: curve.G2.toObject(zkey.X_2)
+        X_2: curve.G2.toObject(zkey.X_2),
+
+        w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
 
     vKey = stringifyBigInts(vKey);
