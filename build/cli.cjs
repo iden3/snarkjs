@@ -8328,6 +8328,11 @@ async function zkeyExportJson$1(params, options) {
     await fs__default['default'].promises.writeFile(zkeyJsonName, S);
 }
 
+async function fileExists(file) {
+    return fs__default['default'].promises.access(file, fs__default['default'].constants.F_OK)
+        .then(() => true)
+        .catch(() => false);
+}
 // solidity genverifier [circuit_final.zkey] [verifier.sol]
 async function zkeyExportSolidityVerifier(params, options) {
     let zkeyName;
@@ -8349,9 +8354,14 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     const templates = {};
 
-    templates.groth16 = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "templates", "verifier_groth16.sol.ejs"), "utf8");
-    templates.plonk = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "templates", "verifier_plonk.sol.ejs"), "utf8");
-
+    if (await fileExists(path__default['default'].join(__dirname$2, "templates"))) {
+        templates.groth16 = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "templates", "verifier_groth16.sol.ejs"), "utf8");
+        templates.plonk = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+    } else {
+        templates.groth16 = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
+        templates.plonk = await fs__default['default'].promises.readFile(path__default['default'].join(__dirname$2, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+    }
+    
     const verifierCode = await exportSolidityVerifier(zkeyName, templates);
 
     fs__default['default'].writeFileSync(verifierName, verifierCode, "utf-8");
