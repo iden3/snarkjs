@@ -3,7 +3,7 @@
 
 # snarkjs
 
-This is a **JavaScript and Pure Web Assembly implementation of zkSNARK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings).
+This is a **JavaScript and Pure Web Assembly implementation of zkSNARK and PLONK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings) and PLONK.
 
 This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit specific ceremonies.
 
@@ -302,18 +302,18 @@ We export `r1cs` to `json` format to make it human readable.
 
 ### 14. Setup
 
-Currently, snarkjs supports 2 proving systems: groth16 and plonk. 
+Currently, snarkjs supports 2 proving systems: groth16 and PLONK. 
 
-Groth16 requires a trusted ceremony for each circuit. Plonk does not require it, it's enought with the powers of tau ceremony which is universal.
+Groth16 requires a trusted ceremony for each circuit. PLONK does not require it, it's enought with the powers of tau ceremony which is universal.
 
 #### Plonk
 ```sh
 snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
 
-You can jump directly to Section 21 as plonk does not require a specific trusted ceremony.
+You can jump directly to Section 21 as PLONK does not require a specific trusted ceremony.
 
-### Groth16
+#### Groth16
 ```sh
 snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
@@ -422,7 +422,7 @@ The `wtns debug` command logs every time a new component starts/ends (`--trigger
 
 ### 24. Create the proof
 
-#### Plonk
+#### PLONK
 
 ```sh
 snarkjs plonk prove circuit_final.zkey witness.wtns proof.json public.json
@@ -444,7 +444,7 @@ We create the proof. this command generates the files `proof.json` and `public.j
 
 ### 25. Verify the proof
 
-#### Plonk
+#### PLONK
 ```sh
 snarkjs plonk verify verification_key.json public.json proof.json
 ```
