@@ -72,7 +72,7 @@ jobs:
         snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
         cat circuit.r1cs.json
     - name: 14. Generate the reference zkey without phase 2 contributions
-      run: snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
+      run: snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
     - name: 15. Contribute to the phase 2 ceremony
       run: snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -e="some random text" -v
     - name: 16. Provide a second contribution
@@ -106,6 +106,19 @@ jobs:
       run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
     - name: 27. Simulate a verification call
       run: snarkjs zkey export soliditycalldata public.json proof.json
+    - name: 28. Plonk setup
+      run: snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
+    - name: 29. Export the verification key
+      run: snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
+    - name: 30. Create a PLONK proof
+      run: snarkjs plonk prove circuit_final.zkey witness.wtns proof.json public.json
+    - name: 31. Verify the PLONK proof
+      run: snarkjs plonk verify verification_key.json public.json proof.json
+    - name: 32. Turn the PLONK verifier into a smart contract
+      run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+    - name: 33. Simulate a PLONK verification call
+      run: snarkjs zkey export soliditycalldata public.json proof.json
+
 
 
 
