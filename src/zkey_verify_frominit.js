@@ -1,3 +1,22 @@
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
@@ -17,7 +36,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
     await Blake2b.ready();
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
-    const zkey = await zkeyUtils.readHeader(fd, sections);
+    const zkey = await zkeyUtils.readHeader(fd, sections, false);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
     }
@@ -83,7 +102,11 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
 
     const {fd: fdInit, sections: sectionsInit} = await binFileUtils.readBinFile(initFileName, "zkey", 2);
-    const zkeyInit = await zkeyUtils.readHeader(fdInit, sectionsInit, "groth16");
+    const zkeyInit = await zkeyUtils.readHeader(fdInit, sectionsInit, false);
+
+    if (zkeyInit.protocol != "groth16") {
+        throw new Error("zkeyinit file is not groth16");
+    }
 
     if (  (!Scalar.eq(zkeyInit.q, zkey.q))
         ||(!Scalar.eq(zkeyInit.r, zkey.r))

@@ -61,7 +61,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     await processConstraints();
 
-    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 15, 1<<22, 1<<24);
+    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
 
 
     if (r1cs.prime != curve.r) {

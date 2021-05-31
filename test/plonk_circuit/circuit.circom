@@ -1,5 +1,5 @@
 template TestPlonk() {
-    signal private input a;
+    signal input a;
     signal private input b;
     signal output c;
    

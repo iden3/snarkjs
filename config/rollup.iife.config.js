@@ -24,6 +24,7 @@ export default {
             os: empty,
             crypto: empty,
             readline: empty,
+            ejs: empty,
             // Stub out a "global" module that we can inject later
             global: empty,
         }),

@@ -98,6 +98,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     ///////////////////////
 
     proof.protocol = "plonk";
+    proof.curve = curve.name;
 
     await fdZKey.close();
     await fdWtns.close();
@@ -129,6 +130,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     proof.Wxi = G1.toObject(proof.Wxi);
     proof.Wxiw = G1.toObject(proof.Wxiw);
+
+    delete proof.eval_t;
 
     proof = stringifyBigInts(proof);
     publicSignals = stringifyBigInts(publicSignals);
@@ -313,7 +316,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             while ((deg>0)&&(Fr.isZero(p.slice(deg*n8r, deg*n8r+n8r)))) deg--;
             return deg;
         }
-        */
 
         function printPol(P) {
             const n=(P.byteLength/n8r);
@@ -323,6 +325,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             }
             console.log("]");
         }
+        */
 
         const QM4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QM4, 0 , zkey.domainSize*n8r*4, sectionsZKey[7][0].p + zkey.domainSize*n8r);
@@ -370,19 +373,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
         ];
 
-        /*
-        const Zw = new BigBuffer(zkey.domainSize*4*n8r);
-        for (let i=0; i<zkey.domainSize*4; i++) {
-            Zw.set(
-                Z4.slice(((i+zkey.domainSize*4+4)%(zkey.domainSize*4)) *n8r, ((i+zkey.domainSize*4+4)%(zkey.domainSize*4)) *n8r +n8r),
-                i*n8r
-            );
-        }
-
-        const degZw = await checkDegree(Zw);
-        printPol(Zw);
-        console.log("degZw: " + degZw);
-        */
         const T = new BigBuffer(zkey.domainSize*4*n8r);
         const Tz = new BigBuffer(zkey.domainSize*4*n8r);
 
@@ -487,8 +477,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             w = Fr.mul(w, Fr.w[zkey.power+2]);
         }
 
-        printPol(T);
-
         let t = await Fr.ifft(T);
 
         for (let i=0; i<zkey.domainSize; i++) {
@@ -509,7 +497,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         }
 
         const tz = await Fr.ifft(Tz);
-        printPol(tz);
         for (let i=0; i<zkey.domainSize*4; i++) {
             const a = tz.slice(i*n8r, (i+1)*n8r);
             if (i > (zkey.domainSize*3 +5) ) {
@@ -698,15 +685,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function round5() {
-        const transcript5 = new Uint8Array(n8r*8);
+        const transcript5 = new Uint8Array(n8r*7);
         Fr.toRprBE(transcript5, 0, proof.eval_a);
         Fr.toRprBE(transcript5, n8r, proof.eval_b);
         Fr.toRprBE(transcript5, n8r*2, proof.eval_c);
         Fr.toRprBE(transcript5, n8r*3, proof.eval_s1);
         Fr.toRprBE(transcript5, n8r*4, proof.eval_s2);
         Fr.toRprBE(transcript5, n8r*5, proof.eval_zw);
-        Fr.toRprBE(transcript5, n8r*6, proof.eval_t);
-        Fr.toRprBE(transcript5, n8r*7, proof.eval_r);
+        Fr.toRprBE(transcript5, n8r*6, proof.eval_r);
         ch.v = [];
         ch.v[1] = hashToFr(transcript5);
         if (logger) logger.debug("v: " + Fr.toString(ch.v[1]));    

@@ -276,10 +276,28 @@ cat circuit.r1cs.json
 
 We export `r1cs` to `json` format to make it human readable.
 
-### 14. Generate the reference `zkey` without phase 2 contributions
+
+### 14. Setup
+
+Currently, snarkjs supports 2 proving systems: groth16 and plonk. 
+
+Groth16 requires a trusted ceremony for each circuit. Plonk does not require it, it's enought with the powers of tau ceremony which is universal.
+
+#### Plonk
 ```sh
-snarkjs zkey new circuit.r1cs pot12_final.ptau circuit_0000.zkey
+snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
+
+You can jump directly to Section 21 as plonk does not require a specific trusted ceremony.
+
+### Groth16
+```sh
+snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
+```
+
+This generates the reference `zkey` without phase 2 contributions
+
+IMPORTANT: Do not use this zkey in production, as it's not safe. It requires at least a contribution,
 
 The `zkey new` command creates an initial `zkey` file with zero contributions.
 
@@ -380,11 +398,20 @@ The `wtns debug` command logs every time a new component starts/ends (`--trigger
 
 
 ### 24. Create the proof
+
+#### Plonk
+
+```sh
+snarkjs plonk prove circuit_final.zkey witness.wtns proof.json public.json
+```
+
+#### Groth16
+
 ```sh
 snarkjs groth16 prove circuit_final.zkey witness.wtns proof.json public.json
 ```
 
-We create the proof. `groth16 prove` generates the files `proof.json` and `public.json`: `proof.json` contains the actual proof, whereas `public.json` contains the values of the public inputs and output.
+We create the proof. this command generates the files `proof.json` and `public.json`: `proof.json` contains the actual proof, whereas `public.json` contains the values of the public inputs and output.
 
 > Note that it's also possible to create the proof and calculate the witness in the same command by running:
 > ```sh
@@ -393,11 +420,18 @@ We create the proof. `groth16 prove` generates the files `proof.json` and `publi
 
 
 ### 25. Verify the proof
+
+#### Plonk
+```sh
+snarkjs plonk verify verification_key.json public.json proof.json
+```
+
+#### Groth16
 ```sh
 snarkjs groth16 verify verification_key.json public.json proof.json
 ```
 
-We use the `groth16 verify` command to verify the proof, passing in the `verification_key` we exported earlier.
+We use the this command to verify the proof, passing in the `verification_key` we exported earlier.
 
 If all is well, you should see that `OK` has been outputted to your console. This signifies the proof is valid.
 

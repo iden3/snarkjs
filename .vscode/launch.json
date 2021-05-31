@@ -65,6 +65,42 @@
                 "test/plonk_circuit/proof.json",
                 "-v"
             ]
-        }
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "export solidity calldata",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkesc",
+                "test/plonk_circuit/public.json",
+                "test/plonk_circuit/proof.json",
+            ]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "export solidity verifier",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkesv",
+                "test/plonk_circuit/circuit.zkey",
+                "test/plonk_circuit/verifier.sol",
+            ]
+        },
+        {            
+            "type": "node",            
+            "request": "launch",            
+            "name": "Mocha all tests",            
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "cwd": "${workspaceRoot}",   
+            "internalConsoleOptions": "openOnSessionStart"        
+         }
     ]
 }

@@ -1,20 +1,20 @@
 /*
     Copyright 2018 0KIMS association.
 
-    This file is part of jaz (Zero Knowledge Circuit Compiler).
+    This file is part of snarkJS.
 
-    jaz is a free software: you can redistribute it and/or modify it
+    snarkJS is a free software: you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    jaz is distributed in the hope that it will be useful, but WITHOUT
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
     ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
     License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with jaz. If not, see <https://www.gnu.org/licenses/>.
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
 /* eslint-disable no-console */
@@ -168,13 +168,6 @@ const commands = [
         action: wtnsExportJson
     },
     {
-        cmd: "zkey new [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
-        description: "Creates an initial pkey file with zero contributions ",
-        alias: ["zkn"],
-        options: "-verbose|v",
-        action: zkeyNew
-    },
-    {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
         description: "creates a zkey file with a new contribution",
         alias: ["zkc"],
@@ -243,10 +236,17 @@ const commands = [
         action: zkeyExportSolidityVerifier
     },
     {
-        cmd: "zkey export soliditycalldata <public.json> <proof.json>",
+        cmd: "zkey export soliditycalldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
+    },
+    {
+        cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
+        description: "Creates an initial groth16 pkey file with zero contributions",
+        alias: ["g16s", "zkn", "zkey new"],
+        options: "-verbose|v",
+        action: zkeyNew
     },
     {
         cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
@@ -330,13 +330,6 @@ TODO COMMANDS
     }
 */
 
-
-function p256(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0"+nstr;
-    nstr = `"0x${nstr}"`;
-    return nstr;
-}
 
 function changeExt(fileName, newExt) {
     let S = fileName;
@@ -572,15 +565,12 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    let templateName;
-    try {
-        templateName = path.join( __dirname, "templates", "verifier_groth16.sol");
-        await fs.promises.stat(templateName);
-    } catch (err) {
-        templateName = path.join( __dirname, "..", "templates", "verifier_groth16.sol");
-    }
+    const templates = {};
 
-    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templateName, logger);
+    templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
+    templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
+
+    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
@@ -610,33 +600,15 @@ async function zkeyExportSolidityCalldata(params, options) {
     const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
     const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
 
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256(pub[i]);
-    }
-
-    let S;
-    if ((typeof proof.protocol === "undefined") || (proof.protocol == "original")) {
-        S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-          `[${p256(proof.pi_ap[0])}, ${p256(proof.pi_ap[1])}],` +
-          `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-          `[${p256(proof.pi_bp[0])}, ${p256(proof.pi_bp[1])}],` +
-          `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-          `[${p256(proof.pi_cp[0])}, ${p256(proof.pi_cp[1])}],` +
-          `[${p256(proof.pi_h[0])}, ${p256(proof.pi_h[1])}],` +
-          `[${p256(proof.pi_kp[0])}, ${p256(proof.pi_kp[1])}],` +
-          `[${inputs}]`;
-    } else if ((proof.protocol == "groth16")||(proof.protocol == "kimleeoh")) {
-        S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-          `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-          `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-          `[${inputs}]`;
+    let res;
+    if (proof.protocol == "groth16") {
+        res = await groth16.exportSolidityCallData(proof, pub);
+    } else if (proof.protocol == "plonk") {
+        res = await plonk.exportSolidityCallData(proof, pub);
     } else {
-        throw new Error("InvalidProof");
+        throw new Error("Invalid Protocol");
     }
-
-    console.log(S);
+    console.log(res);
 
     return 0;
 }

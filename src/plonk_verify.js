@@ -44,18 +44,19 @@ export default async function plonkVerify(vk_verifier, publicSignals, proof, log
     }
     const challanges = calculateChallanges(curve, proof);
     if (logger) {
-        logger.debug("beta: " + Fr.toString(challanges.beta));    
-        logger.debug("gamma: " + Fr.toString(challanges.gamma));    
-        logger.debug("alpha: " + Fr.toString(challanges.alpha));    
-        logger.debug("xi: " + Fr.toString(challanges.xi));    
-        logger.debug("v: " + Fr.toString(challanges.v));    
-        logger.debug("u: " + Fr.toString(challanges.u));    
+        logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
+        logger.debug("gamma: " + Fr.toString(challanges.gamma, 16));    
+        logger.debug("alpha: " + Fr.toString(challanges.alpha, 16));    
+        logger.debug("xi: " + Fr.toString(challanges.xi, 16));    
+        logger.debug("v1: " + Fr.toString(challanges.v[1], 16));    
+        logger.debug("v6: " + Fr.toString(challanges.v[6], 16));    
+        logger.debug("u: " + Fr.toString(challanges.u, 16));    
     }
     const L = calculateLagrangeEvaluations(curve, challanges, vk_verifier);
     if (logger) {
         logger.debug("Lagrange Evaluations: ");
         for (let i=1; i<L.length; i++) {
-            logger.debug(`L${i}(xi)=` + Fr.toString(L[i]));    
+            logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));    
         }
     }
     
@@ -66,27 +67,27 @@ export default async function plonkVerify(vk_verifier, publicSignals, proof, log
 
     const pl = calculatePl(curve, publicSignals, L);
     if (logger) {
-        logger.debug("Pl: " + Fr.toString(pl));
+        logger.debug("Pl: " + Fr.toString(pl, 16));
     }
 
     const t = calculateT(curve, proof, challanges, pl, L[1]);
     if (logger) {
-        logger.debug("t: " + Fr.toString(t));
+        logger.debug("t: " + Fr.toString(t, 16));
     }
 
     const D = calculateD(curve, proof, challanges, vk_verifier, L[1]);
     if (logger) {
-        logger.debug("D: " + G1.toString(D));
+        logger.debug("D: " + G1.toString(G1.toAffine(D), 16));
     }
 
     const F = calculateF(curve, proof, challanges, vk_verifier, D);
     if (logger) {
-        logger.debug("F: " + G1.toString(F));
+        logger.debug("F: " + G1.toString(G1.toAffine(F), 16));
     }
 
     const E = calculateE(curve, proof, challanges, vk_verifier, t);
     if (logger) {
-        logger.debug("E: " + G1.toString(E));
+        logger.debug("E: " + G1.toString(G1.toAffine(E), 16));
     }
 
     const res = await isValidPairing(curve, proof, challanges, vk_verifier, E, F);
@@ -121,7 +122,6 @@ function fromObjectProof(curve, proof) {
     res.eval_zw = Fr.fromObject(proof.eval_zw);
     res.eval_s1 = Fr.fromObject(proof.eval_s1);
     res.eval_s2 = Fr.fromObject(proof.eval_s2);
-    res.eval_t = Fr.fromObject(proof.eval_t);
     res.eval_r = Fr.fromObject(proof.eval_r);
     res.Wxi = G1.fromObject(proof.Wxi);
     res.Wxiw = G1.fromObject(proof.Wxiw);
@@ -181,7 +181,6 @@ function calculateChallanges(curve, proof) {
     const transcript3 = new Uint8Array(G1.F.n8*2);
     G1.toRprUncompressed(transcript3, 0, proof.Z);
     res.alpha = hashToFr(curve, transcript3);
-    console.log("Alpha: ", res.alpha);
 
     const transcript4 = new Uint8Array(G1.F.n8*2*3);
     G1.toRprUncompressed(transcript4, 0, proof.T1);
@@ -189,15 +188,14 @@ function calculateChallanges(curve, proof) {
     G1.toRprUncompressed(transcript4, G1.F.n8*4, proof.T3);
     res.xi = hashToFr(curve, transcript4);
 
-    const transcript5 = new Uint8Array(n8r*8);
+    const transcript5 = new Uint8Array(n8r*7);
     Fr.toRprBE(transcript5, 0, proof.eval_a);
     Fr.toRprBE(transcript5, n8r, proof.eval_b);
     Fr.toRprBE(transcript5, n8r*2, proof.eval_c);
     Fr.toRprBE(transcript5, n8r*3, proof.eval_s1);
     Fr.toRprBE(transcript5, n8r*4, proof.eval_s2);
     Fr.toRprBE(transcript5, n8r*5, proof.eval_zw);
-    Fr.toRprBE(transcript5, n8r*6, proof.eval_t);
-    Fr.toRprBE(transcript5, n8r*7, proof.eval_r);
+    Fr.toRprBE(transcript5, n8r*6, proof.eval_r);
     res.v = [];
     res.v[1] = hashToFr(curve, transcript5);
 
@@ -276,14 +274,6 @@ function calculateT(curve, proof, challanges, pl, l1) {
     num = Fr.sub(num, Fr.mul(l1, Fr.square(challanges.alpha)));
 
     const t = Fr.div(num, challanges.zh);
-
-    if (!Fr.eq(t, proof.eval_t)) {
-        console.log("t DOES NOT MATCH");
-    } else {
-        console.log("t OK");
-    }
-    console.log(Fr.toString(proof.eval_t));
-    console.log(Fr.toString(t));
 
     return t;
 }
