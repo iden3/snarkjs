@@ -2187,12 +2187,12 @@ async function verify(tauFilename, logger) {
 
 /*
     This function creates a new section in the fdTo file with id idSection.
-    It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
+    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
     It also updates the newChallengeHasher with the new points
 */
 
-async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger) {
+async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger, progress) {
     const MAX_CHUNK_SIZE = 1 << 16;
     const G = curve[groupName];
     const sG = G.F.n8*2;
@@ -2207,13 +2207,19 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
         const n= Math.min(nPoints - i, MAX_CHUNK_SIZE);
         let buff;
         buff = await fdOld.read(n*sG);
-        buff = await G.batchApplyKey(buff, t, inc);
+        buff = await G.batchApplyKey(buff, t, inc, undefined, undefined, progress);
         await fdNew.write(buff);
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
 
     await binFileUtils.endWriteSection(fdNew);
     await binFileUtils.endReadSection(fdOld);
+}
+
+function countPoints(sections, idSection, curve, groupName) {
+    const G = curve[groupName];
+    const sG = G.F.n8*2;
+    return sections[idSection][0].size / sG;
 }
 
 
@@ -4545,7 +4551,9 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
     return await phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger);
 }
 
-async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
+async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, options) {
+    // TODO: Validate options.
+
     await Blake2b__default['default'].ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
@@ -4604,9 +4612,21 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     // B2 Section
     await binFileUtils.copySection(fdOld, sections, fdNew, 7);
 
+    let sectionCount = 0, progressOptions = undefined;
+    if (options && options.progressCallback) {
+        const lPoints = countPoints(sections, 8, curve, "G1");
+        const hPoints = countPoints(sections, 9, curve, "G1");
+        const totalPoints = lPoints + hPoints;
+        const progressCallback = (count) => {
+            options.progressCallback(sectionCount + count, totalPoints);
+        };
+        progressOptions = { progressCallback };
+    }
+
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
+    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger, progressOptions);
+    sectionCount = lPoints;
+    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger, progressOptions);
 
     await writeMPCParams(fdNew, curve, mpcParams);
 
@@ -4616,12 +4636,12 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     const contributionHasher = Blake2b__default['default'](64);
     hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
     if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }
 
 async function beacon$1(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {

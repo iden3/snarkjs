@@ -13,7 +13,6 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
     const G = curve[groupName];
     const sG = G.F.n8*2;
     const nPoints = sections[idSection][0].size / sG;
-    if (progress) progress.reportFrequency = 1000;
 
     await binFileUtils.startReadUniqueSection(fdOld, sections,idSection );
     await binFileUtils.startWriteSection(fdNew, idSection);
@@ -24,13 +23,19 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
         const n= Math.min(nPoints - i, MAX_CHUNK_SIZE);
         let buff;
         buff = await fdOld.read(n*sG);
-        buff = await G.batchApplyKey(buff, t, inc, progress);
+        buff = await G.batchApplyKey(buff, t, inc, undefined, undefined, progress);
         await fdNew.write(buff);
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
 
     await binFileUtils.endWriteSection(fdNew);
     await binFileUtils.endReadSection(fdOld);
+}
+
+export function countPoints(sections, idSection, curve, groupName) {
+    const G = curve[groupName];
+    const sG = G.F.n8*2;
+    return sections[idSection][0].size / sG;
 }
 
 

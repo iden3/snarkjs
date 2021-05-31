@@ -6,19 +6,12 @@ import * as misc from "./misc.js";
 import Blake2b from "blake2b-wasm";
 import * as utils from "./zkey_utils.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
-import { applyKeyToSection } from "./mpc_applykey.js";
+import { applyKeyToSection, countPoints } from "./mpc_applykey.js";
 
-export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    //let options = options || { progressCallback: undefined, };
+export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, options) {
     // TODO: Validate options.
-    //const progressCallback = options.progressCallback;
 
     await Blake2b.ready();
-
-    // Params are (step, current count, total count)
-    let calcCount = 0;
-    let totalCount = 0;
-    //if (progressCallback) progressCallback(0, calcCount, totalCount);
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fdOld, sections, "groth16");
@@ -41,7 +34,6 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
     const curContribution = {};
     curContribution.delta = {};
     curContribution.delta.prvKey = curve.Fr.fromRng(rng);
-    //if (progressCallback) progressCallback(1, calcCount, totalCount);
     curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
     curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, curContribution.delta.prvKey));
     utils.hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
@@ -59,7 +51,6 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
     if (name) curContribution.name = name;
 
     mpcParams.contributions.push(curContribution);
-    //if (progressCallback) progressCallback(2, calcCount, totalCount);
 
     await zkeyUtils.writeHeader(fdNew, zkey);
 
@@ -78,13 +69,26 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
     // B2 Section
     await binFileUtils.copySection(fdOld, sections, fdNew, 7);
 
-    //const progress = progressCallback ? { progressCallback, step: 6, totalCount: 0, currentCount: 0} : undefined;
+    let totalPoints = 0, sectionCount = 0, progressOptions = undefined;
+    if (options && options.progressCallback) {
+        const lPoints = countPoints(sections, 8, curve, "G1");
+        const hPoints = countPoints(sections, 9, curve, "G1");
+        totalPoints = lPoints + hPoints;
+        const progressCallback = (data) => {
+            let count = 0;
+            if (data.type) {
+                if (data.type === 'end-chunk') sectionCount += data.count;
+            } else {
+                count = data;
+            }
+            options.progressCallback(sectionCount + count, totalPoints);
+        }
+        progressOptions = { progressCallback };
+    }
+
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    //if (progressCallback) progressCallback(3, calcCount, totalCount);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
-    //if (progressCallback) progressCallback(4, calcCount, totalCount);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
-    //if (progressCallback) progressCallback(5, calcCount, totalCount);
+    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger, progressOptions);
+    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger, progressOptions);
 
     await zkeyUtils.writeMPCParams(fdNew, curve, mpcParams);
 
@@ -98,7 +102,6 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
 
     if (logger) logger.info(misc.formatHash(mpcParams.csHash, "Circuit Hash: "));
     if (logger) logger.info(misc.formatHash(contributionHash, "Contribution Hash: "));
-   // if (progressCallback) progressCallback(7, calcCount, totalCount);
 
     return contributionHash;
 }
