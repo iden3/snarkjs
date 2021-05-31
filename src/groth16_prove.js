@@ -1,3 +1,22 @@
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
@@ -13,7 +32,11 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, "groth16");
+    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
+
+    if (zkey.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
 
     if (!Scalar.eq(zkey.r,  wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
@@ -109,6 +132,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     proof.pi_c = G1.toObject(G1.toAffine(proof.pi_c));
 
     proof.protocol = "groth16";
+    proof.curve = curve.name;
 
     await fdZKey.close();
     await fdWtns.close();
@@ -162,7 +186,7 @@ async function buldABC1(curve, zkey, witness, coeffs, logger) {
 
 }
 
-
+/*
 async function buldABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
@@ -291,7 +315,7 @@ async function buldABC(curve, zkey, witness, coeffs, logger) {
         return 4 + m*sCoef;
     }
 }
-
+*/
 
 async function joinABC(curve, zkey, a, b, c, logger) {
     const MAX_CHUNK_SIZE = 1 << 22;

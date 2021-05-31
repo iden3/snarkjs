@@ -74,4 +74,4 @@ export default async function groth16Verify(vk_verifier, publicSignals, proof, l
 
     if (logger) logger.info("OK!");
     return true;
-};
+}
