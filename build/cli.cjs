@@ -6050,8 +6050,9 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const cirPower = log2(plonkConstraints.length -1) +1;
     const domainSize = 2 ** cirPower;
 
+    if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
     if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length}*2 > 2**${power}`);
+        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${power}`);
         return -1;
     }
 
