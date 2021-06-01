@@ -6051,7 +6051,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const domainSize = 2 ** cirPower;
 
     if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints}*2 > 2**${power}`);
+        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length}*2 > 2**${power}`);
         return -1;
     }
 
@@ -6196,7 +6196,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             const ql = curve.Fr.mul(A.coef, B.k);
             const qr = curve.Fr.mul(A.k, B.coef);
             const qo = curve.Fr.neg(C.coef);
-            const qc = curve.Fr.neg(C.k);
+            const qc = curve.Fr.sub(curve.Fr.mul(A.k, B.k) , C.k);
 
             plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
         }
