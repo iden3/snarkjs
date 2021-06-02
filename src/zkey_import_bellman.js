@@ -1,3 +1,22 @@
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import * as zkeyUtils from "./zkey_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import * as fastFile from "fastfile";
@@ -7,7 +26,10 @@ import * as misc from "./misc.js";
 export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
-    const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, "groth16");
+    const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, false);
+    if (zkeyHeader.protocol != "groth16") {
+        throw new Error("zkey file is not groth16");
+    }
 
     const curve = await getCurve(zkeyHeader.q);
     const sG1 = curve.G1.F.n8*2;

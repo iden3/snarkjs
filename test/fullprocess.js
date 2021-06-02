@@ -18,9 +18,11 @@ describe("Full process", function ()  {
     const zkey_1 = {type: "mem"};
     const zkey_2 = {type: "mem"};
     const zkey_final = {type: "mem"};
+    const zkey_plonk = {type: "mem"};
     const bellman_1 = {type: "mem"};
     const bellman_2 = {type: "mem"};
     let vKey;
+    let vKeyPlonk;
     const wtns = {type: "mem"};
     let proof;
     let publicSignals;
@@ -36,7 +38,7 @@ describe("Full process", function ()  {
     });
 
     it ("powersoftau new", async () => {
-        await snarkjs.powersOfTau.newAccumulator(curve, 10, ptau_0);
+        await snarkjs.powersOfTau.newAccumulator(curve, 11, ptau_0);
     });
 
     it ("powersoftau contribute ", async () => {
@@ -68,7 +70,7 @@ describe("Full process", function ()  {
         assert(res);
     });
 
-    it ("zkey new", async () => {
+    it ("groth16 setup", async () => {
         await snarkjs.zKey.newZKey(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_0);
     });
 
@@ -116,9 +118,31 @@ describe("Full process", function ()  {
         publicSignals = res.publicSignals;
     });
 
+
     it ("groth16 verify", async () => {
         const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
         assert(res == true);
     });
+
+    it ("plonk setup", async () => {
+        await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
+    });
+
+    it ("zkey export verificationkey", async () => {
+        vKey = await snarkjs.zKey.exportVerificationKey(zkey_plonk);
+    });
+
+    it ("plonk proof", async () => {
+        const res = await snarkjs.plonk.prove(zkey_plonk, wtns);
+        proof = res.proof;
+        publicSignals = res.publicSignals;
+    });
+
+
+    it ("plonk verify", async () => {
+        const res = await snarkjs.plonk.verify(vKey, publicSignals, proof);
+        assert(res == true);
+    });
+
 
 });
