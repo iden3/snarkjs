@@ -5412,6 +5412,8 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
 */
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, options) {
+    // TODO: Validate options.
+
     await Blake2b__default['default'].ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
@@ -5473,12 +5475,18 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger,
     // B2 Section
     await binFileUtils.copySection(fdOld, sections, fdNew, 7);
 
-    let sectionCount = 0, progressOptions = undefined;
+    let totalPoints = 0, sectionCount = 0, progressOptions = undefined;
     if (options && options.progressCallback) {
         const lPoints = countPoints(sections, 8, curve, "G1");
         const hPoints = countPoints(sections, 9, curve, "G1");
-        const totalPoints = lPoints + hPoints;
-        const progressCallback = (count) => {
+        totalPoints = lPoints + hPoints;
+        const progressCallback = (data) => {
+            let count = 0;
+            if (data.type) {
+                if (data.type === 'end-chunk') sectionCount += data.count;
+            } else {
+                count = data;
+            }
             options.progressCallback(sectionCount + count, totalPoints);
         };
         progressOptions = { progressCallback };
@@ -5486,7 +5494,6 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger,
 
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
     await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger, progressOptions);
-    sectionCount = lPoints;
     await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger, progressOptions);
 
     await writeMPCParams(fdNew, curve, mpcParams);
