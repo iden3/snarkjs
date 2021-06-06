@@ -6047,7 +6047,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         return -1;
     }
 
-    const cirPower = log2(plonkConstraints.length -1) +1;
+    let cirPower = log2(plonkConstraints.length -1) +1;
+    if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
     const domainSize = 2 ** cirPower;
 
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
@@ -6718,18 +6719,23 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         }
         */
 
+        if (logger) logger.debug("phse3: Reading QM4");    
         const QM4 = new ffjavascript.BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QM4, 0 , zkey.domainSize*n8r*4, sectionsZKey[7][0].p + zkey.domainSize*n8r);
 
+        if (logger) logger.debug("phse3: Reading QL4");    
         const QL4 = new ffjavascript.BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QL4, 0 , zkey.domainSize*n8r*4, sectionsZKey[8][0].p + zkey.domainSize*n8r);
 
+        if (logger) logger.debug("phse3: Reading QR4");    
         const QR4 = new ffjavascript.BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QR4, 0 , zkey.domainSize*n8r*4, sectionsZKey[9][0].p + zkey.domainSize*n8r);
 
+        if (logger) logger.debug("phse3: Reading QO4");    
         const QO4 = new ffjavascript.BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QO4, 0 , zkey.domainSize*n8r*4, sectionsZKey[10][0].p + zkey.domainSize*n8r);
 
+        if (logger) logger.debug("phse3: Reading QC4");    
         const QC4 = new ffjavascript.BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QC4, 0 , zkey.domainSize*n8r*4, sectionsZKey[11][0].p + zkey.domainSize*n8r);
 
@@ -6769,6 +6775,8 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
         let w = Fr.one;
         for (let i=0; i<zkey.domainSize*4; i++) {
+            if ((i%4096 == 0)&&(logger)) logger.debug(`calculating t ${i}/${zkey.domainSize*4}`);
+
             const a = A4.slice(i*n8r, i*n8r+n8r);
             const b = B4.slice(i*n8r, i*n8r+n8r);
             const c = C4.slice(i*n8r, i*n8r+n8r);
@@ -6868,8 +6876,10 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
             w = Fr.mul(w, Fr.w[zkey.power+2]);
         }
 
+        if (logger) logger.debug("ifft T");    
         let t = await Fr.ifft(T);
 
+        if (logger) logger.debug("dividing T/Z");    
         for (let i=0; i<zkey.domainSize; i++) {
             t.set(Fr.neg(t.slice(i*n8r, i*n8r+n8r)), i*n8r);
         }
@@ -6887,6 +6897,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
             }
         }
 
+        if (logger) logger.debug("ifft Tz");    
         const tz = await Fr.ifft(Tz);
         for (let i=0; i<zkey.domainSize*4; i++) {
             const a = tz.slice(i*n8r, (i+1)*n8r);

@@ -69,7 +69,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         return -1;
     }
 
-    const cirPower = log2(plonkConstraints.length -1) +1;
+    let cirPower = log2(plonkConstraints.length -1) +1;
+    if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
     const domainSize = 2 ** cirPower;
 
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
