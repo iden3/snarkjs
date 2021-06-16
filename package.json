@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.4.4",
   "description": "zkSNARKs implementation in JavaScript",
-  "browser": "./build/snarkjs.js",
+  "main": "./build/main.js",
   "module": "./main.js",
   "exports": {
     "import": "./main.js",
