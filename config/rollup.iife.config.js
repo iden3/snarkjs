@@ -4,7 +4,6 @@ import inject from "@rollup/plugin-inject";
 import virtual from "@rollup/plugin-virtual";
 import replace from "@rollup/plugin-replace";
 import visualizer from "rollup-plugin-visualizer";
-import webWorkerLoader from 'rollup-plugin-web-worker-loader';
 
 const empty = "export default {}";
 
@@ -29,10 +28,6 @@ export default {
             // Stub out a "global" module that we can inject later
             global: empty,
         }),        
-        webWorkerLoader({ 
-            "sourceMap": true,            
-            "inline": true,
-        }),
         nodeResolve({
             browser: true,
             preferBuiltins: false,
