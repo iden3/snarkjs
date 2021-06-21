@@ -27,8 +27,6 @@ import { hashToG2 as hashToG2 } from "./keypair.js";
 import { applyKeyToSection, countPoints } from "./mpc_applykey.js";
 
 export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger, options) {
-    // TODO: Validate options.
-
     await Blake2b.ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
