@@ -403,7 +403,7 @@ We export the verification key from `circuit_final.zkey` into `verification_key.
 cat <<EOT > input.json
 {"a": 3, "b": 11}
 EOT
-snarkjs wtns calculate circuit.wasm input.json witness.wtns
+snarkjs calculatewitness -c circuit.wasm -i input.json -w witness.wtns
 ```
 
 Calculate the witness (given the inputs `a = 3` and `b = 11`).
