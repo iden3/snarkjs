@@ -221,9 +221,11 @@ Before we go ahead and create the circuit, we perform a final check and verify t
 ### 9. Create the circuit
 ```sh
 cat <<EOT > circuit.circom
+pragma circom 2.0.0;
+
 template Multiplier(n) {
-    signal private input a;
-    signal private input b;
+    signal input a;
+    signal input b;
     signal output c;
 
     signal int[n];
@@ -304,7 +306,7 @@ We export `r1cs` to `json` format to make it human readable.
 
 Currently, snarkjs supports 2 proving systems: groth16 and PLONK. 
 
-Groth16 requires a trusted ceremony for each circuit. PLONK does not require it, it's enought with the powers of tau ceremony which is universal.
+Groth16 requires a trusted ceremony for each circuit. PLONK does not require it, it's enough with the powers of tau ceremony which is universal.
 
 #### Plonk
 ```sh
