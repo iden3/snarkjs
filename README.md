@@ -321,20 +321,7 @@ Now, we use the Javascript/WASM program created by `circom` in the directory *ci
 circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 ```
 
-### 15. Debug the final witness calculation
-
-Now, again with snarkjs we can check the generated witness:
-```sh
-snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
-```
-
-And check for any errors in the witness calculation process (best practice).
-
-
-The `wtns debug` command logs every time a new component starts/ends (`--trigger`), when a signal is set (`--set`) and when it's read (`--get`).
-
-
-### 16. Setup
+### 15. Setup
 
 Currently, snarkjs supports 2 proving systems: groth16 and PLONK. 
 
@@ -366,7 +353,7 @@ Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not
 
 *The following steps (15-20) are similar to the equivalent phase 1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
 
-### 17. Contribute to the phase 2 ceremony
+### 16. Contribute to the phase 2 ceremony
 ```sh
 snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -v
 ```
@@ -376,14 +363,14 @@ The `zkey contribute` command creates a `zkey` file with a new contribution.
 As in phase 1, you'll be prompted to enter some random text to provide an extra source of entropy.
 
 
-### 18. Provide a second contribution
+### 17. Provide a second contribution
 ```sh
 snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contribution Name" -v -e="Another random entropy"
 ```
 
 We provide a second contribution.
 
-### 19. Provide a third contribution using third party software
+### 18. Provide a third contribution using third party software
 
 ```sh
 snarkjs zkey export bellman circuit_0002.zkey  challenge_phase2_0003
@@ -393,7 +380,7 @@ snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.
 
 And a third using [third-party software](https://github.com/kobigurk/phase2-bn254).
 
-### 20. Verify the latest `zkey`
+### 19. Verify the latest `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
 ```
@@ -410,7 +397,7 @@ If everything checks out, you should see the following:
 [INFO]  snarkJS: ZKey Ok!
 ```
 
-### 21. Apply a random beacon
+### 20. Apply a random beacon
 ```sh
 snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
 ```
@@ -419,21 +406,21 @@ The `zkey beacon` command creates a `zkey` file with a contribution applied in t
 
 We use it to apply a random beacon to the latest `zkey` after the final contribution has been made (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
 
-### 22. Verify the final `zkey`
+### 21. Verify the final `zkey`
 ```sh
 snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
 Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript (`zkey`).
 
-### 23. Export the verification key
+### 22. Export the verification key
 ```sh
 snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
 ```
 We export the verification key from `circuit_final.zkey` into `verification_key.json`.
 
 
-### 24. Create the proof
+### 23. Create the proof
 
 #### PLONK
 
@@ -455,7 +442,7 @@ We create the proof. this command generates the files `proof.json` and `public.j
 > ```
 
 
-### 25. Verify the proof
+### 24. Verify the proof
 
 #### PLONK
 ```sh
@@ -472,14 +459,14 @@ We use the this command to verify the proof, passing in the `verification_key` w
 If all is well, you should see that `OK` has been outputted to your console. This signifies the proof is valid.
 
 
-### 26. Turn the verifier into a smart contract
+### 25. Turn the verifier into a smart contract
 ```sh
 snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
 ```
 
 Finally, we export the verifier as a Solidity smart-contract so that we can publish it on-chain -- using [remix](https://remix.ethereum.org/) for example. For the details on how to do this, refer to section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
 
-### 27. Simulate a verification call
+### 26. Simulate a verification call
 ```sh
 snarkjs zkey export soliditycalldata public.json proof.json
 ```
