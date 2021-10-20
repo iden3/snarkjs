@@ -40,13 +40,13 @@
   "dependencies": {
     "@iden3/binfileutils": "0.0.8",
     "blake2b-wasm": "^2.3.0",
-    "circom_runtime": "0.1.13",
+    "circom_runtime": "0.1.14",
     "ejs": "^3.1.6",
     "fastfile": "0.0.19",
     "ffjavascript": "0.2.39",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.32",
+    "r1csfile": "0.0.33",
     "readline": "^1.3.0"
   },
   "devDependencies": {
