@@ -43,7 +43,7 @@
     "circom_runtime": "0.1.13",
     "ejs": "^3.1.6",
     "fastfile": "0.0.19",
-    "ffjavascript": "0.2.37",
+    "ffjavascript": "0.2.39",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
     "r1csfile": "0.0.32",
