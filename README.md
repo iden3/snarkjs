@@ -318,7 +318,7 @@ EOT
 Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
-circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
+snarkjs wtns calculate circuit.wasm ../input.json ../witness.wtns
 ```
 
 ### 15. Setup
