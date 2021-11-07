@@ -224,18 +224,17 @@ Before we go ahead and create the circuit, we perform a final check and verify t
 ### 9. Create the circuit
 ```sh
 cat <<EOT > circuit.circom
-pragma circom 2.0.0;
 
 template Multiplier(n) {
-    signal input a;
-    signal input b;
+    signal private input a;
+    signal private input b;
     signal output c;
 
     signal int[n];
 
     int[0] <== a*a + b;
     for (var i=1; i<n; i++) {
-    int[i] <== int[i-1]*int[i-1] + b;
+      int[i] <== int[i-1]*int[i-1] + b;
     }
 
     c <== int[n-1];
