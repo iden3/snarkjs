@@ -1,6 +1,5 @@
 import { nodeResolve } from "@rollup/plugin-node-resolve";
 import commonJS from "@rollup/plugin-commonjs";
-import inject from "@rollup/plugin-inject";
 import virtual from "@rollup/plugin-virtual";
 import replace from "@rollup/plugin-replace";
 import visualizer from "rollup-plugin-visualizer";
@@ -25,8 +24,6 @@ export default {
             crypto: empty,
             readline: empty,
             ejs: empty,
-            // Stub out a "global" module that we can inject later
-            global: empty,
         }),
         nodeResolve({
             browser: true,
@@ -36,10 +33,6 @@ export default {
         commonJS(),
         replace({
             "process.browser": !!process.env.BROWSER
-        }),
-        inject({
-            // Inject the "global" virtual module if we see any reference to `global` in the code
-            global: "global",
         }),
         visualizer(),
     ]
