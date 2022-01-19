@@ -32,6 +32,8 @@ export default {
         }),
         commonJS(),
         replace({
+            // The current default is false, but they are changing it next version
+            preventAssignment: false,
             "process.browser": !!process.env.BROWSER
         }),
         visualizer(),
