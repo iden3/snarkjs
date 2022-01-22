@@ -5521,7 +5521,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger) {
     const buffCoeffs = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 4);
 
     if (logger) logger.debug("Building ABC");
-    const [buffA_T, buffB_T, buffC_T] = await buldABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+    const [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
 
     const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
@@ -5606,7 +5606,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger) {
 }
 
 
-async function buldABC1(curve, zkey, witness, coeffs, logger) {
+async function buildABC1(curve, zkey, witness, coeffs, logger) {
     const n8 = curve.Fr.n8;
     const sCoef = 4*3 + zkey.n8r;
     const nCoef = (coeffs.byteLength-4) / sCoef;
@@ -5861,13 +5861,21 @@ async function wtnsCalculate$1(input, wasmFileName, wtnsFileName, options) {
     await fdWasm.close();
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
-    const w = await wc.calculateBinWitness(input);
+    if (wc.circom_version() == 1) {
+        const w = await wc.calculateBinWitness(input);
 
-    const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
+        const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
 
-    await writeBin(fdWtns, w, wc.prime);
-    await fdWtns.close();
+        await writeBin(fdWtns, w, wc.prime);
+        await fdWtns.close();
+    } else {
+        const fdWtns = await fastFile__namespace.createOverride(wtnsFileName);
 
+        const w = await wc.calculateWTNSBin(input);
+
+        await fdWtns.write(w);
+        await fdWtns.close();
+    }
 }
 
 /*
