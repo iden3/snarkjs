@@ -224,11 +224,9 @@ Before we go ahead and create the circuit, we perform a final check and verify t
 ### 9. Create the circuit
 ```sh
 cat <<EOT > circuit.circom
-pragma circom 2.0.0;
-
 template Multiplier(n) {
-    signal input a;
-    signal input b;
+    signal private input a;
+    signal private input b;
     signal output c;
 
     signal int[n];
@@ -318,7 +316,7 @@ EOT
 Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
-circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
+snarkjs calculatewitness --wasm circuit.wasm --input input.json --witness witness.wtns 
 ```
 
 ### 15. Setup
