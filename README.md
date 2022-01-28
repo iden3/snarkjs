@@ -233,7 +233,7 @@ template Multiplier(n) {
 
     int[0] <== a*a + b;
     for (var i=1; i<n; i++) {
-    int[i] <== int[i-1]*int[i-1] + b;
+        int[i] <== int[i-1]*int[i-1] + b;
     }
 
     c <== int[n-1];
@@ -313,7 +313,7 @@ cat <<EOT > input.json
 EOT
 ```
 
-Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
+Now, we use the Javascript/WASM program created by `circom` to create the witness (values of all the wires) for our inputs:
 
 ```sh
 snarkjs calculatewitness --wasm circuit.wasm --input input.json --witness witness.wtns 
