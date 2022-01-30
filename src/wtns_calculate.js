@@ -29,11 +29,19 @@ export default async function wtnsCalculate(input, wasmFileName, wtnsFileName, o
     await fdWasm.close();
 
     const wc = await WitnessCalculatorBuilder(wasm);
-    const w = await wc.calculateBinWitness(input);
+    if (wc.circom_version() == 1) {
+        const w = await wc.calculateBinWitness(input);
 
-    const fdWtns = await binFileUtils.createBinFile(wtnsFileName, "wtns", 2, 2);
+        const fdWtns = await binFileUtils.createBinFile(wtnsFileName, "wtns", 2, 2);
 
-    await wtnsUtils.writeBin(fdWtns, w, wc.prime);
-    await fdWtns.close();
+        await wtnsUtils.writeBin(fdWtns, w, wc.prime);
+        await fdWtns.close();
+    } else {
+        const fdWtns = await fastFile.createOverride(wtnsFileName);
 
+        const w = await wc.calculateWTNSBin(input);
+
+        await fdWtns.write(w);
+        await fdWtns.close();
+    }
 }
