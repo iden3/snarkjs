@@ -61,21 +61,20 @@ export default async function clProcessor(commands) {
         if (m) {
             if ((argv.h) || (argv.help)) {
                 helpCmd(cmd);
-                return;
+                return 0;
             }
             if (areParamsValid(cmd.cmd, m)) {
                 if (cmd.options) {
                     const options = getOptions(cmd.options);
-                    await cmd.action(m, options);
+                    return await cmd.action(m, options);
                 } else {
-                    await cmd.action(m, {});
+                    return await cmd.action(m, {});
                 }
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
                 helpCmd(cmd);
                 return 99;
             }
-            return;
         }
     }
     if (cl.length>0) console.log("Invalid command");
