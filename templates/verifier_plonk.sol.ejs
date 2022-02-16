@@ -23,7 +23,7 @@ pragma solidity >=0.7.0 <0.9.0;
 
 contract PlonkVerifier {
     
-    uint<%=2**Math.ceil(Math.log2(power))%> constant n =   <%=2**power%>;
+    uint32 constant n =   <%=2**power%>;
     uint16 constant nPublic =  <%=nPublic%>;
     uint16 constant nLagrange = <%=Math.max(nPublic, 1)%>;
     
