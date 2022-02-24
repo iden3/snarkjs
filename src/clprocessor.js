@@ -58,6 +58,7 @@ export default async function clProcessor(commands) {
     for (let i=0; i<commands.length; i++) {
         const cmd = commands[i];
         const m = calculateMatch(commands[i], cl);
+        let res;
         if (m) {
             if ((argv.h) || (argv.help)) {
                 helpCmd(cmd);
@@ -66,16 +67,16 @@ export default async function clProcessor(commands) {
             if (areParamsValid(cmd.cmd, m)) {
                 if (cmd.options) {
                     const options = getOptions(cmd.options);
-                    await cmd.action(m, options);
+                    res = await cmd.action(m, options);
                 } else {
-                    await cmd.action(m, {});
+                    res = await cmd.action(m, {});
                 }
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
                 helpCmd(cmd);
                 return 99;
             }
-            return;
+            return res;
         }
     }
     if (cl.length>0) console.log("Invalid command");
