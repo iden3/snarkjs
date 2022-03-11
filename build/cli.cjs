@@ -289,6 +289,7 @@ async function clProcessor(commands) {
     for (let i=0; i<commands.length; i++) {
         const cmd = commands[i];
         const m = calculateMatch(commands[i], cl);
+        let res;
         if (m) {
             if ((argv.h) || (argv.help)) {
                 helpCmd(cmd);
@@ -297,16 +298,16 @@ async function clProcessor(commands) {
             if (areParamsValid(cmd.cmd, m)) {
                 if (cmd.options) {
                     const options = getOptions(cmd.options);
-                    await cmd.action(m, options);
+                    res = await cmd.action(m, options);
                 } else {
-                    await cmd.action(m, {});
+                    res = await cmd.action(m, {});
                 }
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
                 helpCmd(cmd);
                 return 99;
             }
-            return;
+            return res;
         }
     }
     if (cl.length>0) console.log("Invalid command");
@@ -7790,13 +7791,15 @@ async function wtnsDebug$1(input, wasmFileName, wtnsFileName, symName, options, 
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
         wcOps.logSetSignal= function(labelIdx, value) {
-            if (logger) logger.info("SET " + sym.labelIdx2Name[labelIdx] + " <-- " + value.toString());
+            // The line below splits the arrow log into 2 strings to avoid some Secure ECMAScript issues
+            if (logger) logger.info("SET " + sym.labelIdx2Name[labelIdx] + " <" + "-- " + value.toString());
         };
     }
     if (options.get) {
         if (!sym) sym = await loadSymbols(symName);
         wcOps.logGetSignal= function(varIdx, value) {
-            if (logger) logger.info("GET " + sym.labelIdx2Name[varIdx] + " --> " + value.toString());
+            // The line below splits the arrow log into 2 strings to avoid some Secure ECMAScript issues
+            if (logger) logger.info("GET " + sym.labelIdx2Name[varIdx] + " --" + "> " + value.toString());
         };
     }
     if (options.trigger) {
