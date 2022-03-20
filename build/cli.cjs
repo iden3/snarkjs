@@ -6306,7 +6306,8 @@ async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
             if (typeof firstPos[s] !== "undefined") {
                 sigma.set(lastAparence[s], firstPos[s]*n8r);
             } else {
-                throw new Error("Variable not used");
+                // throw new Error("Variable not used");
+                console.log("Variable not used");
             }
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
