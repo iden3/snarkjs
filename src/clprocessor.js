@@ -25,7 +25,7 @@ const version = pkg.version;
 
 import path from "path";
 import fs from "fs";
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const __dirname = path.dirname(require('url').fileURLToPath(import.meta.url));
 
 let pkgS;
 try {

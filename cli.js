@@ -44,7 +44,7 @@ import Logger from "logplease";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const __dirname = path.dirname(require('url').fileURLToPath(import.meta.url));
 
 const commands = [
     {
