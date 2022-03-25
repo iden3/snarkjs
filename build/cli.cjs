@@ -6044,7 +6044,6 @@ async function groth16ExportSolidityCallData(proof, pub) {
 
 async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
 
-
     await Blake2b__default["default"].ready();
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
