@@ -9,14 +9,14 @@
     "import": "./main.js",
     "require": "./build/main.cjs"
   },
+  "browser": "./build/main.ses.cjs",
   "scripts": {
     "test": "mocha",
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
     "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
-    "buildiifeses": "BROWSER=true SES=true rollup -c config/rollup.iife.config.js",
-    "buildiifesesmin": "BROWSER=true SES=true rollup -c config/rollup.iife_min.config.js"
+    "buildses": "BROWSER=true SES=true rollup -c config/rollup.ses.config.js"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"

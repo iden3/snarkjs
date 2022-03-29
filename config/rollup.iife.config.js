@@ -3,7 +3,6 @@ import commonJS from "@rollup/plugin-commonjs";
 import virtual from "@rollup/plugin-virtual";
 import replace from "@rollup/plugin-replace";
 import visualizer from "rollup-plugin-visualizer";
-import jscc from 'rollup-plugin-jscc'
 
 const empty = "export default {}";
 
@@ -38,8 +37,5 @@ export default {
             "process.browser": !!process.env.BROWSER
         }),
         visualizer(),
-        jscc({
-            values: { _SES: process.env.SES },
-        }),
     ]
 };
