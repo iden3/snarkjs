@@ -256,7 +256,7 @@ async function r1csExportJson(r1csFileName, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const __dirname$2 = path__default["default"].dirname(require('url').fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$2 = path__default["default"].dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
 
 let pkgS;
 try {
@@ -7872,7 +7872,7 @@ const {stringifyBigInts, unstringifyBigInts} = ffjavascript.utils;
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp:false});
 Logger__default["default"].setLogLevel("INFO");
 
-const __dirname$1 = path__default["default"].dirname(require('url').fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$1 = path__default["default"].dirname(new URL((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))).pathname);
 
 const commands = [
     {
