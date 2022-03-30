@@ -37,7 +37,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
     if (zkey.protocol != "plonk") {
-        throw new Error("zkey file is not groth16");
+        throw new Error("zkey file is not plonk");
     }
 
     if (!Scalar.eq(zkey.r,  wtns.q)) {
