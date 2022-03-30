@@ -20,6 +20,7 @@
 /* eslint-disable no-console */
 
 import fs from "fs";
+import url from "url";
 
 import {readR1cs} from "r1csfile";
 
@@ -44,7 +45,7 @@ import Logger from "logplease";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const commands = [
     {
