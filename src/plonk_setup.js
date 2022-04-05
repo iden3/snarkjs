@@ -319,17 +319,18 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             }
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
-    	if (globalThis.gc) {globalThis.gc();}
+
+        if (globalThis.gc) {globalThis.gc();}
         await startWriteSection(fdZKey, sectionNum);
         let S1 = sigma.slice(0, domainSize*n8r);
         await writeP4(S1);
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
         let S2 = sigma.slice(domainSize*n8r, domainSize*n8r*2);
         await writeP4(S2);
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
         let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
         await writeP4(S3);
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
         await endWriteSection(fdZKey);
 
         S1 = await Fr.batchFromMontgomery(S1);
@@ -337,11 +338,11 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         S3 = await Fr.batchFromMontgomery(S3);
 
         vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
         vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
         vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
-    	if (globalThis.gc) {globalThis.gc();}
+        if (globalThis.gc) {globalThis.gc();}
 
         function buildSigma(s, p) {
             if (typeof lastAparence[s] === "undefined") {

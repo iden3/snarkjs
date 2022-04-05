@@ -42,7 +42,11 @@ export default async function plonkVerify(vk_verifier, publicSignals, proof, log
         logger.error("Proof is not well constructed");
         return false;
     }
-    const challanges = calculateChallanges(curve, proof);
+    if (publicSignals.length != vk_verifier.nPublic) {
+        logger.error("Invalid number of public inputs");
+        return false;
+    }
+    const challanges = calculateChallanges(curve, proof, publicSignals);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challanges.gamma, 16));    
@@ -162,16 +166,20 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
-function calculateChallanges(curve, proof) {
+function calculateChallanges(curve, proof, publicSignals) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
     const n8r = curve.Fr.n8;
     const res = {};
 
-    const transcript1 = new Uint8Array(G1.F.n8*2*3);
-    G1.toRprUncompressed(transcript1, 0, proof.A);
-    G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-    G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+    const transcript1 = new Uint8Array(publicSignals.length*n8r + G1.F.n8*2*3);
+    for (let i=0; i<publicSignals.length; i++) {
+        Fr.toRprBE(transcript1, i*n8r, Fr.e(publicSignals[i]));
+    }
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + 0, proof.A);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*2, proof.B);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*4, proof.C);
+
     res.beta = hashToFr(curve, transcript1);
 
     const transcript2 = new Uint8Array(n8r);

@@ -221,10 +221,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function round2() {
 
-        const transcript1 = new Uint8Array(G1.F.n8*2*3);
-        G1.toRprUncompressed(transcript1, 0, proof.A);
-        G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-        G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+        const transcript1 = new Uint8Array(zkey.nPublic*n8r + G1.F.n8*2*3);
+        for (let i=0; i<zkey.nPublic; i++) {
+            Fr.toRprBE(transcript1, i*n8r, A.slice((i)*n8r, (i+1)*n8r));
+        }
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + 0, proof.A);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*2, proof.B);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*4, proof.C);
 
         ch.beta = hashToFr(transcript1);
         if (logger) logger.debug("beta: " + Fr.toString(ch.beta));

@@ -6002,6 +6002,8 @@ var zkey = /*#__PURE__*/Object.freeze({
 
 async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
+    if (globalThis.gc) {globalThis.gc();}
+
     await Blake2b__default["default"].ready();
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
@@ -6025,6 +6027,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
     await processConstraints();
+    if (globalThis.gc) {globalThis.gc();}
 
     const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
 
@@ -6060,16 +6063,27 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
 
     await writeAdditions(3, "Additions");
+    if (globalThis.gc) {globalThis.gc();}
     await writeWitnessMap(4, 0, "Amap");
+    if (globalThis.gc) {globalThis.gc();}
     await writeWitnessMap(5, 1, "Bmap");
+    if (globalThis.gc) {globalThis.gc();}
     await writeWitnessMap(6, 2, "Cmap");
+    if (globalThis.gc) {globalThis.gc();}
     await writeQMap(7, 3, "Qm");
+    if (globalThis.gc) {globalThis.gc();}
     await writeQMap(8, 4, "Ql");
+    if (globalThis.gc) {globalThis.gc();}
     await writeQMap(9, 5, "Qr");
+    if (globalThis.gc) {globalThis.gc();}
     await writeQMap(10, 6, "Qo");
+    if (globalThis.gc) {globalThis.gc();}
     await writeQMap(11, 7, "Qc");
+    if (globalThis.gc) {globalThis.gc();}
     await writeSigma(12, "sigma");
+    if (globalThis.gc) {globalThis.gc();}
     await writeLs(13, "lagrange polynomials");
+    if (globalThis.gc) {globalThis.gc();}
 
     // Write PTau points
     ////////////
@@ -6079,6 +6093,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await binFileUtils.endWriteSection(fdZKey);
+    if (globalThis.gc) {globalThis.gc();}
 
 
     await writeHeaders();
@@ -6269,13 +6284,18 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             }
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
+
+        if (globalThis.gc) {globalThis.gc();}
         await binFileUtils.startWriteSection(fdZKey, sectionNum);
         let S1 = sigma.slice(0, domainSize*n8r);
         await writeP4(S1);
+        if (globalThis.gc) {globalThis.gc();}
         let S2 = sigma.slice(domainSize*n8r, domainSize*n8r*2);
         await writeP4(S2);
+        if (globalThis.gc) {globalThis.gc();}
         let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
         await writeP4(S3);
+        if (globalThis.gc) {globalThis.gc();}
         await binFileUtils.endWriteSection(fdZKey);
 
         S1 = await Fr.batchFromMontgomery(S1);
@@ -6283,8 +6303,11 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         S3 = await Fr.batchFromMontgomery(S3);
 
         vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
+        if (globalThis.gc) {globalThis.gc();}
         vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
+        if (globalThis.gc) {globalThis.gc();}
         vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
+        if (globalThis.gc) {globalThis.gc();}
 
         function buildSigma(s, p) {
             if (typeof lastAparence[s] === "undefined") {
@@ -6417,7 +6440,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     const zkey = await readHeader$1(fdZKey, sectionsZKey);
     if (zkey.protocol != "plonk") {
-        throw new Error("zkey file is not groth16");
+        throw new Error("zkey file is not plonk");
     }
 
     if (!ffjavascript.Scalar.eq(zkey.r,  wtns.q)) {
@@ -6601,10 +6624,13 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     async function round2() {
 
-        const transcript1 = new Uint8Array(G1.F.n8*2*3);
-        G1.toRprUncompressed(transcript1, 0, proof.A);
-        G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-        G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+        const transcript1 = new Uint8Array(zkey.nPublic*n8r + G1.F.n8*2*3);
+        for (let i=0; i<zkey.nPublic; i++) {
+            Fr.toRprBE(transcript1, i*n8r, A.slice((i)*n8r, (i+1)*n8r));
+        }
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + 0, proof.A);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*2, proof.B);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*4, proof.C);
 
         ch.beta = hashToFr(transcript1);
         if (logger) logger.debug("beta: " + Fr.toString(ch.beta));
@@ -7295,7 +7321,11 @@ async function plonkVerify(vk_verifier, publicSignals, proof, logger) {
         logger.error("Proof is not well constructed");
         return false;
     }
-    const challanges = calculateChallanges(curve, proof);
+    if (publicSignals.length != vk_verifier.nPublic) {
+        logger.error("Invalid number of public inputs");
+        return false;
+    }
+    const challanges = calculateChallanges(curve, proof, publicSignals);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challanges.gamma, 16));    
@@ -7415,16 +7445,20 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
-function calculateChallanges(curve, proof) {
+function calculateChallanges(curve, proof, publicSignals) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
     const n8r = curve.Fr.n8;
     const res = {};
 
-    const transcript1 = new Uint8Array(G1.F.n8*2*3);
-    G1.toRprUncompressed(transcript1, 0, proof.A);
-    G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-    G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+    const transcript1 = new Uint8Array(publicSignals.length*n8r + G1.F.n8*2*3);
+    for (let i=0; i<publicSignals.length; i++) {
+        Fr.toRprBE(transcript1, i*n8r, Fr.e(publicSignals[i]));
+    }
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + 0, proof.A);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*2, proof.B);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*4, proof.C);
+
     res.beta = hashToFr(curve, transcript1);
 
     const transcript2 = new Uint8Array(n8r);
