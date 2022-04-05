@@ -6025,6 +6025,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
     await processConstraints();
+    if (global.gc) {global.gc();}
 
     const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
 
@@ -6060,16 +6061,27 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
 
     await writeAdditions(3, "Additions");
+    if (global.gc) {global.gc();}
     await writeWitnessMap(4, 0, "Amap");
+    if (global.gc) {global.gc();}
     await writeWitnessMap(5, 1, "Bmap");
+    if (global.gc) {global.gc();}
     await writeWitnessMap(6, 2, "Cmap");
+    if (global.gc) {global.gc();}
     await writeQMap(7, 3, "Qm");
+    if (global.gc) {global.gc();}
     await writeQMap(8, 4, "Ql");
+    if (global.gc) {global.gc();}
     await writeQMap(9, 5, "Qr");
+    if (global.gc) {global.gc();}
     await writeQMap(10, 6, "Qo");
+    if (global.gc) {global.gc();}
     await writeQMap(11, 7, "Qc");
+    if (global.gc) {global.gc();}
     await writeSigma(12, "sigma");
+    if (global.gc) {global.gc();}
     await writeLs(13, "lagrange polynomials");
+    if (global.gc) {global.gc();}
 
     // Write PTau points
     ////////////
@@ -6079,6 +6091,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await binFileUtils.endWriteSection(fdZKey);
+    if (global.gc) {global.gc();}
 
 
     await writeHeaders();
@@ -6601,10 +6614,13 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     async function round2() {
 
-        const transcript1 = new Uint8Array(G1.F.n8*2*3);
-        G1.toRprUncompressed(transcript1, 0, proof.A);
-        G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-        G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+        const transcript1 = new Uint8Array(zkey.nPublic*n8r + G1.F.n8*2*3);
+        for (let i=0; i<zkey.nPublic; i++) {
+            Fr.toRprBE(transcript1, i*n8r, A.slice((i+1)*n8r, (i+2)*n8r));
+        }
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + 0, proof.A);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*2, proof.B);
+        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*4, proof.C);
 
         ch.beta = hashToFr(transcript1);
         if (logger) logger.debug("beta: " + Fr.toString(ch.beta));
@@ -7295,7 +7311,11 @@ async function plonkVerify(vk_verifier, publicSignals, proof, logger) {
         logger.error("Proof is not well constructed");
         return false;
     }
-    const challanges = calculateChallanges(curve, proof);
+    if (publicSignals.length != vk_verifier.nPublic) {
+        logger.error("Invalid number of public inputs");
+        return false;
+    }
+    const challanges = calculateChallanges(curve, proof, publicSignals);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challanges.gamma, 16));    
@@ -7415,16 +7435,20 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
-function calculateChallanges(curve, proof) {
+function calculateChallanges(curve, proof, publicSignals) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
     const n8r = curve.Fr.n8;
     const res = {};
 
-    const transcript1 = new Uint8Array(G1.F.n8*2*3);
-    G1.toRprUncompressed(transcript1, 0, proof.A);
-    G1.toRprUncompressed(transcript1, G1.F.n8*2, proof.B);
-    G1.toRprUncompressed(transcript1, G1.F.n8*4, proof.C);
+    const transcript1 = new Uint8Array(publicSignals.length*n8r + G1.F.n8*2*3);
+    for (let i=0; i<publicSignals.length; i++) {
+        Fr.toRprBE(transcript1, i*n8r, Fr.e(publicSignals[i]));
+    }
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + 0, proof.A);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*2, proof.B);
+    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*4, proof.C);
+
     res.beta = hashToFr(curve, transcript1);
 
     const transcript2 = new Uint8Array(n8r);

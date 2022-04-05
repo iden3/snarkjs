@@ -99,10 +99,9 @@ contract PlonkVerifier {
     <% for (let i=1; i<=Math.max(nPublic, 1); i++) { %>
     uint16 constant pEval_l<%=i%> = <%=640+i*32%>;
     <% } %>
+    <% let pLastMem = 672+32*Math.max(nPublic,1) %>
     
-    
-    uint16 constant lastMem = <%=672+32*Math.max(nPublic,1)%>;
-
+    uint16 constant lastMem = <%=pLastMem%>;
 
     function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
         assembly {
@@ -199,12 +198,22 @@ contract PlonkVerifier {
                 // Points are checked in the point operations precompiled smart contracts
             }
             
-            function calculateChallanges(pProof, pMem) {
+            function calculateChallanges(pProof, pMem, pPublic) {
             
                 let a
                 let b
+
+                <%for (let i=0; i<nPublic;i++) {%>
+                mstore( add(pMem, <%=pLastMem + i*32%> ), mload( add( pPublic, <%=i*32 + 32%>)))
+                <%}%>
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +0%> ), mload( add( pProof, pA)))
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +32%> ), mload( add( pProof, add(pA,32))))
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +64%> ), mload( add( pProof, add(pA,64))))
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +96%> ), mload( add( pProof, add(pA,96))))
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +128%> ), mload( add( pProof, add(pA,128))))
+                mstore( add(pMem, <%=pLastMem + nPublic*32 +160%> ), mload( add( pProof, add(pA,160))))
                 
-                b := mod(keccak256(add(pProof, pA), 192), q) 
+                b := mod(keccak256(add(pMem, lastMem), <%= 192 + 32*nPublic %>), q) 
                 mstore( add(pMem, pBeta), b)
                 mstore( add(pMem, pGamma), mod(keccak256(add(pMem, pBeta), 32), q))
                 mstore( add(pMem, pAlpha), mod(keccak256(add(pProof, pZ), 64), q))
@@ -615,7 +624,7 @@ contract PlonkVerifier {
             mstore(0x40, add(pMem, lastMem))
             
             checkInput(proof)
-            calculateChallanges(proof, pMem)
+            calculateChallanges(proof, pMem, pubSignals)
             calculateLagrange(pMem)
             calculatePl(pMem, pubSignals)
             calculateT(proof, pMem)
