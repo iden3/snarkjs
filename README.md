@@ -471,7 +471,7 @@ Finally, we export the verifier as a Solidity smart-contract so that we can publ
 snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
-We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract in the remix envirotment.
+We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract in the remix environment.
 
 And voila! That's all there is to it :)
 
