@@ -204,7 +204,7 @@ And it's blake2b hash is:
 
 You can find more information about the ceremony [here](https://github.com/weijiekoh/perpetualpowersoftau)
 
-The last ptau file was geneerated using this procedure:
+The last ptau file was generated using this procedure:
 
 https://www.reddit.com/r/ethereum/comments/iftos6/powers_of_tau_selection_for_hermez_rollup/
 
