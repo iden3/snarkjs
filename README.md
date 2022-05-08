@@ -332,7 +332,7 @@ Groth16 requires a trusted ceremony for each circuit. PLONK does not require it,
 snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
-You can jump directly to Section 21 as PLONK does not require a specific trusted ceremony.
+You can jump directly to Section 22 as PLONK does not require a specific trusted ceremony.
 
 #### Groth16
 ```sh
