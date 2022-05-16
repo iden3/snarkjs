@@ -23,7 +23,7 @@ import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
-export default async function groth16Verify(vk_verifier, publicSignals, proof, logger) {
+export default async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
@@ -31,9 +31,9 @@ export default async function groth16Verify(vk_verifier, publicSignals, proof, l
     }
 */
 
-    vk_verifier = unstringifyBigInts(vk_verifier);
-    proof = unstringifyBigInts(proof);
-    publicSignals = unstringifyBigInts(publicSignals);
+    const vk_verifier = unstringifyBigInts(_vk_verifier);
+    const proof = unstringifyBigInts(_proof);
+    const publicSignals = unstringifyBigInts(_publicSignals);
 
     const curve = await curves.getCurveFromName(vk_verifier.curve);
 

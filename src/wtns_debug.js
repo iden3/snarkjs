@@ -22,8 +22,13 @@ import { WitnessCalculatorBuilder } from "circom_runtime";
 import * as wtnsUtils from "./wtns_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import loadSyms from "./loadsyms.js";
+import {  utils }   from "ffjavascript";
+const {unstringifyBigInts} = utils;
 
-export default async function wtnsDebug(input, wasmFileName, wtnsFileName, symName, options, logger) {
+
+export default async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, logger) {
+
+    const input = unstringifyBigInts(_input);
 
     const fdWasm = await fastFile.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);

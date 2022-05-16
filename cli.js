@@ -32,7 +32,7 @@ import clProcessor from "./src/clprocessor.js";
 import * as powersOfTau from "./src/powersoftau.js";
 
 import {  utils }   from "ffjavascript";
-const {stringifyBigInts, unstringifyBigInts} = utils;
+const {stringifyBigInts} = utils;
 
 import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
@@ -394,7 +394,7 @@ async function wtnsCalculate(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     await wtns.calculate(input, wasmName, witnessName, {});
 
@@ -412,7 +412,7 @@ async function wtnsDebug(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     await wtns.debug(input, wasmName, witnessName, symName, options, logger);
 
@@ -489,7 +489,7 @@ async function groth16FullProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName,  logger);
 
@@ -506,9 +506,9 @@ async function groth16Verify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
@@ -608,8 +608,8 @@ async function zkeyExportSolidityCalldata(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
     let res;
     if (proof.protocol == "groth16") {
@@ -1058,7 +1058,7 @@ async function plonkFullProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs.promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName,  logger);
 
@@ -1076,9 +1076,9 @@ async function plonkVerify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = unstringifyBigInts(JSON.parse(fs.readFileSync(verificationKeyName, "utf8")));
-    const pub = unstringifyBigInts(JSON.parse(fs.readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs.readFileSync(proofName, "utf8")));
+    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 

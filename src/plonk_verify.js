@@ -26,10 +26,10 @@ import jsSha3 from "js-sha3";
 const { keccak256 } = jsSha3;
 
 
-export default async function plonkVerify(vk_verifier, publicSignals, proof, logger) {
-    vk_verifier = unstringifyBigInts(vk_verifier);
-    proof = unstringifyBigInts(proof);
-    publicSignals = unstringifyBigInts(publicSignals);
+export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
+    let vk_verifier = unstringifyBigInts(_vk_verifier);
+    let proof = unstringifyBigInts(_proof);
+    let publicSignals = unstringifyBigInts(_publicSignals);
 
     const curve = await curves.getCurveFromName(vk_verifier.curve);
 

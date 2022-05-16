@@ -18,6 +18,8 @@
 */
 
 import { getCurveFromName } from "./curves.js";
+import {  utils }   from "ffjavascript";
+const { unstringifyBigInts} = utils;
 
 function i2hex(i) {
     return ("0" + i.toString(16)).slice(-2);
@@ -30,7 +32,9 @@ function p256(n) {
     return nstr;
 }
 
-export default async function plonkExportSolidityCallData(proof, pub) {
+export default async function plonkExportSolidityCallData(_proof, _pub) {
+    const pub = unstringifyBigInts(_proof);
+    const proof = unstringifyBigInts(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     const G1 = curve.G1;
