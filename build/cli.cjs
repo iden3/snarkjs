@@ -605,22 +605,6 @@ function createPTauKey(curve, challengeHash, rng) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const _revTable = [];
-for (let i=0; i<256; i++) {
-    _revTable[i] = _revSlow(i, 8);
-}
-
-function _revSlow(idx, bits) {
-    let res =0;
-    let a = idx;
-    for (let i=0; i<bits; i++) {
-        res <<= 1;
-        res = res | (a &1);
-        a >>=1;
-    }
-    return res;
-}
-
 
 function log2( V )
 {
@@ -5857,8 +5841,10 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
 
-async function wtnsCalculate$1(input, wasmFileName, wtnsFileName, options) {
+async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
+    const input = unstringifyBigInts$7(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -5900,8 +5886,11 @@ async function wtnsCalculate$1(input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
-async function groth16FullProve$1(input, wasmFile, zkeyFileName, logger) {
+async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
+    const input = unstringifyBigInts$6(_input);
+
     const wtns= {
         type: "mem"
     };
@@ -5927,9 +5916,9 @@ async function groth16FullProve$1(input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
 
-async function groth16Verify$1(vk_verifier, publicSignals, proof, logger) {
+async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
 /*
     let cpub = vk_verifier.IC[0];
     for (let s= 0; s< vk_verifier.nPublic; s++) {
@@ -5937,9 +5926,9 @@ async function groth16Verify$1(vk_verifier, publicSignals, proof, logger) {
     }
 */
 
-    vk_verifier = unstringifyBigInts$2(vk_verifier);
-    proof = unstringifyBigInts$2(proof);
-    publicSignals = unstringifyBigInts$2(publicSignals);
+    const vk_verifier = unstringifyBigInts$5(_vk_verifier);
+    const proof = unstringifyBigInts$5(_proof);
+    const publicSignals = unstringifyBigInts$5(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -6000,6 +5989,7 @@ async function groth16Verify$1(vk_verifier, publicSignals, proof, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const { unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
 
 function p256$1(n) {
     let nstr = n.toString(16);
@@ -6008,7 +5998,9 @@ function p256$1(n) {
     return nstr;
 }
 
-async function groth16ExportSolidityCallData(proof, pub) {
+async function groth16ExportSolidityCallData(_proof, _pub) {
+    const pub = unstringifyBigInts$4(_proof);
+    const proof = unstringifyBigInts$4(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -7319,8 +7311,11 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
-async function plonkFullProve$1(input, wasmFile, zkeyFileName, logger) {
+async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger) {
+    const input = unstringifyBigInts$3(_input);
+
     const wtns= {
         type: "mem"
     };
@@ -7346,14 +7341,14 @@ async function plonkFullProve$1(input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
 const { keccak256 } = jsSha3__default["default"];
 
 
-async function plonkVerify$1(vk_verifier, publicSignals, proof, logger) {
-    vk_verifier = unstringifyBigInts$1(vk_verifier);
-    proof = unstringifyBigInts$1(proof);
-    publicSignals = unstringifyBigInts$1(publicSignals);
+async function plonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
+    let vk_verifier = unstringifyBigInts$2(_vk_verifier);
+    let proof = unstringifyBigInts$2(_proof);
+    let publicSignals = unstringifyBigInts$2(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -7747,6 +7742,7 @@ async function isValidPairing(curve, proof, challanges, vk, E, F) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const { unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
 
 function i2hex(i) {
     return ("0" + i.toString(16)).slice(-2);
@@ -7759,7 +7755,9 @@ function p256(n) {
     return nstr;
 }
 
-async function plonkExportSolidityCallData(proof, pub) {
+async function plonkExportSolidityCallData(_proof, _pub) {
+    const pub = unstringifyBigInts$1(_proof);
+    const proof = unstringifyBigInts$1(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     const G1 = curve.G1;
@@ -7814,8 +7812,12 @@ async function plonkExportSolidityCallData(proof, pub) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+const {unstringifyBigInts} = ffjavascript.utils;
 
-async function wtnsDebug$1(input, wasmFileName, wtnsFileName, symName, options, logger) {
+
+async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options, logger) {
+
+    const input = unstringifyBigInts(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -7905,7 +7907,7 @@ async function wtnsExportJson$1(wtnsFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts, unstringifyBigInts} = ffjavascript.utils;
+const {stringifyBigInts} = ffjavascript.utils;
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp:false});
 Logger__default["default"].setLogLevel("INFO");
 
@@ -8258,7 +8260,7 @@ async function wtnsCalculate(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
     await wtnsCalculate$1(input, wasmName, witnessName);
 
@@ -8276,7 +8278,7 @@ async function wtnsDebug(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
     await wtnsDebug$1(input, wasmName, witnessName, symName, options, logger);
 
@@ -8353,7 +8355,7 @@ async function groth16FullProve(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
     const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName,  logger);
 
@@ -8370,9 +8372,9 @@ async function groth16Verify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8")));
-    const pub = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(proofName, "utf8")));
+    const verificationKey = JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
@@ -8472,8 +8474,8 @@ async function zkeyExportSolidityCalldata(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const pub = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(proofName, "utf8")));
+    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
 
     let res;
     if (proof.protocol == "groth16") {
@@ -8922,7 +8924,7 @@ async function plonkFullProve(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const input = unstringifyBigInts(JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8")));
+    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
     const {proof, publicSignals} = await plonkFullProve$1(input, wasmName, zkeyName,  logger);
 
@@ -8940,9 +8942,9 @@ async function plonkVerify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8")));
-    const pub = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(publicName, "utf8")));
-    const proof = unstringifyBigInts(JSON.parse(fs__default["default"].readFileSync(proofName, "utf8")));
+    const verificationKey = JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
