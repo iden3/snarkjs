@@ -16,6 +16,8 @@
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+import {  utils }   from "ffjavascript";
+const { unstringifyBigInts} = utils;
 
 function p256(n) {
     let nstr = n.toString(16);
@@ -24,7 +26,9 @@ function p256(n) {
     return nstr;
 }
 
-export default async function groth16ExportSolidityCallData(proof, pub) {
+export default async function groth16ExportSolidityCallData(_proof, _pub) {
+    const pub = unstringifyBigInts(_proof);
+    const proof = unstringifyBigInts(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
