@@ -50,6 +50,9 @@ import * as binFileUtils from "@iden3/binfileutils";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 
+export const ZKEY_CUSTOM_GATES_LIST_SECTION = 15;
+export const ZKEY_CUSTOM_GATES_Q_SECTION = 16;
+
 export async function writeHeader(fd, zkey) {
 
     // Write the header
@@ -296,6 +299,11 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.S3 = await readG1(fd, curve, toObject);
     zkey.X_2 = await readG2(fd, curve, toObject);
 
+    zkey.useCustomGates = sections[ZKEY_CUSTOM_GATES_LIST_SECTION] && sections[ZKEY_CUSTOM_GATES_Q_SECTION];
+    if(zkey.useCustomGates) {
+        zkey.customGates = await readZKeyCustomGatesListSection(fd, sections);
+    }
+
     await binFileUtils.endReadSection(fd);
 
     return zkey;
@@ -526,3 +534,44 @@ export function hashPubKey(hasher, curve, c) {
     hasher.update(c.transcript);
 }
 
+export async function readZKeyCustomGatesListSection(fd, sections) {
+    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_CUSTOM_GATES_LIST_SECTION);
+
+    let num = await fd.readULE32();
+
+    let customGates = [];
+    for (let i = 0; i < num; i++) {
+        let customGate = {};
+        customGate.templateName = await fd.readString();
+        let numParameters = await fd.readULE32();
+        customGate.parameters = [];
+        for (let j = 0; j < numParameters; j++) {
+            customGate.parameters.push(await fd.readULE32());
+        }
+        customGates.push(customGate);
+    }
+    await binFileUtils.endReadSection(fd);
+
+    return customGates;
+}
+
+export async function readZKeyCustomGatesQMapSection(fd, sections) {
+    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_CUSTOM_GATES_Q_SECTION);
+
+    let num = await fd.readULE32();
+
+    let customGatesUses = [];
+    for (let i = 0; i < num; i++) {
+        let customGatesUse = {};
+        customGatesUse.id = await fd.readULE32();
+        let numSignals = await fd.readULE32();
+        customGatesUse.signals = [];
+        for (let j = 0; j < numSignals; j++) {
+            customGatesUse.signals.push(await fd.readULE32());
+        }
+        customGatesUses.push(customGatesUse);
+    }
+    await binFileUtils.endReadSection(fd);
+
+    return customGatesUses;
+}

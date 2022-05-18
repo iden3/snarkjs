@@ -48,6 +48,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}, ${zkey.nAdditions}`);
     }
 
+    const useCustomGates = zkey["customGates"] !== undefined && zkey["customGatesUses"] !== undefined;
+
     const curve = await getCurve(zkey.q);
     const Fr = curve.Fr;
     const G1 = curve.G1;
@@ -350,6 +352,22 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         const QC4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QC4, 0 , zkey.domainSize*n8r*4, sectionsZKey[11][0].p + zkey.domainSize*n8r);
 
+        const QCG = useCustomGates ? Array(zkey.customGates.length) : [];
+        if (useCustomGates) {
+            for (let i = 0; i < zkey.customGates.length; i++) {
+                const cgTemplateName = zkey.customGates[i].templateName;
+                const qName = ["Qcg", cgTemplateName.trim().replace(" ", "_")].join("_");
+                if (logger) logger.debug("phase4: Reading " + qName);
+
+                QCG[i] = new BigBuffer(zkey.domainSize * 4 * n8r);
+                const length = zkey.domainSize * n8r * 4;
+                //TODO check srcPosition
+                const srcPosition = sectionsZKey[16][0].p + zkey.domainSize * n8r;
+
+                await fdZKey.readToBuffer(QCG[i], 0, length, srcPosition);
+            }
+        }
+
         const lPols = await binFileUtils.readSection(fdZKey, sectionsZKey, 13);
 
         const transcript3 = new Uint8Array(G1.F.n8*2);
@@ -398,6 +416,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             const qr = QR4.slice(i*n8r, i*n8r+n8r);
             const qo = QO4.slice(i*n8r, i*n8r+n8r);
             const qc = QC4.slice(i*n8r, i*n8r+n8r);
+
+            let qcg = useCustomGates ? Array(zkey.customGates.length) : [];
+            if (useCustomGates) {
+                for (let j = 0; j < zkey.customGates.length; j++) {
+                    qcg[j] = QCG[j].slice(i * n8r, i * n8r + n8r);
+                }
+            }
+
             const s1 = sigmaBuff.slice(i*n8r, i*n8r+n8r);
             const s2 = sigmaBuff.slice((i+zkey.domainSize*4)*n8r, (i+zkey.domainSize*4)*n8r+n8r);
             const s3 = sigmaBuff.slice((i+zkey.domainSize*8)*n8r, (i+zkey.domainSize*8)*n8r+n8r);
@@ -421,6 +447,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             let [e1, e1z] = mul2(a, b, ap, bp, i%4);
             e1 = Fr.mul(e1, qm);
             e1z = Fr.mul(e1z, qm);
+
+            if (useCustomGates) {
+                for (let j = 0; j < zkey.customGates.length; j++) {
+                    //TODO Add every computation in custom gates
+                    e1 = Fr.add(e1, qg_operation(a, qcg[j]));
+                    e1z = Fr.add(e1z, qg_operation(ap, qcg[j]));
+                }
+            }
 
             e1 = Fr.add(e1, Fr.mul(a, ql));
             e1z = Fr.add(e1z, Fr.mul(ap, ql));
@@ -476,7 +510,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             e4 = Fr.mul(e4, Fr.mul(ch.alpha, ch.alpha));
 
             let e4z = Fr.mul(zp, lPols.slice( (zkey.domainSize + i)*n8r, (zkey.domainSize+i+1)*n8r));
-            e4z = Fr.mul(e4z, Fr.mul(ch.alpha, ch.alpha));
+            e4z     = Fr.mul(e4z, Fr.mul(ch.alpha, ch.alpha));
 
             let e = Fr.add(Fr.sub(Fr.add(e1, e2), e3), e4);
             let ez = Fr.add(Fr.sub(Fr.add(e1z, e2z), e3z), e4z);
@@ -618,6 +652,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         const pol_qc = new BigBuffer(zkey.domainSize*n8r);
         await fdZKey.readToBuffer(pol_qc, 0 , zkey.domainSize*n8r, sectionsZKey[11][0].p);
 
+        const pol_qcg = useCustomGates ? Array(zkey.customGates.length) : [];
+        if (useCustomGates) {
+            for (let i = 0; i < zkey.customGates.length; i++) {
+                pol_qcg[i] = new BigBuffer(zkey.domainSize * n8r);
+                await fdZKey.readToBuffer(pol_qcg[i], 0, zkey.domainSize * n8r, sectionsZKey[16][0].p);
+            }
+        }
+
         const pol_s3 = new BigBuffer(zkey.domainSize*n8r);
         await fdZKey.readToBuffer(pol_s3, 0 , zkey.domainSize*n8r, sectionsZKey[12][0].p + 10*zkey.domainSize*n8r);
 
@@ -685,6 +727,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             let v = Fr.mul(coefz, pol_z.slice(i*n8r,(i+1)*n8r));
             if (i<zkey.domainSize) {
                 v = Fr.add(v, Fr.mul(coef_ab, pol_qm.slice(i*n8r,(i+1)*n8r)));
+
+                if (useCustomGates) {
+                    for (let j = 0; j < zkey.customGates.length; j++) {
+                        //TODO compute proof.eval_x_cg
+                        v = Fr.add(v, Fr.mul(eval_x_cg, pol_qcg[j].slice(i * n8r, (i + 1) * n8r)));
+                    }
+                }
+
                 v = Fr.add(v, Fr.mul(proof.eval_a, pol_ql.slice(i*n8r,(i+1)*n8r)));
                 v = Fr.add(v, Fr.mul(proof.eval_b, pol_qr.slice(i*n8r,(i+1)*n8r)));
                 v = Fr.add(v, Fr.mul(proof.eval_c, pol_qo.slice(i*n8r,(i+1)*n8r)));

@@ -19,7 +19,7 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
 
-import {readR1csHeader} from "r1csfile";
+import {readCustomGatesUsesSection, readR1csHeader, writeR1CSCustomGatesList} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
 import {
     readBinFile,
@@ -33,11 +33,12 @@ import { log2  } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
 import Blake2b from "blake2b-wasm";
 import BigArray from "./bigarray.js";
+import {ZKEY_CUSTOM_GATES_LIST_SECTION, ZKEY_CUSTOM_GATES_Q_SECTION} from "./zkey_utils.js";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
 
     await Blake2b.ready();
 
@@ -45,6 +46,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
+
+    const customGatesUses = r1cs.useCustomGates ? await readCustomGatesUsesSection(fdR1cs, sectionsR1cs) : undefined;
 
     const sG1 = curve.G1.F.n8*2;
     const G1 = curve.G1;
@@ -61,10 +64,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
-    await processConstraints();
-    if (globalThis.gc) {globalThis.gc();}
+    let nSections = r1cs.useCustomGates ? 16 : 14;
 
-    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
+    await processConstraints();
+    forceGarbageCollection();
+
+    const fdZKey = await createBinFile(zkeyName, "zkey", 1, nSections, 1<<22, 1<<24);
 
 
     if (r1cs.prime != curve.r) {
@@ -98,27 +103,34 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
 
     await writeAdditions(3, "Additions");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeWitnessMap(4, 0, "Amap");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeWitnessMap(5, 1, "Bmap");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeWitnessMap(6, 2, "Cmap");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeQMap(7, 3, "Qm");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeQMap(8, 4, "Ql");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeQMap(9, 5, "Qr");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeQMap(10, 6, "Qo");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeQMap(11, 7, "Qc");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
+
+    if(r1cs.useCustomGates) {
+        await writeCustomGatesList(ZKEY_CUSTOM_GATES_LIST_SECTION, "Custom gates list");
+        await writeCustomGatesQMap(ZKEY_CUSTOM_GATES_Q_SECTION, 8, "Qcg");
+        forceGarbageCollection();
+    }
+
     await writeSigma(12, "sigma");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
     await writeLs(13, "lagrange polynomials");
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
 
     // Write PTau points
     ////////////
@@ -128,7 +140,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await endWriteSection(fdZKey);
-    if (globalThis.gc) {globalThis.gc();}
+    forceGarbageCollection();
 
 
     await writeHeaders();
@@ -144,6 +156,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     async function processConstraints() {
 
         let r1csPos = 0;
+        const qcgZero = r1cs.useCustomGates ? Array(r1cs.customGates.length).fill(curve.Fr.zero) : [];
 
         function r1cs_readULE32() {
             const buff = sR1cs.slice(r1csPos, r1csPos+4);
@@ -202,7 +215,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             const qo = curve.Fr.one;
             const qc = curve.Fr.zero;
 
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc, ...qcgZero]);
 
             plonkAdditions.push([sl, sr, coef1[1], coef2[1]]);
 
@@ -219,7 +232,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             const qo = curve.Fr.zero;
             const qc = curve.Fr.zero;
 
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc, ...qcgZero]);
         }
 
         for (let c=0; c<r1cs.nConstraints; c++) {
@@ -237,9 +250,31 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             const qo = curve.Fr.neg(C.coef);
             const qc = curve.Fr.sub(curve.Fr.mul(A.k, B.k) , C.k);
 
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc, ...qcgZero]);
         }
 
+        if(r1cs.useCustomGates) {
+            for (let i = 0; i < customGatesUses.length; i++) {
+                const cgUse = customGatesUses[i];
+
+                const sl = cgUse.signals[0];
+                const sr = 0;
+                const so = cgUse.signals[1];
+                const qm = curve.Fr.zero;
+                const ql = curve.Fr.zero;
+                const qr = curve.Fr.zero;
+                const qo = curve.Fr.neg(curve.Fr.one);
+                const qc = curve.Fr.zero;
+
+                let qcgArr = Array(r1cs.customGates.length);
+                //Fill qcgArr with zeroes except for the used custom gates
+                for (let i = 0; i < r1cs.customGates.length; i++) {
+                    qcgArr[i] = cgUse.id === i ? curve.Fr.one : curve.Fr.zero;
+                }
+
+                plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc, ...qcgArr]);
+            }
+        }
     }
 
     async function writeWitnessMap(sectionNum, posConstraint, name) {
@@ -252,16 +287,20 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function writeQMap(sectionNum, posConstraint, name) {
-        let Q = new BigBuffer(domainSize*n8r);
-        for (let i=0; i<plonkConstraints.length; i++) {
-            Q.set(plonkConstraints[i][posConstraint], i*n8r);
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
+        let Q = new BigBuffer(domainSize * n8r);
+        for (let i = 0; i < plonkConstraints.length; i++) {
+            Q.set(plonkConstraints[i][posConstraint], i * n8r);
+            if ((logger) && (i % 1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
         }
-        await startWriteSection(fdZKey, sectionNum);
+        if (undefined !== sectionNum) {
+            await startWriteSection(fdZKey, sectionNum);
+        }
         await writeP4(Q);
-        await endWriteSection(fdZKey);
+        if (undefined !== sectionNum) {
+            await endWriteSection(fdZKey);
+        }
         Q = await Fr.batchFromMontgomery(Q);
-        vk[name]= await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp "+name);
+        vk[name] = await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp " + name);
     }
 
     async function writeP4(buff) {
@@ -293,72 +332,80 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function writeSigma(sectionNum, name) {
-        const sigma = new BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray(plonkNVars);
+        const sigma = new BigBuffer(n8r * domainSize * 3);
         const firstPos = new BigArray(plonkNVars);
+        const lastPos = new BigArray(plonkNVars);
+
         let w = Fr.one;
-        for (let i=0; i<domainSize;i++) {
-            if (i<plonkConstraints.length) {
+        for (let i = 0; i < domainSize; i++) {
+            if (i < plonkConstraints.length) {
                 buildSigma(plonkConstraints[i][0], i);
                 buildSigma(plonkConstraints[i][1], domainSize + i);
-                buildSigma(plonkConstraints[i][2], domainSize*2 + i);
+                buildSigma(plonkConstraints[i][2], domainSize * 2 + i);
             } else {
                 buildSigma(0, i);
                 buildSigma(0, domainSize + i);
-                buildSigma(0, domainSize*2 + i);
+                buildSigma(0, domainSize * 2 + i);
             }
             w = Fr.mul(w, Fr.w[cirPower]);
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name} phase1: ${i}/${plonkConstraints.length}`);
+            if ((logger) && (i % 1000000 === 0)) logger.debug(`writing ${name} phase1: ${i}/${plonkConstraints.length}`);
         }
-        for (let s=0; s<plonkNVars; s++) {
+
+        for (let s = 0; s < plonkNVars; s++) {
             if (typeof firstPos[s] !== "undefined") {
-                sigma.set(lastAparence[s], firstPos[s]*n8r);
+                sigma.set(lastPos[s], firstPos[s] * n8r);
             } else {
                 // throw new Error("Variable not used");
                 console.log("Variable not used");
             }
-            if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
+            if ((logger) && (s % 1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
+        forceGarbageCollection();
 
-        if (globalThis.gc) {globalThis.gc();}
         await startWriteSection(fdZKey, sectionNum);
-        let S1 = sigma.slice(0, domainSize*n8r);
+
+        let S1 = sigma.slice(0, domainSize * n8r);
         await writeP4(S1);
-        if (globalThis.gc) {globalThis.gc();}
-        let S2 = sigma.slice(domainSize*n8r, domainSize*n8r*2);
+        forceGarbageCollection();
+
+        let S2 = sigma.slice(domainSize * n8r, domainSize * n8r * 2);
         await writeP4(S2);
-        if (globalThis.gc) {globalThis.gc();}
-        let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
+        forceGarbageCollection();
+
+        let S3 = sigma.slice(domainSize * n8r * 2, domainSize * n8r * 3);
         await writeP4(S3);
-        if (globalThis.gc) {globalThis.gc();}
+        forceGarbageCollection();
+
         await endWriteSection(fdZKey);
 
         S1 = await Fr.batchFromMontgomery(S1);
         S2 = await Fr.batchFromMontgomery(S2);
         S3 = await Fr.batchFromMontgomery(S3);
 
-        vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
-        if (globalThis.gc) {globalThis.gc();}
-        vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
-        if (globalThis.gc) {globalThis.gc();}
-        vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
-        if (globalThis.gc) {globalThis.gc();}
+        vk.S1 = await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
+        forceGarbageCollection();
+
+        vk.S2 = await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
+        forceGarbageCollection();
+
+        vk.S3 = await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
+        forceGarbageCollection();
 
         function buildSigma(s, p) {
-            if (typeof lastAparence[s] === "undefined") {
+            if (typeof lastPos[s] === "undefined") {
                 firstPos[s] = p;
             } else {
-                sigma.set(lastAparence[s], p*n8r);
+                sigma.set(lastPos[s], p * n8r);
             }
             let v;
-            if (p<domainSize) {
+            if (p < domainSize) {
                 v = w;
-            } else if (p<2*domainSize) {
+            } else if (p < 2 * domainSize) {
                 v = Fr.mul(w, k1);
             } else {
                 v = Fr.mul(w, k2);
             }
-            lastAparence[s]=v;
+            lastPos[s] = v;
         }
     }
 
@@ -366,11 +413,36 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await startWriteSection(fdZKey, sectionNum);
         const l=Math.max(nPublic, 1);
         for (let i=0; i<l; i++) {
+            //TODO Pots er un error això??? Cada volta genera un buffer i li assigna un 1 només a una part
             let buff = new BigBuffer(domainSize*n8r);
             buff.set(Fr.one, i*n8r);
             await writeP4(buff);
             if (logger) logger.debug(`writing ${name} ${i}/${l}`);
         }
+        await endWriteSection(fdZKey);
+    }
+
+    async function writeCustomGatesList(sectionNum, name) {
+        await startWriteSection(fdZKey, sectionNum);
+
+        if (logger) logger.debug(`writing ${name}`);
+        await writeR1CSCustomGatesList(fdZKey, r1cs);
+
+        await endWriteSection(fdZKey);
+    }
+
+    async function writeCustomGatesQMap(sectionNum, constraintPos, prefix) {
+        await startWriteSection(fdZKey, sectionNum);
+
+        for (let i = 0; i < r1cs.customGates.length; i++) {
+            let cgTemplateName = r1cs.customGates[i].templateName;
+            const qName = [prefix.trim(), cgTemplateName.trim().replace(" ", "_")].join("_");
+
+            if (logger) logger.debug(`writing ${qName}`);
+
+            await writeQMap(undefined, constraintPos + i, qName);
+        }
+
         await endWriteSection(fdZKey);
     }
 
@@ -396,24 +468,33 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await writeBigInt(fdZKey, primeQ, n8q);
         await fdZKey.writeULE32(n8r);
         await writeBigInt(fdZKey, primeR, n8r);
-        await fdZKey.writeULE32(plonkNVars);                         // Total number of bars
-        await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
-        await fdZKey.writeULE32(domainSize);                  // domainSize
-        await fdZKey.writeULE32(plonkAdditions.length);                  // domainSize
-        await fdZKey.writeULE32(plonkConstraints.length); 
+        await fdZKey.writeULE32(plonkNVars);                // Total number of vars
+        await fdZKey.writeULE32(nPublic);                   // Total number of public vars (not including ONE)
+        await fdZKey.writeULE32(domainSize);                // domainSize
+        await fdZKey.writeULE32(plonkAdditions.length);     // # of rows in plonk additions table
+        await fdZKey.writeULE32(plonkConstraints.length);   // # of rows in plonk constraints table
 
-        await fdZKey.write(k1);
-        await fdZKey.write(k2);
+        await fdZKey.write(k1);                             //k1
+        await fdZKey.write(k2);                             //k2
 
-        await fdZKey.write(G1.toAffine(vk.Qm));
-        await fdZKey.write(G1.toAffine(vk.Ql));
-        await fdZKey.write(G1.toAffine(vk.Qr));
-        await fdZKey.write(G1.toAffine(vk.Qo));
-        await fdZKey.write(G1.toAffine(vk.Qc));
+        await fdZKey.write(G1.toAffine(vk.Qm));             //Qm
+        await fdZKey.write(G1.toAffine(vk.Ql));             //Ql
+        await fdZKey.write(G1.toAffine(vk.Qr));             //Qr
+        await fdZKey.write(G1.toAffine(vk.Qo));             //Qo
+        await fdZKey.write(G1.toAffine(vk.Qc));             //Qc
 
-        await fdZKey.write(G1.toAffine(vk.S1));
-        await fdZKey.write(G1.toAffine(vk.S2));
-        await fdZKey.write(G1.toAffine(vk.S3));
+        if(r1cs.useCustomGates) {
+            for (let i = 0; i < r1cs.customGates.length; i++) {
+                const cgTemplateName = r1cs.customGates[i].templateName;
+                const qName = ["Qcg", cgTemplateName.trim().replace(" ", "_")].join("_");
+
+                await fdZKey.write(G1.toAffine(vk[qName])); //Qcg for each custom gate on circuit
+            }
+        }
+
+        await fdZKey.write(G1.toAffine(vk.S1));             //Sigma 1
+        await fdZKey.write(G1.toAffine(vk.S2));             //Sigma 2
+        await fdZKey.write(G1.toAffine(vk.S3));             //Sigma 3
 
         let bX_2;
         bX_2 = await fdPTau.read(sG2, sectionsPTau[3][0].p + sG2);
@@ -441,6 +522,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 w = Fr.mul(w, Fr.w[pow]);
             }
             return false;
+        }
+    }
+
+    function forceGarbageCollection() {
+        if (globalThis.gc) {
+            globalThis.gc();
         }
     }
 }

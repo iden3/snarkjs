@@ -37,7 +37,9 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     const G1 = curve.G1;
 
     proof = fromObjectProof(curve,proof);
+
     vk_verifier = fromObjectVk(curve, vk_verifier);
+
     if (!isWellConstructed(curve, proof)) {
         logger.error("Proof is not well constructed");
         return false;
@@ -46,17 +48,17 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         logger.error("Invalid number of public inputs");
         return false;
     }
-    const challanges = calculateChallanges(curve, proof, publicSignals);
+    const challenges = calculateChallenges(curve, proof, publicSignals);
     if (logger) {
-        logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
-        logger.debug("gamma: " + Fr.toString(challanges.gamma, 16));    
-        logger.debug("alpha: " + Fr.toString(challanges.alpha, 16));    
-        logger.debug("xi: " + Fr.toString(challanges.xi, 16));    
-        logger.debug("v1: " + Fr.toString(challanges.v[1], 16));    
-        logger.debug("v6: " + Fr.toString(challanges.v[6], 16));    
-        logger.debug("u: " + Fr.toString(challanges.u, 16));    
+        logger.debug("beta: " + Fr.toString(challenges.beta, 16));
+        logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));
+        logger.debug("alpha: " + Fr.toString(challenges.alpha, 16));
+        logger.debug("xi: " + Fr.toString(challenges.xi, 16));
+        logger.debug("v1: " + Fr.toString(challenges.v[1], 16));
+        logger.debug("v6: " + Fr.toString(challenges.v[6], 16));
+        logger.debug("u: " + Fr.toString(challenges.u, 16));
     }
-    const L = calculateLagrangeEvaluations(curve, challanges, vk_verifier);
+    const L = calculateLagrangeEvaluations(curve, challenges, vk_verifier);
     if (logger) {
         logger.debug("Lagrange Evaluations: ");
         for (let i=1; i<L.length; i++) {
@@ -74,27 +76,27 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         logger.debug("Pl: " + Fr.toString(pl, 16));
     }
 
-    const t = calculateT(curve, proof, challanges, pl, L[1]);
+    const t = calculateT(curve, proof, challenges, pl, L[1]);
     if (logger) {
         logger.debug("t: " + Fr.toString(t, 16));
     }
 
-    const D = calculateD(curve, proof, challanges, vk_verifier, L[1]);
+    const D = calculateD(curve, proof, challenges, vk_verifier, L[1]);
     if (logger) {
         logger.debug("D: " + G1.toString(G1.toAffine(D), 16));
     }
 
-    const F = calculateF(curve, proof, challanges, vk_verifier, D);
+    const F = calculateF(curve, proof, challenges, vk_verifier, D);
     if (logger) {
         logger.debug("F: " + G1.toString(G1.toAffine(F), 16));
     }
 
-    const E = calculateE(curve, proof, challanges, vk_verifier, t);
+    const E = calculateE(curve, proof, challenges, vk_verifier, t);
     if (logger) {
         logger.debug("E: " + G1.toString(G1.toAffine(E), 16));
     }
 
-    const res = await isValidPairing(curve, proof, challanges, vk_verifier, E, F);
+    const res = await isValidPairing(curve, proof, challenges, vk_verifier, E, F);
 
     if (logger) {
         if (res) {
@@ -142,6 +144,17 @@ function fromObjectVk(curve, vk) {
     res.Qr = G1.fromObject(vk.Qr);
     res.Qo = G1.fromObject(vk.Qo);
     res.Qc = G1.fromObject(vk.Qc);
+
+    if (vk.useCustomGates) {
+        res.Qcg = [];
+        for (let i = 0; i < vk.customGates.length; i++) {
+            const cgTemplateName = vk.customGates[i].templateName;
+            const qName = ["Qcg", cgTemplateName.trim().replace(" ", "_")].join("_");
+
+            res.Qcg.push({cgTemplateName: qName, value: G1.fromObject(vk[qName])});
+        }
+    }
+
     res.S1 = G1.fromObject(vk.S1);
     res.S2 = G1.fromObject(vk.S2);
     res.S3 = G1.fromObject(vk.S3);
@@ -166,7 +179,7 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
-function calculateChallanges(curve, proof, publicSignals) {
+function calculateChallenges(curve, proof, publicSignals) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
     const n8r = curve.Fr.n8;
@@ -217,24 +230,24 @@ function calculateChallanges(curve, proof, publicSignals) {
     return res;
 }
 
-function calculateLagrangeEvaluations(curve, challanges, vk) {
+function calculateLagrangeEvaluations(curve, challenges, vk) {
     const Fr = curve.Fr;
 
-    let xin = challanges.xi;
+    let xin = challenges.xi;
     let domainSize = 1;
     for (let i=0; i<vk.power; i++) {
         xin = Fr.square(xin);
         domainSize *= 2;
     }
-    challanges.xin = xin;
+    challenges.xin = xin;
 
-    challanges.zh = Fr.sub(xin, Fr.one);
+    challenges.zh = Fr.sub(xin, Fr.one);
     const L = [];
 
     const n = Fr.e(domainSize);
     let w = Fr.one;
     for (let i=1; i<=Math.max(1, vk.nPublic); i++) {
-        L[i] = Fr.div(Fr.mul(w, challanges.zh), Fr.mul(n, Fr.sub(challanges.xi, w)));
+        L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
         w = Fr.mul(w, Fr.w[vk.power]);
     }
 
@@ -257,88 +270,97 @@ function calculatePl(curve, publicSignals, L) {
     return pl;
 }
 
-function calculateT(curve, proof, challanges, pl, l1) {
+function calculateT(curve, proof, challenges, pl, l1) {
     const Fr = curve.Fr;
     let num = proof.eval_r;
     num = Fr.add(num, pl);
 
     let e1 = proof.eval_a;
-    e1 = Fr.add(e1, Fr.mul(challanges.beta, proof.eval_s1));
-    e1 = Fr.add(e1, challanges.gamma);
+    e1 = Fr.add(e1, Fr.mul(challenges.beta, proof.eval_s1));
+    e1 = Fr.add(e1, challenges.gamma);
 
     let e2 = proof.eval_b;
-    e2 = Fr.add(e2, Fr.mul(challanges.beta, proof.eval_s2));
-    e2 = Fr.add(e2, challanges.gamma);
+    e2 = Fr.add(e2, Fr.mul(challenges.beta, proof.eval_s2));
+    e2 = Fr.add(e2, challenges.gamma);
 
     let e3 = proof.eval_c;
-    e3 = Fr.add(e3, challanges.gamma);
+    e3 = Fr.add(e3, challenges.gamma);
 
     let e = Fr.mul(Fr.mul(e1, e2), e3);
     e = Fr.mul(e, proof.eval_zw);
-    e = Fr.mul(e, challanges.alpha);
+    e = Fr.mul(e, challenges.alpha);
 
     num = Fr.sub(num, e);
 
-    num = Fr.sub(num, Fr.mul(l1, Fr.square(challanges.alpha)));
+    num = Fr.sub(num, Fr.mul(l1, Fr.square(challenges.alpha)));
 
-    const t = Fr.div(num, challanges.zh);
+    const t = Fr.div(num, challenges.zh);
 
     return t;
 }
 
-function calculateD(curve, proof, challanges, vk, l1) {
+function calculateD(curve, proof, challenges, vk, l1) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let s1 = Fr.mul(Fr.mul(proof.eval_a, proof.eval_b), challanges.v[1]);
+    let s1 = Fr.mul(Fr.mul(proof.eval_a, proof.eval_b), challenges.v[1]);
     let res = G1.timesFr(vk.Qm, s1);
 
-    let s2 = Fr.mul(proof.eval_a, challanges.v[1]);
+    if (vk.useCustomGates) {
+        for (let i = 0; i < vk.customGates.length; i++) {
+            //TODO recover custom gate name
+            //TODO qg_opertion is the custom gate depending on recovered custom gate
+            let s1cg = Fr.mul(qg_operation(proof.eval_a), challenges.v[1]);
+            res = G1.add(res, G1.timesFr(vk.Qcg[i], s1cg));
+        }
+    }
+
+    let s2 = Fr.mul(proof.eval_a, challenges.v[1]);
     res = G1.add(res, G1.timesFr(vk.Ql, s2));
 
-    let s3 = Fr.mul(proof.eval_b, challanges.v[1]);
+    let s3 = Fr.mul(proof.eval_b, challenges.v[1]);
     res = G1.add(res, G1.timesFr(vk.Qr, s3));
 
-    let s4 = Fr.mul(proof.eval_c, challanges.v[1]);
+    let s4 = Fr.mul(proof.eval_c, challenges.v[1]);
     res = G1.add(res, G1.timesFr(vk.Qo, s4));
 
-    res = G1.add(res, G1.timesFr(vk.Qc, challanges.v[1]));
+    res = G1.add(res, G1.timesFr(vk.Qc, challenges.v[1]));
 
-    const betaxi = Fr.mul(challanges.beta, challanges.xi);
+    const betaxi = Fr.mul(challenges.beta, challenges.xi);
     let s6a = proof.eval_a;
     s6a = Fr.add(s6a, betaxi);
-    s6a = Fr.add(s6a, challanges.gamma);
+    s6a = Fr.add(s6a, challenges.gamma);
 
     let s6b = proof.eval_b;
     s6b = Fr.add(s6b, Fr.mul(betaxi, vk.k1));
-    s6b = Fr.add(s6b, challanges.gamma);
+    s6b = Fr.add(s6b, challenges.gamma);
 
     let s6c = proof.eval_c;
     s6c = Fr.add(s6c, Fr.mul(betaxi, vk.k2));
-    s6c = Fr.add(s6c, challanges.gamma);
+    s6c = Fr.add(s6c, challenges.gamma);
 
     let s6 = Fr.mul(Fr.mul(s6a, s6b), s6c);
-    s6 = Fr.mul(s6, Fr.mul(challanges.alpha, challanges.v[1]));
+    s6 = Fr.mul(s6, Fr.mul(challenges.alpha, challenges.v[1]));
 
-    let s6d = Fr.mul(Fr.mul(l1, Fr.square(challanges.alpha)), challanges.v[1]);
+    let s6d = Fr.mul(Fr.mul(l1, Fr.square(challenges.alpha)), challenges.v[1]);
     s6 = Fr.add(s6, s6d);
 
-    s6 = Fr.add(s6, challanges.u);
+    s6 = Fr.add(s6, challenges.u);
     res = G1.add(res, G1.timesFr(proof.Z, s6));
 
 
     let s7a = proof.eval_a;
-    s7a = Fr.add(s7a, Fr.mul(challanges.beta, proof.eval_s1));
-    s7a = Fr.add(s7a, challanges.gamma);
+    s7a = Fr.add(s7a, Fr.mul(challenges.beta, proof.eval_s1));
+    s7a = Fr.add(s7a, challenges.gamma);
 
     let s7b = proof.eval_b;
-    s7b = Fr.add(s7b, Fr.mul(challanges.beta, proof.eval_s2));
-    s7b = Fr.add(s7b, challanges.gamma);
+    s7b = Fr.add(s7b, Fr.mul(challenges.beta, proof.eval_s2));
+    s7b = Fr.add(s7b, challenges.gamma);
 
     let s7 = Fr.mul(s7a, s7b);
-    s7 = Fr.mul(s7, challanges.alpha);
-    s7 = Fr.mul(s7, challanges.v[1]);
-    s7 = Fr.mul(s7, challanges.beta);
+    s7 = Fr.mul(s7, challenges.alpha);
+    s7 = Fr.mul(s7, challenges.v[1]);
+    s7 = Fr.mul(s7, challenges.beta);
     s7 = Fr.mul(s7, proof.eval_zw);
     res = G1.sub(res, G1.timesFr(vk.S3, s7));
 
