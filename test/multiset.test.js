@@ -1,18 +1,6 @@
 import Multiset from "../src/plookup/multiset.js";
 import assert from "assert";
-
-function getRandomValue(higher = 10) {
-    return Math.floor((Math.random() * higher) + 1);
-}
-
-function getRandomArray() {
-    let length = getRandomValue(30);
-    let array = [];
-    for (let i = 0; i < length; i++) {
-        array[i] = i;
-    }
-    return array;
-}
+import {getRandomValue, getRandomArray} from "./test_utils.js";
 
 describe("snarkjs: Plookup > Multiset tests", function () {
     this.timeout(150000);
@@ -72,7 +60,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let length = getRandomValue(10);
         let multiset = new Multiset(length);
 
-        assert.throws(() => multiset.at(length), Error("Multiset.at: Index out of bounds"));
+        assert.throws(() => multiset.getElementAt(length), Error("Multiset.getElementAt: Index out of bounds"));
     });
 
     it("should return element at position indicated", async () => {
@@ -81,7 +69,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
 
         multiset.fromArray(array);
         for (let i = 0; i < array.length; i++) {
-            assert.equal(array[i], multiset.at(i));
+            assert.equal(array[i], multiset.getElementAt(i));
         }
     });
 
@@ -90,7 +78,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let element = getRandomValue(1000);
         let multiset = new Multiset(length);
 
-        assert.throws(() => multiset.set(element, length), Error("Multiset.set: Index out of bounds"));
+        assert.throws(() => multiset.setElementAt(element, length), Error("Multiset.setElementAt: Index out of bounds"));
     });
 
     it("should set element at position indicated", async () => {
@@ -100,8 +88,8 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let index = getRandomValue(multiset.length() - 1);
 
         multiset.fromArray(array);
-        multiset.set(element, index);
-        assert.equal(element, multiset.at(index));
+        multiset.setElementAt(element, index);
+        assert.equal(element, multiset.getElementAt(index));
     });
 
     it("should first and last element properly", async () => {
@@ -109,8 +97,8 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let multiset = new Multiset();
 
         multiset.fromArray(array);
-        assert.equal(array[0], multiset.first());
-        assert.equal(array[array.length - 1], multiset.last());
+        assert.equal(array[0], multiset.firstElement());
+        assert.equal(array[array.length - 1], multiset.lastElement());
     });
 
     it("should whether is empty or not", async () => {
@@ -131,7 +119,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         multiset.pad(length, 0);
 
         assert.equal(-1, multiset.indexOf(element));
-        multiset.set(element, index);
+        multiset.setElementAt(element, index);
         assert.equal(index, multiset.indexOf(element));
     });
 
@@ -143,13 +131,13 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         multiset.pad(length, 0);
         assert.equal(false, multiset.containsElement(element));
 
-        multiset.set(element, 0);
+        multiset.setElementAt(element, 0);
         assert.equal(true, multiset.containsElement(element));
     });
 
     it("should throw an error when argument passed to isSortedBy is not a multiset", async () => {
         let multiset = new Multiset();
-        assert.throws(() => multiset.isSortedBy(10), Error("Multiset.containsMultiset: multiset argument must be of type Multiset"));
+        assert.throws(() => multiset.isSortedBy(10), Error("Multiset.isSortedBy: multiset argument must be of type Multiset"));
     });
 
     it("should return false when using void multiset on isSortedBy function", async () => {
@@ -255,7 +243,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         assert.throws(() => Multiset.compress(ms1, ms2, ms3, randomChallenge), Error("Multiset.compress: All Multisets must have same length"));
     });
 
-    it("should return a sorted version of two multisets", async () => {
+    it("should return a compressed version of three multisets", async () => {
         let arr1 = [1, 2, 3];
         let arr2 = [2, 3, 1];
         let arr3 = [3, 1, 2];

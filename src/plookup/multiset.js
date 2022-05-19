@@ -30,9 +30,6 @@ class Multiset {
             throw new Error("Multiset.fromArray: Element is not an array");
         }
         this.vec = [...newVector];
-
-        return () => {
-        };
     }
 
     toArray() {
@@ -65,28 +62,28 @@ class Multiset {
         return this.vec.length;
     }
 
-    at(index) {
+    getElementAt(index) {
         if (index < 0 || index > this.vec.length - 1) {
-            throw new Error("Multiset.at: Index out of bounds");
+            throw new Error("Multiset.getElementAt: Index out of bounds");
         }
         return this.vec[index];
     }
 
-    set(element, index) {
+    setElementAt(element, index) {
         if (this.length() === 0 || index >= this.vec.length) {
-            throw new Error("Multiset.set: Index out of bounds");
+            throw new Error("Multiset.setElementAt: Index out of bounds");
         }
         this.vec[index] = element;
     }
 
     //Fetch first element on the Multiset. Returns undefined if there are no elements in the Multiset
-    first() {
+    firstElement() {
         return this.length() > 0 ? this.vec[0] : undefined;
     }
 
     //Fetch last element on the Multiset. Returns undefined if there are no elements in the Multiset
-    last() {
-        return this.length() > 0 ? this.vec.slice(-1) : undefined;
+    lastElement() {
+        return this.length() > 0 ? this.vec[this.vec.length - 1] : undefined;
     }
 
     isEmpty() {
@@ -107,7 +104,7 @@ class Multiset {
     //We say that f is sorted by t when values appear in f the same order as they do in t
     isSortedBy(multiset) {
         if (!(multiset instanceof Multiset)) {
-            throw new Error("Multiset.containsMultiset: multiset argument must be of type Multiset");
+            throw new Error("Multiset.isSortedBy: multiset argument must be of type Multiset");
         }
 
         if (this.isEmpty() || multiset.isEmpty()) {
@@ -129,7 +126,7 @@ class Multiset {
     // sortedVersion({1,2,3,4},{5,4,3,2,1})={1,1,2,2,3,3,4,4,5}
     sortedVersion(multiset) {
         if (!(multiset instanceof Multiset)) {
-            throw new Error("Multiset.containsMultiset: multiset argument must be of type Multiset");
+            throw new Error("Multiset.sortedVersion: multiset argument must be of type Multiset");
         }
 
         let array = this.vec.concat(multiset.toArray());
@@ -170,7 +167,7 @@ class Multiset {
     //Compress the elements of three Multisets in one Multiset using a random challenge value
     //a_i + (b_i * random_challenge) + (c_i * random_challenge^2)
     static compress(multiset_a, multiset_b, multiset_c, randomChallenge) {
-        if (typeof(randomChallenge) !== "number") {
+        if (typeof (randomChallenge) !== "number") {
             throw new Error("Multiset.compress: randomChallenge argument must be a number");
         }
 
@@ -184,8 +181,8 @@ class Multiset {
 
         let res = new Multiset(multiset_a.length());
         for (let i = 0; i < multiset_a.length(); i++) {
-            let element = multiset_a.at(i) + multiset_b.at(i) * randomChallenge + multiset_c.at(i) * Math.pow(randomChallenge, 2);
-            res.set(element, i);
+            let element = multiset_a.getElementAt(i) + multiset_b.getElementAt(i) * randomChallenge + multiset_c.getElementAt(i) * Math.pow(randomChallenge, 2);
+            res.setElementAt(element, i);
         }
 
         return res;
