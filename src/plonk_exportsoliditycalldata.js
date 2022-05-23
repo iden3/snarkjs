@@ -33,8 +33,8 @@ function p256(n) {
 }
 
 export default async function plonkExportSolidityCallData(_proof, _pub) {
-    const pub = unstringifyBigInts(_proof);
-    const proof = unstringifyBigInts(_pub);
+    const proof = unstringifyBigInts(_proof);
+    const pub = unstringifyBigInts(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     const G1 = curve.G1;
