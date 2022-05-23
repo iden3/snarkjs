@@ -27,8 +27,8 @@ function p256(n) {
 }
 
 export default async function groth16ExportSolidityCallData(_proof, _pub) {
-    const pub = unstringifyBigInts(_proof);
-    const proof = unstringifyBigInts(_pub);
+    const proof = unstringifyBigInts(_proof);
+    const pub = unstringifyBigInts(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
