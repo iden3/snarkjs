@@ -5999,8 +5999,8 @@ function p256$1(n) {
 }
 
 async function groth16ExportSolidityCallData(_proof, _pub) {
-    const pub = unstringifyBigInts$4(_proof);
-    const proof = unstringifyBigInts$4(_pub);
+    const proof = unstringifyBigInts$4(_proof);
+    const pub = unstringifyBigInts$4(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -7756,8 +7756,8 @@ function p256(n) {
 }
 
 async function plonkExportSolidityCallData(_proof, _pub) {
-    const pub = unstringifyBigInts$1(_proof);
-    const proof = unstringifyBigInts$1(_pub);
+    const proof = unstringifyBigInts$1(_proof);
+    const pub = unstringifyBigInts$1(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     const G1 = curve.G1;
