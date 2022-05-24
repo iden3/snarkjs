@@ -95,7 +95,7 @@ library Pairing {
         uint elements = p1.length;
         uint inputSize = elements * 6;
         uint[] memory input = new uint[](inputSize);
-        for (uint i = 0; i < elements; i++)
+        for (uint i = 0; i < elements;)
         {
             input[i * 6 + 0] = p1[i].X;
             input[i * 6 + 1] = p1[i].Y;
@@ -103,6 +103,8 @@ library Pairing {
             input[i * 6 + 3] = p2[i].X[1];
             input[i * 6 + 4] = p2[i].Y[0];
             input[i * 6 + 5] = p2[i].Y[1];
+
+            unchecked {++i}
         }
         uint[1] memory out;
         bool success;
@@ -200,11 +202,13 @@ contract Verifier {
              <%=vk_delta_2[1][0]%>]
         );
         vk.IC = new Pairing.G1Point[](<%=IC.length%>);
-        <% for (let i=0; i<IC.length; i++) { %>
+        <% for (let i=0; i<IC.length;) { %>
         vk.IC[<%=i%>] = Pairing.G1Point( 
             <%=IC[i][0]%>,
             <%=IC[i][1]%>
-        );                                      
+        );
+            // i will never exceed IC.length
+            unchecked {++i;}
         <% } %>
     }
     function verify(uint[] memory input, Proof memory proof) internal view returns (uint) {
@@ -213,9 +217,12 @@ contract Verifier {
         require(input.length + 1 == vk.IC.length,"verifier-bad-input");
         // Compute the linear combination vk_x
         Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
-        for (uint i = 0; i < input.length; i++) {
+        for (uint i = 0; i < input.length;) {
             require(input[i] < snark_scalar_field,"verifier-gte-snark-scalar-field");
             vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i + 1], input[i]));
+
+            // i will never exceed input.length
+            unchekced {++i;}
         }
         vk_x = Pairing.addition(vk_x, vk.IC[0]);
         if (!Pairing.pairingProd4(
@@ -238,8 +245,11 @@ contract Verifier {
         proof.B = Pairing.G2Point([b[0][0], b[0][1]], [b[1][0], b[1][1]]);
         proof.C = Pairing.G1Point(c[0], c[1]);
         uint[] memory inputValues = new uint[](input.length);
-        for(uint i = 0; i < input.length; i++){
+        for(uint i = 0; i < input.length;){
             inputValues[i] = input[i];
+            
+            // i will never exceed input.length
+            unchecked {++i;}
         }
         if (verify(inputValues, proof) == 0) {
             return true;
