@@ -497,6 +497,10 @@ async function run() {
 
     const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
 
+    const callData = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals)
+    console.log("Solidity Call Data: ");
+    console.log(callData);
+
     if (res === true) {
         console.log("Verification OK");
     } else {
