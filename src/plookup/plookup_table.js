@@ -20,7 +20,12 @@
 import Multiset from "./multiset.js";
 
 class PlookupTable {
-    constructor() {
+    constructor(F) {
+        if(undefined === F) {
+            throw new Error("Constructor of multiset needs a F");
+        }
+
+        this.F = F;
         this.vec = [];
 
         return this;
@@ -41,9 +46,9 @@ class PlookupTable {
     }
 
     toMultisets() {
-        let multisetA = new Multiset();
-        let multisetB = new Multiset();
-        let multisetC = new Multiset();
+        let multisetA = new Multiset(0, this.F);
+        let multisetB = new Multiset(0, this.F);
+        let multisetC = new Multiset(0, this.F);
 
         for (let i = 0; i < this.vec.length; i++) {
             const row = this.getRowAt(i);
@@ -97,7 +102,7 @@ class PlookupTable {
     lookup(a, b) {
         for (let i = 0; i < this.vec.length; i++) {
             const row = this.vec[i];
-            if (row[0] === a && row[1] === b) {
+            if (this.F.eq(row[0], a) && this.F.eq(row[1], b)) {
                 return {row: [row[0], row[1], row[2]], idx: i};
             }
         }
@@ -105,10 +110,18 @@ class PlookupTable {
     }
 
     compress(randomChallenge) {
-        let res = new Multiset(this.vec.length);
+        if (!(randomChallenge instanceof Uint8Array)) {
+            throw new Error("Multiset.compress: randomChallenge argument must be an Uint8Array");
+        }
+
+        let res = new Multiset(this.vec.length, this.F);
         for (let i = 0; i < this.vec.length; i++) {
             const row = this.vec[i];
-            let element = row[0] + row[1] * randomChallenge + row[2] * Math.pow(randomChallenge, 2);
+            let element = row[0];
+            element = this.F.add(element, this.F.mul(randomChallenge, row[1]));
+            element = this.F.add(element, this.F.mul(this.F.square(randomChallenge), row[2]));
+
+            //let element = row[0] + row[1] * randomChallenge + row[2] * Math.pow(randomChallenge, 2);
             res.setElementAt(element, i);
         }
         return res;

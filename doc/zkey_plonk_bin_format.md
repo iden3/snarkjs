@@ -110,7 +110,7 @@ Currently, there are 5 types of sections defined:
 * 0x0000000D : Lagrange Polynomials Section
 * 0x0000000E : Ptau points Section
 * 0x0000000F : Custom gates List Section [only on UltraPlonk schemes]
-* 0x00000010 : Custom gates Application Section [only on UltraPlonk schemes]
+* 0x00000010 : Custom gates Preprocessed Info Section [only on UltraPlonk schemes]
 
 If the file contain other types, the format is valid, but they MUST be ignored.
 
@@ -242,7 +242,92 @@ Any order of the section must be accepted.
 #### Section 13. Lagrange Polynomials Section
 #### Section 14. Ptau points Section
 #### Section 15. Custom gates List Section [only on UltraPlonk schemes]
-#### Section 16. Custom gates Application Section [only on UltraPlonk schemes]
+
+Section Identifier: 0x00000010
+
+````
+     ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+     ┃ 4  ┃ Number of custom gates M                    ┃
+     ┗━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+     Custom gate 0
+     ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+     ┃ N  ┃ Custom gate template name                   ┃ Sequence of N 1-byte char ending with 0x0
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 4  ┃ Number of custom gate template parameters K ┃
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 4  ┃ Parameter 0                                 ┃
+     ┃ 4  ┃ Parameter 2                                 ┃
+     ┃ ...                                              ┃
+     ┃ 4  ┃ Parameter K-1                               ┃
+     ┗━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+     ...
+     ...
+     ...
+     Custom gate M-1
+     ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+     ┃ N  ┃ Custom gate template name                   ┃ Sequence of N 1-byte char ending with 0x0
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 4  ┃ Custom gate template parameters K           ┃
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 4  ┃ Parameter 0                                 ┃
+     ┃ 4  ┃ Parameter 2                                 ┃
+     ┃ ...                                              ┃
+     ┃ 4  ┃ Parameter K-1                               ┃
+     ┗━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+````
+
+Custom gates are identified by the position in the list starting at index 0.
+
+
+#### Section 16. Custom gates Preprocessed Info Section [only on UltraPlonk schemes]
+
+       Custom gates preprocessed info offsets 
+     ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+     ┃ 8  ┃ Offset info custom gate 0   ┃ For the first custom gate offset value is 0
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 8  ┃ Offset info custom gate 1   ┃
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+       ...  ...
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+     ┃ 8  ┃ Offset info custom gate n-1 ┃
+     ┗━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+       Custom gates preprocessed info
+     ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ <-- Offset custom gate 0
+     ┃ X  ┃ Info custom gate  0         ┃     Each custom gate info size depends on each custom gate implementation
+     ┃    ┃                             ┃
+     ┃    ┃                             ┃
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫ <-- Offset custom gate 1
+     ┃ X  ┃ Info custom gate  1         ┃
+     ┃    ┃                             ┃
+     ┃    ┃                             ┃
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫ <-- Offset custom gate 2
+       ...  ...
+     ┣━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫ <-- Offset custom gate n-1
+     ┃ X  ┃ Info custom gate  n-1       ┃
+     ┃    ┃                             ┃
+     ┃    ┃                             ┃
+     ┗━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ### Header Section

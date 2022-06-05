@@ -49,9 +49,13 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
+import {writeStringToFile} from "fastfile";
+import {R1CS_FILE_CUSTOM_GATES_USES_SECTION} from "r1csfile";
+import {endWriteSection, startWriteSection} from "@iden3/binfileutils";
 
+//CUSTOM_GATES SECTION IDS
 export const ZKEY_CUSTOM_GATES_LIST_SECTION = 15;
-export const ZKEY_CUSTOM_GATES_Q_SECTION = 16;
+export const ZKEY_CUSTOM_USES_SECTION = 16;
 
 export async function writeHeader(fd, zkey) {
 
@@ -267,6 +271,11 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
 
     zkey.protocol = "plonk";
 
+    zkey.useCustomGates = sections[ZKEY_CUSTOM_GATES_LIST_SECTION] !== undefined;
+    if(zkey.useCustomGates) {
+        zkey.customGates = await readZKeyCustomGatesListSection(fd, sections);
+    }
+
     // Read Plonk Header
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 2);
@@ -299,11 +308,12 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.S3 = await readG1(fd, curve, toObject);
     zkey.X_2 = await readG2(fd, curve, toObject);
 
-    zkey.useCustomGates = sections[ZKEY_CUSTOM_GATES_LIST_SECTION] && sections[ZKEY_CUSTOM_GATES_Q_SECTION];
-    if(zkey.useCustomGates) {
-        zkey.customGates = await readZKeyCustomGatesListSection(fd, sections);
+    if (zkey.useCustomGates) {
+        zkey.Qk = [];
+        for (let i = 0; i < zkey.customGates.length; i++) {
+            zkey.Qk.push(await readG1(fd, curve, toObject));
+        }
     }
-
     await binFileUtils.endReadSection(fd);
 
     return zkey;
@@ -537,12 +547,12 @@ export function hashPubKey(hasher, curve, c) {
 export async function readZKeyCustomGatesListSection(fd, sections) {
     await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_CUSTOM_GATES_LIST_SECTION);
 
-    let num = await fd.readULE32();
+    let numCustomGates = await fd.readULE32();
 
     let customGates = [];
-    for (let i = 0; i < num; i++) {
+    for (let i = 0; i < numCustomGates; i++) {
         let customGate = {};
-        customGate.templateName = await fd.readString();
+        customGate.id = await fd.readULE32();
         let numParameters = await fd.readULE32();
         customGate.parameters = [];
         for (let j = 0; j < numParameters; j++) {
@@ -555,23 +565,53 @@ export async function readZKeyCustomGatesListSection(fd, sections) {
     return customGates;
 }
 
-export async function readZKeyCustomGatesQMapSection(fd, sections) {
-    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_CUSTOM_GATES_Q_SECTION);
+export async function writeZKeyCustomGatesListSection(fd, customGates) {
+    await startWriteSection(fd, ZKEY_CUSTOM_GATES_LIST_SECTION);
+
+    await fd.writeULE32(customGates.length);
+
+    for (let i = 0; i < customGates.length; i++) {
+        await fd.writeULE32(customGates[i].id);
+        await fd.writeULE32(customGates[i].parameters.length);
+        for (let j = 0; j < customGates[i].parameters.length; j++) {
+            await fd.writeULE32(customGates[i].parameters[j]);
+        }
+    }
+    await endWriteSection(fd);
+}
+
+export async function readZKeyCustomGatesUsesSection(fd, sections) {
+    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_CUSTOM_USES_SECTION);
 
     let num = await fd.readULE32();
 
-    let customGatesUses = [];
+    let customGatesUses = Array(num);
     for (let i = 0; i < num; i++) {
         let customGatesUse = {};
         customGatesUse.id = await fd.readULE32();
         let numSignals = await fd.readULE32();
-        customGatesUse.signals = [];
+        customGatesUse.signals = Array(numSignals);
         for (let j = 0; j < numSignals; j++) {
-            customGatesUse.signals.push(await fd.readULE32());
+            let signal = await fd.readULE64();
+            customGatesUse.signals[j] = signal;
         }
-        customGatesUses.push(customGatesUse);
+        customGatesUses[i] = customGatesUse;
     }
     await binFileUtils.endReadSection(fd);
 
     return customGatesUses;
+}
+
+export async function writeZKeyCustomGatesUsesSection(fd, uses) {
+    await startWriteSection(fd, ZKEY_CUSTOM_USES_SECTION);
+    await fd.writeULE32(uses.length);
+
+    for (let i = 0; i < uses.length; i++) {
+        await fd.writeULE32(uses[i].id);
+        await fd.writeULE32(uses[i].signals.length);
+        for (let j = 0; j < uses[i].signals.length; j++) {
+            await fd.writeULE64(uses[i].signals[j]);
+        }
+    }
+    await endWriteSection(fd);
 }

@@ -1,26 +1,73 @@
 import Multiset from "../src/plookup/multiset.js";
 import assert from "assert";
 import {getRandomValue, getRandomArray} from "./test_utils.js";
+import {getCurveFromName} from "../src/curves.js";
+import fs from "fs";
+import * as fastFile from "fastfile";
 
 describe("snarkjs: Plookup > Multiset tests", function () {
     this.timeout(150000);
 
+    let curve;
+
+    before(async () => {
+        curve = await getCurveFromName("bn128");
+    });
+
+    after(async () => {
+        await curve.terminate();
+    });
+
     it("should properly construct a new multiset from an array", async () => {
         let array = getRandomArray();
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(array);
 
         assert.deepEqual(array, multiset.toArray());
     });
 
     it("should throw an error when trying to construct a new multiset from an array using a non array element", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         assert.throws(() => multiset.fromArray(10), Error("Multiset.fromArray: Element is not an array"));
     });
 
+    it("should throw an error when trying to import data from an array on a non void multiset", async () => {
+        let multiset = new Multiset(0, curve.Fr);
+        let element = curve.Fr.random();
+        multiset.push(element);
+        assert.throws(() => multiset.fromArray([element]), Error("Multiset.fromArray: it is not able to import data from an array in a non void multiset"));
+    });
+
+    it("should write and read data to/from a file", async () => {
+        let fileName = "multiset.test.bin";
+
+        const fd = await fastFile.createOverride(fileName);
+
+        //Write the datat to a file
+        let multiset = new Multiset(0, curve.Fr);
+        let length = getRandomValue(10);
+        let arr = [];
+        for (let i = 0; i < length; i++) {
+            arr.push(curve.Fr.random());
+        }
+        multiset.fromArray(arr);
+        await multiset.toFile(fd);
+        await fd.close();
+
+        //Read the data from the file
+        const fd2 = await fastFile.readExisting(fileName);
+        let multiset2 = new Multiset(0, curve.Fr);
+        await multiset2.fromFile(fd2);
+        await fd2.close();
+        await fs.promises.unlink(fileName);
+
+        assert.deepEqual(multiset.vec, multiset2.vec);
+    });
+
+
     it("should throw an error when trying to pad a multiset with a length shorter than the current", async () => {
         let length = getRandomValue(10);
-        let multiset = new Multiset(length);
+        let multiset = new Multiset(length, curve.Fr);
 
         assert.throws(() => multiset.pad(length - 1), Error("Multiset.pad: A multiset pad length cannot reduce length"));
     });
@@ -28,7 +75,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     it("should do nothing when trying to pad a multiset with current multiset length", async () => {
         let length1 = getRandomValue(10);
 
-        let multiset = new Multiset(length1);
+        let multiset = new Multiset(length1, curve.Fr);
         assert.equal(multiset.length(), length1);
         multiset.pad(length1);
         assert.equal(multiset.length(), length1);
@@ -38,14 +85,15 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let length1 = getRandomValue(10);
         let length2 = getRandomValue(10);
 
-        let multiset = new Multiset(length1);
+        let multiset = new Multiset(length1, curve.Fr);
         multiset.pad(length1 + length2);
 
         assert.equal(multiset.length(), length1 + length2);
+        assert.deepEqual(multiset.vec[multiset.vec.length - 1], curve.Fr.zero);
     });
 
     it("should push a new element properly on a multiset", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         let element1 = getRandomValue(1000);
         let element2 = getRandomValue(1000);
 
@@ -58,14 +106,14 @@ describe("snarkjs: Plookup > Multiset tests", function () {
 
     it("should throw an error when trying to read an element on an invalid position", async () => {
         let length = getRandomValue(10);
-        let multiset = new Multiset(length);
+        let multiset = new Multiset(length, curve.Fr);
 
         assert.throws(() => multiset.getElementAt(length), Error("Multiset.getElementAt: Index out of bounds"));
     });
 
     it("should return element at position indicated", async () => {
         let array = getRandomArray();
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
 
         multiset.fromArray(array);
         for (let i = 0; i < array.length; i++) {
@@ -73,28 +121,28 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         }
     });
 
-    it("should throw an error when trying to set en element on an invalid position", async () => {
+    it("should throw an error when trying to set an element on an invalid position", async () => {
         let length = getRandomValue(10);
-        let element = getRandomValue(1000);
-        let multiset = new Multiset(length);
+        let element = curve.Fr.e(getRandomValue(1000));
+        let multiset = new Multiset(length, curve.Fr);
 
         assert.throws(() => multiset.setElementAt(element, length), Error("Multiset.setElementAt: Index out of bounds"));
     });
 
-    it("should set element at position indicated", async () => {
+    it("should set element at indicated position", async () => {
         let array = getRandomArray();
-        let multiset = new Multiset();
-        let element = getRandomValue(1000);
+        let multiset = new Multiset(0, curve.Fr);
+        let element = curve.Fr.e(getRandomValue(1000));
         let index = getRandomValue(multiset.length() - 1);
 
         multiset.fromArray(array);
         multiset.setElementAt(element, index);
-        assert.equal(element, multiset.getElementAt(index));
+        assert.deepEqual(element, multiset.getElementAt(index));
     });
 
     it("should first and last element properly", async () => {
         let array = getRandomArray();
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
 
         multiset.fromArray(array);
         assert.equal(array[0], multiset.firstElement());
@@ -102,7 +150,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should whether is empty or not", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
 
         assert.equal(true, multiset.isEmpty());
 
@@ -111,12 +159,12 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should return the index of an element or -1 if it doesn't exist", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         let length = getRandomValue(50);
-        let element = getRandomValue(1000);
+        let element = curve.Fr.e(getRandomValue(1000));
         let index = Math.floor(length / 2);
 
-        multiset.pad(length, 0);
+        multiset.pad(length);
 
         assert.equal(-1, multiset.indexOf(element));
         multiset.setElementAt(element, index);
@@ -124,27 +172,27 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should return whether a multiset contains an element", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         let length = getRandomValue(50);
-        let element = getRandomValue(1000);
+        let element = curve.Fr.random();
 
-        multiset.pad(length, 0);
+        multiset.pad(length, curve.Fr.zero);
         assert.equal(false, multiset.containsElement(element));
 
-        multiset.setElementAt(element, 0);
+        multiset.setElementAt(element, Math.floor(length / 2));
         assert.equal(true, multiset.containsElement(element));
     });
 
     it("should throw an error when argument passed to isSortedBy is not a multiset", async () => {
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         assert.throws(() => multiset.isSortedBy(10), Error("Multiset.isSortedBy: multiset argument must be of type Multiset"));
     });
 
     it("should return false when using void multiset on isSortedBy function", async () => {
         let arrRef = [];
         let arrOk1 = [];
-        let multisetRef = new Multiset();
-        let multisetOk1 = new Multiset();
+        let multisetRef = new Multiset(0, curve.Fr);
+        let multisetOk1 = new Multiset(0, curve.Fr);
 
         multisetRef.fromArray(arrRef);
         multisetOk1.fromArray(arrOk1);
@@ -152,20 +200,21 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should return whether a multiset is sorted by another multiset", async () => {
-        let arrRef = [1, 1, 2, 2, 3, 3, 4, 4, 2];
-        let arrOk1 = [1, 2, 2, 3];
-        let arrOk2 = [1, 2, 3, 2];
+        let arrRef = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2), curve.Fr.e(3),
+            curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(4), curve.Fr.e(2)];
+        let arrOk1 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2), curve.Fr.e(3)];
+        let arrOk2 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(2)];
 
-        let arrWrong1 = [3, 3, 3];
-        let arrWrong2 = [1, 2, 4, 3];
+        let arrWrong1 = [curve.Fr.e(3), curve.Fr.e(3), curve.Fr.e(3)];
+        let arrWrong2 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(4), curve.Fr.e(3)];
 
         //(1, 2, 2, 3) is a subsequence of (1, 1, 2, 2, 3, 3, 4, 4, 2) and (1, 2, 3, 2) is as well. However, (3, 3, 3) and (1, 2, 4, 3) would not be subsequences
 
-        let multisetRef = new Multiset();
-        let multisetOk1 = new Multiset();
-        let multisetOk2 = new Multiset();
-        let multisetWrong1 = new Multiset();
-        let multisetWrong2 = new Multiset();
+        let multisetRef = new Multiset(0, curve.Fr);
+        let multisetOk1 = new Multiset(0, curve.Fr);
+        let multisetOk2 = new Multiset(0, curve.Fr);
+        let multisetWrong1 = new Multiset(0, curve.Fr);
+        let multisetWrong2 = new Multiset(0, curve.Fr);
 
         multisetRef.fromArray(arrRef);
         multisetOk1.fromArray(arrOk1);
@@ -181,12 +230,14 @@ describe("snarkjs: Plookup > Multiset tests", function () {
 
     it("should return a sorted version of two multisets", async () => {
         //sortedVersion({1,2,3,4} {5,4,3,2,1}) = {1,1,2,2,3,3,4,4,5}
-        let arr1 = [1, 2, 3, 4];
-        let arr2 = [5, 4, 3, 2, 1];
-        let arrOk = [1, 1, 2, 2, 3, 3, 4, 4, 5];
+        let arr1 = [curve.Fr.e(1), curve.Fr.e(4), curve.Fr.e(8), curve.Fr.e(16),curve.Fr.e(32)];
+        let arr2 = [curve.Fr.e(5), curve.Fr.e(4), curve.Fr.e(3), curve.Fr.e(2), curve.Fr.e(1)];
 
-        let multiset1 = new Multiset();
-        let multiset2 = new Multiset();
+        let arrOk = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(4),
+            curve.Fr.e(4), curve.Fr.e(5), curve.Fr.e(8), curve.Fr.e(16), curve.Fr.e(32)];
+
+        let multiset1 = new Multiset(0, curve.Fr);
+        let multiset2 = new Multiset(0, curve.Fr);
 
         multiset1.fromArray(arr1);
         multiset2.fromArray(arr2);
@@ -199,63 +250,67 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     it("should return halves of a multiset", async () => {
         let arr = [1, 1, 2, 2, 3, 3, 4, 4, 5];
 
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(arr);
 
         let res = multiset.halves();
-        assert.deepEqual([1, 1, 2, 2], res.h1);
+        assert.deepEqual([1, 1, 2, 2, 3], res.h1);
         assert.deepEqual([3, 3, 4, 4, 5], res.h2);
     });
 
     it("should return halves alternating of a multiset", async () => {
-        let arr = [1, 1, 2, 2, 3, 3, 4, 4, 5];
+        let arr = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2),
+            curve.Fr.e(3), curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(4), curve.Fr.e(5)];
+        let arr1 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(5)];
+        let arr2 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(4)];
 
-        let multiset = new Multiset();
+        let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(arr);
 
         let res = multiset.halvesAlternating();
 
-        assert.deepEqual([1, 2, 3, 4, 5], res.h1.toArray());
-        assert.deepEqual([1, 2, 3, 4], res.h2.toArray());
+        assert.deepEqual(arr1, res.h1.toArray());
+        assert.deepEqual(arr2, res.h2.toArray());
     });
 
-    it("should throw an error when argument randomChallenge passed to compress is not a number", async () => {
-        const ms1 = new Multiset();
-        const ms2 = new Multiset();
-        const ms3 = new Multiset();
-        const randomChallenge = [];
-        assert.throws(() => Multiset.compress(ms1, ms2, ms3, randomChallenge), Error("Multiset.compress: randomChallenge argument must be a number"));
+    it("should throw an error when argument randomChallenge passed to compress is not an Uint8Array", async () => {
+        const ms1 = new Multiset(0, curve.Fr);
+        const ms2 = new Multiset(0, curve.Fr);
+        const ms3 = new Multiset(0, curve.Fr);
+        const randomChallenge = 1;
+        assert.throws(() => Multiset.compress(ms1, ms2, ms3, randomChallenge), Error("Multiset.compress: randomChallenge argument must be an Uint8Array"));
     });
 
     it("should throw an error when one or more multisets passed to compress is not of Multiset type", async () => {
         let ms1 = [];
-        let ms2 = new Multiset();
-        let ms3 = new Multiset();
-        const randomChallenge = getRandomValue(10);
+        let ms2 = new Multiset(0, curve.Fr);
+        let ms3 = new Multiset(0, curve.Fr);
+        const randomChallenge = curve.Fr.e(getRandomValue(10));
         assert.throws(() => Multiset.compress(ms1, ms2, ms3, randomChallenge), Error("Multiset.compress: multiset arguments must be of Multiset type"));
     });
 
     it("should throw an error when argument passed to isSortedBy is not a multiset", async () => {
-        const ms1 = new Multiset(2);
-        const ms2 = new Multiset(2);
-        const ms3 = new Multiset(3);
-        const randomChallenge = getRandomValue(10);
+        const ms1 = new Multiset(20, curve.Fr);
+        const ms2 = new Multiset(20, curve.Fr);
+        const ms3 = new Multiset(30, curve.Fr);
+        const randomChallenge = curve.Fr.e(getRandomValue(10));
         assert.throws(() => Multiset.compress(ms1, ms2, ms3, randomChallenge), Error("Multiset.compress: All Multisets must have same length"));
     });
 
     it("should return a compressed version of three multisets", async () => {
-        let arr1 = [1, 2, 3];
-        let arr2 = [2, 3, 1];
-        let arr3 = [3, 1, 2];
+        let arr1 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3)];
+        let arr2 = [curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(1)];
+        let arr3 = [curve.Fr.e(3), curve.Fr.e(1), curve.Fr.e(2)];
+        let res = [curve.Fr.e(17), curve.Fr.e(12), curve.Fr.e(13)];
 
-        let multiset1 = new Multiset();
-        let multiset2 = new Multiset();
-        let multiset3 = new Multiset();
+        let multiset1 = new Multiset(0, curve.Fr);
+        let multiset2 = new Multiset(0, curve.Fr);
+        let multiset3 = new Multiset(0, curve.Fr);
 
         multiset1.fromArray(arr1);
         multiset2.fromArray(arr2);
         multiset3.fromArray(arr3);
 
-        assert.deepEqual([17, 12, 13], Multiset.compress(multiset1, multiset2, multiset3, 2).toArray());
+        assert.deepEqual(res, Multiset.compress(multiset1, multiset2, multiset3, curve.Fr.e(2), curve.Fr).toArray());
     });
 });

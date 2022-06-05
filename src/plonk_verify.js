@@ -23,6 +23,7 @@ import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
 import jsSha3 from "js-sha3";
+import FactoryCG from "./custom_gates/cg_factory.js";
 const { keccak256 } = jsSha3;
 
 
@@ -38,7 +39,7 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
 
     proof = fromObjectProof(curve,proof);
 
-    vk_verifier = fromObjectVk(curve, vk_verifier);
+    vk_verifier = fromObjectVk(curve, vk_verifier, proof.useCustomGates);
 
     if (!isWellConstructed(curve, proof)) {
         logger.error("Proof is not well constructed");
@@ -98,6 +99,13 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
 
     const res = await isValidPairing(curve, proof, challenges, vk_verifier, E, F);
 
+    if(proof.customGates) {
+        // let cgRes = true;
+        // for (let i = 0; i < proof.customGates.gates.length; i++) {
+        //     cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve.Fr);
+        // }
+    }
+
     if (logger) {
         if (res) {
             logger.info("OK!");
@@ -131,10 +139,28 @@ function fromObjectProof(curve, proof) {
     res.eval_r = Fr.fromObject(proof.eval_r);
     res.Wxi = G1.fromObject(proof.Wxi);
     res.Wxiw = G1.fromObject(proof.Wxiw);
+
+    res.useCustomGates = proof["customGates"] !== undefined;
+    if (res.useCustomGates) {
+        const length = proof["customGates"].length;
+        res.customGates = {};
+
+        res.customGates.gates = Array(length);
+        for (let i = 0; i < length; i++) {
+            //create gates
+            res.customGates.gates[i] = FactoryCG.create(proof["customGates"][i].id, {});
+        }
+
+        //get custom gate proof
+        res.customGates.proof = Array(length);
+        for (let i = 0; i < length; i++) {
+            res.customGates.proof[i] = res.customGates.gates[i].proofFromJson(proof["customGates"][i], curve);
+        }
+    }
     return res;
 }
 
-function fromObjectVk(curve, vk) {
+function fromObjectVk(curve, vk, useCustomGates) {
     const G1 = curve.G1;
     const G2 = curve.G2;
     const Fr = curve.Fr;
@@ -145,13 +171,9 @@ function fromObjectVk(curve, vk) {
     res.Qo = G1.fromObject(vk.Qo);
     res.Qc = G1.fromObject(vk.Qc);
 
-    if (vk.useCustomGates) {
-        res.Qcg = [];
-        for (let i = 0; i < vk.customGates.length; i++) {
-            const cgTemplateName = vk.customGates[i].templateName;
-            const qName = ["Qcg", cgTemplateName.trim().replace(" ", "_")].join("_");
-
-            res.Qcg.push({cgTemplateName: qName, value: G1.fromObject(vk[qName])});
+    if (useCustomGates) {
+        for (let i = 0; i < vk.Qk.length; i++) {
+            res.Qk[i] = G1.fromObject(vk.Qk[i]);
         }
     }
 
@@ -306,12 +328,17 @@ function calculateD(curve, proof, challenges, vk, l1) {
     let s1 = Fr.mul(Fr.mul(proof.eval_a, proof.eval_b), challenges.v[1]);
     let res = G1.timesFr(vk.Qm, s1);
 
-    if (vk.useCustomGates) {
-        for (let i = 0; i < vk.customGates.length; i++) {
-            //TODO recover custom gate name
-            //TODO qg_opertion is the custom gate depending on recovered custom gate
-            let s1cg = Fr.mul(qg_operation(proof.eval_a), challenges.v[1]);
-            res = G1.add(res, G1.timesFr(vk.Qcg[i], s1cg));
+    if (proof.useCustomGates) {
+        for (let i = 0; i < proof.customGates.gates.length; i++) {
+            let op1 = Fr.neg(Fr.mul(proof.eval_a, challenges.v[1]));
+            op1 = G1.timesFr(vk.Ql, op1);
+
+            let op2 = Fr.mul(proof.eval_b, challenges.v[1]);
+            op2 = G1.timesFr(vk.Ql, op2);
+
+            let op3 = G1.timesFr(vk.Qk[i], G1.sub(G1.neg(op1), op2));
+
+            res = G1.add(res, op3);
         }
     }
 

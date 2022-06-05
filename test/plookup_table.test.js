@@ -1,14 +1,15 @@
 import Multiset from "../src/plookup/multiset.js";
 import assert from "assert";
-import {getRandomArray, getRandomValue} from "./test_utils.js";
+import {getRandomValue} from "./test_utils.js";
 import PlookupTable from "../src/plookup/plookup_table.js";
+import {getCurveFromName} from "../src/curves.js";
 
-function getVoidPlookupTable(length = getRandomValue(1000)) {
-    let A = new Multiset(length);
-    let B = new Multiset(length);
-    let C = new Multiset(length);
+function getVoidPlookupTable(length = getRandomValue(1000), Fr) {
+    let A = new Multiset(length, Fr);
+    let B = new Multiset(length, Fr);
+    let C = new Multiset(length, Fr);
 
-    let plookupTable = new PlookupTable();
+    let plookupTable = new PlookupTable(Fr);
 
     plookupTable.fromMultisets(A, B, C);
 
@@ -18,33 +19,43 @@ function getVoidPlookupTable(length = getRandomValue(1000)) {
 describe("snarkjs: Plookup > Plookup table tests", function () {
     this.timeout(150000);
 
+    let curve;
+
+    before(async () => {
+        curve = await getCurveFromName("bn128");
+    });
+
+    after(async () => {
+        await curve.terminate();
+    });
+
     it("should throw an error when trying to construct a new Plookup table without using multisets as argument", async () => {
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
         assert.throws(() => plookupTable.fromMultisets(1, "2", [3]),
             Error("PlookupTable.fromMultisets: arguments must be of Multiset type"));
     });
 
     it("should throw an error when trying to construct a new Plookup table from 3 multisets with different lengths", async () => {
-        let multisetA = new Multiset(1);
-        let multisetB = new Multiset(2);
-        let multisetC = new Multiset(3);
-        let plookupTable = new PlookupTable();
+        let multisetA = new Multiset(1, curve.Fr);
+        let multisetB = new Multiset(2, curve.Fr);
+        let multisetC = new Multiset(3, curve.Fr);
+        let plookupTable = new PlookupTable(curve.Fr);
         assert.throws(() => plookupTable.fromMultisets(multisetA, multisetB, multisetC),
             Error("PlookupTable.fromMultisets: All Multisets must have same length"));
     });
 
     it("should properly construct a new PlookupTable from 3 multisets", async () => {
         let length = getRandomValue(30);
-        let multisetA = new Multiset(length);
-        let multisetB = new Multiset(length);
-        let multisetC = new Multiset(length);
+        let multisetA = new Multiset(length, curve.Fr);
+        let multisetB = new Multiset(length, curve.Fr);
+        let multisetC = new Multiset(length, curve.Fr);
 
         for (let i = 0; i < length; i++) {
-            multisetA.setElementAt(i, i);
-            multisetB.setElementAt(i * 2, i);
-            multisetC.setElementAt(i * 3, i);
+            multisetA.setElementAt(curve.Fr.e(i), i);
+            multisetB.setElementAt(curve.Fr.e(i * 2), i);
+            multisetC.setElementAt(curve.Fr.e(i * 3), i);
         }
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
         plookupTable.fromMultisets(multisetA, multisetB, multisetC);
 
         let res = plookupTable.toMultisets();
@@ -55,10 +66,10 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
     });
 
     it("should push a new row properly on a plookup table", async () => {
-        let plookupTable = new PlookupTable();
-        let A = [getRandomValue(1000), getRandomValue(1000)];
-        let B = [getRandomValue(1000), getRandomValue(1000)];
-        let C = [getRandomValue(1000), getRandomValue(1000)];
+        let plookupTable = new PlookupTable(curve.Fr);
+        let A = [curve.Fr.random(), curve.Fr.random()];
+        let B = [curve.Fr.random(), curve.Fr.random()];
+        let C = [curve.Fr.random(), curve.Fr.random()];
 
         plookupTable.pushRow(A[0], B[0], C[0]);
         let res = plookupTable.toMultisets();
@@ -75,21 +86,21 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
 
     it("should return length properly", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = getVoidPlookupTable(length);
+        let plookupTable = getVoidPlookupTable(length, curve.Fr);
 
         assert.equal(length, plookupTable.length());
     });
 
     it("should throw an error when trying to read a row on an invalid position", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = getVoidPlookupTable(length);
+        let plookupTable = getVoidPlookupTable(length, curve.Fr);
 
         assert.throws(() => plookupTable.getRowAt(length), Error("PlookupTable.getRowAt: Index out of bounds"));
     });
 
     it("should return row at position indicated", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
 
         let rows = [];
         for (let i = 0; i < length; i++) {
@@ -105,7 +116,7 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
 
     it("should return all rows", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
 
         let rows = [];
         for (let i = 0; i < length; i++) {
@@ -119,7 +130,7 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
 
     it("should throw an error when trying to set a row on an invalid position", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = getVoidPlookupTable(length);
+        let plookupTable = getVoidPlookupTable(length, curve.Fr);
 
         assert.throws(() => plookupTable.setRowAt(1, 2, 3, length), Error("PlookupTable.setRowAt: Index out of bounds"));
     });
@@ -127,7 +138,7 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
     it("should set element at position indicated", async () => {
         const length = getRandomValue(1000);
         const index = getRandomValue(length) - 1;
-        let plookupTable = getVoidPlookupTable(length);
+        let plookupTable = getVoidPlookupTable(length, curve.Fr);
 
         const row = [getRandomValue(1000), getRandomValue(1000), getRandomValue(1000)];
         plookupTable.setRowAt(row[0], row[1], row[2], index);
@@ -136,7 +147,7 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
 
     it("should first and last element properly", async () => {
         const length = getRandomValue(1000);
-        let plookupTable = getVoidPlookupTable(length);
+        let plookupTable = getVoidPlookupTable(length, curve.Fr);
 
         const firstRow = [getRandomValue(1000), getRandomValue(1000), getRandomValue(1000)];
         plookupTable.setRowAt(firstRow[0], firstRow[1], firstRow[2], 0);
@@ -148,7 +159,7 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
     });
 
     it("should whether is empty or not", async () => {
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
 
         assert.equal(true, plookupTable.isEmpty());
 
@@ -157,34 +168,32 @@ describe("snarkjs: Plookup > Plookup table tests", function () {
     });
 
     it("should return the index of an element or -1 if it doesn't exist", async () => {
-        const maxValue = 5000;
         const length = getRandomValue(1000);
         const randomIndex = getRandomValue(length) - 1;
-        let plookupTable = new PlookupTable();
+        let plookupTable = new PlookupTable(curve.Fr);
 
         let rows = [];
         for (let i = 0; i < length; i++) {
-            const row = [getRandomValue(maxValue), getRandomValue(maxValue), getRandomValue(maxValue)];
+            const row = [curve.Fr.e(i), curve.Fr.random(), curve.Fr.random()];
             rows.push(row);
             plookupTable.pushRow(row[0], row[1], row[2]);
         }
 
-        assert.equal(-1, plookupTable.lookup(maxValue + 1, maxValue + 1).idx);
+        assert.equal(-1, plookupTable.lookup(curve.Fr.e(length), curve.Fr.random()).idx);
         let res = plookupTable.lookup(rows[randomIndex][0], rows[randomIndex][1]);
         assert.deepEqual(rows[randomIndex], res.row);
         assert.equal(randomIndex, res.idx);
     });
 
     it("should return a compressed version of a plookup table", async () => {
-        const maxValue = 5000;
         const length = getRandomValue(1000);
-        let plookupTable = new PlookupTable();
-        let randomChallenge = getRandomValue(10);
+        let plookupTable = new PlookupTable(curve.Fr);
+        let randomChallenge = curve.Fr.random();
 
         let compressed = [];
         for (let i = 0; i < length; i++) {
-            const row = [getRandomValue(maxValue), getRandomValue(maxValue), getRandomValue(maxValue)];
-            compressed.push(row[0] + row[1] * randomChallenge + row[2] * Math.pow(randomChallenge, 2));
+            const row = [curve.Fr.random(), curve.Fr.random(), curve.Fr.random()];
+            compressed.push(curve.Fr.add(row[0], curve.Fr.add(curve.Fr.mul(row[1], randomChallenge), curve.Fr.mul(row[2], curve.Fr.square(randomChallenge)))));
             plookupTable.pushRow(row[0], row[1], row[2]);
         }
 

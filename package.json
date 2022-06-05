@@ -10,7 +10,7 @@
     "require": "./build/main.cjs"
   },
   "scripts": {
-    "test": "mocha",
+    "test": "mocha test/*.js test/custom_gates/*.js",
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",

@@ -21,6 +21,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { utils } from "ffjavascript";
+import FactoryCG from "./custom_gates/cg_factory.js";
 const {stringifyBigInts} = utils;
 
 export default async function zkeyExportVerificationKey(zkeyName, /* logger */ ) {
@@ -32,7 +33,7 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */ )
     if (zkey.protocol == "groth16") {
         res = await groth16Vk(zkey, fd, sections);
     } else if (zkey.protocol == "plonk") {
-        res = await plonkVk(zkey);
+        res = await plonkVk(zkey, fd, sections);
     } else {
         throw new Error("zkey file is not groth16");
     }
@@ -80,7 +81,7 @@ async function groth16Vk(zkey, fd, sections) {
 }
 
 
-async function plonkVk(zkey) {
+async function plonkVk(zkey, fd, sections) {
     const curve = await getCurve(zkey.q);
 
     let vKey = {
@@ -105,6 +106,14 @@ async function plonkVk(zkey) {
 
         w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
+
+    if (zkey.useCustomGates) {
+        const length = zkey.Qk.length;
+        vKey.Qk = Array(length);
+        for (let i = 0; i < length; i++) {
+            vKey.Qk[i] = curve.G1.toObject(zkey.Qk[i]);
+        }
+    }
 
     vKey = stringifyBigInts(vKey);
 

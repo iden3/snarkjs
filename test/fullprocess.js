@@ -125,7 +125,8 @@ describe("Full process", function ()  {
     });
 
     it ("plonk setup", async () => {
-        await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
+        //console.log(ptau_final);
+        await snarkjs.plonk.setup(path.join("./test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });
 
     it ("zkey export verificationkey", async () => {
@@ -138,11 +139,8 @@ describe("Full process", function ()  {
         publicSignals = res.publicSignals;
     });
 
-
     it ("plonk verify", async () => {
         const res = await snarkjs.plonk.verify(vKey, publicSignals, proof);
         assert(res == true);
     });
-
-
 });
