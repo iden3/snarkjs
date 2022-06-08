@@ -130,9 +130,9 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     await round5();
 
     if(zkey.useCustomGates) {
-        // proof.customGates = Array(zkey.customGates.length);
+        proof.customGates = zkey.customGates;
         for (let i = 0; i < zkey.customGates.length; i++) {
-            // proof.customGates[i] = await customGates.gates[i].computeProof(customGates.gates[i].preInput, customGates.gates[i].witnesses, Fr);
+            proof.customGates[i].proof = await customGates.gates[i].computeProof(customGates.gates[i].preInput, customGates.gates[i].witnesses, Fr);
         }
     }
 
@@ -489,12 +489,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
             if (zkey.useCustomGates) {
                 for (let j = 0; j < customGates.gates.length; j++) {
-                    //q_k*(-q_l*a_i-q_r*b_i)
-                    const plonkFactor = customGates.gates[j].plonkFactor(ql, a, qr, b, qc, c, qk[j], Fr);
-                    e1 = Fr.add(e1, plonkFactor);
+                    const plonkFactor = customGates.gates[j].plonkFactor(a, b, c, Fr);
+                    e1 = Fr.add(e1, Fr.mul(qk[j], plonkFactor));
 
-                    const plonkFactorP = customGates.gates[j].plonkFactor(ql, ap, qr, bp, qc, cp, qk[j], Fr);
-                    e1z = Fr.add(e1z, plonkFactorP);
+                    const plonkFactorP = customGates.gates[j].plonkFactor(ap, bp, cp, Fr);
+                    e1z = Fr.add(e1z, Fr.mul(qk[j], plonkFactorP));
                 }
             }
 
@@ -774,16 +773,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
                 if (zkey.useCustomGates) {
                     for (let j = 0; j < customGates.gates.length; j++) {
                         const plonkFactor = customGates.gates[j].plonkFactor(
-                            pol_ql.slice(i * n8r, (i + 1) * n8r),
                             proof.eval_a,
-                            pol_qr.slice(i * n8r, (i + 1) * n8r),
                             proof.eval_b,
-                            pol_qc.slice(i * n8r, (i + 1) * n8r),
                             proof.eval_c,
-                            pol_qk[j].slice(i * n8r, (i + 1) * n8r),
                             Fr);
-
-                        v = Fr.add(v, plonkFactor);
+                        v = Fr.add(v, Fr.mul(pol_qk[j].slice(i * n8r, (i + 1) * n8r), plonkFactor));
                     }
                 }
 

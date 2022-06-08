@@ -37,9 +37,10 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     const Fr = curve.Fr;
     const G1 = curve.G1;
 
-    proof = fromObjectProof(curve,proof);
+    proof = fromObjectProof(curve, proof);
 
     vk_verifier = fromObjectVk(curve, vk_verifier, proof.useCustomGates);
+
 
     if (!isWellConstructed(curve, proof)) {
         logger.error("Proof is not well constructed");
@@ -99,12 +100,14 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
 
     const res = await isValidPairing(curve, proof, challenges, vk_verifier, E, F);
 
+    let cgRes = true;
     if(proof.customGates) {
-        // let cgRes = true;
-        // for (let i = 0; i < proof.customGates.gates.length; i++) {
-        //     cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve.Fr);
-        // }
+        for (let i = 0; i < proof.customGates.gates.length; i++) {
+            cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve.Fr);
+        }
     }
+
+    if(logger) logger.info("Custom gates result: " + (cgRes ? "Ok!" : "Error"));
 
     if (logger) {
         if (res) {
@@ -140,7 +143,8 @@ function fromObjectProof(curve, proof) {
     res.Wxi = G1.fromObject(proof.Wxi);
     res.Wxiw = G1.fromObject(proof.Wxiw);
 
-    res.useCustomGates = proof["customGates"] !== undefined;
+    res.useCustomGates = undefined !== proof["customGates"] ;
+
     if (res.useCustomGates) {
         const length = proof["customGates"].length;
         res.customGates = {};
@@ -154,7 +158,7 @@ function fromObjectProof(curve, proof) {
         //get custom gate proof
         res.customGates.proof = Array(length);
         for (let i = 0; i < length; i++) {
-            res.customGates.proof[i] = res.customGates.gates[i].proofFromJson(proof["customGates"][i], curve);
+            res.customGates.proof[i] = res.customGates.gates[i].proofFromJson(proof["customGates"][i].proof, curve);
         }
     }
     return res;
@@ -330,15 +334,13 @@ function calculateD(curve, proof, challenges, vk, l1) {
 
     if (proof.useCustomGates) {
         for (let i = 0; i < proof.customGates.gates.length; i++) {
-            let op1 = Fr.neg(Fr.mul(proof.eval_a, challenges.v[1]));
-            op1 = G1.timesFr(vk.Ql, op1);
-
-            let op2 = Fr.mul(proof.eval_b, challenges.v[1]);
-            op2 = G1.timesFr(vk.Ql, op2);
-
-            let op3 = G1.timesFr(vk.Qk[i], G1.sub(G1.neg(op1), op2));
-
-            res = G1.add(res, op3);
+            const plonkFactor = proof.customGates.gates[i].plonkFactor(
+                Fr.mul(proof.eval_a, challenges.v[1]),
+                Fr.mul(proof.eval_b, challenges.v[1]),
+                Fr.mul(proof.eval_c, challenges.v[1]),
+                Fr
+            );
+            res = G1.add(res, G1.timesFr(vk.Qk[i], plonkFactor));
         }
     }
 

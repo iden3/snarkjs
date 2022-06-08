@@ -49,8 +49,6 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
-import {writeStringToFile} from "fastfile";
-import {R1CS_FILE_CUSTOM_GATES_USES_SECTION} from "r1csfile";
 import {endWriteSection, startWriteSection} from "@iden3/binfileutils";
 
 //CUSTOM_GATES SECTION IDS
@@ -303,17 +301,17 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.Qr = await readG1(fd, curve, toObject);
     zkey.Qo = await readG1(fd, curve, toObject);
     zkey.Qc = await readG1(fd, curve, toObject);
-    zkey.S1 = await readG1(fd, curve, toObject);
-    zkey.S2 = await readG1(fd, curve, toObject);
-    zkey.S3 = await readG1(fd, curve, toObject);
-    zkey.X_2 = await readG2(fd, curve, toObject);
-
     if (zkey.useCustomGates) {
         zkey.Qk = [];
         for (let i = 0; i < zkey.customGates.length; i++) {
             zkey.Qk.push(await readG1(fd, curve, toObject));
         }
     }
+    zkey.S1 = await readG1(fd, curve, toObject);
+    zkey.S2 = await readG1(fd, curve, toObject);
+    zkey.S3 = await readG1(fd, curve, toObject);
+    zkey.X_2 = await readG2(fd, curve, toObject);
+
     await binFileUtils.endReadSection(fd);
 
     return zkey;

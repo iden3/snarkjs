@@ -19,12 +19,8 @@
 
 import CustomGate from "./cg_base.js";
 import Multiset from "../plookup/multiset.js";
-import {BigBuffer, Scalar, utils} from "ffjavascript";
-import {endWriteSection, startWriteSection} from "@iden3/binfileutils";
 import * as binFileUtils from "@iden3/binfileutils";
-import {ZKEY_CUSTOM_USES_SECTION} from "../zkey_utils.js";
 
-const {unstringifyBigInts} = utils;
 export const RANGE_CHECK_ID = 9;
 export const RANGE_CHECK_NAME = "RANGECHECK";
 const ZK_RANGE_CHECK_Q_SECTION = 4096;
@@ -67,19 +63,12 @@ class RangeCheckCG extends CustomGate {
                 sl: signals[2], sr: signals[1], so: 0,
                 ql: Fr.neg(Fr.one), qr: Fr.one,
                 qo: Fr.zero, qm: Fr.zero, qc: Fr.zero,
-                qk: Fr.one
+                qk: Fr.neg(Fr.one)
             }
         ];
     }
-    plonkFactor(ql, a, qr, b, qc, c, qk, Fr) {
-        let op1 = Fr.neg(ql);
-        op1 = Fr.mul(op1, a);
-
-        let op2 = Fr.mul(qr, b);
-
-        let res = Fr.mul(qk, Fr.sub(op1, op2));
-
-        return res;
+    plonkFactor(a, b, c, Fr) {
+        return Fr.add(Fr.neg(a), b);
     }
 
     getPreprocessedInput(Fr) {

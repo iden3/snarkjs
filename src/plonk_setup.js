@@ -352,7 +352,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             o += 4;
             buffOutV.setUint32(o, addition[1], true);
             o += 4;
-            // The value is storen in  Montgomery. stored = v*R
+            // The value is stored in  Montgomery. stored = v*R
             // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w 
             buffOut.set(addition[2], o);
             o += n8r;
