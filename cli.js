@@ -874,7 +874,12 @@ async function zkeyImportBellman(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
+    const isValid = await zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
+    if (isValid) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
 
 // phase2 verify r1cs [circuit.r1cs] [powersoftau.ptau] [circuit_final.zkey]
