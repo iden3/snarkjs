@@ -116,7 +116,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             }
             let witnesses = customGates.gates[gateIdx].computeWitness(tmp, Fr);
             for (let j = 0; j < witnesses.length; j++) {
-                customGates.gates[gateIdx].witnesses.push(witnesses[j]);
+                customGates.gates[gateIdx].witnesses.push(Fr.toMontgomery(witnesses[j]));
             }
         }
     }
@@ -132,7 +132,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     if(zkey.useCustomGates) {
         proof.customGates = zkey.customGates;
         for (let i = 0; i < zkey.customGates.length; i++) {
-            proof.customGates[i].proof = await customGates.gates[i].computeProof(customGates.gates[i].preInput, customGates.gates[i].witnesses, Fr);
+            proof.customGates[i].proof = customGates.gates[i].computeProof(customGates.gates[i].preInput, customGates.gates[i].witnesses, Fr);
         }
     }
 
@@ -174,10 +174,19 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     proof.Wxi = G1.toObject(proof.Wxi);
     proof.Wxiw = G1.toObject(proof.Wxiw);
 
+    if(zkey.useCustomGates) {
+        proof.customGates = zkey.customGates;
+        for (let i = 0; i < zkey.customGates.length; i++) {
+            proof.customGates[i].proof = customGates.gates[i].toObjectProof(proof.customGates[i].proof, curve);
+        }
+    }
+
     delete proof.eval_t;
 
     proof = stringifyBigInts(proof);
     publicSignals = stringifyBigInts(publicSignals);
+
+    if (logger) logger.info("Plonk prover finished");
 
     return {proof, publicSignals};
 
@@ -249,14 +258,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         for (let i=1; i<=9; i++) {
             ch.b[i] = curve.Fr.random();
         }
-    
+
         [A, B, C] = await buildABC();
 
         [pol_a, A4] = await to4T(A, [ch.b[2], ch.b[1]]);
         [pol_b, B4] = await to4T(B, [ch.b[4], ch.b[3]]);
         [pol_c, C4] = await to4T(C, [ch.b[6], ch.b[5]]);
 
-                
+
         proof.A = await expTau(pol_a, "multiexp A");
         proof.B = await expTau(pol_b, "multiexp B");
         proof.C = await expTau(pol_c, "multiexp C");
@@ -274,12 +283,12 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         ch.beta = hashToFr(transcript1);
         if (logger) logger.debug("beta: " + Fr.toString(ch.beta));
-    
+
         const transcript2 = new Uint8Array(n8r);
         Fr.toRprBE(transcript2, 0, ch.beta);
         ch.gamma = hashToFr(transcript2);
         if (logger) logger.debug("gamma: " + Fr.toString(ch.gamma));
-    
+
         let numArr = new BigBuffer(Fr.n8*zkey.domainSize);
         let denArr = new BigBuffer(Fr.n8*zkey.domainSize);
 
@@ -316,17 +325,17 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
             const den = Fr.mul(d1, Fr.mul(d2, d3));
 
-            numArr.set(  
-                Fr.mul( 
-                    numArr.slice(i*n8r,(i+1)*n8r) , 
+            numArr.set(
+                Fr.mul(
+                    numArr.slice(i*n8r,(i+1)*n8r) ,
                     num
                 ),
                 ((i+1)%zkey.domainSize)*n8r
             );
 
-            denArr.set(  
-                Fr.mul( 
-                    denArr.slice(i*n8r,(i+1)*n8r) , 
+            denArr.set(
+                Fr.mul(
+                    denArr.slice(i*n8r,(i+1)*n8r) ,
                     den
                 ),
                 ((i+1)%zkey.domainSize)*n8r
@@ -373,23 +382,23 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         }
         */
 
-        if (logger) logger.debug("phse3: Reading QM4");    
+        if (logger) logger.debug("phse3: Reading QM4");
         const QM4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QM4, 0 , zkey.domainSize*n8r*4, sectionsZKey[7][0].p + zkey.domainSize*n8r);
 
-        if (logger) logger.debug("phse3: Reading QL4");    
+        if (logger) logger.debug("phse3: Reading QL4");
         const QL4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QL4, 0 , zkey.domainSize*n8r*4, sectionsZKey[8][0].p + zkey.domainSize*n8r);
 
-        if (logger) logger.debug("phse3: Reading QR4");    
+        if (logger) logger.debug("phse3: Reading QR4");
         const QR4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QR4, 0 , zkey.domainSize*n8r*4, sectionsZKey[9][0].p + zkey.domainSize*n8r);
 
-        if (logger) logger.debug("phse3: Reading QO4");    
+        if (logger) logger.debug("phse3: Reading QO4");
         const QO4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QO4, 0 , zkey.domainSize*n8r*4, sectionsZKey[10][0].p + zkey.domainSize*n8r);
 
-        if (logger) logger.debug("phse3: Reading QC4");    
+        if (logger) logger.debug("phse3: Reading QC4");
         const QC4 = new BigBuffer(zkey.domainSize*4*n8r);
         await fdZKey.readToBuffer(QC4, 0 , zkey.domainSize*n8r*4, sectionsZKey[11][0].p + zkey.domainSize*n8r);
 
@@ -413,7 +422,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         ch.alpha = hashToFr(transcript3);
 
-        if (logger) logger.debug("alpha: " + Fr.toString(ch.alpha));    
+        if (logger) logger.debug("alpha: " + Fr.toString(ch.alpha));
 
 
         const Z1 = [
@@ -477,7 +486,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
             let pl = Fr.zero;
             for (let j=0; j<zkey.nPublic; j++) {
-                pl = Fr.sub(pl, Fr.mul( 
+                pl = Fr.sub(pl, Fr.mul(
                     lPols.slice( (j*5*zkey.domainSize+ zkey.domainSize+ i)*n8r, (j*5*zkey.domainSize+ zkey.domainSize + i+1)*n8r),
                     A.slice(j*n8r, (j+1)*n8r)
                 ));

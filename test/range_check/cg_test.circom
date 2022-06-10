@@ -7,7 +7,6 @@ template Foo() {
     signal input lower_bound;
     signal input upper_bound;
     signal input to_check;
-
     custom_component rangeCheck = RangeCheck();
 
     rangeCheck.lower_bound <== lower_bound;

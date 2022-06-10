@@ -50,6 +50,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 import {endWriteSection, startWriteSection} from "@iden3/binfileutils";
+import FactoryCG from "./custom_gates/cg_factory.js";
 
 //CUSTOM_GATES SECTION IDS
 export const ZKEY_CUSTOM_GATES_LIST_SECTION = 15;
@@ -301,18 +302,31 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.Qr = await readG1(fd, curve, toObject);
     zkey.Qo = await readG1(fd, curve, toObject);
     zkey.Qc = await readG1(fd, curve, toObject);
-    if (zkey.useCustomGates) {
-        zkey.Qk = [];
-        for (let i = 0; i < zkey.customGates.length; i++) {
-            zkey.Qk.push(await readG1(fd, curve, toObject));
-        }
-    }
+
     zkey.S1 = await readG1(fd, curve, toObject);
     zkey.S2 = await readG1(fd, curve, toObject);
     zkey.S3 = await readG1(fd, curve, toObject);
     zkey.X_2 = await readG2(fd, curve, toObject);
 
     await binFileUtils.endReadSection(fd);
+
+    if (zkey.useCustomGates) {
+        zkey.Qk = [];
+        for (let i = 0; i < zkey.customGates.length; i++) {
+            const cg = FactoryCG.create(zkey.customGates[i].id, {parameters: zkey.customGates[i].parameters});
+            await binFileUtils.startReadUniqueSection(fd, sections, cg.headerSectionId);
+
+
+            zkey.Qk.push(await readG1(fd, curve, toObject));
+
+            let preInputKeys = cg.preprocessedInputKeys;
+            zkey.customGates[i].preInput = {};
+            for (let j = 0; j < preInputKeys.polynomials.length; j++) {
+                zkey.customGates[i].preInput[preInputKeys.polynomials[j]] = await readG1(fd, curve, toObject);
+            }
+            await binFileUtils.endReadSection(fd, false);
+        }
+    }
 
     return zkey;
 }

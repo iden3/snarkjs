@@ -77,9 +77,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     let nSections = r1cs.useCustomGates ? 16 : 14;
     if(r1cs.useCustomGates) {
-        for (let i = 0; i < r1cs.customGates.length; i++) {
-            nSections += customGates.gates[i].numZKeySections();
-        }
+        nSections += customGates.gates.length * 3;
     }
 
     await processConstraints();
@@ -140,10 +138,19 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await writeZKeyCustomGatesListSection(fdZKey, customGates.gates);
         if (logger) logger.debug("writing Custom gates uses section");
         await writeZKeyCustomGatesUsesSection(fdZKey, customGates.uses);
-        if (logger) logger.debug("writing custom gates Q map section");
-        await writeZKeyCustomGatesQmap();
-        if (logger) logger.debug("writing custom gates preprocessed input section");
-        await writeZKeyCustomGatesPreprocessedInput();
+
+        vk.customGates = Array(customGates.gates.length);
+        for (let i = 0; i < customGates.gates.length; i++) {
+            vk.customGates[i] = {};
+
+            if (logger) logger.debug("writing custom gates Q map section");
+            await writeZKeyCustomGateQMap(i);
+            forceGarbageCollection();
+
+            if (logger) logger.debug("writing custom gates preprocessed input section");
+            await writeZKeyCustomGatesPreprocessedInput(i);
+            forceGarbageCollection();
+        }
     }
 
     await writeSigma(12, "sigma");
@@ -169,7 +176,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await fdR1cs.close();
     await fdPTau.close();
 
-    if (logger) logger.info("Setup Finished");
+    if (logger) logger.info("Plonk setup Finished");
 
     return;
 
@@ -311,6 +318,26 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         vk[name] = await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp " + name);
     }
 
+    async function writeZKeyCustomGateQMap(idx) {
+        if (logger) logger.debug(`writing ${customGates.gates[idx].name} Q map`);
+
+        const name = customGates.gates[idx].name;
+        const posConstraint = 8 + idx;
+
+        let Q = new BigBuffer(domainSize * n8r);
+        for (let i = 0; i < plonkConstraints.length; i++) {
+            Q.set(plonkConstraints[i][posConstraint], i * n8r);
+            if ((logger) && (i % 1000000 === 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
+        }
+
+        const sectionNum = customGates.gates[idx].qSectionId;
+        await startWriteSection(fdZKey, sectionNum);
+        await writeP4(Q);
+        await endWriteSection(fdZKey);
+        Q = await Fr.batchFromMontgomery(Q);
+        vk.customGates[idx].Qk = await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp " + name);
+    }
+
     async function writeP4(buff) {
         const q = await Fr.ifft(buff);
         const q4 = new BigBuffer(domainSize * n8r * 4);
@@ -320,25 +347,41 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await fdZKey.write(Q4);
     }
 
-    async function writePreprocessedInput(sectionId, preInput, name) {
-        let keys = Object.keys(preInput);
-        for(let i=0;i< keys.length; i++) {
-            let polynomial = preInput[keys[i]];
+    async function writeP4_2(buff) {
+        const q = await Fr.ifft(buff);
+        const q4 = new BigBuffer(buff.byteLength * 4);
+        q4.set(q, 0);
+        const Q4 = await Fr.fft(q4);
+        await fdZKey.write(q);
+        await fdZKey.write(Q4);
+    }
+
+    async function writeZKeyCustomGatesPreprocessedInput(idx) {
+        const name = customGates.gates[idx].name;
+        const preInput = customGates.gates[idx].getPreprocessedInput(curve.Fr);
+
+        await startWriteSection(fdZKey, customGates.gates[idx].preprocessedInputSectionId);
+
+        vk.customGates[idx].preInput = {};
+        const keys = customGates.gates[idx].preprocessedInputKeys;
+
+        //Write polynomials
+        for (let i = 0; i < keys.polynomials.length; i++) {
+            const polynomial = preInput.polynomials[keys.polynomials[i]];
             let buffer = new BigBuffer(polynomial.length * n8r);
 
             for (let i = 0; i < polynomial.length; i++) {
                 buffer.set(polynomial[i], i * n8r);
-                if ((logger) && (0 === i % 1000000)) logger.debug(`writing ${name}: ${i}/${polynomial.length}`);
+                if ((logger) && (0 === i % 1000000)) logger.debug(`writing preprocessed input for ${name}: ${i}/${polynomial.length}`);
             }
-            await startWriteSection(fdZKey, sectionId);
+            await writeP4_2(buffer);
 
-            fdZKey.write(buffer);
-            //TODO It should dbe write using writeP4 ???
-            //await writeP4(buffer);
-            await endWriteSection(fdZKey);
             buffer = await Fr.batchFromMontgomery(buffer);
-            vk[name] = await curve.G1.multiExpAffine(LPoints, buffer, logger, "multiexp " + name);
+            const mExp = await curve.G1.multiExpAffine(LPoints, buffer, logger, "multiexp " + name);
+            vk.customGates[idx].preInput[keys.polynomials[i]] = curve.G1.toAffine(mExp);
+            forceGarbageCollection();
         }
+        await endWriteSection(fdZKey);
     }
 
     async function writeAdditions(sectionNum, name) {
@@ -454,27 +497,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await endWriteSection(fdZKey);
     }
 
-    async function writeZKeyCustomGatesQmap() {
-        for (let i = 0; i < customGates.gates.length; i++) {
-            const qName = ["Qk", customGates.gates[i].name].join("_");
-
-            //Write Qmap info from plonkConstraints table
-            if (logger) logger.debug(`writing ${qName} Q map`);
-            await writeQMap(customGates.gates[i].qSectionId, 8 + i, qName);
-            forceGarbageCollection();
-        }
-    }
-
-    async function writeZKeyCustomGatesPreprocessedInput() {
-        for (let i = 0; i < customGates.gates.length; i++) {
-            //Write preprocessed gate info useful for plonk prover
-            const preInputName = ["preInput", customGates.gates[i].name].join("_");
-            const preInput = customGates.gates[i].getPreprocessedInput(curve.Fr);
-            await writePreprocessedInput(customGates.gates[i].preprocessedInputSectionId, preInput, preInputName);
-            forceGarbageCollection();
-        }
-    }
-
     async function writeHeaders() {
 
         // Write the header
@@ -512,13 +534,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await fdZKey.write(G1.toAffine(vk.Qo));             //Qo
         await fdZKey.write(G1.toAffine(vk.Qc));             //Qc
 
-        if (r1cs.useCustomGates) {
-            for (let i = 0; i < customGates.gates.length; i++) {
-                const qName = ["Qk", customGates.gates[i].name].join("_");
-                await fdZKey.write(G1.toAffine(vk[qName])); //Qk for each custom gate on circuit
-            }
-        }
-
         await fdZKey.write(G1.toAffine(vk.S1));             //Sigma 1
         await fdZKey.write(G1.toAffine(vk.S2));             //Sigma 2
         await fdZKey.write(G1.toAffine(vk.S3));             //Sigma 3
@@ -528,6 +543,25 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await fdZKey.write(bX_2);
 
         await endWriteSection(fdZKey);
+
+        if (r1cs.useCustomGates) {
+
+            for (let i = 0; i < customGates.gates.length; i++) {
+                const name = customGates.gates[i].name;
+                const keys = customGates.gates[i].preprocessedInputKeys;
+
+                if (logger) logger.debug(`writing custom gate ${name} header section`);
+
+                await startWriteSection(fdZKey, customGates.gates[i].headerSectionId);
+                await fdZKey.write(G1.toAffine(vk.customGates[i].Qk));
+
+                for (let j = 0; j < keys.polynomials.length; j++) {
+                    await fdZKey.write(G1.toAffine(vk.customGates[i].preInput[keys.polynomials[j]]));
+                }
+
+                await endWriteSection(fdZKey);
+            }
+        }
     }
 
     function getK1K2() {

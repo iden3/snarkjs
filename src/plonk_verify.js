@@ -117,6 +117,8 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         }
     }
 
+    if (logger) logger.info("Plonk verifier finished");
+
     return res;
 
 }
@@ -146,19 +148,19 @@ function fromObjectProof(curve, proof) {
     res.useCustomGates = undefined !== proof["customGates"] ;
 
     if (res.useCustomGates) {
-        const length = proof["customGates"].length;
+        const length = proof.customGates.length;
         res.customGates = {};
 
         res.customGates.gates = Array(length);
         for (let i = 0; i < length; i++) {
             //create gates
-            res.customGates.gates[i] = FactoryCG.create(proof["customGates"][i].id, {});
+            res.customGates.gates[i] = FactoryCG.create(proof.customGates[i].id, {});
         }
 
         //get custom gate proof
         res.customGates.proof = Array(length);
         for (let i = 0; i < length; i++) {
-            res.customGates.proof[i] = res.customGates.gates[i].proofFromJson(proof["customGates"][i].proof, curve);
+            res.customGates.proof[i] = res.customGates.gates[i].fromObjectProof(proof.customGates[i].proof, curve);
         }
     }
     return res;

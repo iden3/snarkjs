@@ -21,10 +21,9 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { utils } from "ffjavascript";
-import FactoryCG from "./custom_gates/cg_factory.js";
 const {stringifyBigInts} = utils;
 
-export default async function zkeyExportVerificationKey(zkeyName, /* logger */ ) {
+export default async function zkeyExportVerificationKey(zkeyName, logger) {
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections);
@@ -39,6 +38,8 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */ )
     }
 
     await fd.close();
+
+    if (logger) logger.info("Plonk export verification key finished");
 
     return res;
 }
@@ -109,10 +110,20 @@ async function plonkVk(zkey, fd, sections) {
 
     if (zkey.useCustomGates) {
         const length = zkey.Qk.length;
+
         vKey.Qk = Array(length);
+        vKey.CG = Array(length);
+
         for (let i = 0; i < length; i++) {
             vKey.Qk[i] = curve.G1.toObject(zkey.Qk[i]);
+
+            vKey.CG[i] = {};
+            Object.keys(zkey.customGates[i].preInput).forEach(key => {
+                vKey.CG[i][key] = curve.G1.toObject(zkey.customGates[i].preInput[key]);
+            });
         }
+
+
     }
 
     vKey = stringifyBigInts(vKey);

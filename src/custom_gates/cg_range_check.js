@@ -23,11 +23,12 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 export const RANGE_CHECK_ID = 9;
 export const RANGE_CHECK_NAME = "RANGECHECK";
-const ZK_RANGE_CHECK_Q_SECTION = 4096;
-const ZK_RANGE_CHECK_T_POLYNOMIAL_SECTION = 4097;
+const ZK_RANGE_CHECK_HEADER_SECTION = 4096;
+const ZK_RANGE_CHECK_Q_SECTION = 4097;
+const ZK_RANGE_CHECK_T_POLYNOMIAL_SECTION = 4098;
 
-export const C = 1 << 2;
-export const N = 1 << 4;
+export const C = 1 << 4;
+export const N = 1 << 7;
 export const MAX_RANGE = C * (N - 1);
 
 class RangeCheckCG extends CustomGate {
@@ -36,8 +37,8 @@ class RangeCheckCG extends CustomGate {
         return this;
     }
 
-    numZKeySections() {
-        return 2;
+    get headerSectionId() {
+        return ZK_RANGE_CHECK_HEADER_SECTION;
     }
 
     get qSectionId() {
@@ -67,11 +68,13 @@ class RangeCheckCG extends CustomGate {
             }
         ];
     }
+
     plonkFactor(a, b, c, Fr) {
         return Fr.add(Fr.neg(a), b);
     }
 
     getPreprocessedInput(Fr) {
+        let res = {};
         //t = polynomial with t_i = c * (i - 1)
         let t = new Array(N);
 
@@ -82,15 +85,22 @@ class RangeCheckCG extends CustomGate {
             t[i] = Fr.e(C * i);
         }
 
-        return {t: t};
+        res.polynomials = {t: t};
+        return res;
+    }
+
+    get preprocessedInputKeys() {
+        return {
+            polynomials: ["t"]
+        };
     }
 
     async readZKeyPreprocessedInput(fd, sections, Fr) {
-        let buffer = await binFileUtils.readSection(fd, sections, this.preprocessedInputSectionId);
+        let buffer = await binFileUtils.readSection(fd, sections, this.preprocessedInputSectionId, N * Fr.n8);
 
         let tArr = Array(N);
         for (let i = 0; i < N; i++) {
-            const offset = i * Fr.n8;
+            const offset = i * Fr.n8 * 4;
             tArr[i] = buffer.slice(offset, offset + Fr.n8);
         }
 
@@ -234,37 +244,40 @@ class RangeCheckCG extends CustomGate {
         // return res;
     }
 
-    proofFromJson(jsonProof, curve) {
-        const res = {};
+    toObjectProof(proof, curve) {
+        return proof;
+        let res = {};
+        res.f = curve.G1.toObject(proof.f);
+        res.t = curve.G1.toObject(proof.t);
+        res.h1 = curve.G1.toObject(proof.h1);
+        res.h2 = curve.G1.toObject(proof.h2);
+        res.gamma = curve.Fr.fromObject(proof.gamma);
+        res.Z = curve.G1.toObject(proof.Z);
 
-        // res.f = curve.G1.fromObject(jsonProof.f);
-        // res.t = curve.G1.fromObject(jsonProof.t);
-        // res.h1 = curve.G1.fromObject(jsonProof.h1);
-        // res.h2 = curve.G1.fromObject(jsonProof.h2);
-        // res.gamma = curve.Fr.fromObject(jsonProof.gamma);
-        // res.Z = jsonProof.Z;
+        return res;
+    }
 
-        res.f = Array(jsonProof.f.length);
-        res.t = Array(jsonProof.t.length);
-        res.h1 = Array(jsonProof.h1.length);
-        res.h2 = Array(jsonProof.h2.length);
-        for (let i = 0; i < jsonProof.f.length; i++) {
-            res.f[i] = curve.Fr.fromObject(jsonProof.f[i]);
-            res.t[i] = curve.Fr.fromObject(jsonProof.t[i]);
-            res.h1[i] = curve.Fr.fromObject(jsonProof.h1[i]);
-            res.h2[i] = curve.Fr.fromObject(jsonProof.h2[i]);
+    fromObjectProof(proof, curve) {
+        //return proof;
+
+        //curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.Z[0]))
+        let res = {};
+        res.f = Array(proof.f.length);
+        res.t = Array(proof.f.length);
+        res.h1 = Array(proof.f.length);
+        res.h2 = Array(proof.f.length);
+        res.Z = Array(proof.f.length);
+        for (let i = 0; i < proof.f.length; i++) {
+            res.f[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.f[i]));
+            res.t[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.t[i]));
+            res.h1[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.h1[i]));
+            res.h2[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.h2[i]));
+            res.Z[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.Z[i]));
         }
-
-        res.gamma = curve.Fr.fromObject(jsonProof.gamma);
-
-        res.Z = Array(jsonProof.Z.length);
-        for (let i = 0; i < jsonProof.Z.length; i++) {
-            res.Z[i] = curve.Fr.fromObject(jsonProof.Z[i]);
-        }
+        res.gamma = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.gamma));
 
         return res;
     }
 }
-
 
 export default RangeCheckCG;

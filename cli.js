@@ -528,7 +528,7 @@ async function zkeyExportVKey(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zkeyName);
+    const vKey = await zkey.exportVerificationKey(zkeyName, logger);
 
     const S = JSON.stringify(utils.stringifyBigInts(vKey), null, 1);
     await fs.promises.writeFile(verificationKeyName, S);
