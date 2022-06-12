@@ -46,7 +46,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}`);
     }
 
-    const curve = await getCurve(zkey.q);
+    const curve = zkey.curve;
     const Fr = curve.Fr;
     const G1 = curve.G1;
     const G2 = curve.G2;
