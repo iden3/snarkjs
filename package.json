@@ -38,7 +38,7 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "0.0.10",
+    "@iden3/binfileutils": "0.0.11",
     "blake2b-wasm": "^2.4.0",
     "circom_runtime": "0.1.17",
     "ejs": "^3.1.6",
