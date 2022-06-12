@@ -3,8 +3,18 @@ import commonJS from "@rollup/plugin-commonjs";
 import virtual from "@rollup/plugin-virtual";
 import replace from "@rollup/plugin-replace";
 import visualizer from "rollup-plugin-visualizer";
+// Needed by fastfile
+import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
 const empty = "export default {}";
+// We create a stub with these constants instead of including the entire constants definition
+const constants = `
+export const O_TRUNC = ${O_TRUNC};
+export const O_CREAT = ${O_CREAT};
+export const O_RDWR = ${O_RDWR};
+export const O_EXCL = ${O_EXCL};
+export const O_RDONLY = ${O_RDONLY}
+`;
 
 export default {
     input: "main.js",
@@ -24,11 +34,12 @@ export default {
             crypto: empty,
             readline: empty,
             ejs: empty,
+            constants: constants,
         }),
         nodeResolve({
             browser: true,
             preferBuiltins: false,
-            exportConditions: ['browser', 'default', 'module', 'require']
+            exportConditions: ["browser", "default", "module", "require"]
         }),
         commonJS(),
         replace({
