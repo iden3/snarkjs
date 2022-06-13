@@ -3758,19 +3758,17 @@ async function readHeaderGroth16(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-
-    let curve = await getCurveFromQ(zkey.q);
-
+    zkey.curve = await getCurveFromQ(zkey.q);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
     zkey.power = log2(zkey.domainSize);
-    zkey.vk_alpha_1 = await readG1(fd, curve, toObject);
-    zkey.vk_beta_1 = await readG1(fd, curve, toObject);
-    zkey.vk_beta_2 = await readG2(fd, curve, toObject);
-    zkey.vk_gamma_2 = await readG2(fd, curve, toObject);
-    zkey.vk_delta_1 = await readG1(fd, curve, toObject);
-    zkey.vk_delta_2 = await readG2(fd, curve, toObject);
+    zkey.vk_alpha_1 = await readG1(fd, zkey.curve, toObject);
+    zkey.vk_beta_1 = await readG1(fd, zkey.curve, toObject);
+    zkey.vk_beta_2 = await readG2(fd, zkey.curve, toObject);
+    zkey.vk_gamma_2 = await readG2(fd, zkey.curve, toObject);
+    zkey.vk_delta_1 = await readG1(fd, zkey.curve, toObject);
+    zkey.vk_delta_2 = await readG2(fd, zkey.curve, toObject);
     await binFileUtils__namespace.endReadSection(fd);
 
     return zkey;
@@ -3795,9 +3793,7 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-
-    let curve = await getCurveFromQ(zkey.q);
-
+    zkey.curve = await getCurveFromQ(zkey.q);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -3807,15 +3803,15 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
     zkey.k1 = await fd.read(n8r);
     zkey.k2 = await fd.read(n8r);
 
-    zkey.Qm = await readG1(fd, curve, toObject);
-    zkey.Ql = await readG1(fd, curve, toObject);
-    zkey.Qr = await readG1(fd, curve, toObject);
-    zkey.Qo = await readG1(fd, curve, toObject);
-    zkey.Qc = await readG1(fd, curve, toObject);
-    zkey.S1 = await readG1(fd, curve, toObject);
-    zkey.S2 = await readG1(fd, curve, toObject);
-    zkey.S3 = await readG1(fd, curve, toObject);
-    zkey.X_2 = await readG2(fd, curve, toObject);
+    zkey.Qm = await readG1(fd, zkey.curve, toObject);
+    zkey.Ql = await readG1(fd, zkey.curve, toObject);
+    zkey.Qr = await readG1(fd, zkey.curve, toObject);
+    zkey.Qo = await readG1(fd, zkey.curve, toObject);
+    zkey.Qc = await readG1(fd, zkey.curve, toObject);
+    zkey.S1 = await readG1(fd, zkey.curve, toObject);
+    zkey.S2 = await readG1(fd, zkey.curve, toObject);
+    zkey.S3 = await readG1(fd, zkey.curve, toObject);
+    zkey.X_2 = await readG2(fd, zkey.curve, toObject);
 
     await binFileUtils__namespace.endReadSection(fd);
 
@@ -5496,7 +5492,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger) {
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}`);
     }
 
-    const curve = await getCurveFromQ(zkey.q);
+    const curve = zkey.curve;
     const Fr = curve.Fr;
     const G1 = curve.G1;
     const G2 = curve.G2;
@@ -6488,7 +6484,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}, ${zkey.nAdditions}`);
     }
 
-    const curve = await getCurveFromQ(zkey.q);
+    const curve = zkey.curve;
     const Fr = curve.Fr;
     const G1 = curve.G1;
     const n8r = curve.Fr.n8;
