@@ -44,6 +44,7 @@ export default async function r1csExportJson(r1csFileName, logger) {
     const cir = await readR1cs(r1csFileName, true, true, true, logger);
     const Fr=cir.curve.Fr;
     delete cir.curve;
+    delete cir.F;
 
     return stringifyBigInts(Fr, cir);
 }
