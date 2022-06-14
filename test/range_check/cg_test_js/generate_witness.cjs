@@ -1,4 +1,4 @@
-const wc  = require("./witness_calculator.cjs");
+const wc  = require("./witness_calculator.js");
 const { readFileSync, writeFile } = require("fs");
 
 if (process.argv.length != 5) {

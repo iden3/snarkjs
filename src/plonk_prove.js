@@ -132,7 +132,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     if(zkey.useCustomGates) {
         proof.customGates = zkey.customGates;
         for (let i = 0; i < zkey.customGates.length; i++) {
-            proof.customGates[i].proof = customGates.gates[i].computeProof(customGates.gates[i].preInput, customGates.gates[i].witnesses, Fr);
+            proof.customGates[i].proof = await customGates.gates[i].computeProof(
+                customGates.gates[i].preInput,
+                customGates.gates[i].witnesses,
+                Fr,
+                keccak256,
+                curve,
+                logger,
+                PTau);
         }
     }
 

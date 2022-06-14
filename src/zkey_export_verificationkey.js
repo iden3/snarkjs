@@ -122,8 +122,6 @@ async function plonkVk(zkey, fd, sections) {
                 vKey.CG[i][key] = curve.G1.toObject(zkey.customGates[i].preInput[key]);
             });
         }
-
-
     }
 
     vKey = stringifyBigInts(vKey);

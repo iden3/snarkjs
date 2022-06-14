@@ -103,7 +103,7 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     let cgRes = true;
     if(proof.customGates) {
         for (let i = 0; i < proof.customGates.gates.length; i++) {
-            cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve.Fr);
+            cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve, keccak256);
         }
     }
 

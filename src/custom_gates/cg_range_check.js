@@ -20,6 +20,9 @@
 import CustomGate from "./cg_base.js";
 import Multiset from "../plookup/multiset.js";
 import * as binFileUtils from "@iden3/binfileutils";
+import {BigBuffer, Scalar} from "ffjavascript";
+import {to4T, expTau, evalPol} from "../utils.js";
+import {log2} from "../misc.js";
 
 export const RANGE_CHECK_ID = 9;
 export const RANGE_CHECK_NAME = "RANGECHECK";
@@ -37,6 +40,7 @@ class RangeCheckCG extends CustomGate {
         return this;
     }
 
+
     get headerSectionId() {
         return ZK_RANGE_CHECK_HEADER_SECTION;
     }
@@ -47,6 +51,10 @@ class RangeCheckCG extends CustomGate {
 
     get preprocessedInputSectionId() {
         return ZK_RANGE_CHECK_T_POLYNOMIAL_SECTION;
+    }
+
+    get domainSize() {
+        return N;
     }
 
     plonkConstraints(signals, Fr) {
@@ -114,15 +122,27 @@ class RangeCheckCG extends CustomGate {
         ];
     }
 
-    computeProof(preInput, witnesses, Fr) {
+    async computeProof(preInput, witnesses, Fr, keccak256, curve, logger, PTau) {
+        let self = this;
         let proof = {id: RANGE_CHECK_ID};
+        proof.ext = {};
 
-        round0();
-        round2();
+        let bufferF, polF, F_4;
+        let bufferH1, polH1, H1_4;
+        let bufferH2, polH2, H2_4;
+        let bufferZ, polZ, Z_4;
+
+        let challenges = {};
+
+        await round1(); //Build polynomials h1(x) & h2(x)
+        await round2();
+        await round3();
+        await round4();
+        await round5();
 
         return proof;
 
-        function round0() {
+        async function round1() {
             const length = Math.max(preInput.t.length, witnesses.length);
 
             //Compute the query vector
@@ -144,38 +164,77 @@ class RangeCheckCG extends CustomGate {
             proof.t = preInput.t;
             proof.h1 = h1.toArray();
             proof.h2 = h2.toArray();
+
+
+            bufferF = new BigBuffer(N * Fr.n8);
+            bufferH1 = new BigBuffer(N * Fr.n8);
+            bufferH2 = new BigBuffer(N * Fr.n8);
+            for (let i = 0; i < N; i++) {
+                bufferF.set(proof.f[i], i * Fr.n8);
+                bufferH1.set(proof.h1[i], i * Fr.n8);
+                bufferH2.set(proof.h2[i], i * Fr.n8);
+            }
+
+            //Add randomness...
+            challenges.b = [];
+            for (let i = 0; i < 9; i++) {
+                challenges.b[i] = curve.Fr.random();
+            }
+
+            [polF, F_4] = await to4T(bufferF, [challenges.b[0], challenges.b[1], challenges.b[2]], Fr);
+            proof.ext.F = await expTau(polF, PTau, curve, logger, "multiexp F(x)");
+            [polH1, H1_4] = await to4T(bufferH1, [challenges.b[3], challenges.b[4], challenges.b[5]], Fr);
+            proof.ext.H1 = await expTau(polH1, PTau, curve, logger, "multiexp H1(x)");
+            [polH2, H2_4] = await to4T(bufferH2, [challenges.b[6], challenges.b[7], challenges.b[8]], Fr);
+            proof.ext.H2 = await expTau(polH2, PTau, curve, logger, "multiexp H2(x)");
         }
 
-        function round2() {
-            // proof.gamma = Fr.random();
-            // proof.Z = new BigBuffer(N * Fr.n8);
-            // let currentZ = Fr.one;
-            // proof.Z.set(currentZ, 0);
-            //
-            // for (let i = 1; i < N; i++) {
-            //     let num = Fr.mul(Fr.add(proof.gamma, proof.f[i - 1]), Fr.add(proof.gamma, proof.t[i - 1]));
-            //     let den = Fr.inv(Fr.mul(Fr.add(proof.gamma, proof.h1[i - 1]), Fr.add(proof.gamma, proof.h2[i - 1])));
-            //     let mul = Fr.mul(num, den);
-            //     currentZ = Fr.mul(currentZ, mul);
-            //     proof.Z.set(currentZ, i * Fr.n8);
-            // }
+        async function round2() {
+            challenges.gamma = self.computePermutationChallenge(proof, curve, keccak256);
 
-            //TODO remove this lines & uncomment the previous
-            proof.gamma = Fr.random();
             proof.Z = new Array(N);
+            bufferZ = new BigBuffer(N * Fr.n8);
+
             let currentZ = Fr.one;
             proof.Z[0] = currentZ;
+            bufferZ.set(Fr.one, 0);
 
             for (let i = 1; i < N; i++) {
-                let num = Fr.mul(Fr.add(proof.gamma, proof.f[i - 1]), Fr.add(proof.gamma, proof.t[i - 1]));
-                let den = Fr.mul(Fr.add(proof.gamma, proof.h1[i - 1]), Fr.add(proof.gamma, proof.h2[i - 1]));
+                let num = Fr.mul(Fr.add(challenges.gamma, proof.f[i - 1]), Fr.add(challenges.gamma, proof.t[i - 1]));
+                let den = Fr.mul(Fr.add(challenges.gamma, proof.h1[i - 1]), Fr.add(challenges.gamma, proof.h2[i - 1]));
                 currentZ = Fr.mul(currentZ, Fr.div(num, den));
                 proof.Z[i] = currentZ;
+                bufferZ.set(currentZ, i * Fr.n8);
             }
+
+            [polZ, Z_4] = await to4T(bufferZ, [], Fr);
+            proof.ext.Z = await expTau(polZ, PTau, curve, logger, "multiexp Z(x)");
+        }
+
+        async function round3() {
+            const transcript3 = new Uint8Array(curve.G1.F.n8 * 2);
+            curve.G1.toRprUncompressed(transcript3, 0, proof.Z);
+
+            const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript3)));
+            challenges.alpha = curve.Fr.e(v);
+
+
+        }
+
+        async function round4() {
+
+        }
+
+        async function round5() {
+
         }
     }
 
-    verifyProof(proof, Fr) {
+    verifyProof(proof, curve, keccak256) {
+        const Fr = curve.Fr;
+        const G1 = curve.G1;
+        const gamma = this.computePermutationChallenge(proof, curve, keccak256);
+
         //Check (a) L1(x)(Z(x) − 1) = 0
         let Z1 = proof.Z[0];
         if (!Fr.eq(Fr.sub(Z1, Fr.one), Fr.zero)) {
@@ -186,13 +245,13 @@ class RangeCheckCG extends CustomGate {
         for (let i = 0; i < (N - 1); i++) {
             let leftSide = proof.Z[i];
             //let leftSide = proof.Z.slice(i * Fr.n8, i * Fr.n8 + Fr.n8);
-            leftSide = Fr.mul(leftSide, Fr.add(proof.gamma, Fr.e(proof.f[i])));
-            leftSide = Fr.mul(leftSide, Fr.add(proof.gamma, Fr.e(proof.t[i])));
+            leftSide = Fr.mul(leftSide, Fr.add(gamma, Fr.e(proof.f[i])));
+            leftSide = Fr.mul(leftSide, Fr.add(gamma, Fr.e(proof.t[i])));
 
             let rightSide = proof.Z[i + 1];
             //let rightSide = proof.Z.slice((i + 1) * Fr.n8, (i + 1) * Fr.n8 + Fr.n8);
-            rightSide = Fr.mul(rightSide, Fr.add(proof.gamma, Fr.e(proof.h1[i])));
-            rightSide = Fr.mul(rightSide, Fr.add(proof.gamma, Fr.e(proof.h2[i])));
+            rightSide = Fr.mul(rightSide, Fr.add(gamma, Fr.e(proof.h1[i])));
+            rightSide = Fr.mul(rightSide, Fr.add(gamma, Fr.e(proof.h2[i])));
 
             if (!Fr.eq(leftSide, rightSide)) {
                 return false;
@@ -229,6 +288,32 @@ class RangeCheckCG extends CustomGate {
             }
         }
 
+        ///////////////////////////////////
+        console.log("Comprovant extensions...");
+
+        let xi = gamma;
+        const lagrangePols = this.calculateLagrangeEvaluations(xi, Fr);
+
+        //EXT (a) L1(x)(Z(x) − 1) = 0
+        let a = G1.sub(proof.ext.Z, G1.one);
+        a = G1.timesFr(a, lagrangePols[0]);
+        if (!G1.eq(a, G1.zero)) {
+//            return false;
+        }
+
+        let a2 = Fr.sub(proof.ext.eval_zxi, Fr.one);
+        a2 = Fr.mul(lagrangePols[0], a2);
+        if (!Fr.eq(a2, Fr.zero)) {
+//            return false;
+        }
+
+
+        // //EXT
+        // const c = G1.timesFr(proof.ext.h1, lagrangePols[0]);
+        // if (!G1.eq(c, G1.zero)) {
+        //     return false;
+        // }
+
         return true;
     }
 
@@ -244,23 +329,48 @@ class RangeCheckCG extends CustomGate {
         // return res;
     }
 
+    calculateLagrangeEvaluations(xi, Fr) {
+        let cirPower = log2(this.domainSize) + 1;
+
+        let xin = xi;
+        let domainSize = 1;
+        for (let i = 0; i < cirPower; i++) {
+            xin = Fr.square(xin);
+            domainSize *= 2;
+        }
+
+        let zh = Fr.sub(xin, Fr.one);
+        const L = [];
+
+        const n = Fr.e(domainSize);
+        let w = Fr.one;
+
+        for (let i = 0; i < Math.max(1, this.domainSize); i++) {
+            L[i] = Fr.div(Fr.mul(w, zh), Fr.mul(n, Fr.sub(xi, w)));
+            w = Fr.mul(w, Fr.w[cirPower]);
+        }
+
+        return L;
+    }
+
     toObjectProof(proof, curve) {
-        return proof;
         let res = {};
-        res.f = curve.G1.toObject(proof.f);
-        res.t = curve.G1.toObject(proof.t);
-        res.h1 = curve.G1.toObject(proof.h1);
-        res.h2 = curve.G1.toObject(proof.h2);
-        res.gamma = curve.Fr.fromObject(proof.gamma);
-        res.Z = curve.G1.toObject(proof.Z);
+        res.f = proof.f;
+        res.t = proof.t;
+        res.h1 = proof.h1;
+        res.h2 = proof.h2;
+        res.Z = proof.Z;
+
+        res.ext = {};
+        res.ext.F = curve.G1.toObject(proof.ext.F);
+        res.ext.H1 = curve.G1.toObject(proof.ext.H1);
+        res.ext.H2 = curve.G1.toObject(proof.ext.H2);
+        res.ext.Z = curve.G1.toObject(proof.ext.Z);
 
         return res;
     }
 
     fromObjectProof(proof, curve) {
-        //return proof;
-
-        //curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.Z[0]))
         let res = {};
         res.f = Array(proof.f.length);
         res.t = Array(proof.f.length);
@@ -274,9 +384,41 @@ class RangeCheckCG extends CustomGate {
             res.h2[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.h2[i]));
             res.Z[i] = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.Z[i]));
         }
-        res.gamma = curve.Fr.fromMontgomery(curve.Fr.fromObject(proof.gamma));
 
+        res.ext = {};
+        res.ext.F = curve.G1.fromObject(proof.ext.F);
+        res.ext.H1 = curve.G1.fromObject(proof.ext.H1);
+        res.ext.H2 = curve.G1.fromObject(proof.ext.H2);
+        res.ext.Z = curve.G1.fromObject(proof.ext.Z);
         return res;
+    }
+
+    computePermutationChallenge(proof, curve, keccak256) {
+        // const transcript = new Uint8Array(h1.length * Fr.n8 + h2.length * Fr.n8);
+        // for (let i = 0; i < h1.length; i++) {
+        //     transcript.set(h1[i], i * Fr.n8);
+        // }
+        // for (let i = 0; i < h2.length; i++) {
+        //     transcript.set(h2[i], i * Fr.n8);
+        // }
+        //
+        // const v = Scalar.fromRprLE(new Uint8Array(keccak256.arrayBuffer(transcript)));
+        // return Fr.e(v);
+
+
+        const transcript1 = new Uint8Array(curve.G1.F.n8 * 2 * 3);
+        curve.G1.toRprUncompressed(transcript1, 0, proof.ext.F);
+        curve.G1.toRprUncompressed(transcript1, curve.G1.F.n8 * 2, proof.ext.H1);
+        curve.G1.toRprUncompressed(transcript1, curve.G1.F.n8 * 4, proof.ext.H2);
+
+        const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript1)));
+        return curve.Fr.e(v);
+    }
+
+    computeEvaluationChallenge(gamma) {
+        //TODO
+        let xi = gamma;
+        return xi;
     }
 }
 

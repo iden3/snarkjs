@@ -37,6 +37,7 @@ import {
     writeZKeyCustomGatesListSection, writeZKeyCustomGatesUsesSection
 } from "./zkey_utils.js";
 import FactoryCG from "./custom_gates/cg_factory.js";
+import {expTau} from "./utils.js";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
@@ -94,9 +95,18 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
     const domainSize = 2 ** cirPower;
 
+    let domainSizeExt = domainSize;
+    let cirPowerExt = cirPower;
+    if (r1cs.useCustomGates) {
+        for (let i = 0; i < customGates.gates.length; i++) {
+            domainSizeExt = Math.max(domainSizeExt, customGates.gates[i].domainSize);
+            cirPowerExt = log2(domainSizeExt) + 1;
+        }
+    }
+
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
-    if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${power}`);
+    if (cirPowerExt > power) {
+        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${cirPowerExt}`);
         return -1;
     }
 
@@ -105,9 +115,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         return -1;
     }
 
-    const LPoints = new BigBuffer(domainSize * sG1);
+
+    const LPoints = new BigBuffer(domainSizeExt * sG1);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) - 1) * sG1;
-    await fdPTau.readToBuffer(LPoints, 0, domainSize * sG1, o);
+    await fdPTau.readToBuffer(LPoints, 0, domainSizeExt * sG1, o);
 
     const [k1, k2] = getK1K2();
 
@@ -163,8 +174,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     ////////////
 
     await startWriteSection(fdZKey, 14);
-    const buffOut = new BigBuffer((domainSize + 6) * sG1);
-    await fdPTau.readToBuffer(buffOut, 0, (domainSize + 6) * sG1, sectionsPTau[2][0].p);
+    const buffOut = new BigBuffer((domainSizeExt + 6) * sG1);
+    await fdPTau.readToBuffer(buffOut, 0, (domainSizeExt + 6) * sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await endWriteSection(fdZKey);
     forceGarbageCollection();
@@ -314,8 +325,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await startWriteSection(fdZKey, sectionNum);
         await writeP4(Q);
         await endWriteSection(fdZKey);
-        Q = await Fr.batchFromMontgomery(Q);
-        vk[name] = await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp " + name);
+
+        vk[name] = await expTau(Q, LPoints, curve, logger, "multiexp " + name);
     }
 
     async function writeZKeyCustomGateQMap(idx) {
@@ -334,8 +345,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await startWriteSection(fdZKey, sectionNum);
         await writeP4(Q);
         await endWriteSection(fdZKey);
-        Q = await Fr.batchFromMontgomery(Q);
-        vk.customGates[idx].Qk = await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp " + name);
+
+        vk.customGates[idx].Qk = await expTau(Q, LPoints, curve, logger, "multiexp " + name);
     }
 
     async function writeP4(buff) {
@@ -376,8 +387,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             }
             await writeP4_2(buffer);
 
-            buffer = await Fr.batchFromMontgomery(buffer);
-            const mExp = await curve.G1.multiExpAffine(LPoints, buffer, logger, "multiexp " + name);
+            const mExp = await expTau(buffer, LPoints, curve, logger, "multiexp " + name);
+
             vk.customGates[idx].preInput[keys.polynomials[i]] = curve.G1.toAffine(mExp);
             forceGarbageCollection();
         }
@@ -454,17 +465,11 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
         await endWriteSection(fdZKey);
 
-        S1 = await Fr.batchFromMontgomery(S1);
-        S2 = await Fr.batchFromMontgomery(S2);
-        S3 = await Fr.batchFromMontgomery(S3);
-
-        vk.S1 = await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
+        vk.S1 = await expTau(S1, LPoints, curve, logger, "multiexp S1");
         forceGarbageCollection();
-
-        vk.S2 = await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
+        vk.S2 = await expTau(S2, LPoints, curve, logger, "multiexp S2");
         forceGarbageCollection();
-
-        vk.S3 = await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
+        vk.S3 = await expTau(S3, LPoints, curve, logger, "multiexp S3");
         forceGarbageCollection();
 
         function buildSigma(s, p) {
