@@ -51,7 +51,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}, ${zkey.nAdditions}`);
     }
 
-    const curve = await getCurve(zkey.q);
+    const curve = zkey.curve;
     const Fr = curve.Fr;
     const G1 = curve.G1;
     const n8r = curve.Fr.n8;
