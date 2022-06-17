@@ -5062,6 +5062,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 async function zkeyExportJson$1(zkeyFileName) {
 
     const zKey = await readZKey(zkeyFileName, true);
+    delete zKey.curve;
     delete zKey.F;
 
     return ffjavascript.utils.stringifyBigInts(zKey);
