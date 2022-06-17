@@ -22,6 +22,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
+    console.log(sections);
 
     const {curve, power} = await utils.readPTauHeader(fd, sections);
 

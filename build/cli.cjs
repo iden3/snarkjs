@@ -2907,6 +2907,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
 
 async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
+    console.log(sections);
 
     const {curve, power} = await readPTauHeader(fd, sections);
 
