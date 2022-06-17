@@ -18,7 +18,7 @@
 */
 
 import {readR1cs}  from "r1csfile";
-import { stringifyBigIntsWithField } from "./misc";
+import { stringifyBigIntsWithField } from "./misc.js";
 
 
 export default async function r1csExportJson(r1csFileName, logger) {
