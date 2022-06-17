@@ -541,9 +541,9 @@ async function zkeyExportJson(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const zKey = await zkey.exportJson(zkeyName, logger);
+    const zKeyJson = await zkey.exportJson(zkeyName, logger);
 
-    const S = JSON.stringify(utils.stringifyBigInts(zKey), null, 1);
+    const S = JSON.stringify(zKeyJson, null, 1);
     await fs.promises.writeFile(zkeyJsonName, S);
 }
 
