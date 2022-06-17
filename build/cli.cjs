@@ -8673,6 +8673,7 @@ async function powersOfTauExportJson(params, options) {
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
     const pTau = await exportJson(ptauName, logger);
+    console.log(pTau);
 
     const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
     await fs__default["default"].promises.writeFile(jsonName, S);
