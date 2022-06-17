@@ -5062,8 +5062,10 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 async function zkeyExportJson$1(zkeyFileName) {
 
     const zKey = await readZKey(zkeyFileName, true);
+    delete zKey.curve;
+    delete zKey.F;
 
-    return zKey;
+    return ffjavascript.utils.stringifyBigInts(zKey);
 }
 
 /*
@@ -8404,9 +8406,9 @@ async function zkeyExportJson(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const zKey = await zkeyExportJson$1(zkeyName);
+    const zKeyJson = await zkeyExportJson$1(zkeyName);
 
-    const S = JSON.stringify(ffjavascript.utils.stringifyBigInts(zKey), null, 1);
+    const S = JSON.stringify(zKeyJson, null, 1);
     await fs__default["default"].promises.writeFile(zkeyJsonName, S);
 }
 
