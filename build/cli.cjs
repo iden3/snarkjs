@@ -2964,6 +2964,7 @@ async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
+        console.log(fd.readingSection);
         await binFileUtils__namespace.endReadSection(fd);
         return res;
     }
