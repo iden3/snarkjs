@@ -1,10 +1,6 @@
 name: Check snarkjs tutorial
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
 
 jobs:
   test:
@@ -68,7 +64,7 @@ jobs:
     - name: 12. Print the constraints
       run: snarkjs r1cs print circuit.r1cs circuit.sym
     - name: 13. Export r1cs to json
-      run: | 
+      run: |
         snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
         cat circuit.r1cs.json
     - name: 14. Generate the reference zkey without phase 2 contributions
