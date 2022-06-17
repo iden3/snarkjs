@@ -81,7 +81,7 @@ export default async function exportJson(pTauFilename, verbose) {
             }
         }
         console.log(fd.readingSection);
-        await binFileUtils.endReadSection(fd);
+        await binFileUtils.endReadSection(fd, true);
         return res;
     }
 
