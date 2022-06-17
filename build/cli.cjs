@@ -211,16 +211,16 @@ async function r1csInfo$1(r1csName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-function stringifyBigInts$4(Fr, o) {
+function stringifyBigInts$5(Fr, o) {
     if (o instanceof Uint8Array)  {
         return Fr.toString(o);
     } else if (Array.isArray(o)) {
-        return o.map(stringifyBigInts$4.bind(null, Fr));
+        return o.map(stringifyBigInts$5.bind(null, Fr));
     } else if (typeof o == "object") {
         const res = {};
         const keys = Object.keys(o);
         keys.forEach( (k) => {
-            res[k] = stringifyBigInts$4(Fr, o[k]);
+            res[k] = stringifyBigInts$5(Fr, o[k]);
         });
         return res;
     } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
@@ -238,7 +238,7 @@ async function r1csExportJson(r1csFileName, logger) {
     delete cir.curve;
     delete cir.F;
 
-    return stringifyBigInts$4(Fr, cir);
+    return stringifyBigInts$5(Fr, cir);
 }
 
 /*
@@ -2905,9 +2905,27 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+function stringifyBigInts$4(Fr, o) {
+    if (o instanceof Uint8Array)  {
+        return Fr.toString(o);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigInts$4.bind(null, Fr));
+    } else if (typeof o == "object") {
+        const res = {};
+        const keys = Object.keys(o);
+        keys.forEach( (k) => {
+            res[k] = stringifyBigInts$4(Fr, o[k]);
+        });
+        return res;
+    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else {
+        return o;
+    }
+}
+
 async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
-    console.log(sections);
 
     const {curve, power} = await readPTauHeader(fd, sections);
 
@@ -2928,8 +2946,9 @@ async function exportJson(pTauFilename, verbose) {
     pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
 
     await fd.close();
+    console.log(curve);
 
-    return pTau;
+    return stringifyBigInts$4(curve.Fr, pTau);
 
 
 
@@ -2965,7 +2984,6 @@ async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        console.log(fd.readingSection);
         await binFileUtils__namespace.endReadSection(fd, true);
         return res;
     }
@@ -8672,10 +8690,10 @@ async function powersOfTauExportJson(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const pTau = await exportJson(ptauName, logger);
-    console.log(pTau);
+    const pTauJson = await exportJson(ptauName, logger);
+    console.log(pTauJson);
 
-    const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
+    const S = JSON.stringify(pTauJson, null, 1);
     await fs__default["default"].promises.writeFile(jsonName, S);
 
 }

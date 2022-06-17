@@ -41,7 +41,6 @@ export function stringifyBigInts(Fr, o) {
 
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
-    console.log(sections);
 
     const {curve, power} = await utils.readPTauHeader(fd, sections);
 
@@ -100,7 +99,6 @@ export default async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        console.log(fd.readingSection);
         await binFileUtils.endReadSection(fd, true);
         return res;
     }
