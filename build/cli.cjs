@@ -7,10 +7,10 @@ var url = require('url');
 var r1csfile = require('r1csfile');
 var fastFile = require('fastfile');
 var ffjavascript = require('ffjavascript');
-var path = require('path');
 var Blake2b = require('blake2b-wasm');
 var readline = require('readline');
 var crypto = require('crypto');
+var path = require('path');
 var binFileUtils = require('@iden3/binfileutils');
 var ejs = require('ejs');
 var circom_runtime = require('circom_runtime');
@@ -40,10 +40,10 @@ function _interopNamespace(e) {
 var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
 var url__default = /*#__PURE__*/_interopDefaultLegacy(url);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
-var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
 var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
+var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
 var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
@@ -211,16 +211,144 @@ async function r1csInfo$1(r1csName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-function stringifyBigInts$4(Fr, o) {
+
+function log2( V )
+{
+    return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
+}
+
+
+function formatHash(b, title) {
+    const a = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    let S = "";
+    for (let i=0; i<4; i++) {
+        if (i>0) S += "\n";
+        S += "\t\t";
+        for (let j=0; j<4; j++) {
+            if (j>0) S += " ";
+            S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
+        }
+    }
+    if (title) S = title + "\n" + S;
+    return S;
+}
+
+function hashIsEqual(h1, h2) {
+    if (h1.byteLength != h2.byteLength) return false;
+    var dv1 = new Int8Array(h1);
+    var dv2 = new Int8Array(h2);
+    for (var i = 0 ; i != h1.byteLength ; i++)
+    {
+        if (dv1[i] != dv2[i]) return false;
+    }
+    return true;
+}
+
+function cloneHasher(h) {
+    const ph = h.getPartialHash();
+    const res = Blake2b__default["default"](64);
+    res.setPartialHash(ph);
+    return res;
+}
+
+async function sameRatio$2(curve, g1s, g1sx, g2s, g2sx) {
+    if (curve.G1.isZero(g1s)) return false;
+    if (curve.G1.isZero(g1sx)) return false;
+    if (curve.G2.isZero(g2s)) return false;
+    if (curve.G2.isZero(g2sx)) return false;
+    // return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
+    const res = await curve.pairingEq(g1s, g2sx, curve.G1.neg(g1sx), g2s);
+    return res;
+}
+
+
+function askEntropy() {
+    if (process.browser) {
+        return window.prompt("Enter a random text. (Entropy): ", "");
+    } else {
+        const rl = readline__default["default"].createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        return new Promise((resolve) => {
+            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
+        });
+    }
+}
+
+async function getRandomRng(entropy) {
+    // Generate a random Rng
+    while (!entropy) {
+        entropy = await askEntropy();
+    }
+    const hasher = Blake2b__default["default"](64);
+    hasher.update(crypto__default["default"].randomBytes(64));
+    const enc = new TextEncoder(); // always utf-8
+    hasher.update(enc.encode(entropy));
+    const hash = Buffer.from(hasher.digest());
+
+    const seed = [];
+    for (let i=0;i<8;i++) {
+        seed[i] = hash.readUInt32BE(i*4);
+    }
+    const rng = new ffjavascript.ChaCha(seed);
+    return rng;
+}
+
+function rngFromBeaconParams(beaconHash, numIterationsExp) {
+    let nIterationsInner;
+    let nIterationsOuter;
+    if (numIterationsExp<32) {
+        nIterationsInner = (1 << numIterationsExp) >>> 0;
+        nIterationsOuter = 1;
+    } else {
+        nIterationsInner = 0x100000000;
+        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
+    }
+
+    let curHash = beaconHash;
+    for (let i=0; i<nIterationsOuter; i++) {
+        for (let j=0; j<nIterationsInner; j++) {
+            curHash = crypto__default["default"].createHash("sha256").update(curHash).digest();
+        }
+    }
+
+    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
+    const seed = [];
+    for (let i=0; i<8; i++) {
+        seed[i] = curHashV.getUint32(i*4, false);
+    }
+
+    const rng = new ffjavascript.ChaCha(seed);
+
+    return rng;
+}
+
+function hex2ByteArray(s) {
+    if (s instanceof Uint8Array) return s;
+    if (s.slice(0,2) == "0x") s= s.slice(2);
+    return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
+        return parseInt(h, 16);
+    }));
+}
+
+function byteArray2hex(byteArray) {
+    return Array.prototype.map.call(byteArray, function(byte) {
+        return ("0" + (byte & 0xFF).toString(16)).slice(-2);
+    }).join("");
+}
+
+function stringifyBigIntsWithField(Fr, o) {
     if (o instanceof Uint8Array)  {
         return Fr.toString(o);
     } else if (Array.isArray(o)) {
-        return o.map(stringifyBigInts$4.bind(null, Fr));
+        return o.map(stringifyBigIntsWithField.bind(null, Fr));
     } else if (typeof o == "object") {
         const res = {};
         const keys = Object.keys(o);
         keys.forEach( (k) => {
-            res[k] = stringifyBigInts$4(Fr, o[k]);
+            res[k] = stringifyBigIntsWithField(Fr, o[k]);
         });
         return res;
     } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
@@ -230,6 +358,25 @@ function stringifyBigInts$4(Fr, o) {
     }
 }
 
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
 
 async function r1csExportJson(r1csFileName, logger) {
 
@@ -238,7 +385,7 @@ async function r1csExportJson(r1csFileName, logger) {
     delete cir.curve;
     delete cir.F;
 
-    return stringifyBigInts$4(Fr, cir);
+    return stringifyBigIntsWithField(Fr, cir);
 }
 
 /*
@@ -585,153 +732,6 @@ function createPTauKey(curve, challengeHash, rng) {
     calculatePubKey(key.alpha, curve, 1, challengeHash, rng);
     calculatePubKey(key.beta, curve, 2, challengeHash, rng);
     return key;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-function log2( V )
-{
-    return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
-}
-
-
-function formatHash(b, title) {
-    const a = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    let S = "";
-    for (let i=0; i<4; i++) {
-        if (i>0) S += "\n";
-        S += "\t\t";
-        for (let j=0; j<4; j++) {
-            if (j>0) S += " ";
-            S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
-        }
-    }
-    if (title) S = title + "\n" + S;
-    return S;
-}
-
-function hashIsEqual(h1, h2) {
-    if (h1.byteLength != h2.byteLength) return false;
-    var dv1 = new Int8Array(h1);
-    var dv2 = new Int8Array(h2);
-    for (var i = 0 ; i != h1.byteLength ; i++)
-    {
-        if (dv1[i] != dv2[i]) return false;
-    }
-    return true;
-}
-
-function cloneHasher(h) {
-    const ph = h.getPartialHash();
-    const res = Blake2b__default["default"](64);
-    res.setPartialHash(ph);
-    return res;
-}
-
-async function sameRatio$2(curve, g1s, g1sx, g2s, g2sx) {
-    if (curve.G1.isZero(g1s)) return false;
-    if (curve.G1.isZero(g1sx)) return false;
-    if (curve.G2.isZero(g2s)) return false;
-    if (curve.G2.isZero(g2sx)) return false;
-    // return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
-    const res = await curve.pairingEq(g1s, g2sx, curve.G1.neg(g1sx), g2s);
-    return res;
-}
-
-
-function askEntropy() {
-    if (process.browser) {
-        return window.prompt("Enter a random text. (Entropy): ", "");
-    } else {
-        const rl = readline__default["default"].createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-
-        return new Promise((resolve) => {
-            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-        });
-    }
-}
-
-async function getRandomRng(entropy) {
-    // Generate a random Rng
-    while (!entropy) {
-        entropy = await askEntropy();
-    }
-    const hasher = Blake2b__default["default"](64);
-    hasher.update(crypto__default["default"].randomBytes(64));
-    const enc = new TextEncoder(); // always utf-8
-    hasher.update(enc.encode(entropy));
-    const hash = Buffer.from(hasher.digest());
-
-    const seed = [];
-    for (let i=0;i<8;i++) {
-        seed[i] = hash.readUInt32BE(i*4);
-    }
-    const rng = new ffjavascript.ChaCha(seed);
-    return rng;
-}
-
-function rngFromBeaconParams(beaconHash, numIterationsExp) {
-    let nIterationsInner;
-    let nIterationsOuter;
-    if (numIterationsExp<32) {
-        nIterationsInner = (1 << numIterationsExp) >>> 0;
-        nIterationsOuter = 1;
-    } else {
-        nIterationsInner = 0x100000000;
-        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
-    }
-
-    let curHash = beaconHash;
-    for (let i=0; i<nIterationsOuter; i++) {
-        for (let j=0; j<nIterationsInner; j++) {
-            curHash = crypto__default["default"].createHash("sha256").update(curHash).digest();
-        }
-    }
-
-    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
-    const seed = [];
-    for (let i=0; i<8; i++) {
-        seed[i] = curHashV.getUint32(i*4, false);
-    }
-
-    const rng = new ffjavascript.ChaCha(seed);
-
-    return rng;
-}
-
-function hex2ByteArray(s) {
-    if (s instanceof Uint8Array) return s;
-    if (s.slice(0,2) == "0x") s= s.slice(2);
-    return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
-        return parseInt(h, 16);
-    }));
-}
-
-function byteArray2hex(byteArray) {
-    return Array.prototype.map.call(byteArray, function(byte) {
-        return ("0" + (byte & 0xFF).toString(16)).slice(-2);
-    }).join("");
 }
 
 ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
@@ -2928,7 +2928,7 @@ async function exportJson(pTauFilename, verbose) {
 
     await fd.close();
 
-    return pTau;
+    return stringifyBigIntsWithField(curve.Fr, pTau);
 
 
 
@@ -2964,7 +2964,7 @@ async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        await binFileUtils__namespace.endReadSection(fd);
+        await binFileUtils__namespace.endReadSection(fd, true);
         return res;
     }
 
@@ -8670,9 +8670,9 @@ async function powersOfTauExportJson(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const pTau = await exportJson(ptauName, logger);
+    const pTauJson = await exportJson(ptauName, logger);
 
-    const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
+    const S = JSON.stringify(pTauJson, null, 1);
     await fs__default["default"].promises.writeFile(jsonName, S);
 
 }
