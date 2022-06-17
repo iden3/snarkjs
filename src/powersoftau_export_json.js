@@ -20,6 +20,25 @@
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 
+export function stringifyBigInts(Fr, o) {
+    if (o instanceof Uint8Array)  {
+        return Fr.toString(o);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigInts.bind(null, Fr));
+    } else if (typeof o == "object") {
+        const res = {};
+        const keys = Object.keys(o);
+        keys.forEach( (k) => {
+            res[k] = stringifyBigInts(Fr, o[k]);
+        });
+        return res;
+    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else {
+        return o;
+    }
+}
+
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
     console.log(sections);
@@ -43,8 +62,9 @@ export default async function exportJson(pTauFilename, verbose) {
     pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
 
     await fd.close();
+    console.log(curve);
 
-    return pTau;
+    return stringifyBigInts(curve.Fr, pTau);
 
 
 
