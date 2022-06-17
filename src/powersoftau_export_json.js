@@ -79,7 +79,7 @@ export default async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        await binFileUtils.endReadSection(fd);
+        await binFileUtils.endReadSection(fd, true);
         return res;
     }
 
