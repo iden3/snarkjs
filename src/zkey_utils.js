@@ -313,12 +313,12 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
             await binFileUtils.startReadUniqueSection(fd, sections, cg.headerSectionId);
 
 
-            zkey.Qk.push(await readG1(fd, curve, toObject));
+            zkey.Qk.push(await readG1(fd, zkey.curve, toObject));
 
             let preInputKeys = cg.preprocessedInputKeys;
             zkey.customGates[i].preInput = {};
             for (let j = 0; j < preInputKeys.polynomials.length; j++) {
-                zkey.customGates[i].preInput[preInputKeys.polynomials[j]] = await readG1(fd, curve, toObject);
+                zkey.customGates[i].preInput[preInputKeys.polynomials[j]] = await readG1(fd, zkey.curve, toObject);
             }
             await binFileUtils.endReadSection(fd, false);
         }

@@ -19,7 +19,7 @@
 
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
 
-import {readCustomGatesUsesSection, readR1csHeader} from "r1csfile";
+import {readR1cs} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
 import {
     readBinFile,
@@ -49,7 +49,9 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1 << 22, 1 << 24);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1 << 22, 1 << 24);
-    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
+//    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
+
+    const r1cs = await readR1cs(r1csName, {loadConstraints: true, loadMap: false, loadCustomGates: true, singleThread: false});
 
     let customGates;
     if (r1cs.useCustomGates) {
@@ -58,7 +60,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         for (let i = 0; i < r1cs.customGates.length; i++) {
             customGates.gates.push(FactoryCG.createFromName(r1cs.customGates[i].templateName, {parameters: r1cs.customGates[i].parameters}));
         }
-        customGates.uses = await readCustomGatesUsesSection(fdR1cs, sectionsR1cs);
     }
 
     const sG1 = curve.G1.F.n8 * 2;
@@ -148,7 +149,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         if (logger) logger.debug("writing Custom gates list section");
         await writeZKeyCustomGatesListSection(fdZKey, customGates.gates);
         if (logger) logger.debug("writing Custom gates uses section");
-        await writeZKeyCustomGatesUsesSection(fdZKey, customGates.uses);
+        await writeZKeyCustomGatesUsesSection(fdZKey, r1cs.customGatesUses);
 
         vk.customGates = Array(customGates.gates.length);
         for (let i = 0; i < customGates.gates.length; i++) {
@@ -292,14 +293,14 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         }
 
         if (r1cs.useCustomGates) {
-            for (let i = 0; i < customGates.uses.length; i++) {
-                const gate = customGates.gates[customGates.uses[i].id];
-                let constraints = gate.plonkConstraints(customGates.uses[i].signals, curve.Fr);
+            for (let i = 0; i < r1cs.customGatesUses.length; i++) {
+                const gate = customGates.gates[r1cs.customGatesUses[i].id];
+                let constraints = gate.plonkConstraints(r1cs.customGatesUses[i].signals, curve.Fr);
 
                 constraints.forEach(ctr => {
                     let qcgArr = Array(r1cs.customGates.length);
                     for (let i = 0; i < r1cs.customGates.length; i++) {
-                        qcgArr[i] = customGates.uses[i].id === i ? ctr.qk : curve.Fr.zero;
+                        qcgArr[i] = r1cs.customGatesUses[i].id === i ? ctr.qk : curve.Fr.zero;
                     }
                     plonkConstraints.push([ctr.sl, ctr.sr, ctr.so, ctr.qm, ctr.ql, ctr.qr, ctr.qo, ctr.qc, ...qcgArr]);
                 });
@@ -407,7 +408,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             buffOutV.setUint32(o, addition[1], true);
             o += 4;
             // The value is stored in  Montgomery. stored = v*R
-            // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w 
+            // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w
             buffOut.set(addition[2], o);
             o += n8r;
             buffOut.set(addition[3], o);

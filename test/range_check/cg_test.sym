@@ -1,6 +1,7 @@
-1,1,1,main.lower_bound
-2,2,1,main.upper_bound
-3,3,1,main.to_check
-4,4,0,main.rangeCheck.lower_bound
-5,5,0,main.rangeCheck.upper_bound
-6,6,0,main.rangeCheck.to_check
+1,1,1,main.out
+2,2,1,main.lower_bound
+3,3,1,main.upper_bound
+4,4,1,main.to_check
+5,5,0,main.rangeCheck.lower_bound
+6,6,0,main.rangeCheck.upper_bound
+7,7,0,main.rangeCheck.to_check

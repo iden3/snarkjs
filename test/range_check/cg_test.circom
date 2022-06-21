@@ -7,11 +7,13 @@ template Foo() {
     signal input lower_bound;
     signal input upper_bound;
     signal input to_check;
+    signal output out;
     custom_component rangeCheck = RangeCheck();
 
     rangeCheck.lower_bound <== lower_bound;
     rangeCheck.upper_bound <== upper_bound;
     rangeCheck.to_check    <== to_check;
+    out <== 1;
 }
 
 component main {public [lower_bound, upper_bound, to_check]} = Foo();

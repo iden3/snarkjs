@@ -103,7 +103,8 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     let cgRes = true;
     if(proof.customGates) {
         for (let i = 0; i < proof.customGates.gates.length; i++) {
-            cgRes = cgRes && proof.customGates.gates[i].verifyProof(proof.customGates.proof[i], curve, keccak256);
+            cgRes = cgRes && await proof.customGates.gates[i].verifyProof(
+                proof.customGates.proof[i], vk_verifier, curve, keccak256, logger);
         }
     }
 
@@ -436,15 +437,15 @@ function calculateE(curve, proof, challanges, vk, t) {
     return res;
 }
 
-async function isValidPairing(curve, proof, challanges, vk, E, F) {
+export async function isValidPairing(curve, proof, challenges, vk, E, F) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
     let A1 = proof.Wxi;
-    A1 = G1.add(A1, G1.timesFr(proof.Wxiw, challanges.u));
+    A1 = G1.add(A1, G1.timesFr(proof.Wxiw, challenges.u));
 
-    let B1 = G1.timesFr(proof.Wxi, challanges.xi);
-    const s = Fr.mul(Fr.mul(challanges.u, challanges.xi), Fr.w[vk.power]);
+    let B1 = G1.timesFr(proof.Wxi, challenges.xi);
+    const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[vk.power]);
     B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
     B1 = G1.add(B1, F);
     B1 = G1.sub(B1, E);

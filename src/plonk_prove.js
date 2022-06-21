@@ -131,6 +131,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     if(zkey.useCustomGates) {
         proof.customGates = zkey.customGates;
+        const lPols = await binFileUtils.readSection(fdZKey, sectionsZKey, 13);
+
         for (let i = 0; i < zkey.customGates.length; i++) {
             proof.customGates[i].proof = await customGates.gates[i].computeProof(
                 customGates.gates[i].preInput,
@@ -139,7 +141,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
                 keccak256,
                 curve,
                 logger,
-                PTau);
+                PTau,
+                lPols);
         }
     }
 
