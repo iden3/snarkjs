@@ -22,13 +22,11 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import { getCurveFromQ as getCurve } from "./curves.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
 import FactoryCG from "./custom_gates/cg_factory.js";
 import {readZKeyCustomGatesUsesSection} from "./zkey_utils.js";
-const { keccak256 } = jsSha3;
+import {Keccak256Transcript} from "./Keccak256Transcript.js";
 
 export default async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -130,19 +128,17 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     await round5();
 
     if(zkey.useCustomGates) {
-        proof.customGates = zkey.customGates;
-        const lPols = await binFileUtils.readSection(fdZKey, sectionsZKey, 13);
+        proof.customGates = [];
 
         for (let i = 0; i < zkey.customGates.length; i++) {
-            proof.customGates[i].proof = await customGates.gates[i].computeProof(
-                customGates.gates[i].preInput,
-                customGates.gates[i].witnesses,
-                Fr,
-                keccak256,
-                curve,
-                logger,
-                PTau,
-                lPols);
+            const prover = FactoryCG.createProver(customGates.gates[i]);
+            const _proof = await prover.computeProof(
+                customGates.gates[i].preInput, customGates.gates[i].witnesses,
+                curve, logger, PTau);
+
+            proof.customGates[i] = {};
+            proof.customGates[i].id = customGates.gates[i].id;
+            proof.customGates[i].proof = prover.toObjectProof(_proof, curve);
         }
     }
 
@@ -183,13 +179,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     proof.Wxi = G1.toObject(proof.Wxi);
     proof.Wxiw = G1.toObject(proof.Wxiw);
-
-    if(zkey.useCustomGates) {
-        proof.customGates = zkey.customGates;
-        for (let i = 0; i < zkey.customGates.length; i++) {
-            proof.customGates[i].proof = customGates.gates[i].toObjectProof(proof.customGates[i].proof, curve);
-        }
-    }
 
     delete proof.eval_t;
 
@@ -282,22 +271,21 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function round2() {
-
-        const transcript1 = new Uint8Array(zkey.nPublic*n8r + G1.F.n8*2*3);
-        for (let i=0; i<zkey.nPublic; i++) {
-            Fr.toRprBE(transcript1, i*n8r, A.slice((i)*n8r, (i+1)*n8r));
+        const transcript = new Keccak256Transcript(curve);
+        for (let i = 0; i < zkey.nPublic; i++) {
+            transcript.appendScalar(A.slice((i) * n8r, (i + 1) * n8r));
         }
-        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + 0, proof.A);
-        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*2, proof.B);
-        G1.toRprUncompressed(transcript1, zkey.nPublic*n8r + G1.F.n8*4, proof.C);
+        transcript.appendPolCommitment(proof.A);
+        transcript.appendPolCommitment(proof.B);
+        transcript.appendPolCommitment(proof.C);
 
-        ch.beta = hashToFr(transcript1);
+        ch.beta = transcript.getChallenge();
         if (logger) logger.debug("beta: " + Fr.toString(ch.beta));
 
-        const transcript2 = new Uint8Array(n8r);
-        Fr.toRprBE(transcript2, 0, ch.beta);
-        ch.gamma = hashToFr(transcript2);
-        if (logger) logger.debug("gamma: " + Fr.toString(ch.gamma));
+        transcript.reset();
+        transcript.appendScalar(ch.beta);
+
+        ch.gamma = transcript.getChallenge();
 
         let numArr = new BigBuffer(Fr.n8*zkey.domainSize);
         let denArr = new BigBuffer(Fr.n8*zkey.domainSize);
@@ -427,11 +415,10 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         const lPols = await binFileUtils.readSection(fdZKey, sectionsZKey, 13);
 
-        const transcript3 = new Uint8Array(G1.F.n8*2);
-        G1.toRprUncompressed(transcript3, 0, proof.Z);
+        const transcript = new Keccak256Transcript(curve);
+        transcript.appendPolCommitment(proof.Z);
 
-        ch.alpha = hashToFr(transcript3);
-
+        ch.alpha = transcript.getChallenge();
         if (logger) logger.debug("alpha: " + Fr.toString(ch.alpha));
 
 
@@ -724,12 +711,12 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         const pol_s3 = new BigBuffer(zkey.domainSize*n8r);
         await fdZKey.readToBuffer(pol_s3, 0 , zkey.domainSize*n8r, sectionsZKey[12][0].p + 10*zkey.domainSize*n8r);
 
-        const transcript4 = new Uint8Array(G1.F.n8*2*3);
-        G1.toRprUncompressed(transcript4, 0, proof.T1);
-        G1.toRprUncompressed(transcript4, G1.F.n8*2, proof.T2);
-        G1.toRprUncompressed(transcript4, G1.F.n8*4, proof.T3);
-        ch.xi = hashToFr(transcript4);
+        const transcript = new Keccak256Transcript(curve);
+        transcript.appendPolCommitment(proof.T1);
+        transcript.appendPolCommitment(proof.T2);
+        transcript.appendPolCommitment(proof.T3);
 
+        ch.xi = transcript.getChallenge();
         if (logger) logger.debug("xi: " + Fr.toString(ch.xi));
 
         proof.eval_a = evalPol(pol_a, ch.xi);
@@ -813,18 +800,17 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function round5() {
-        const transcript5 = new Uint8Array(n8r*7);
-        Fr.toRprBE(transcript5, 0, proof.eval_a);
-        Fr.toRprBE(transcript5, n8r, proof.eval_b);
-        Fr.toRprBE(transcript5, n8r*2, proof.eval_c);
-        Fr.toRprBE(transcript5, n8r*3, proof.eval_s1);
-        Fr.toRprBE(transcript5, n8r*4, proof.eval_s2);
-        Fr.toRprBE(transcript5, n8r*5, proof.eval_zw);
-        Fr.toRprBE(transcript5, n8r*6, proof.eval_r);
-        ch.v = [];
-        ch.v[1] = hashToFr(transcript5);
-        if (logger) logger.debug("v: " + Fr.toString(ch.v[1]));
+        const transcript = new Keccak256Transcript(curve);
+        transcript.appendScalar(proof.eval_a);
+        transcript.appendScalar(proof.eval_b);
+        transcript.appendScalar(proof.eval_c);
+        transcript.appendScalar(proof.eval_s1);
+        transcript.appendScalar(proof.eval_s2);
+        transcript.appendScalar(proof.eval_zw);
+        transcript.appendScalar(proof.eval_r);
 
+        ch.v = [];
+        ch.v[1] = transcript.getChallenge();
         for (let i=2; i<=6; i++ ) ch.v[i] = Fr.mul(ch.v[i-1], ch.v[1]);
 
         let pol_wxi = new BigBuffer((zkey.domainSize+6)*n8r);
@@ -881,12 +867,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         pol_wxiw= divPol1(pol_wxiw, Fr.mul(ch.xi, Fr.w[zkey.power]));
         proof.Wxiw = await expTau(pol_wxiw, "multiexp Wxiw");
     }
-
-    function hashToFr(transcript) {
-        const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
-        return Fr.e(v);
-    }
-
 
     function evalPol(P, x) {
         const n = P.byteLength / n8r;

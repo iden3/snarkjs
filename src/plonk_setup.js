@@ -49,7 +49,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1 << 22, 1 << 24);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1 << 22, 1 << 24);
-//    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const r1cs = await readR1cs(r1csName, {loadConstraints: true, loadMap: false, loadCustomGates: true, singleThread: false});
 
@@ -370,9 +369,9 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     async function writeZKeyCustomGatesPreprocessedInput(idx) {
         const name = customGates.gates[idx].name;
-        const preInput = customGates.gates[idx].getPreprocessedInput(curve.Fr);
+        const preInput = customGates.gates[idx].preprocessedInput(curve.Fr);
 
-        await startWriteSection(fdZKey, customGates.gates[idx].preprocessedInputSectionId);
+        await startWriteSection(fdZKey, customGates.gates[idx].preprocessedSectionId);
 
         vk.customGates[idx].preInput = {};
         const keys = customGates.gates[idx].preprocessedInputKeys;

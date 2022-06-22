@@ -18,18 +18,16 @@
 */
 
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
-import { Scalar } from "ffjavascript";
 import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
 import FactoryCG from "./custom_gates/cg_factory.js";
-const { keccak256 } = jsSha3;
+import {Keccak256Transcript} from "./Keccak256Transcript.js";
 
 
 export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     let vk_verifier = unstringifyBigInts(_vk_verifier);
-    let proof = unstringifyBigInts(_proof);
+    let objectProof = unstringifyBigInts(_proof);
     let publicSignals = unstringifyBigInts(_publicSignals);
 
     const curve = await curves.getCurveFromName(vk_verifier.curve);
@@ -37,10 +35,30 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     const Fr = curve.Fr;
     const G1 = curve.G1;
 
-    proof = fromObjectProof(curve, proof);
+    let proof = fromObjectProof(curve, objectProof);
+
+    proof.useCustomGates = undefined !== objectProof["customGates"] ;
+
+    if (proof.useCustomGates) {
+        const length = objectProof.customGates.length;
+        proof.customGates = {};
+
+        proof.customGates.gates = Array(length);
+        for (let i = 0; i < length; i++) {
+            //create gates
+            proof.customGates.gates[i] = FactoryCG.create(objectProof.customGates[i].id, {});
+        }
+
+        //get custom gate proof
+        proof.customGates.proof = Array(length);
+        for (let i = 0; i < length; i++) {
+            const verifier = FactoryCG.createVerifier(proof.customGates.gates[i]);
+
+            proof.customGates.proof[i] = verifier.fromObjectProof(objectProof.customGates[i].proof, curve);
+        }
+    }
 
     vk_verifier = fromObjectVk(curve, vk_verifier, proof.useCustomGates);
-
 
     if (!isWellConstructed(curve, proof)) {
         logger.error("Proof is not well constructed");
@@ -103,8 +121,9 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     let cgRes = true;
     if(proof.customGates) {
         for (let i = 0; i < proof.customGates.gates.length; i++) {
-            cgRes = cgRes && await proof.customGates.gates[i].verifyProof(
-                proof.customGates.proof[i], vk_verifier, curve, keccak256, logger);
+            const verifier = FactoryCG.createVerifier(proof.customGates.gates[i]);
+
+            cgRes = cgRes && await verifier.verifyProof(proof.customGates.proof[i], vk_verifier, curve, logger);
         }
     }
 
@@ -146,24 +165,6 @@ function fromObjectProof(curve, proof) {
     res.Wxi = G1.fromObject(proof.Wxi);
     res.Wxiw = G1.fromObject(proof.Wxiw);
 
-    res.useCustomGates = undefined !== proof["customGates"] ;
-
-    if (res.useCustomGates) {
-        const length = proof.customGates.length;
-        res.customGates = {};
-
-        res.customGates.gates = Array(length);
-        for (let i = 0; i < length; i++) {
-            //create gates
-            res.customGates.gates[i] = FactoryCG.create(proof.customGates[i].id, {});
-        }
-
-        //get custom gate proof
-        res.customGates.proof = Array(length);
-        for (let i = 0; i < length; i++) {
-            res.customGates.proof[i] = res.customGates.gates[i].fromObjectProof(proof.customGates[i].proof, curve);
-        }
-    }
     return res;
 }
 
@@ -209,52 +210,54 @@ function isWellConstructed(curve, proof) {
 }
 
 function calculateChallenges(curve, proof, publicSignals) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-    const n8r = curve.Fr.n8;
-    const res = {};
+    const transcript = new Keccak256Transcript(curve);
 
-    const transcript1 = new Uint8Array(publicSignals.length*n8r + G1.F.n8*2*3);
+    let res= {};
     for (let i=0; i<publicSignals.length; i++) {
-        Fr.toRprBE(transcript1, i*n8r, Fr.e(publicSignals[i]));
+        transcript.appendScalar(curve.Fr.e(publicSignals[i]));
     }
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + 0, proof.A);
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*2, proof.B);
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*4, proof.C);
+    transcript.appendPolCommitment(proof.A);
+    transcript.appendPolCommitment(proof.B);
+    transcript.appendPolCommitment(proof.C);
 
-    res.beta = hashToFr(curve, transcript1);
+    res.beta = transcript.getChallenge();
 
-    const transcript2 = new Uint8Array(n8r);
-    Fr.toRprBE(transcript2, 0, res.beta);
-    res.gamma = hashToFr(curve, transcript2);
+    transcript.reset();
+    transcript.appendScalar(res.beta);
 
-    const transcript3 = new Uint8Array(G1.F.n8*2);
-    G1.toRprUncompressed(transcript3, 0, proof.Z);
-    res.alpha = hashToFr(curve, transcript3);
+    res.gamma = transcript.getChallenge();
 
-    const transcript4 = new Uint8Array(G1.F.n8*2*3);
-    G1.toRprUncompressed(transcript4, 0, proof.T1);
-    G1.toRprUncompressed(transcript4, G1.F.n8*2, proof.T2);
-    G1.toRprUncompressed(transcript4, G1.F.n8*4, proof.T3);
-    res.xi = hashToFr(curve, transcript4);
+    transcript.reset();
+    transcript.appendPolCommitment(proof.Z);
 
-    const transcript5 = new Uint8Array(n8r*7);
-    Fr.toRprBE(transcript5, 0, proof.eval_a);
-    Fr.toRprBE(transcript5, n8r, proof.eval_b);
-    Fr.toRprBE(transcript5, n8r*2, proof.eval_c);
-    Fr.toRprBE(transcript5, n8r*3, proof.eval_s1);
-    Fr.toRprBE(transcript5, n8r*4, proof.eval_s2);
-    Fr.toRprBE(transcript5, n8r*5, proof.eval_zw);
-    Fr.toRprBE(transcript5, n8r*6, proof.eval_r);
+    res.alpha = transcript.getChallenge();
+
+    transcript.reset();
+    transcript.appendPolCommitment(proof.T1);
+    transcript.appendPolCommitment(proof.T2);
+    transcript.appendPolCommitment(proof.T3);
+
+    res.xi = transcript.getChallenge();
+
+    transcript.reset();
+    transcript.appendScalar(proof.eval_a);
+    transcript.appendScalar(proof.eval_b);
+    transcript.appendScalar(proof.eval_c);
+    transcript.appendScalar(proof.eval_s1);
+    transcript.appendScalar(proof.eval_s2);
+    transcript.appendScalar(proof.eval_zw);
+    transcript.appendScalar(proof.eval_r);
+
     res.v = [];
-    res.v[1] = hashToFr(curve, transcript5);
+    res.v[1] = transcript.getChallenge();
 
-    for (let i=2; i<=6; i++ ) res.v[i] = Fr.mul(res.v[i-1], res.v[1]);
+    for (let i=2; i<=6; i++ ) res.v[i] = curve.Fr.mul(res.v[i-1], res.v[1]);
 
-    const transcript6 = new Uint8Array(G1.F.n8*2*2);
-    G1.toRprUncompressed(transcript6, 0, proof.Wxi);
-    G1.toRprUncompressed(transcript6, G1.F.n8*2, proof.Wxiw);
-    res.u = hashToFr(curve, transcript6);
+    transcript.reset();
+    transcript.appendPolCommitment(proof.Wxi);
+    transcript.appendPolCommitment(proof.Wxiw);
+
+    res.u = transcript.getChallenge();
 
     return res;
 }
@@ -281,11 +284,6 @@ function calculateLagrangeEvaluations(curve, challenges, vk) {
     }
 
     return L;
-}
-
-function hashToFr(curve, transcript) {
-    const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
-    return curve.Fr.e(v);
 }
 
 function calculatePl(curve, publicSignals, L) {
