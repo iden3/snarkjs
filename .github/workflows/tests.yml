@@ -21,13 +21,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           check-latest: true
-          #cache: 'npm'
+          cache: 'npm'
 
       - name: Install circom
         run: npm install -g circom@latest
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests
         run: npm run test
