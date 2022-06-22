@@ -57,7 +57,7 @@ export default async function exportJson(pTauFilename, verbose) {
         for (let i=0; i< nPoints; i++) {
             if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ` + i);
             const buff = await fd.read(sG);
-            res.push(G.fromRprLEM(buff, 0));
+            res.push(G.toObject(G.fromRprLEM(buff, 0)));
         }
         await binFileUtils.endReadSection(fd);
 
@@ -69,15 +69,20 @@ export default async function exportJson(pTauFilename, verbose) {
         const sG = G.F.n8*2;
 
         const res = [];
+
+        // The lTauG1 section (#12) calculates powers up to power + 1,
+        // per preparePhase2 function in powersoftau_preparephase2.js
+        const endPower = (sectionId == 12) ? power + 1 : power;
+
         await binFileUtils.startReadUniqueSection(fd, sections, sectionId);
-        for (let p=0; p<=power; p++) {
+        for (let p=0; p<=endPower; p++) {
             if (verbose) console.log(`${sectionName}: Power: ${p}`);
             res[p] = [];
             const nPoints = (2 ** p);
             for (let i=0; i<nPoints; i++) {
                 if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ${i}/${nPoints}`);
                 const buff = await fd.read(sG);
-                res[p].push(G.fromRprLEM(buff, 0));
+                res[p].push(G.toObject(G.fromRprLEM(buff, 0)));
             }
         }
         await binFileUtils.endReadSection(fd, true);

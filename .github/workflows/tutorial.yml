@@ -35,6 +35,9 @@ jobs:
       run: snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
     - name: 7. Prepare phase 2
       run: snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
+      # This is a test for a regression in the command
+    - name: Export ptau as JSON (not part of tutorial)
+      run: snarkjs powersoftau export json pot12_final.ptau pot12_final.ptau.json
     - name: 8. Verify the final ptau
       run: snarkjs powersoftau verify pot12_final.ptau -v
     - name: Export ptau as JSON (not part of tutorial)
