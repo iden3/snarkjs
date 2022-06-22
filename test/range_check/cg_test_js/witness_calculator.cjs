@@ -88,7 +88,7 @@ class WitnessCalculator {
         this.n32 = this.instance.exports.getFieldNumLen32();
 
         this.instance.exports.getRawPrime();
-        const arr = new Array(this.n32);
+        const arr = new Uint32Array(this.n32);
         for (let i=0; i<this.n32; i++) {
             arr[this.n32-1-i] = this.instance.exports.readSharedRWMemory(i);
         }
@@ -124,8 +124,8 @@ class WitnessCalculator {
 		throw new Error(`Too many values for input signal ${k}\n`);
 	    }
             for (let i=0; i<fArr.length; i++) {
-		const arrFr = toArray32(fArr[i],this.n32)
-		for (let j=0; j<this.n32; j++) {
+                const arrFr = toArray32(BigInt(fArr[i])%this.prime,this.n32)
+                for (let j=0; j<this.n32; j++) {
 		    this.instance.exports.writeSharedRWMemory(j,arrFr[this.n32-1-j]);
 		}
 		try {
@@ -249,9 +249,8 @@ class WitnessCalculator {
 }
 
 
-function toArray32(s,size) {
+function toArray32(rem,size) {
     const res = []; //new Uint32Array(size); //has no unshift
-    let rem = BigInt(s);
     const radix = BigInt(0x100000000);
     while (rem) {
         res.unshift( Number(rem % radix));

@@ -1,7 +1,7 @@
 import assert from "assert";
 import {getRandomValue} from "../test_utils.js";
 import {getCurveFromName} from "../../src/curves.js";
-import RangeCheckCG, {MAX_RANGE, N} from "../../src/custom_gates/cg_range_check.js";
+import RangeCheckCG, {MAX_RANGE, N} from "../../src/custom_gates/range_check_gate.js";
 
 describe("snarkjs: range check tests", function () {
     this.timeout(10000);
@@ -18,7 +18,7 @@ describe("snarkjs: range check tests", function () {
 
     it("should return true when values are in range", async () => {
         let rangeCheckCG = new RangeCheckCG({parameters: {}});
-        let preprocessedInput = rangeCheckCG.getPreprocessedInput(curve.Fr);
+        let preprocessedInput = rangeCheckCG.preprocessedInput(curve.Fr);
 
         //Create random witnesses
         let witnesses = [];
@@ -66,7 +66,7 @@ describe("snarkjs: range check tests", function () {
 
     it("should return false when a value is out of range", async () => {
         let rangeCheckCG = new RangeCheckCG({parameters: {}});
-        let preprocessedInput = rangeCheckCG.getPreprocessedInput(curve.Fr);
+        let preprocessedInput = rangeCheckCG.preprocessedInput(curve.Fr);
 
         //Create random witnesses
         let witnesses = [];
