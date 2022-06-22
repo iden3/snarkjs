@@ -224,6 +224,25 @@ function byteArray2hex(byteArray) {
     }).join("");
 }
 
+function stringifyBigIntsWithField(Fr, o) {
+    if (o instanceof Uint8Array)  {
+        return Fr.toString(o);
+    } else if (Array.isArray(o)) {
+        return o.map(stringifyBigIntsWithField.bind(null, Fr));
+    } else if (typeof o == "object") {
+        const res = {};
+        const keys = Object.keys(o);
+        keys.forEach( (k) => {
+            res[k] = stringifyBigIntsWithField(Fr, o[k]);
+        });
+        return res;
+    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
+        return o.toString(10);
+    } else {
+        return o;
+    }
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -732,7 +751,7 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -846,8 +865,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     await fdZKey.close();
     await fdWtns.close();
 
-    proof = stringifyBigInts$3(proof);
-    publicSignals = stringifyBigInts$3(publicSignals);
+    proof = stringifyBigInts$2(proof);
+    publicSignals = stringifyBigInts$2(publicSignals);
 
     return {proof, publicSignals};
 }
@@ -3532,7 +3551,7 @@ async function exportJson(pTauFilename, verbose) {
 
     await fd.close();
 
-    return pTau;
+    return stringifyBigIntsWithField(curve.Fr, pTau);
 
 
 
@@ -3568,7 +3587,7 @@ async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        await binFileUtils__namespace.endReadSection(fd);
+        await binFileUtils__namespace.endReadSection(fd, true);
         return res;
     }
 
@@ -3717,25 +3736,6 @@ async function r1csInfo(r1csName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-function stringifyBigInts$2(Fr, o) {
-    if (o instanceof Uint8Array)  {
-        return Fr.toString(o);
-    } else if (Array.isArray(o)) {
-        return o.map(stringifyBigInts$2.bind(null, Fr));
-    } else if (typeof o == "object") {
-        const res = {};
-        const keys = Object.keys(o);
-        keys.forEach( (k) => {
-            res[k] = stringifyBigInts$2(Fr, o[k]);
-        });
-        return res;
-    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
-        return o.toString(10);
-    } else {
-        return o;
-    }
-}
-
 
 async function r1csExportJson(r1csFileName, logger) {
 
@@ -3744,7 +3744,7 @@ async function r1csExportJson(r1csFileName, logger) {
     delete cir.curve;
     delete cir.F;
 
-    return stringifyBigInts$2(Fr, cir);
+    return stringifyBigIntsWithField(Fr, cir);
 }
 
 /*

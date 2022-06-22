@@ -37,6 +37,8 @@ jobs:
       run: snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
     - name: 8. Verify the final ptau
       run: snarkjs powersoftau verify pot12_final.ptau -v
+    - name: Export ptau as JSON (not part of tutorial)
+      run: snarkjs powersoftau export json pot12_final.ptau pot12_final.json -v
     - name: 9. Create the circuit
       run: |
         cat <<EOT > circuit.circom
