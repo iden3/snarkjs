@@ -48,7 +48,7 @@ import { Scalar, F1Field } from "ffjavascript";
 import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
-import { log2 } from "./misc.js";
+import { log2, readG1, readG2 } from "./misc.js";
 
 export async function writeHeader(fd, zkey) {
 
@@ -188,18 +188,6 @@ async function writeG2(fd, curve, p) {
     const buff = new Uint8Array(curve.G2.F.n8*2);
     curve.G2.toRprLEM(buff, 0, p);
     await fd.write(buff);
-}
-
-async function readG1(fd, curve, toObject) {
-    const buff = await fd.read(curve.G1.F.n8*2);
-    const res = curve.G1.fromRprLEM(buff, 0);
-    return toObject ? curve.G1.toObject(res) : res;
-}
-
-async function readG2(fd, curve, toObject) {
-    const buff = await fd.read(curve.G2.F.n8*2);
-    const res = curve.G2.fromRprLEM(buff, 0);
-    return toObject ? curve.G2.toObject(res) : res;
 }
 
 

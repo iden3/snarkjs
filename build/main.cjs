@@ -243,6 +243,18 @@ function stringifyBigIntsWithField(Fr, o) {
     }
 }
 
+async function readG1(fd, curve, toObject) {
+    const buff = await fd.read(curve.G1.F.n8*2);
+    const res = curve.G1.fromRprLEM(buff, 0);
+    return toObject ? curve.G1.toObject(res) : res;
+}
+
+async function readG2(fd, curve, toObject) {
+    const buff = await fd.read(curve.G2.F.n8*2);
+    const res = curve.G2.fromRprLEM(buff, 0);
+    return toObject ? curve.G2.toObject(res) : res;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -311,18 +323,6 @@ async function writeG2(fd, curve, p) {
     const buff = new Uint8Array(curve.G2.F.n8*2);
     curve.G2.toRprLEM(buff, 0, p);
     await fd.write(buff);
-}
-
-async function readG1(fd, curve, toObject) {
-    const buff = await fd.read(curve.G1.F.n8*2);
-    const res = curve.G1.fromRprLEM(buff, 0);
-    return toObject ? curve.G1.toObject(res) : res;
-}
-
-async function readG2(fd, curve, toObject) {
-    const buff = await fd.read(curve.G2.F.n8*2);
-    const res = curve.G2.fromRprLEM(buff, 0);
-    return toObject ? curve.G2.toObject(res) : res;
 }
 
 
@@ -3551,20 +3551,15 @@ async function exportJson(pTauFilename, verbose) {
 
     await fd.close();
 
-    return stringifyBigIntsWithField(curve.Fr, pTau);
-
-
+    return ffjavascript.utils.stringifyBigInts(pTau);
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
         const res = [];
+        const readFn = (groupName == "G1") ? readG1 : readG2;
         await binFileUtils__namespace.startReadUniqueSection(fd, sections, sectionId);
         for (let i=0; i< nPoints; i++) {
             if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ` + i);
-            const buff = await fd.read(sG);
-            res.push(G.toObject(G.fromRprLEM(buff, 0)));
+            res.push(await readFn(fd, curve, true));
         }
         await binFileUtils__namespace.endReadSection(fd);
 
@@ -3572,27 +3567,24 @@ async function exportJson(pTauFilename, verbose) {
     }
 
     async function exportLagrange(sectionId, groupName, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
         const res = [];
+        const readFn = (groupName == "G1") ? readG1 : readG2;
 
         // The lTauG1 section (#12) calculates powers up to power + 1,
         // per preparePhase2 function in powersoftau_preparephase2.js
-        const endPower = (sectionId == 12) ? power + 1 : power;
+        const lastPower = (sectionId == 12) ? power + 1 : power;
 
         await binFileUtils__namespace.startReadUniqueSection(fd, sections, sectionId);
-        for (let p=0; p<=endPower; p++) {
+        for (let p=0; p<=lastPower; p++) {
             if (verbose) console.log(`${sectionName}: Power: ${p}`);
             res[p] = [];
             const nPoints = (2 ** p);
             for (let i=0; i<nPoints; i++) {
                 if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ${i}/${nPoints}`);
-                const buff = await fd.read(sG);
-                res[p].push(G.toObject(G.fromRprLEM(buff, 0)));
+                res[p].push(await readFn(fd, curve, true));
             }
         }
-        await binFileUtils__namespace.endReadSection(fd, true);
+        await binFileUtils__namespace.endReadSection(fd);
         return res;
     }
 
