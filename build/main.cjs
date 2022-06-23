@@ -336,7 +336,7 @@ async function readHeader$1(fd, sections, toObject) {
     if (protocolId == 1) {
         return await readHeaderGroth16(fd, sections, toObject);
     } else if (protocolId == 2) {
-        return await readHeaderPlonk(fd, sections);
+        return await readHeaderPlonk(fd, sections, toObject);
     } else {
         throw new Error("Protocol not supported: ");
     }        
@@ -380,7 +380,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 
 
-async function readHeaderPlonk(fd, sections, protocol, toObject) {
+async function readHeaderPlonk(fd, sections, toObject) {
     const zkey = {};
 
     zkey.protocol = "plonk";
@@ -423,7 +423,7 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
 async function readZKey(fileName, toObject) {
     const {fd, sections} = await binFileUtils__namespace.readBinFile(fileName, "zkey", 1);
 
-    const zkey = await readHeader$1(fd, sections, "groth16");
+    const zkey = await readHeader$1(fd, sections, toObject);
 
     const Fr = new ffjavascript.F1Field(zkey.r);
     const Rr = ffjavascript.Scalar.mod(ffjavascript.Scalar.shl(1, zkey.n8r*8), zkey.r);
