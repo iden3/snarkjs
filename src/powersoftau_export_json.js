@@ -17,19 +17,20 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import * as utils from "./powersoftau_utils.js";
+import * as potUtils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
-import { stringifyBigIntsWithField } from "./misc.js";
+import { readG1, readG2 } from "./misc.js";
+import { utils as ffUtils} from "ffjavascript";
 
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
 
-    const {curve, power} = await utils.readPTauHeader(fd, sections);
+    const {curve, power} = await potUtils.readPTauHeader(fd, sections);
 
     const pTau = {};
     pTau.q = curve.q;
     pTau.power = power;
-    pTau.contributions = await utils.readContributions(fd, curve, sections);
+    pTau.contributions = await potUtils.readContributions(fd, curve, sections);
 
     pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
     pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
@@ -44,20 +45,15 @@ export default async function exportJson(pTauFilename, verbose) {
 
     await fd.close();
 
-    return stringifyBigIntsWithField(curve.Fr, pTau);
-
-
+    return ffUtils.stringifyBigInts(pTau);
 
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
         const res = [];
+        const readFn = (groupName == "G1") ? readG1 : readG2;
         await binFileUtils.startReadUniqueSection(fd, sections, sectionId);
         for (let i=0; i< nPoints; i++) {
             if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ` + i);
-            const buff = await fd.read(sG);
-            res.push(G.fromRprLEM(buff, 0));
+            res.push(await readFn(fd, curve, true));
         }
         await binFileUtils.endReadSection(fd);
 
@@ -65,22 +61,24 @@ export default async function exportJson(pTauFilename, verbose) {
     }
 
     async function exportLagrange(sectionId, groupName, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
         const res = [];
+        const readFn = (groupName == "G1") ? readG1 : readG2;
+
+        // The lTauG1 section (#12) calculates powers up to power + 1,
+        // per preparePhase2 function in powersoftau_preparephase2.js
+        const lastPower = (sectionId == 12) ? power + 1 : power;
+
         await binFileUtils.startReadUniqueSection(fd, sections, sectionId);
-        for (let p=0; p<=power; p++) {
+        for (let p=0; p<=lastPower; p++) {
             if (verbose) console.log(`${sectionName}: Power: ${p}`);
             res[p] = [];
             const nPoints = (2 ** p);
             for (let i=0; i<nPoints; i++) {
                 if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ${i}/${nPoints}`);
-                const buff = await fd.read(sG);
-                res[p].push(G.fromRprLEM(buff, 0));
+                res[p].push(await readFn(fd, curve, true));
             }
         }
-        await binFileUtils.endReadSection(fd, true);
+        await binFileUtils.endReadSection(fd);
         return res;
     }
 

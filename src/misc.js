@@ -194,3 +194,15 @@ export function stringifyBigIntsWithField(Fr, o) {
         return o;
     }
 }
+
+export async function readG1(fd, curve, toObject) {
+    const buff = await fd.read(curve.G1.F.n8*2);
+    const res = curve.G1.fromRprLEM(buff, 0);
+    return toObject ? curve.G1.toObject(res) : res;
+}
+
+export async function readG2(fd, curve, toObject) {
+    const buff = await fd.read(curve.G2.F.n8*2);
+    const res = curve.G2.fromRprLEM(buff, 0);
+    return toObject ? curve.G2.toObject(res) : res;
+}
