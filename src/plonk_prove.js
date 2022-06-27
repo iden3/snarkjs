@@ -916,9 +916,66 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         return res;
     }
 
+    function evaluatePoly(poly, bufferX) {
+        const length = poly.byteLength/n8r;
+
+        const x = Fr.w[1] ;
+        let res1 = poly.slice(n8r, n8r + n8r);
+
+        //Avaluarem x a la primera w fr Fr
+        let currentX = x;
+        for (let i = 1; i < length; i++) {
+            const coeff = poly.slice(i * n8r, i * n8r + n8r);
+            const currentRes = Fr.mul(coeff, currentX);
+
+            res1 = Fr.add(res1, currentRes);
+
+            currentX = Fr.mul(currentX, x);
+        }
+
+        let res2 = poly.slice((length-1) * n8r, (length-1) * n8r + n8r);
+        currentX = x;
+        for (let i = length - 2; i >= 0; i--) {
+            const coeff = poly.slice(i * n8r, i * n8r + n8r);
+            const currentRes = Fr.mul(coeff, currentX);
+
+            res2 = Fr.add(res2, currentRes);
+
+            currentX = Fr.mul(currentX, x);
+        }
+
+
+        let resX = toDebugArray(bufferX, Fr);
+        let resX1 = toDebugArray(res1, Fr);
+        let resX2 = toDebugArray(res2, Fr);
+
+        let xx = xxx(poly, Fr.one);
+        return 1;
+    }
+
+    function xxx(poly, x) {
+        const length = poly.byteLength / n8r;
+
+        let res = Fr.zero;
+        for (let i = 0; i < length; i++) {
+            let coeff = poly.slice(i * n8r, i * n8r + n8r);
+            res = Fr.add(res, Fr.mul(coeff, x));
+        }
+        return res;
+    }
+    function toDebugArray(buffer, Fr) {
+        const length = buffer.byteLength / Fr.n8;
+        let res = [];
+        for (let i = 0; i < length; i++) {
+            res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+        }
+
+        return res;
+    }
 
     async function to4T(A, pz) {
         pz = pz || [];
+        pz=[];
         let a = await Fr.ifft(A);
         const a4 = new BigBuffer(n8r*zkey.domainSize*4);
         a4.set(a, 0);
@@ -942,6 +999,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             );
         }
         const A4 = await Fr.fft(a4);
+        evaluatePoly(a, A4);
+
         return [a1, A4];
     }
 
