@@ -626,7 +626,7 @@ async function clProcessor(commands) {
                 S += pl.cmd.join(" ");
             }
             S += " " + pl.params.join(" ");
-            console.log(S);
+            console.log(S + "\n");
         }
     }
 
@@ -7973,7 +7973,7 @@ const commands = [
     },
     {
         cmd: "powersoftau truncate <powersoftau.ptau>",
-        description: "Generate diferent powers of tau with smoller sizes ",
+        description: "Generate diferent powers of tau with smaller sizes ",
         longDescription: " This process generates smaller ptau files from a bigger power ptau",
         alias: ["ptt"],
         options: "-verbose|v",
