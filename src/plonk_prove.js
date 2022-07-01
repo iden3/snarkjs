@@ -791,6 +791,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
                 v = Fr.add(v, Fr.mul(proof.eval_b, pol_qr.slice(i*n8r,(i+1)*n8r)));
                 v = Fr.add(v, Fr.mul(proof.eval_c, pol_qo.slice(i*n8r,(i+1)*n8r)));
                 v = Fr.add(v, pol_qc.slice(i*n8r,(i+1)*n8r));
+
                 v = Fr.sub(v, Fr.mul(coefs3, pol_s3.slice(i*n8r,(i+1)*n8r)));
             }
             pol_r.set(v, i*n8r);
@@ -975,7 +976,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function to4T(A, pz) {
         pz = pz || [];
-        pz=[];
         let a = await Fr.ifft(A);
         const a4 = new BigBuffer(n8r*zkey.domainSize*4);
         a4.set(a, 0);
@@ -999,7 +999,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             );
         }
         const A4 = await Fr.fft(a4);
-        evaluatePoly(a, A4);
 
         return [a1, A4];
     }
