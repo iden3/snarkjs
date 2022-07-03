@@ -203,14 +203,16 @@ class RangeCheckVerifier {
     }
 
     computeD(proof, vk_verifier, challenges, lagrange_one, curve) {
-        //let s6d = curve.Fr.mul(lagrange_one_xi, curve.Fr.square(challenges.alpha));
-        let s6d = curve.Fr.mul(lagrange_one, curve.Fr.square(challenges.alpha));
-        //TODO uncomment, commented only for testing purposes
-        // let s6d = curve.Fr.mul(curve.Fr.mul(lagrange_one_xi, curve.Fr.square(challenges.alpha)), challenges.v[0]);
+        //Identity a
+        let elA = curve.Fr.mul(lagrange_one, curve.Fr.square(challenges.alpha));
+        const identityA = curve.G1.timesFr(proof.Z, elA);
 
-        //s6d = curve.Fr.add(s6d, challenges.u); //TODO Falta v^2 ??
-        let res = curve.G1.timesFr(proof.Z, s6d);
+        //Identity c
+        let elC = lagrange_one;
+        const identityC = curve.G1.timesFr(proof.H1, elC);
 
+        // let res = curve.G1.add(identityA, identityC);
+        let res = identityA;
         return res;
     }
 
@@ -224,7 +226,7 @@ class RangeCheckVerifier {
     }
 
     computeE(proof, vk_verifier, challenges, t, curve) {
-        let s = t; //curve.Fr.neg(rPrime);
+        let s = t;
         s = curve.Fr.add(s, proof.eval_r);
 
         //TODO uncomment, commented only for testing purposes

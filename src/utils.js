@@ -1,23 +1,30 @@
 import {BigBuffer} from "ffjavascript";
 
-export async function to4T(buff, pz, Fr) {
+export async function to4T(A, pz, Fr) {
     pz = pz || [];
-    const n8r = Fr.n8;
+    let domainSize = A.byteLength / Fr.n8;
 
-    //Compute ifft
-    let a = await Fr.ifft(buff);
-
-    const a4 = new BigBuffer(buff.byteLength * 4);
+    let a = await Fr.ifft(A);
+    const a4 = new BigBuffer(Fr.n8*domainSize*4);
     a4.set(a, 0);
 
-    const a1 = new BigBuffer(buff.byteLength + n8r * pz.length);
+    const a1 = new BigBuffer(Fr.n8*(domainSize + pz.length));
     a1.set(a, 0);
-    for (let i = 0; i < pz.length; i++) {
-        let sum = Fr.add(a1.slice(buff.byteLength + i * n8r, buff.byteLength + (i + 1) * n8r), pz[i]);
-        a1.set(sum, buff.byteLength + i * n8r);
-
-        let sub = Fr.sub(a1.slice(i * n8r, (i + 1) * n8r), pz[i]);
-        a1.set(sub, i * n8r);
+    for (let i= 0; i<pz.length; i++) {
+        a1.set(
+            Fr.add(
+                a1.slice((domainSize+i)*Fr.n8, (domainSize+i+1)*Fr.n8),
+                pz[i]
+            ),
+            (domainSize+i)*Fr.n8
+        );
+        a1.set(
+            Fr.sub(
+                a1.slice(i*Fr.n8, (i+1)*Fr.n8),
+                pz[i]
+            ),
+            i*Fr.n8
+        );
     }
     const A4 = await Fr.fft(a4);
 
