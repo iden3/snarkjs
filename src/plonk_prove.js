@@ -529,32 +529,41 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         pol_t = t.slice(0, (zkey.domainSize * 3 + 6) * n8r);
 
-        // t(x) has degree 3n + 5, we are going to split t(x) into three smaller polynomials: t_low, t_mid and t_high
-        let pol_t_low = new Uint8Array((zkey.domainSize + 1) * n8r);
-        pol_t_low.set(t.slice(0, zkey.domainSize * n8r), 0);
-        //Add blinding scalar b_10 to highest coefficient + 1 of t_low
+        // t(x) has degree 3n + 5, we are going to split t(x) into three smaller polynomials:
+        // t'_low and t'_mid  with a degree < n and t'_high with a degree n+5
+        // such that t(x) = t'_low(X) + X^n t'_mid(X) + X^{2n} t'_hi(X)
+        // To randomize the parts we use blinding scalars b_10 and b_11 in a way that doesn't change t(X):
+        // t_low(X) = t'_low(X) + b_10 X^n
+        // t_mid(X) = t'_mid(X) - b_10 + b_11 X^n
+        // t_high(X) = t'_high(X) - b_11
+        // such that
+        // t(X) = t_low(X) + X^n t_mid(X) + X^2n t_high(X)
 
-        pol_t_low.set(ch.b[10], zkey.domainSize * n8r);
+        // compute t_low(X)
+        let polTLow = new Uint8Array((zkey.domainSize + 1) * n8r);
+        polTLow.set(t.slice(0, zkey.domainSize * n8r), 0);
+        // Add blinding scalar b_10 as a new coefficient n
+        polTLow.set(ch.b[10], zkey.domainSize * n8r);
 
-        let pol_t_mid = new Uint8Array((zkey.domainSize + 1) * n8r);
-        pol_t_mid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
-        let currentVal = pol_t_mid.slice(0, n8r);
-        //Subtract blinding scalar b_10 to lowest coefficient of t_mid
-        currentVal = Fr.sub(currentVal, ch.b[10]);
-        pol_t_mid.set(currentVal, 0);
-        //Add blinding scalar b_11 to highest coefficient + 1 of t_mid
-        pol_t_mid.set(ch.b[11], zkey.domainSize * n8r);
+        // compute t_mid(X)
+        let polTMid = new Uint8Array((zkey.domainSize + 1) * n8r);
+        polTMid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
+        // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
+        const lowestMid = Fr.sub(polTMid.slice(0, n8r), ch.b[10]);
+        polTMid.set(lowestMid, 0);
+        // Add blinding scalar b_11 as a new coefficient n
+        polTMid.set(ch.b[11], zkey.domainSize * n8r);
 
-        let pol_t_high = new Uint8Array((zkey.domainSize + 6) * n8r);
-        pol_t_high.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
-        //Subtract blinding scalar b_11 to lowest coefficient of t_high
-        let currentVal2 = pol_t_high.slice(0, n8r);
-        currentVal2 = Fr.sub(currentVal2, ch.b[11]);
-        pol_t_high.set(currentVal2, 0);
+        // compute t_high(X)
+        let polTHigh = new Uint8Array((zkey.domainSize + 6) * n8r);
+        polTHigh.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
+        //Subtract blinding scalar b_11 to the lowest coefficient of t_high
+        const lowestHigh = Fr.sub(polTHigh.slice(0, n8r), ch.b[11]);
+        polTHigh.set(lowestHigh, 0);
 
-        proof.T1 = await expTau(pol_t_low, "multiexp T1");
-        proof.T2 = await expTau(pol_t_mid, "multiexp T2");
-        proof.T3 = await expTau(pol_t_high, "multiexp T3");
+        proof.T1 = await expTau(polTLow, "multiexp T1");
+        proof.T2 = await expTau(polTMid, "multiexp T2");
+        proof.T3 = await expTau(polTHigh, "multiexp T3");
 
         function mul2(a,b, ap, bp,  p) {
             let r, rz;
@@ -739,47 +748,47 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         const xi2m = Fr.mul(ch.xim, ch.xim);
 
-        for (let i=0; i<zkey.domainSize+6; i++) {
+        for (let i = 0; i < zkey.domainSize + 6; i++) {
             let w = Fr.zero;
-            let t_high = pol_t.slice((zkey.domainSize * 2 + i) * n8r, (zkey.domainSize * 2 + i + 1) * n8r);
+
+            const polTHigh = pol_t.slice((zkey.domainSize * 2 + i) * n8r, (zkey.domainSize * 2 + i + 1) * n8r);
+            w = Fr.add(w, Fr.mul(xi2m, polTHigh));
+
+            if (i < zkey.domainSize + 3) {
+                w = Fr.add(w, Fr.mul(ch.v[1], pol_r.slice(i * n8r, (i + 1) * n8r)));
+            }
+
+            if (i < zkey.domainSize + 2) {
+                w = Fr.add(w, Fr.mul(ch.v[2], pol_a.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[3], pol_b.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[4], pol_c.slice(i * n8r, (i + 1) * n8r)));
+            }
+
+            if (i < zkey.domainSize) {
+                const polTLow = pol_t.slice(i * n8r, (i + 1) * n8r);
+                w = Fr.add(w, polTLow);
+
+                const polTMid = pol_t.slice((zkey.domainSize + i) * n8r, (zkey.domainSize + i + 1) * n8r);
+                w = Fr.add(w, Fr.mul(ch.xim, polTMid));
+
+                w = Fr.add(w, Fr.mul(ch.v[5], pol_s1.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[6], pol_s2.slice(i * n8r, (i + 1) * n8r)));
+            }
+
+            // b_10 and b_11 blinding scalars were applied on round 3 to randomize the polynomials t_low, t_mid, t_high
+            // Subtract blinding scalar b_10 and b_11 to the lowest coefficient
             if (i === 0) {
-                //Subtract blinding scalar b_11 when is the lowest coefficient of t_high
-                t_high = Fr.sub(t_high, ch.b[11]);
-            }
-            w = Fr.add(w, Fr.mul(xi2m, t_high));
-
-            if (i<zkey.domainSize+3) {
-                w = Fr.add(w, Fr.mul(ch.v[1],  pol_r.slice(i*n8r, (i+1)*n8r)));
+                w = Fr.sub(w, Fr.mul(xi2m, ch.b[11]));
+                w = Fr.sub(w, Fr.mul(ch.xim, ch.b[10]));
             }
 
-            if (i<zkey.domainSize+2) {
-                w = Fr.add(w, Fr.mul(ch.v[2],  pol_a.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[3],  pol_b.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[4],  pol_c.slice(i*n8r, (i+1)*n8r)));
-            }
-
-            if(i === zkey.domainSize) {
-                //Add blinding scalar b_10 corresponding to the highest degree coefficient of t_low
+            // Add blinding scalars b_10 and b_11 to the coefficient n
+            if (i === zkey.domainSize) {
                 w = Fr.add(w, ch.b[10]);
-                //Add blinding scalar b_11 corresponding to the highest degree coefficient of t_mid
                 w = Fr.add(w, Fr.mul(ch.xim, ch.b[11]));
             }
 
-            if (i<zkey.domainSize) {
-                let t_low = pol_t.slice(i*n8r, (i+1)*n8r);
-                w = Fr.add(w, t_low);
-
-                let t_mid = pol_t.slice((zkey.domainSize + i) * n8r, (zkey.domainSize + i + 1) * n8r);
-                if (i === 0) {
-                    //Subtract blinding scalar b_10 when is the lowest coefficient of t_mid
-                    t_mid = Fr.sub(t_mid, ch.b[10]);
-                }
-                w = Fr.add(w, Fr.mul(ch.xim,  t_mid));
-                w = Fr.add(w, Fr.mul(ch.v[5],  pol_s1.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[6],  pol_s2.slice(i*n8r, (i+1)*n8r)));
-            }
-
-            pol_wxi.set(w, i*n8r);
+            pol_wxi.set(w, i * n8r);
         }
 
         let w0 = pol_wxi.slice(0, n8r);
