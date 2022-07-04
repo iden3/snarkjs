@@ -540,13 +540,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         // t(X) = t_low(X) + X^n t_mid(X) + X^2n t_high(X)
 
         // compute t_low(X)
-        let polTLow = new Uint8Array((zkey.domainSize + 1) * n8r);
+        let polTLow = new BigBuffer((zkey.domainSize + 1) * n8r);
         polTLow.set(t.slice(0, zkey.domainSize * n8r), 0);
         // Add blinding scalar b_10 as a new coefficient n
         polTLow.set(ch.b[10], zkey.domainSize * n8r);
 
         // compute t_mid(X)
-        let polTMid = new Uint8Array((zkey.domainSize + 1) * n8r);
+        let polTMid = new BigBuffer((zkey.domainSize + 1) * n8r);
         polTMid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
         // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
         const lowestMid = Fr.sub(polTMid.slice(0, n8r), ch.b[10]);
@@ -555,7 +555,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         polTMid.set(ch.b[11], zkey.domainSize * n8r);
 
         // compute t_high(X)
-        let polTHigh = new Uint8Array((zkey.domainSize + 6) * n8r);
+        let polTHigh = new BigBuffer((zkey.domainSize + 6) * n8r);
         polTHigh.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
         //Subtract blinding scalar b_11 to the lowest coefficient of t_high
         const lowestHigh = Fr.sub(polTHigh.slice(0, n8r), ch.b[11]);
