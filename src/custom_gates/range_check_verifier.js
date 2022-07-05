@@ -18,6 +18,7 @@
 */
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
+import {MAX_RANGE, N} from "./range_check_gate.js";
 
 class RangeCheckVerifier {
     constructor(gate) {
@@ -52,13 +53,13 @@ class RangeCheckVerifier {
         //8. Compute the public table commitment
 
         //9. Compute t(x)
-        const t = this.computeT(proof, challenges, lagrange[0], curve);
+        const t = this.computeT(proof, challenges, lagrange, curve);
         if (logger) {
             logger.debug("t: " + Fr.toString(t, 16));
         }
 
         //10. Compute the first part of the batched polynomial commitment
-        const D = this.computeD(proof, vk_verifier, challenges, lagrange[0], curve);
+        const D = this.computeD(proof, vk_verifier, challenges, lagrange, curve);
         if (logger) {
             logger.debug("D: " + G1.toString(G1.toAffine(D), 16));
         }
@@ -140,7 +141,6 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.eval_f);
         transcript.appendScalar(proof.eval_t);
         transcript.appendScalar(proof.eval_zw);
-        transcript.appendScalar(proof.eval_r);
 
         //TODO uncomment, commented only for testing purposes
         // res.v = [];
@@ -192,27 +192,38 @@ class RangeCheckVerifier {
         return L;
     }
 
-    computeT(proof, challenges, lagrange1, curve) {
-        let num = proof.eval_r;
+    computeT(proof, challenges, lagrange, curve) {
+        // IDENTITY A
+        let elA = curve.Fr.mul(lagrange[0], curve.Fr.square(challenges.alpha));
 
-        num = curve.Fr.sub(num, curve.Fr.mul(lagrange1, curve.Fr.square(challenges.alpha)));
+        // IDENTITY D
+        let elD = curve.Fr.mul(lagrange[N - 1], curve.Fr.e(MAX_RANGE));
 
-        const t = curve.Fr.div(num, challenges.zh);
+        let res = proof.eval_r;
+        res = curve.Fr.sub(res, elA);
+        res = curve.Fr.sub(res, elD);
+
+        const t = curve.Fr.div(res, challenges.zh);
 
         return t;
     }
 
-    computeD(proof, vk_verifier, challenges, lagrange_one, curve) {
-        //Identity a
-        let elA = curve.Fr.mul(lagrange_one, curve.Fr.square(challenges.alpha));
+    computeD(proof, vk_verifier, challenges, lagrange, curve) {
+        // IDENTITY A
+        let elA = curve.Fr.mul(lagrange[0], curve.Fr.square(challenges.alpha));
         const identityA = curve.G1.timesFr(proof.Z, elA);
 
-        //Identity c
-        let elC = lagrange_one;
-        const identityC = curve.G1.timesFr(proof.H1, elC);
+        // IDENTITY C
+        const identityC = curve.G1.timesFr(proof.H1, lagrange[0]);
 
-        // let res = curve.G1.add(identityA, identityC);
+        // IDENTITY D
+        let elD = lagrange[N - 1];
+        const identityD = curve.G1.timesFr(proof.H2, elD);
+
         let res = identityA;
+        res = curve.G1.add(res, identityC);
+        res = curve.G1.add(res, identityD);
+
         return res;
     }
 
