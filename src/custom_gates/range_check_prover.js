@@ -87,23 +87,26 @@ class RangeCheckProver {
             // bufferH2 = await Fr.batchToMontgomery(bufferH2);
 
             [polF, F_4] = await to4T(bufferF, []/*[challenges.b[1], challenges.b[0]]*/, Fr);
-            [polT, T_4] = await to4T(bufferT, []/*[challenges.b[1], challenges.b[0]]*/, Fr);
+            [, T_4] = await to4T(bufferT, []/*[challenges.b[1], challenges.b[0]]*/, Fr);
             [polH1, H1_4] = await to4T(bufferH1, []/*[challenges.b[4], challenges.b[3], challenges.b[2]]*/, Fr);
             [polH2, H2_4] = await to4T(bufferH2, []/*[challenges.b[7], challenges.b[6], challenges.b[5]]*/, Fr);
 
             proof.F = await expTau(polF, PTau, curve, logger, "range_check multiexp f(x)");
-            proof.T = await expTau(polT, PTau, curve, logger, "range_check multiexp f(x)");
             proof.H1 = await expTau(polH1, PTau, curve, logger, "range_check multiexp h1(x)");
             proof.H2 = await expTau(polH2, PTau, curve, logger, "range_check multiexp h2(x)");
 
             let bufferP1 = new BigBuffer(bufferH1.byteLength);
-            for (let i = 0; i < h1.vec.length; i++) {
-                bufferP1.set(self.getResultPolP(Fr.sub(h2.getElementAt(i), h1.getElementAt(i)), Fr), i * Fr.n8);
-            }
-
             let bufferP2 = new BigBuffer(bufferH1.byteLength);
-            for (let i = 0; i < h1.vec.length - 1; i++) {
-                bufferP2.set(self.getResultPolP(Fr.sub(h1.getElementAt(i + 1), h2.getElementAt(i)), Fr), i * Fr.n8);
+            for (let i = 0; i < h1.vec.length; i++) {
+                const item_h1w = h1.getElementAt((i + 1) % h1.vec.length);
+                const item_h1 =  h1.getElementAt(i);
+                const item_h2 =  h2.getElementAt(i);
+
+                const item_p1 = self.getResultPolP(Fr.sub(item_h2, item_h1), Fr);
+                bufferP1.set(item_p1, i * Fr.n8);
+
+                const item_p2 = self.getResultPolP(Fr.sub(item_h1w, item_h2), Fr);
+                bufferP2.set(item_p2, i * Fr.n8);
             }
 
             [polP1, P1_4] = await to4T(bufferP1, []/*[challenges.b[7], challenges.b[6], challenges.b[5]]*/, Fr);
