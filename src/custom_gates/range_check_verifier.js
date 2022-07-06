@@ -122,6 +122,10 @@ class RangeCheckVerifier {
         transcript.appendPolCommitment(proof.Z);
 
         res.alpha = transcript.getChallenge();
+        res.alpha2 = curve.Fr.mul(res.alpha, res.alpha);
+        res.alpha3 = curve.Fr.mul(res.alpha2, res.alpha);
+        res.alpha4 = curve.Fr.mul(res.alpha3, res.alpha);
+        res.alpha5 = curve.Fr.mul(res.alpha4, res.alpha);
 
         transcript.reset();
         transcript.appendPolCommitment(proof.T);
@@ -194,10 +198,11 @@ class RangeCheckVerifier {
 
     computeT(proof, challenges, lagrange, curve) {
         // IDENTITY A
-        let elA = curve.Fr.mul(lagrange[0], curve.Fr.square(challenges.alpha));
+        let elA = lagrange[0];
 
         // IDENTITY D
         let elD = curve.Fr.mul(lagrange[N - 1], curve.Fr.e(MAX_RANGE));
+        elD = curve.Fr.mul(elD, challenges.alpha3);
 
         let res = proof.eval_r;
         res = curve.Fr.sub(res, elA);
@@ -210,19 +215,37 @@ class RangeCheckVerifier {
 
     computeD(proof, vk_verifier, challenges, lagrange, curve) {
         // IDENTITY A
-        let elA = curve.Fr.mul(lagrange[0], curve.Fr.square(challenges.alpha));
+        let elA = lagrange[0];
         const identityA = curve.G1.timesFr(proof.Z, elA);
 
         // IDENTITY C
-        const identityC = curve.G1.timesFr(proof.H1, lagrange[0]);
+        let elC = lagrange[0];
+        elC = curve.Fr.mul(elC, challenges.alpha2);
+        const identityC = curve.G1.timesFr(proof.H1, elC);
 
         // IDENTITY D
         let elD = lagrange[N - 1];
+        elD = curve.Fr.mul(elD, challenges.alpha3);
         const identityD = curve.G1.timesFr(proof.H2, elD);
+
+        // IDENTITY E
+        // let identityE = challenges.alpha4;
+        let identityE = curve.G1.timesFr(proof.P1, challenges.alpha4);
+
+        // IDENTITY F
+        let omegaN = curve.Fr.one;
+        for (let i = 0; i < N - 1; i++) {
+            omegaN = curve.Fr.mul(omegaN, curve.Fr.w[this.gate.cirPower + 2]);
+        }
+        let elF = curve.Fr.sub(challenges.xi, omegaN);
+        elF = curve.Fr.mul(elF, challenges.alpha5);
+        const identityF = curve.G1.timesFr(proof.P2, elF);
 
         let res = identityA;
         res = curve.G1.add(res, identityC);
         res = curve.G1.add(res, identityD);
+        res = curve.G1.add(res, identityE);
+        res = curve.G1.add(res, identityF);
 
         return res;
     }
@@ -280,6 +303,8 @@ class RangeCheckVerifier {
         res.F = curve.G1.fromObject(proof.F);
         res.H1 = curve.G1.fromObject(proof.H1);
         res.H2 = curve.G1.fromObject(proof.H2);
+        res.P1 = curve.G1.fromObject(proof.P1);
+        res.P2 = curve.G1.fromObject(proof.P2);
         res.Z = curve.G1.fromObject(proof.Z);
         res.T = curve.G1.fromObject(proof.T);
         // res.T1 = curve.G1.fromObject(proof.T1);
