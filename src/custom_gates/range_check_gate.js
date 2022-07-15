@@ -28,7 +28,7 @@ const ZK_RANGE_CHECK_Q_SECTION = 4097;
 const ZK_RANGE_CHECK_PREPROCESSED_SECTION = 4098;
 
 export const C = 1 << 6;
-export const N = 4;//1 << 7;
+export const N = 1 << 2;
 export const MAX_RANGE = C * (N - 1);
 
 class RangeCheckCG extends CustomGate {

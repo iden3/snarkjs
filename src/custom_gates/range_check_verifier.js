@@ -130,16 +130,20 @@ class RangeCheckVerifier {
         }
 
         transcript.reset();
+        transcript.appendScalar(proof.eval_f);
+        transcript.appendScalar(proof.eval_table);
         transcript.appendScalar(proof.eval_h1);
         transcript.appendScalar(proof.eval_h2);
-        transcript.appendScalar(proof.eval_f);
         transcript.appendScalar(proof.eval_zw);
 
-        // res.v = [];
-        // res.v[0] = transcript.getChallenge();
-        // for (let i = 2; i <= 6; i++) {
-        //     res.v[i] = curve.Fr.mul(res.v[i - 1], res.v[0]);
-        // }
+        // 1. Get opening challenge v ∈ Zp.
+        res.v = [];
+        res.v[0] = transcript.getChallenge();
+        if (logger) logger.debug("v: " + curve.Fr.toString(res.v[0]));
+
+        for (let i = 1; i < 4; i++) {
+            res.v[i] = curve.Fr.mul(res.v[i - 1], res.v[0]);
+        }
 
         transcript.reset();
         transcript.appendPolCommitment(proof.Wxi);
@@ -213,6 +217,7 @@ class RangeCheckVerifier {
     computeD(proof, vk_verifier, challenges, lagrange, curve) {
         // IDENTITY A
         let elA = lagrange[0];
+        elA = curve.Fr.mul(elA, challenges.v[0]);
         const identityA = curve.G1.timesFr(proof.Z, elA);
 
         // IDENTITY B
@@ -220,12 +225,14 @@ class RangeCheckVerifier {
         const elB01 = curve.Fr.add(challenges.gamma, proof.eval_table);
         let elB0 = curve.Fr.mul(elB00, elB01);
         elB0 = curve.Fr.mul(elB0, challenges.alpha);
+        elB0 = curve.Fr.mul(elB0, challenges.v[0]);
         elB0 = curve.Fr.add(elB0, challenges.u);
         const identityB0 = curve.G1.timesFr(proof.Z, elB0);
 
         let elB1 = curve.Fr.add(challenges.gamma, proof.eval_h1);
         elB1 = curve.Fr.mul(elB1, proof.eval_zw);
         elB1 = curve.Fr.mul(elB1, challenges.alpha);
+        elB1 = curve.Fr.mul(elB1, challenges.v[0]);
         const identityB1 = curve.G1.timesFr(proof.H2, elB1);
 
         const identityB = curve.G1.sub(identityB0, identityB1);
@@ -233,15 +240,19 @@ class RangeCheckVerifier {
         // IDENTITY C
         let elC = lagrange[0];
         elC = curve.Fr.mul(elC, challenges.alpha2);
+        elC = curve.Fr.mul(elC, challenges.v[0]);
         const identityC = curve.G1.timesFr(proof.H1, elC);
 
         // IDENTITY D
         let elD = lagrange[N - 1];
         elD = curve.Fr.mul(elD, challenges.alpha3);
+        elD = curve.Fr.mul(elD, challenges.v[0]);
         const identityD = curve.G1.timesFr(proof.H2, elD);
 
         // IDENTITY E
-        let identityE = curve.G1.timesFr(proof.P1, challenges.alpha4);
+        let elE = challenges.alpha4;
+        elE = curve.Fr.mul(elE, challenges.v[0]);
+        let identityE = curve.G1.timesFr(proof.P1, elE);
 
         // IDENTITY F
         let omegaN = curve.Fr.one;
@@ -250,6 +261,7 @@ class RangeCheckVerifier {
         }
         let elF = curve.Fr.sub(challenges.xi, omegaN);
         elF = curve.Fr.mul(elF, challenges.alpha5);
+        elF = curve.Fr.mul(elF, challenges.v[0]);
         const identityF = curve.G1.timesFr(proof.P2, elF);
 
         let res = identityA;
@@ -267,9 +279,9 @@ class RangeCheckVerifier {
         // let res = curve.G1.add(proof.T1, curve.G1.timesFr(proof.T2, challenges.xin));
         // res = curve.G1.add(res, curve.G1.timesFr(proof.T3, curve.Fr.square(challenges.xin)));
         res = curve.G1.add(res, D);
-        res = curve.G1.add(res, proof.F);
-        res = curve.G1.add(res, proof.Table);
-        res = curve.G1.add(res, proof.H1);
+        res = curve.G1.add(res, curve.G1.timesFr(proof.F, challenges.v[1]));
+        res = curve.G1.add(res, curve.G1.timesFr(proof.Table, challenges.v[2]));
+        res = curve.G1.add(res, curve.G1.timesFr(proof.H1, challenges.v[3]));
 
         return res;
     }
@@ -277,12 +289,10 @@ class RangeCheckVerifier {
     computeE(proof, vk_verifier, challenges, t, curve) {
         let s = t;
 
-        s = curve.Fr.add(s, proof.eval_r);
-        //TODO uncomment, commented only for testing purposes
-        // s = curve.Fr.add(s, curve.Fr.mul(challenges.v[0], proof.eval_r));
-        s = curve.Fr.add(s, proof.eval_f);
-        s = curve.Fr.add(s, proof.eval_table);
-        s = curve.Fr.add(s, proof.eval_h1);
+        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[0], proof.eval_r));
+        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[1], proof.eval_f));
+        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[2], proof.eval_table));
+        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[3], proof.eval_h1));
         s = curve.Fr.add(s, curve.Fr.mul(challenges.u, proof.eval_zw));
 
         const res = curve.G1.timesFr(curve.G1.one, s);

@@ -372,7 +372,6 @@ class RangeCheckProver {
             transcript.appendScalar(proof.eval_table);
             transcript.appendScalar(proof.eval_h1);
             transcript.appendScalar(proof.eval_h2);
-            transcript.appendScalar(proof.eval_t);
             transcript.appendScalar(proof.eval_zw);
 
             // 1. Get opening challenge v ∈ Zp.
@@ -380,7 +379,7 @@ class RangeCheckProver {
             challenges.v[0] = transcript.getChallenge();
             if (logger) logger.debug("v: " + Fr.toString(challenges.v[0]));
 
-            for (let i = 1; i < 3; i++) {
+            for (let i = 1; i < 4; i++) {
                 challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
             }
 
@@ -466,14 +465,12 @@ class RangeCheckProver {
                 const i_n8 = i * Fr.n8;
 
                 let w = Fr.zero;
-                if (i < N) {
-                    w = Fr.add(w, /*Fr.mul(challenges.v[0],*/ polF.slice(i_n8, i_n8 + Fr.n8));
-                    w = Fr.add(w, /*Fr.mul(challenges.v[1],*/ polTable.slice(i_n8, i_n8 + Fr.n8));
-                    w = Fr.add(w, /*Fr.mul(challenges.v[2],*/ polH1.slice(i_n8, i_n8 + Fr.n8));
-                }
                 w = Fr.add(w, polT.slice(i_n8, i_n8 + Fr.n8));
                 if (i < N) {
-                    w = Fr.add(w, polR.slice(i_n8, i_n8 + Fr.n8));
+                    w = Fr.add(w, Fr.mul(challenges.v[0], polR.slice(i_n8, i_n8 + Fr.n8)));
+                    w = Fr.add(w, Fr.mul(challenges.v[1], polF.slice(i_n8, i_n8 + Fr.n8)));
+                    w = Fr.add(w, Fr.mul(challenges.v[2], polTable.slice(i_n8, i_n8 + Fr.n8)));
+                    w = Fr.add(w, Fr.mul(challenges.v[3], polH1.slice(i_n8, i_n8 + Fr.n8)));
                 }
 
                 polWxi.set(w, i_n8);
@@ -481,10 +478,10 @@ class RangeCheckProver {
 
             let w0 = polWxi.slice(0, Fr.n8);
             w0 = Fr.sub(w0, proof.eval_t);
-            w0 = Fr.sub(w0, /*Fr.mul(challenges.v[0],*/ proof.eval_f);
-            w0 = Fr.sub(w0, /*Fr.mul(challenges.v[1],*/ proof.eval_table);
-            w0 = Fr.sub(w0, /*Fr.mul(challenges.v[2],*/ proof.eval_h1);
-            w0 = Fr.sub(w0, proof.eval_r);
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[0], proof.eval_r));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[1], proof.eval_f));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[2], proof.eval_table));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[3], proof.eval_h1));
 
             polWxi.set(w0, 0);
 
