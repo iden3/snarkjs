@@ -119,7 +119,17 @@ class RangeCheckCG extends CustomGate {
         return [
             Fr.sub(witness[2], witness[0]),
             Fr.sub(witness[1], witness[2])
-        ];
+        ].sort((a, b) => {
+            let diff = Fr.sub(a, b);
+
+            if (Fr.isNegative(diff)) {
+                return -1;
+            }
+            if (Fr.isZero(diff)) {
+                return 0;
+            }
+            return 1;
+        });
     }
 }
 

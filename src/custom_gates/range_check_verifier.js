@@ -91,27 +91,20 @@ class RangeCheckVerifier {
     }
 
     commitmentsBelongToG1(proof, curve) {
-        if (!curve.G1.isValid(proof.F)) return false;
-        if (!curve.G1.isValid(proof.H1)) return false;
-        if (!curve.G1.isValid(proof.H2)) return false;
-        if (!curve.G1.isValid(proof.Z)) return false;
-        if (!curve.G1.isValid(proof.T)) return false;
-        // if (!curve.G1.isValid(proof.T1)) return false;
-        // if (!curve.G1.isValid(proof.T2)) return false;
-        // if (!curve.G1.isValid(proof.T3)) return false;
-        if (!curve.G1.isValid(proof.Wxi)) return false;
-        //if (!curve.G1.isValid(proof.Wxiw)) return false;
-
-        return true;
+        return curve.G1.isValid(proof.F)
+            && curve.G1.isValid(proof.Table)
+            && curve.G1.isValid(proof.H1)
+            && curve.G1.isValid(proof.H2)
+            && curve.G1.isValid(proof.Z)
+            && curve.G1.isValid(proof.T)
+            && curve.G1.isValid(proof.Wxi)
+            && curve.G1.isValid(proof.Wxiw);
     }
 
     computeChallenges(proof, curve, logger) {
         const res = {};
         const transcript = new Keccak256Transcript(curve);
 
-        // for (let i=0; i<publicSignals.length; i++) {
-        //     transcript.appendScalar(curve.Fr.e(publicSignals[i]));
-        // }
         transcript.appendPolCommitment(proof.F);
         transcript.appendPolCommitment(proof.H1);
         transcript.appendPolCommitment(proof.H2);
@@ -129,9 +122,6 @@ class RangeCheckVerifier {
 
         transcript.reset();
         transcript.appendPolCommitment(proof.T);
-        // transcript.appendPolCommitment(proof.T1);
-        // transcript.appendPolCommitment(proof.T2);
-        // transcript.appendPolCommitment(proof.T3);
 
         res.xi = transcript.getChallenge();
         res.xin = res.xi;
@@ -143,20 +133,20 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.eval_h1);
         transcript.appendScalar(proof.eval_h2);
         transcript.appendScalar(proof.eval_f);
-        transcript.appendScalar(proof.eval_t);
         transcript.appendScalar(proof.eval_zw);
 
-        //TODO uncomment, commented only for testing purposes
         // res.v = [];
-        // res.v[1] = transcript.getChallenge();
-        // for (let i=2; i<=6; i++ ) res.v[i] = curve.Fr.mul(res.v[i-1], res.v[1]);
+        // res.v[0] = transcript.getChallenge();
+        // for (let i = 2; i <= 6; i++) {
+        //     res.v[i] = curve.Fr.mul(res.v[i - 1], res.v[0]);
+        // }
 
         transcript.reset();
         transcript.appendPolCommitment(proof.Wxi);
         transcript.appendPolCommitment(proof.Wxiw);
 
         //TODO uncomment, commented only for testing purposes
-        // res.u = transcript.getChallenge();
+        res.u = transcript.getChallenge();
 
         if (logger) {
             logger.debug("gamma: " + curve.Fr.toString(res.gamma, 16));
@@ -200,12 +190,19 @@ class RangeCheckVerifier {
         // IDENTITY A
         let elA = lagrange[0];
 
+        // IDENTITY B
+        let elB = curve.Fr.add(proof.eval_h1, challenges.gamma);
+        elB = curve.Fr.mul(elB, challenges.gamma);
+        elB = curve.Fr.mul(elB, proof.eval_zw);
+        elB = curve.Fr.mul(elB, challenges.alpha);
+
         // IDENTITY D
         let elD = curve.Fr.mul(lagrange[N - 1], curve.Fr.e(MAX_RANGE));
         elD = curve.Fr.mul(elD, challenges.alpha3);
 
         let res = proof.eval_r;
         res = curve.Fr.sub(res, elA);
+        res = curve.Fr.sub(res, elB);
         res = curve.Fr.sub(res, elD);
 
         const t = curve.Fr.div(res, challenges.zh);
@@ -218,6 +215,21 @@ class RangeCheckVerifier {
         let elA = lagrange[0];
         const identityA = curve.G1.timesFr(proof.Z, elA);
 
+        // IDENTITY B
+        const elB00 = curve.Fr.add(challenges.gamma, proof.eval_f);
+        const elB01 = curve.Fr.add(challenges.gamma, proof.eval_table);
+        let elB0 = curve.Fr.mul(elB00, elB01);
+        elB0 = curve.Fr.mul(elB0, challenges.alpha);
+        elB0 = curve.Fr.add(elB0, challenges.u);
+        const identityB0 = curve.G1.timesFr(proof.Z, elB0);
+
+        let elB1 = curve.Fr.add(challenges.gamma, proof.eval_h1);
+        elB1 = curve.Fr.mul(elB1, proof.eval_zw);
+        elB1 = curve.Fr.mul(elB1, challenges.alpha);
+        const identityB1 = curve.G1.timesFr(proof.H2, elB1);
+
+        const identityB = curve.G1.sub(identityB0, identityB1);
+
         // IDENTITY C
         let elC = lagrange[0];
         elC = curve.Fr.mul(elC, challenges.alpha2);
@@ -229,7 +241,6 @@ class RangeCheckVerifier {
         const identityD = curve.G1.timesFr(proof.H2, elD);
 
         // IDENTITY E
-        // let identityE = challenges.alpha4;
         let identityE = curve.G1.timesFr(proof.P1, challenges.alpha4);
 
         // IDENTITY F
@@ -242,6 +253,7 @@ class RangeCheckVerifier {
         const identityF = curve.G1.timesFr(proof.P2, elF);
 
         let res = identityA;
+        res = curve.G1.add(res, identityB);
         res = curve.G1.add(res, identityC);
         res = curve.G1.add(res, identityD);
         res = curve.G1.add(res, identityE);
@@ -255,19 +267,23 @@ class RangeCheckVerifier {
         // let res = curve.G1.add(proof.T1, curve.G1.timesFr(proof.T2, challenges.xin));
         // res = curve.G1.add(res, curve.G1.timesFr(proof.T3, curve.Fr.square(challenges.xin)));
         res = curve.G1.add(res, D);
+        res = curve.G1.add(res, proof.F);
+        res = curve.G1.add(res, proof.Table);
+        res = curve.G1.add(res, proof.H1);
 
         return res;
     }
 
     computeE(proof, vk_verifier, challenges, t, curve) {
         let s = t;
-        s = curve.Fr.add(s, proof.eval_r);
 
+        s = curve.Fr.add(s, proof.eval_r);
         //TODO uncomment, commented only for testing purposes
         // s = curve.Fr.add(s, curve.Fr.mul(challenges.v[0], proof.eval_r));
-        //s = curve.Fr.add(s, proof.eval_r);
-        // s = curve.Fr.add(s, proof.eval_zw);
-        // s = curve.Fr.add(s, curve.Fr.mul(challenges.u, proof.eval_zw));
+        s = curve.Fr.add(s, proof.eval_f);
+        s = curve.Fr.add(s, proof.eval_table);
+        s = curve.Fr.add(s, proof.eval_h1);
+        s = curve.Fr.add(s, curve.Fr.mul(challenges.u, proof.eval_zw));
 
         const res = curve.G1.timesFr(curve.G1.one, s);
 
@@ -279,14 +295,14 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
 
         let A1 = proof.Wxi;
+        A1 = G1.add(A1, G1.timesFr(proof.Wxiw, challenges.u));
+
         let A2 = vk_verifier.X_2;
 
-        //TODO uncomment, commented only for testing purposes
-        //A1 = G1.add(A1, proof.Wxiw);//G1.timesFr(proof.Wxiw, challenges.u));
 
         let B1 = G1.timesFr(proof.Wxi, challenges.xi);
-        // const s = Fr.mul(/*Fr.mul(challenges.u,*/ challenges.xi/*)*/, Fr.w[this.gate.cirPower]);
-        // B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
+        const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[this.gate.cirPower]);
+        B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
         B1 = G1.add(B1, F);
         B1 = G1.sub(B1, E);
 
@@ -295,12 +311,12 @@ class RangeCheckVerifier {
         const paired = await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
 
         return paired;
-
     }
 
     fromObjectProof(proof, curve) {
         let res = {};
         res.F = curve.G1.fromObject(proof.F);
+        res.Table = curve.G1.fromObject(proof.Table);
         res.H1 = curve.G1.fromObject(proof.H1);
         res.H2 = curve.G1.fromObject(proof.H2);
         res.P1 = curve.G1.fromObject(proof.P1);
@@ -311,14 +327,14 @@ class RangeCheckVerifier {
         // res.T2 = curve.G1.fromObject(proof.T2);
         // res.T3 = curve.G1.fromObject(proof.T3);
         res.Wxi = curve.G1.fromObject(proof.Wxi);
-        //res.Wxiw = curve.G1.fromObject(proof.Wxiw);
+        res.Wxiw = curve.G1.fromObject(proof.Wxiw);
 
         res.eval_h1 = curve.Fr.fromObject(proof.eval_h1);
         res.eval_h2 = curve.Fr.fromObject(proof.eval_h2);
         res.eval_f = curve.Fr.fromObject(proof.eval_f);
-        res.eval_t = curve.Fr.fromObject(proof.eval_t);
         res.eval_zw = curve.Fr.fromObject(proof.eval_zw);
         res.eval_r = curve.Fr.fromObject(proof.eval_r);
+        res.eval_table = curve.Fr.fromObject(proof.eval_table);
 
         return res;
     }

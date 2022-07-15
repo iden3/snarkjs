@@ -561,7 +561,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 await fdZKey.write(G1.toAffine(vk.customGates[i].Qk));
 
                 for (let j = 0; j < keys.polynomials.length; j++) {
-                    await fdZKey.write(G1.toAffine(vk.customGates[i].preInput[keys.polynomials[j]]));
+                    await fdZKey.write(vk.customGates[i].preInput[keys.polynomials[j]]);
                 }
 
                 await endWriteSection(fdZKey);

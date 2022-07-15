@@ -110,11 +110,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             let tmp = Array(customGatesUses[i].signals.length);
             for (let j = 0; j < customGatesUses[i].signals.length; j++) {
                 let signal = customGatesUses[i].signals[j];
-                tmp[j] = getWitness(signal);
+                tmp[j] = Fr.e(Scalar.fromRprLE(getWitness(signal)));
             }
             let witnesses = customGates.gates[gateIdx].computeWitness(tmp, Fr);
             for (let j = 0; j < witnesses.length; j++) {
-                customGates.gates[gateIdx].witnesses.push(Fr.toMontgomery(witnesses[j]));
+                customGates.gates[gateIdx].witnesses.push(witnesses[j]);
             }
         }
     }
