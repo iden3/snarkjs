@@ -29,55 +29,49 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        //1. Validate that the commitments belong to G_1
+        // 1. Validate that the commitments belong to G_1
         if (!this.commitmentsBelongToG1(proof, curve)) {
-            logger.error("Proof is not well constructed");
+            logger.error("range_check: Proof is not well constructed");
             return false;
         }
 
-        //2. Validate that the openings belong to F
+        // 2. Validate that the openings belong to F
 
-        //3. Validate that (w_i)_{i€[l]} € F^l
-
-        //4. Compute challenges as in the prover's algorithm
+        // 3. Compute challenges as in the prover's algorithm
         const challenges = this.computeChallenges(proof, curve, logger);
 
-        //5. Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
+        // 4. Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
         challenges.zh = Fr.sub(challenges.xin, Fr.one);
 
-        //6. Compute the lagrange polynomial evaluation L_1(xi)
-        const lagrange = this.computeLagrangeEvaluations(curve, challenges, logger);
+        // 5. Compute the lagrange polynomial evaluation L_1(xi)
+        const lagrange = this.computeLagrangeEvaluations(challenges, curve, logger);
 
-        //7. Compute the public input polynomial evaluation
-
-        //8. Compute the public table commitment
-
-        //9. Compute t(x)
-        const t = this.computeT(proof, challenges, lagrange, curve);
+        // 6. Compute t(x)
+        const t = this.computeR0(proof, challenges, lagrange, curve);
         if (logger) {
-            logger.debug("t: " + Fr.toString(t, 16));
+            logger.debug("range_check r0: " + Fr.toString(t, 16));
         }
 
-        //10. Compute the first part of the batched polynomial commitment
-        const D = this.computeD(proof, vk_verifier, challenges, lagrange, curve);
+        // 7. Compute the first part of the batched polynomial commitment
+        const D = this.computeD(proof, challenges, lagrange, curve);
         if (logger) {
-            logger.debug("D: " + G1.toString(G1.toAffine(D), 16));
+            logger.debug("range_check D: " + G1.toString(G1.toAffine(D), 16));
         }
 
-        //11. Compute the full batched polynomial commitment
-        const F = this.computeF(proof, vk_verifier, challenges, D, curve);
+        // 8. Compute the full batched polynomial commitment
+        const F = this.computeF(proof, challenges, D, curve);
         if (logger) {
-            logger.debug("F: " + G1.toString(G1.toAffine(F), 16));
+            logger.debug("range_check F: " + G1.toString(G1.toAffine(F), 16));
         }
 
-        //12. Compute the group-encoded batch evaluation [E]_1
-        const E = this.computeE(proof, vk_verifier, challenges, t, curve);
+        // 9. Compute the group-encoded batch evaluation [E]_1
+        const E = this.computeE(proof, challenges, t, curve);
         if (logger) {
-            logger.debug("E: " + G1.toString(G1.toAffine(E), 16));
+            logger.debug("range_check E: " + G1.toString(G1.toAffine(E), 16));
         }
 
-        //13. Batch validate all evaluations
-        const res = await this.isValidPairing(curve, proof, challenges, vk_verifier, E, F);
+        // 10. Batch validate all evaluations
+        const res = await this.isValidPairing(proof, challenges, vk_verifier, E, F, curve);
 
         if (logger) {
             if (res) {
@@ -91,42 +85,46 @@ class RangeCheckVerifier {
     }
 
     commitmentsBelongToG1(proof, curve) {
-        return curve.G1.isValid(proof.F)
-            && curve.G1.isValid(proof.Table)
-            && curve.G1.isValid(proof.H1)
-            && curve.G1.isValid(proof.H2)
-            && curve.G1.isValid(proof.Z)
-            && curve.G1.isValid(proof.T)
-            && curve.G1.isValid(proof.Wxi)
-            && curve.G1.isValid(proof.Wxiw);
+        const G1 = curve.G1;
+
+        return G1.isValid(proof.F)
+            && G1.isValid(proof.Table)
+            && G1.isValid(proof.H1)
+            && G1.isValid(proof.H2)
+            && G1.isValid(proof.Z)
+            && G1.isValid(proof.T)
+            && G1.isValid(proof.Wxi)
+            && G1.isValid(proof.Wxiw);
     }
 
     computeChallenges(proof, curve, logger) {
-        const res = {};
+        const Fr = curve.Fr;
+
+        const challenges = {};
         const transcript = new Keccak256Transcript(curve);
 
         transcript.appendPolCommitment(proof.F);
         transcript.appendPolCommitment(proof.H1);
         transcript.appendPolCommitment(proof.H2);
 
-        res.gamma = transcript.getChallenge();
+        challenges.gamma = transcript.getChallenge();
 
         transcript.reset();
         transcript.appendPolCommitment(proof.Z);
 
-        res.alpha = transcript.getChallenge();
-        res.alpha2 = curve.Fr.mul(res.alpha, res.alpha);
-        res.alpha3 = curve.Fr.mul(res.alpha2, res.alpha);
-        res.alpha4 = curve.Fr.mul(res.alpha3, res.alpha);
-        res.alpha5 = curve.Fr.mul(res.alpha4, res.alpha);
+        challenges.alpha = transcript.getChallenge();
+        challenges.alpha2 = Fr.mul(challenges.alpha, challenges.alpha);
+        challenges.alpha3 = Fr.mul(challenges.alpha2, challenges.alpha);
+        challenges.alpha4 = Fr.mul(challenges.alpha3, challenges.alpha);
+        challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
         transcript.reset();
         transcript.appendPolCommitment(proof.T);
 
-        res.xi = transcript.getChallenge();
-        res.xin = res.xi;
+        challenges.xi = transcript.getChallenge();
+        challenges.xin = challenges.xi;
         for (let i = 0; i < this.gate.cirPower; i++) {
-            res.xin = curve.Fr.square(res.xin);
+            challenges.xin = Fr.square(challenges.xin);
         }
 
         transcript.reset();
@@ -137,170 +135,179 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.eval_zw);
 
         // 1. Get opening challenge v ∈ Zp.
-        res.v = [];
-        res.v[0] = transcript.getChallenge();
-        if (logger) logger.debug("v: " + curve.Fr.toString(res.v[0]));
+        challenges.v = [];
+        challenges.v[0] = transcript.getChallenge();
+        if (logger) logger.debug("v: " + Fr.toString(challenges.v[0]));
 
         for (let i = 1; i < 4; i++) {
-            res.v[i] = curve.Fr.mul(res.v[i - 1], res.v[0]);
+            challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
         }
 
         transcript.reset();
         transcript.appendPolCommitment(proof.Wxi);
         transcript.appendPolCommitment(proof.Wxiw);
 
-        //TODO uncomment, commented only for testing purposes
-        res.u = transcript.getChallenge();
+        challenges.u = transcript.getChallenge();
 
         if (logger) {
-            logger.debug("gamma: " + curve.Fr.toString(res.gamma, 16));
-            logger.debug("alpha: " + curve.Fr.toString(res.alpha, 16));
-            logger.debug("xi: " + curve.Fr.toString(res.xi, 16));
-            //TODO uncomment, commented only for testing purposes
-            // logger.debug("v1: " + curve.Fr.toString(res.v[0], 16));
-            // logger.debug("v6: " + curve.Fr.toString(res.v[5], 16));
+            logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));
+            logger.debug("alpha: " + Fr.toString(challenges.alpha, 16));
+            logger.debug("xi: " + Fr.toString(challenges.xi, 16));
+            logger.debug("v1: " + Fr.toString(challenges.v[0], 16));
         }
 
-        return res;
+        return challenges;
     }
 
-    computeLagrangeEvaluations(curve, challenges, logger) {
-        const domainSize_F = curve.Fr.e(this.gate.domainSize);
-        let omega = curve.Fr.one;
+    computeLagrangeEvaluations(challenges, curve, logger) {
+        const Fr = curve.Fr;
 
-        const L = [];
+        const domainSize_F = Fr.e(this.gate.domainSize);
+        let omega = Fr.one;
+
+        const lagrangeEvaluations = [];
         for (let i = 0; i < this.gate.domainSize; i++) {
             //numerator: omega * (xi^n - 1)
-            const num = curve.Fr.mul(omega, challenges.zh);
+            const num = Fr.mul(omega, challenges.zh);
 
             //denominator: n * (xi - omega)
-            const den = curve.Fr.mul(domainSize_F, curve.Fr.sub(challenges.xi, omega));
+            const den = Fr.mul(domainSize_F, Fr.sub(challenges.xi, omega));
 
-            L[i] = curve.Fr.div(num, den);
-            omega = curve.Fr.mul(omega, curve.Fr.w[this.gate.cirPower]);
+            lagrangeEvaluations[i] = Fr.div(num, den);
+            omega = Fr.mul(omega, Fr.w[this.gate.cirPower]);
         }
 
         if (logger) {
             logger.debug("Lagrange Evaluations: ");
-            for (let i = 0; i < L.length; i++) {
-                logger.debug(`L${i}(xi)=` + curve.Fr.toString(L[i], 16));
+            for (let i = 0; i < lagrangeEvaluations.length; i++) {
+                logger.debug(`L${i}(xi)=` + Fr.toString(lagrangeEvaluations[i], 16));
             }
         }
 
-        return L;
+        return lagrangeEvaluations;
     }
 
-    computeT(proof, challenges, lagrange, curve) {
+    computeR0(proof, challenges, lagrange, curve) {
+        const Fr = curve.Fr;
+
         // IDENTITY A
         let elA = lagrange[0];
 
         // IDENTITY B
-        let elB = curve.Fr.add(proof.eval_h1, challenges.gamma);
-        elB = curve.Fr.mul(elB, challenges.gamma);
-        elB = curve.Fr.mul(elB, proof.eval_zw);
-        elB = curve.Fr.mul(elB, challenges.alpha);
+        let elB = Fr.add(proof.eval_h1, challenges.gamma);
+        elB = Fr.mul(elB, challenges.gamma);
+        elB = Fr.mul(elB, proof.eval_zw);
+        elB = Fr.mul(elB, challenges.alpha);
 
         // IDENTITY D
-        let elD = curve.Fr.mul(lagrange[N - 1], curve.Fr.e(MAX_RANGE));
-        elD = curve.Fr.mul(elD, challenges.alpha3);
+        let elD = Fr.mul(lagrange[N - 1], Fr.e(MAX_RANGE));
+        elD = Fr.mul(elD, challenges.alpha3);
 
         let res = proof.eval_r;
-        res = curve.Fr.sub(res, elA);
-        res = curve.Fr.sub(res, elB);
-        res = curve.Fr.sub(res, elD);
+        res = Fr.sub(res, elA);
+        res = Fr.sub(res, elB);
+        res = Fr.sub(res, elD);
 
-        const t = curve.Fr.div(res, challenges.zh);
+        const t = Fr.div(res, challenges.zh);
 
         return t;
     }
 
-    computeD(proof, vk_verifier, challenges, lagrange, curve) {
+    computeD(proof, challenges, lagrange, curve) {
+        const Fr = curve.Fr;
+        const G1 = curve.G1;
+
         // IDENTITY A
         let elA = lagrange[0];
-        elA = curve.Fr.mul(elA, challenges.v[0]);
-        const identityA = curve.G1.timesFr(proof.Z, elA);
+
+        elA = Fr.mul(elA, challenges.v[0]);
+        const identityA = G1.timesFr(proof.Z, elA);
 
         // IDENTITY B
-        const elB00 = curve.Fr.add(challenges.gamma, proof.eval_f);
-        const elB01 = curve.Fr.add(challenges.gamma, proof.eval_table);
-        let elB0 = curve.Fr.mul(elB00, elB01);
-        elB0 = curve.Fr.mul(elB0, challenges.alpha);
-        elB0 = curve.Fr.mul(elB0, challenges.v[0]);
-        elB0 = curve.Fr.add(elB0, challenges.u);
-        const identityB0 = curve.G1.timesFr(proof.Z, elB0);
+        const elB00 = Fr.add(challenges.gamma, proof.eval_f);
+        const elB01 = Fr.add(challenges.gamma, proof.eval_table);
+        let elB0 = Fr.mul(elB00, elB01);
+        elB0 = Fr.mul(elB0, challenges.alpha);
+        elB0 = Fr.mul(elB0, challenges.v[0]);
+        elB0 = Fr.add(elB0, challenges.u);
+        const identityB0 = G1.timesFr(proof.Z, elB0);
 
-        let elB1 = curve.Fr.add(challenges.gamma, proof.eval_h1);
-        elB1 = curve.Fr.mul(elB1, proof.eval_zw);
-        elB1 = curve.Fr.mul(elB1, challenges.alpha);
-        elB1 = curve.Fr.mul(elB1, challenges.v[0]);
-        const identityB1 = curve.G1.timesFr(proof.H2, elB1);
+        let elB1 = Fr.add(challenges.gamma, proof.eval_h1);
+        elB1 = Fr.mul(elB1, proof.eval_zw);
+        elB1 = Fr.mul(elB1, challenges.alpha);
+        elB1 = Fr.mul(elB1, challenges.v[0]);
+        const identityB1 = G1.timesFr(proof.H2, elB1);
 
-        const identityB = curve.G1.sub(identityB0, identityB1);
+        const identityB = G1.sub(identityB0, identityB1);
 
         // IDENTITY C
         let elC = lagrange[0];
-        elC = curve.Fr.mul(elC, challenges.alpha2);
-        elC = curve.Fr.mul(elC, challenges.v[0]);
-        const identityC = curve.G1.timesFr(proof.H1, elC);
+        elC = Fr.mul(elC, challenges.alpha2);
+        elC = Fr.mul(elC, challenges.v[0]);
+        const identityC = G1.timesFr(proof.H1, elC);
 
         // IDENTITY D
         let elD = lagrange[N - 1];
-        elD = curve.Fr.mul(elD, challenges.alpha3);
-        elD = curve.Fr.mul(elD, challenges.v[0]);
-        const identityD = curve.G1.timesFr(proof.H2, elD);
+        elD = Fr.mul(elD, challenges.alpha3);
+        elD = Fr.mul(elD, challenges.v[0]);
+        const identityD = G1.timesFr(proof.H2, elD);
 
         // IDENTITY E
         let elE = challenges.alpha4;
-        elE = curve.Fr.mul(elE, challenges.v[0]);
-        let identityE = curve.G1.timesFr(proof.P1, elE);
+        elE = Fr.mul(elE, challenges.v[0]);
+        let identityE = G1.timesFr(proof.P1, elE);
 
         // IDENTITY F
-        let omegaN = curve.Fr.one;
+        let omegaN = Fr.one;
         for (let i = 0; i < N - 1; i++) {
-            omegaN = curve.Fr.mul(omegaN, curve.Fr.w[this.gate.cirPower + 2]);
+            omegaN = Fr.mul(omegaN, Fr.w[this.gate.cirPower + 2]);
         }
-        let elF = curve.Fr.sub(challenges.xi, omegaN);
-        elF = curve.Fr.mul(elF, challenges.alpha5);
-        elF = curve.Fr.mul(elF, challenges.v[0]);
-        const identityF = curve.G1.timesFr(proof.P2, elF);
+        let elF = Fr.sub(challenges.xi, omegaN);
+        elF = Fr.mul(elF, challenges.alpha5);
+        elF = Fr.mul(elF, challenges.v[0]);
+        const identityF = G1.timesFr(proof.P2, elF);
 
         let res = identityA;
-        res = curve.G1.add(res, identityB);
-        res = curve.G1.add(res, identityC);
-        res = curve.G1.add(res, identityD);
-        res = curve.G1.add(res, identityE);
-        res = curve.G1.add(res, identityF);
+        res = G1.add(res, identityB);
+        res = G1.add(res, identityC);
+        res = G1.add(res, identityD);
+        res = G1.add(res, identityE);
+        res = G1.add(res, identityF);
 
         return res;
     }
 
-    computeF(proof, vk_verifier, challenges, D, curve) {
+    computeF(proof, challenges, D, curve) {
+        const G1 = curve.G1;
+
         let res = proof.T;
-        // let res = curve.G1.add(proof.T1, curve.G1.timesFr(proof.T2, challenges.xin));
-        // res = curve.G1.add(res, curve.G1.timesFr(proof.T3, curve.Fr.square(challenges.xin)));
-        res = curve.G1.add(res, D);
-        res = curve.G1.add(res, curve.G1.timesFr(proof.F, challenges.v[1]));
-        res = curve.G1.add(res, curve.G1.timesFr(proof.Table, challenges.v[2]));
-        res = curve.G1.add(res, curve.G1.timesFr(proof.H1, challenges.v[3]));
+        // let res = G1.add(proof.T1, G1.timesFr(proof.T2, challenges.xin));
+        // res = G1.add(res, G1.timesFr(proof.T3, Fr.square(challenges.xin)));
+        res = G1.add(res, D);
+        res = G1.add(res, G1.timesFr(proof.F, challenges.v[1]));
+        res = G1.add(res, G1.timesFr(proof.Table, challenges.v[2]));
+        res = G1.add(res, G1.timesFr(proof.H1, challenges.v[3]));
 
         return res;
     }
 
-    computeE(proof, vk_verifier, challenges, t, curve) {
+    computeE(proof, challenges, t, curve) {
+        const Fr = curve.Fr;
+        const G1 = curve.G1;
+
         let s = t;
+        s = Fr.add(s, Fr.mul(challenges.v[0], proof.eval_r));
+        s = Fr.add(s, Fr.mul(challenges.v[1], proof.eval_f));
+        s = Fr.add(s, Fr.mul(challenges.v[2], proof.eval_table));
+        s = Fr.add(s, Fr.mul(challenges.v[3], proof.eval_h1));
+        s = Fr.add(s, Fr.mul(challenges.u, proof.eval_zw));
 
-        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[0], proof.eval_r));
-        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[1], proof.eval_f));
-        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[2], proof.eval_table));
-        s = curve.Fr.add(s, curve.Fr.mul(challenges.v[3], proof.eval_h1));
-        s = curve.Fr.add(s, curve.Fr.mul(challenges.u, proof.eval_zw));
-
-        const res = curve.G1.timesFr(curve.G1.one, s);
+        const res = G1.timesFr(G1.one, s);
 
         return res;
     }
 
-    async isValidPairing(curve, proof, challenges, vk_verifier, E, F) {
+    async isValidPairing(proof, challenges, vk_verifier, E, F, curve) {
         const G1 = curve.G1;
         const Fr = curve.Fr;
 
@@ -345,16 +352,6 @@ class RangeCheckVerifier {
         res.eval_zw = curve.Fr.fromObject(proof.eval_zw);
         res.eval_r = curve.Fr.fromObject(proof.eval_r);
         res.eval_table = curve.Fr.fromObject(proof.eval_table);
-
-        return res;
-    }
-
-    toDebugArray(buffer, Fr) {
-        const length = buffer.byteLength / Fr.n8;
-        let res = [];
-        for (let i = 0; i < length; i++) {
-            res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
-        }
 
         return res;
     }
