@@ -15,6 +15,7 @@ var binFileUtils = require('@iden3/binfileutils');
 var ejs = require('ejs');
 var circom_runtime = require('circom_runtime');
 var jsSha3 = require('js-sha3');
+var bfj = require('bfj');
 var Logger = require('logplease');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
@@ -47,6 +48,7 @@ var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
 var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
+var bfj__default = /*#__PURE__*/_interopDefaultLegacy(bfj);
 var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
 
 /*
@@ -8247,8 +8249,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1csExportJson(r1csName, logger);
 
-    const S = JSON.stringify(r1csObj, null, 1);
-    await fs__default["default"].promises.writeFile(jsonName, S);
+    await bfj__default["default"].write(jsonName, r1csObj, { space: 1 });
 
     return 0;
 }
@@ -8297,7 +8298,7 @@ async function wtnsExportJson(params, options) {
 
     const w = await wtnsExportJson$1(wtnsName);
 
-    await fs__default["default"].promises.writeFile(jsonName, JSON.stringify(stringifyBigInts(w), null, 1));
+    await bfj__default["default"].write(jsonName, stringifyBigInts(w), { space: 1 });
 
     return 0;
 }
@@ -8319,9 +8320,9 @@ async function zksnarkSetup(params, options) {
     const setup = zkSnark[protocol].setup(cir, options.verbose);
 
     await zkey.utils.write(zkeyName, setup.vk_proof);
-    // await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
+    await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
 
-    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
+    await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
 
     return 0;
 }
@@ -8339,8 +8340,8 @@ async function groth16Prove(params, options) {
 
     const {proof, publicSignals} = await groth16Prove$1(zkeyName, witnessName, logger);
 
-    await fs__default["default"].promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs__default["default"].promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj__default["default"].write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj__default["default"].write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -8360,8 +8361,8 @@ async function groth16FullProve(params, options) {
 
     const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName,  logger);
 
-    await fs__default["default"].promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs__default["default"].promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj__default["default"].write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj__default["default"].write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -8397,8 +8398,7 @@ async function zkeyExportVKey(params, options) {
 
     const vKey = await zkeyExportVerificationKey(zkeyName);
 
-    const S = JSON.stringify(ffjavascript.utils.stringifyBigInts(vKey), null, 1);
-    await fs__default["default"].promises.writeFile(verificationKeyName, S);
+    await bfj__default["default"].write(verificationKeyName, stringifyBigInts(vKey), { space: 1 });
 }
 
 // zkey export json [circuit_final.zkey] [circuit.zkey.json]",
@@ -8410,8 +8410,7 @@ async function zkeyExportJson(params, options) {
 
     const zKeyJson = await zkeyExportJson$1(zkeyName);
 
-    const S = JSON.stringify(zKeyJson, null, 1);
-    await fs__default["default"].promises.writeFile(zkeyJsonName, S);
+    await bfj__default["default"].write(zkeyJsonName, zKeyJson, { space: 1 });
 }
 
 async function fileExists(file) {
@@ -8674,9 +8673,7 @@ async function powersOfTauExportJson(params, options) {
 
     const pTauJson = await exportJson(ptauName, logger);
 
-    const S = JSON.stringify(pTauJson, null, 1);
-    await fs__default["default"].promises.writeFile(jsonName, S);
-
+    await bfj__default["default"].write(jsonName, pTauJson, { space: 1 });
 }
 
 
@@ -8912,8 +8909,8 @@ async function plonkProve(params, options) {
 
     const {proof, publicSignals} = await plonk16Prove(zkeyName, witnessName, logger);
 
-    await fs__default["default"].promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs__default["default"].promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj__default["default"].write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj__default["default"].write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -8934,8 +8931,8 @@ async function plonkFullProve(params, options) {
 
     const {proof, publicSignals} = await plonkFullProve$1(input, wasmName, zkeyName,  logger);
 
-    await fs__default["default"].promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs__default["default"].promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj__default["default"].write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj__default["default"].write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
