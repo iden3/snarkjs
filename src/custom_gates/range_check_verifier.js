@@ -18,13 +18,9 @@
 */
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
-import {MAX_RANGE, N} from "./range_check_gate.js";
+import {MAX_RANGE, N as DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
 
 class RangeCheckVerifier {
-    constructor(gate) {
-        this.gate = gate;
-    }
-
     async verifyProof(proof, vk_verifier, curve, logger) {
         const Fr = curve.Fr;
         const G1 = curve.G1;
@@ -123,7 +119,7 @@ class RangeCheckVerifier {
 
         challenges.xi = transcript.getChallenge();
         challenges.xin = challenges.xi;
-        for (let i = 0; i < this.gate.cirPower; i++) {
+        for (let i = 0; i < CIRCUIT_POWER; i++) {
             challenges.xin = Fr.square(challenges.xin);
         }
 
@@ -162,11 +158,11 @@ class RangeCheckVerifier {
     computeLagrangeEvaluations(challenges, curve, logger) {
         const Fr = curve.Fr;
 
-        const domainSize_F = Fr.e(this.gate.domainSize);
+        const domainSize_F = Fr.e(DOMAIN_SIZE);
         let omega = Fr.one;
 
         const lagrangeEvaluations = [];
-        for (let i = 0; i < this.gate.domainSize; i++) {
+        for (let i = 0; i < DOMAIN_SIZE; i++) {
             //numerator: omega * (xi^n - 1)
             const num = Fr.mul(omega, challenges.zh);
 
@@ -174,7 +170,7 @@ class RangeCheckVerifier {
             const den = Fr.mul(domainSize_F, Fr.sub(challenges.xi, omega));
 
             lagrangeEvaluations[i] = Fr.div(num, den);
-            omega = Fr.mul(omega, Fr.w[this.gate.cirPower]);
+            omega = Fr.mul(omega, Fr.w[CIRCUIT_POWER]);
         }
 
         if (logger) {
@@ -200,7 +196,7 @@ class RangeCheckVerifier {
         elB = Fr.mul(elB, challenges.alpha);
 
         // IDENTITY D
-        let elD = Fr.mul(lagrange[N - 1], Fr.e(MAX_RANGE));
+        let elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], Fr.e(MAX_RANGE));
         elD = Fr.mul(elD, challenges.alpha3);
 
         let res = proof.eval_r;
@@ -208,9 +204,9 @@ class RangeCheckVerifier {
         res = Fr.sub(res, elB);
         res = Fr.sub(res, elD);
 
-        const t = Fr.div(res, challenges.zh);
+        res = Fr.div(res, challenges.zh);
 
-        return t;
+        return res;
     }
 
     computeD(proof, challenges, lagrange, curve) {
@@ -224,21 +220,18 @@ class RangeCheckVerifier {
         const identityA = G1.timesFr(proof.Z, elA);
 
         // IDENTITY B
-        const elB00 = Fr.add(challenges.gamma, proof.eval_f);
-        const elB01 = Fr.add(challenges.gamma, proof.eval_table);
-        let elB0 = Fr.mul(elB00, elB01);
+        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.eval_f), Fr.add(challenges.gamma, proof.eval_table));
         elB0 = Fr.mul(elB0, challenges.alpha);
         elB0 = Fr.mul(elB0, challenges.v[0]);
         elB0 = Fr.add(elB0, challenges.u);
-        const identityB0 = G1.timesFr(proof.Z, elB0);
+        elB0 = G1.timesFr(proof.Z, elB0);
 
         let elB1 = Fr.add(challenges.gamma, proof.eval_h1);
         elB1 = Fr.mul(elB1, proof.eval_zw);
         elB1 = Fr.mul(elB1, challenges.alpha);
         elB1 = Fr.mul(elB1, challenges.v[0]);
-        const identityB1 = G1.timesFr(proof.H2, elB1);
-
-        const identityB = G1.sub(identityB0, identityB1);
+        elB1 = G1.timesFr(proof.H2, elB1);
+        const identityB = G1.sub(elB0, elB1);
 
         // IDENTITY C
         let elC = lagrange[0];
@@ -247,7 +240,7 @@ class RangeCheckVerifier {
         const identityC = G1.timesFr(proof.H1, elC);
 
         // IDENTITY D
-        let elD = lagrange[N - 1];
+        let elD = lagrange[DOMAIN_SIZE - 1];
         elD = Fr.mul(elD, challenges.alpha3);
         elD = Fr.mul(elD, challenges.v[0]);
         const identityD = G1.timesFr(proof.H2, elD);
@@ -255,12 +248,12 @@ class RangeCheckVerifier {
         // IDENTITY E
         let elE = challenges.alpha4;
         elE = Fr.mul(elE, challenges.v[0]);
-        let identityE = G1.timesFr(proof.P1, elE);
+        const identityE = G1.timesFr(proof.P1, elE);
 
         // IDENTITY F
         let omegaN = Fr.one;
-        for (let i = 0; i < N - 1; i++) {
-            omegaN = Fr.mul(omegaN, Fr.w[this.gate.cirPower + 2]);
+        for (let i = 0; i < DOMAIN_SIZE - 1; i++) {
+            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER + 2]);
         }
         let elF = Fr.sub(challenges.xi, omegaN);
         elF = Fr.mul(elF, challenges.alpha5);
@@ -295,14 +288,14 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        let s = t;
-        s = Fr.add(s, Fr.mul(challenges.v[0], proof.eval_r));
-        s = Fr.add(s, Fr.mul(challenges.v[1], proof.eval_f));
-        s = Fr.add(s, Fr.mul(challenges.v[2], proof.eval_table));
-        s = Fr.add(s, Fr.mul(challenges.v[3], proof.eval_h1));
-        s = Fr.add(s, Fr.mul(challenges.u, proof.eval_zw));
+        let res = t;
+        res = Fr.add(res, Fr.mul(challenges.v[0], proof.eval_r));
+        res = Fr.add(res, Fr.mul(challenges.v[1], proof.eval_f));
+        res = Fr.add(res, Fr.mul(challenges.v[2], proof.eval_table));
+        res = Fr.add(res, Fr.mul(challenges.v[3], proof.eval_h1));
+        res = Fr.add(res, Fr.mul(challenges.u, proof.eval_zw));
 
-        const res = G1.timesFr(G1.one, s);
+        res = G1.timesFr(G1.one, res);
 
         return res;
     }
@@ -318,16 +311,14 @@ class RangeCheckVerifier {
 
 
         let B1 = G1.timesFr(proof.Wxi, challenges.xi);
-        const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[this.gate.cirPower]);
+        const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[CIRCUIT_POWER]);
         B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
         B1 = G1.add(B1, F);
         B1 = G1.sub(B1, E);
 
         let B2 = curve.G2.one;
 
-        const paired = await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
-
-        return paired;
+        return await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
     }
 
     fromObjectProof(proof, curve) {

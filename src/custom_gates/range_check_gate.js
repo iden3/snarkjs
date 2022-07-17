@@ -23,6 +23,7 @@ import {log2} from "../misc.js";
 
 export const RANGE_CHECK_ID = 9;
 export const RANGE_CHECK_NAME = "RANGECHECK";
+
 const ZK_RANGE_CHECK_HEADER_SECTION = 4096;
 const ZK_RANGE_CHECK_Q_SECTION = 4097;
 const ZK_RANGE_CHECK_PREPROCESSED_SECTION = 4098;
@@ -30,6 +31,7 @@ const ZK_RANGE_CHECK_PREPROCESSED_SECTION = 4098;
 export const C = 1 << 6;
 export const N = 1 << 2;
 export const MAX_RANGE = C * (N - 1);
+export const CIRCUIT_POWER = log2(N);
 
 class RangeCheckCG extends CustomGate {
     constructor(options) {
@@ -54,7 +56,7 @@ class RangeCheckCG extends CustomGate {
     }
 
     get cirPower() {
-        return log2(N);
+        return CIRCUIT_POWER;
     }
 
     plonkConstraints(signals, Fr) {
