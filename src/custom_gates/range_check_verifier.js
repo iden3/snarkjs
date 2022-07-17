@@ -18,7 +18,7 @@
 */
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
-import {MAX_RANGE, N as DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
+import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
 
 class RangeCheckVerifier {
     async verifyProof(proof, vk_verifier, curve, logger) {

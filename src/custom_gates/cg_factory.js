@@ -21,7 +21,7 @@ export default class FactoryCG {
         }
 
         if (RANGE_CHECK_ID === customGateBase.id) {
-            return new RangeCheckProver(customGateBase);
+            return new RangeCheckProver();
         }
 
         throw Error(`FactoryCG. Unable to create custom gate prover, ${customGateBase.id} id doesn't exist`);
@@ -33,7 +33,7 @@ export default class FactoryCG {
         }
 
         if (RANGE_CHECK_ID === customGateBase.id) {
-            return new RangeCheckVerifier(customGateBase);
+            return new RangeCheckVerifier();
         }
 
         throw Error(`FactoryCG. Unable to create custom gate verifier, ${customGateBase.id} id doesn't exist`);

@@ -17,17 +17,14 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {C, MAX_RANGE, N, RANGE_CHECK_ID} from "./range_check_gate.js";
 import Multiset from "../plookup/multiset.js";
 import {BigBuffer} from "ffjavascript";
 import {to4T, expTau, evalPol, getP4, divPol1} from "../utils.js";
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
+import {C, MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, RANGE_CHECK_ID} from "./range_check_gate.js";
+
 
 class RangeCheckProver {
-    constructor(gate) {
-        this.gate = gate;
-    }
-
     async computeProof(preInput, witnesses, curve, logger, PTau) {
         const self = this;
         const Fr = curve.Fr;
@@ -58,7 +55,7 @@ class RangeCheckProver {
         async function round1() {
             challenges.b = [];
             for (let i = 0; i < 11; i++) {
-                challenges.b[i] = curve.Fr.random();
+                challenges.b[i] = Fr.random();
             }
 
             const length = Math.max(preInput.t.length, witnesses.length);
@@ -130,13 +127,13 @@ class RangeCheckProver {
             challenges.gamma = transcript.getChallenge();
             if (logger) logger.debug("range_check gamma: " + Fr.toString(challenges.gamma));
 
-            bufferZ = new BigBuffer(N * Fr.n8);
-            let numArr = new BigBuffer(N * Fr.n8);
-            let denArr = new BigBuffer(N * Fr.n8);
+            bufferZ = new BigBuffer(DOMAIN_SIZE * Fr.n8);
+            let numArr = new BigBuffer(DOMAIN_SIZE * Fr.n8);
+            let denArr = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             numArr.set(Fr.one, 0);
             denArr.set(Fr.one, 0);
 
-            for (let i = 0; i < N; i++) {
+            for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
                 const f_i = Fr.add(bufferF.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
                 const t_i = Fr.add(bufferTable.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
@@ -146,12 +143,12 @@ class RangeCheckProver {
                 const num = Fr.mul(f_i, t_i);
                 const den = Fr.mul(h1_i, h2_i);
 
-                numArr.set(Fr.mul(numArr.slice(i_n8, i_n8 + Fr.n8), num), ((i + 1) % N) * Fr.n8);
-                denArr.set(Fr.mul(denArr.slice(i_n8, i_n8 + Fr.n8), den), ((i + 1) % N) * Fr.n8);
+                numArr.set(Fr.mul(numArr.slice(i_n8, i_n8 + Fr.n8), num), ((i + 1) % DOMAIN_SIZE) * Fr.n8);
+                denArr.set(Fr.mul(denArr.slice(i_n8, i_n8 + Fr.n8), den), ((i + 1) % DOMAIN_SIZE) * Fr.n8);
             }
 
             denArr = await Fr.batchInverse(denArr);
-            for (let i = 0; i < N; i++) {
+            for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
 
                 bufferZ.set(Fr.mul(numArr.slice(i_n8, i_n8 + Fr.n8), denArr.slice(i_n8, i_n8 + Fr.n8)), i_n8);
@@ -171,42 +168,42 @@ class RangeCheckProver {
             transcript.appendPolCommitment(proof.Z);
 
             challenges.alpha = transcript.getChallenge();
-            challenges.alpha2 = curve.Fr.mul(challenges.alpha, challenges.alpha);
-            challenges.alpha3 = curve.Fr.mul(challenges.alpha2, challenges.alpha);
-            challenges.alpha4 = curve.Fr.mul(challenges.alpha3, challenges.alpha);
-            challenges.alpha5 = curve.Fr.mul(challenges.alpha4, challenges.alpha);
+            challenges.alpha2 = Fr.mul(challenges.alpha, challenges.alpha);
+            challenges.alpha3 = Fr.mul(challenges.alpha2, challenges.alpha);
+            challenges.alpha4 = Fr.mul(challenges.alpha3, challenges.alpha);
+            challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
             if (logger) logger.debug("range_check alpha: " + Fr.toString(challenges.alpha));
 
-            const bufferT = new BigBuffer(N * 4 * Fr.n8);
-            const bufferTz = new BigBuffer(N * 4 * Fr.n8);
+            const bufferT = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
+            const bufferTz = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
 
             //Compute Lagrange polynomial L_1 evaluations ()
-            let lagrange1Buffer = new BigBuffer(N * Fr.n8);
+            let lagrange1Buffer = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             lagrange1Buffer.set(Fr.one, 0);
-            let {Q4: lagrange1} = (await getP4(lagrange1Buffer, N, Fr));
+            let {Q4: lagrange1} = (await getP4(lagrange1Buffer, DOMAIN_SIZE, Fr));
             if (logger) logger.debug("computing lagrange 1");
 
             //Compute Lagrange polynomial L_N evaluations ()
-            let lagrangeNBuffer = new BigBuffer(N * Fr.n8);
-            lagrangeNBuffer.set(Fr.one, (N - 1) * Fr.n8);
-            let {Q4: lagrangeN} = (await getP4(lagrangeNBuffer, N, Fr));
+            let lagrangeNBuffer = new BigBuffer(DOMAIN_SIZE * Fr.n8);
+            lagrangeNBuffer.set(Fr.one, (DOMAIN_SIZE - 1) * Fr.n8);
+            let {Q4: lagrangeN} = (await getP4(lagrangeNBuffer, DOMAIN_SIZE, Fr));
             if (logger) logger.debug("computing lagrange N");
 
             let omegaN = Fr.one;
-            for (let i = 0; i < N - 1; i++) {
-                omegaN = curve.Fr.mul(omegaN, curve.Fr.w[self.gate.cirPower + 2]);
+            for (let i = 0; i < DOMAIN_SIZE - 1; i++) {
+                omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER + 2]);
             }
 
             let omega = Fr.one;
-            for (let i = 0; i < N * 4; i++) {
-                if ((i % 4096 === 0) && (logger)) logger.debug(`range_check calculating t ${i}/${N * 4}`);
+            for (let i = 0; i < DOMAIN_SIZE * 4; i++) {
+                if ((i % 4096 === 0) && (logger)) logger.debug(`range_check calculating t ${i}/${DOMAIN_SIZE * 4}`);
 
                 const i_n8 = i * Fr.n8;
 
                 //const omega2 = Fr.square(omega);
                 const z_i = Z_4.slice(i_n8, i_n8 + Fr.n8);
-                const zw_i = Z_4.slice(((i + N * 4 + 4) % (N * 4)) * Fr.n8, ((i + N * 4 + 4) % (N * 4)) * Fr.n8 + Fr.n8);
+                const zw_i = Z_4.slice(((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8, ((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8 + Fr.n8);
                 const f_i = F_4.slice(i_n8, i_n8 + Fr.n8);
                 const lt_i = Table_4.slice(i_n8, i_n8 + Fr.n8);
                 const h1_i = H1_4.slice(i_n8, i_n8 + Fr.n8);
@@ -238,12 +235,12 @@ class RangeCheckProver {
                 const b0z = z_i;
                 const b0f = Fr.add(challenges.gamma, f_i);
                 const b0t = Fr.add(challenges.gamma, lt_i);
-                const [b0, b0p] = self.mul3(b0z, b0f, b0t, zp_i, fp_i, tp_i, i % 4, curve);
+                const [b0, b0p] = self.mul3(b0z, b0f, b0t, zp_i, fp_i, tp_i, i % 4, Fr);
 
                 const b1zw = zw_i;
                 const b1h1 = Fr.add(challenges.gamma, h1_i);
                 const b1h2 = Fr.add(challenges.gamma, h2_i);
-                const [b1, b1p] = self.mul3(b1zw, b1h1, b1h2, zWp_i, h1p_i, h2p_i, i % 4, curve);
+                const [b1, b1p] = self.mul3(b1zw, b1h1, b1h2, zWp_i, h1p_i, h2p_i, i % 4, Fr);
 
                 identityB = Fr.sub(b0, b1);
                 identityBz = Fr.sub(b0p, b1p);
@@ -295,27 +292,27 @@ class RangeCheckProver {
                 bufferT.set(identities, i_n8);
                 bufferTz.set(identitiesZ, i_n8);
 
-                omega = Fr.mul(omega, Fr.w[self.gate.cirPower + 2]);
+                omega = Fr.mul(omega, Fr.w[CIRCUIT_POWER + 2]);
             }
 
             if (logger) logger.debug("range_check ifft T");
             let polTifft = await Fr.ifft(bufferT);
 
             if (logger) logger.debug("dividing T/Z_H");
-            for (let i = 0; i < N; i++) {
+            for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
                 polTifft.set(Fr.neg(polTifft.slice(i_n8, i_n8 + Fr.n8)), i_n8);
             }
 
-            for (let i = N; i < N * 4; i++) {
+            for (let i = DOMAIN_SIZE; i < DOMAIN_SIZE * 4; i++) {
                 const i_n8 = i * Fr.n8;
 
                 const a = Fr.sub(
-                    polTifft.slice((i - N) * Fr.n8, (i - N) * Fr.n8 + Fr.n8),
+                    polTifft.slice((i - DOMAIN_SIZE) * Fr.n8, (i - DOMAIN_SIZE) * Fr.n8 + Fr.n8),
                     polTifft.slice(i_n8, i_n8 + Fr.n8)
                 );
                 polTifft.set(a, i_n8);
-                if (i > (N * 3 - 4)) {
+                if (i > (DOMAIN_SIZE * 3 - 4)) {
                     if (!Fr.isZero(a)) {
                         throw new Error("range_check T Polynomial is not divisible");
                     }
@@ -325,11 +322,11 @@ class RangeCheckProver {
             // Add Zh polygon...to document
             if (logger) logger.debug("range_check ifft Tz");
             const polTzifft = await Fr.ifft(bufferTz);
-            for (let i = 0; i < N * 4; i++) {
+            for (let i = 0; i < DOMAIN_SIZE * 4; i++) {
                 const i_n8 = i * Fr.n8;
 
                 const a = polTzifft.slice(i_n8, i_n8 + Fr.n8);
-                if (i > (N * 3 + 5)) {
+                if (i > (DOMAIN_SIZE * 3 + 5)) {
                     if (!Fr.isZero(a)) {
                         throw new Error("range_check Tz Polynomial is not well calculated");
                     }
@@ -338,12 +335,12 @@ class RangeCheckProver {
                 }
             }
 
-            polT = polTifft.slice(0, (N * 3 + 6) * Fr.n8);
+            polT = polTifft.slice(0, (DOMAIN_SIZE * 3 + 6) * Fr.n8);
 
             proof.T = await expTau(polT, PTau, curve, logger, "range_check multiexp T");
-            // proof.T1 = await expTau(t.slice(0, N * Fr.n8), PTau, curve, logger, "range_check multiexp T");
-            // proof.T2 = await expTau(t.slice(N * Fr.n8, N * Fr.n8 * 2), PTau, curve, logger, "range_check multiexp T");
-            // proof.T3 = await expTau(t.slice(N * Fr.n8 * 2, (N * 3 + 6) * Fr.n8), PTau, curve, logger, "range_check multiexp T");
+            // proof.T1 = await expTau(t.slice(0, DOMAIN_SIZE * Fr.n8), PTau, curve, logger, "range_check multiexp T");
+            // proof.T2 = await expTau(t.slice(DOMAIN_SIZE * Fr.n8, DOMAIN_SIZE * Fr.n8 * 2), PTau, curve, logger, "range_check multiexp T");
+            // proof.T3 = await expTau(t.slice(DOMAIN_SIZE * Fr.n8 * 2, (DOMAIN_SIZE * 3 + 6) * Fr.n8), PTau, curve, logger, "range_check multiexp T");
         }
 
         async function round4() {
@@ -363,7 +360,7 @@ class RangeCheckProver {
             proof.eval_h1 = evalPol(polH1, challenges.xi, Fr);
             proof.eval_h2 = evalPol(polH2, challenges.xi, Fr);
             proof.eval_t = evalPol(polT, challenges.xi, Fr);
-            proof.eval_zw = evalPol(polZ, Fr.mul(challenges.xi, Fr.w[self.gate.cirPower]), Fr);
+            proof.eval_zw = evalPol(polZ, Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr);
         }
 
         async function round5() {
@@ -385,22 +382,22 @@ class RangeCheckProver {
 
             // 2. Compute linearization polynomial r(x)
             challenges.xim = challenges.xi;
-            for (let i = 0; i < self.gate.cirPower; i++) {
+            for (let i = 0; i < CIRCUIT_POWER; i++) {
                 challenges.xim = Fr.square(challenges.xim);
             }
 
             const evalL1 = Fr.div(
                 Fr.sub(challenges.xim, Fr.one),
-                Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(self.gate.domainSize))
+                Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(DOMAIN_SIZE))
             );
 
             let omegaN = Fr.one;
-            for (let i = 0; i < N - 1; i++) {
-                omegaN = curve.Fr.mul(omegaN, curve.Fr.w[self.gate.cirPower]);
+            for (let i = 0; i < DOMAIN_SIZE - 1; i++) {
+                omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
             }
             const evalLN = Fr.div(
                 Fr.mul(omegaN, Fr.sub(challenges.xim, Fr.one)),
-                Fr.mul(Fr.sub(challenges.xi, omegaN), Fr.e(self.gate.domainSize))
+                Fr.mul(Fr.sub(challenges.xi, omegaN), Fr.e(DOMAIN_SIZE))
             );
 
             // Prepare z constant coefficients for identity B
@@ -414,8 +411,8 @@ class RangeCheckProver {
             b1h1 = Fr.mul(b1h1, proof.eval_zw);
             let coefficientsBH2 = Fr.mul(b1h1, challenges.alpha);
 
-            polR = new BigBuffer(N * Fr.n8);
-            for (let i = 0; i < N; i++) {
+            polR = new BigBuffer(DOMAIN_SIZE * Fr.n8);
+            for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
 
                 //IDENTITY A) L_1(xi)(Z(x)-1) = 0
@@ -459,14 +456,14 @@ class RangeCheckProver {
 
             proof.eval_r = evalPol(polR, challenges.xi, Fr);
 
-            let polWxi = new BigBuffer((N + 3) * Fr.n8);
+            let polWxi = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
 
-            for (let i = 0; i < N + 3; i++) {
+            for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
                 const i_n8 = i * Fr.n8;
 
                 let w = Fr.zero;
                 w = Fr.add(w, polT.slice(i_n8, i_n8 + Fr.n8));
-                if (i < N) {
+                if (i < DOMAIN_SIZE) {
                     w = Fr.add(w, Fr.mul(challenges.v[0], polR.slice(i_n8, i_n8 + Fr.n8)));
                     w = Fr.add(w, Fr.mul(challenges.v[1], polF.slice(i_n8, i_n8 + Fr.n8)));
                     w = Fr.add(w, Fr.mul(challenges.v[2], polTable.slice(i_n8, i_n8 + Fr.n8)));
@@ -489,8 +486,8 @@ class RangeCheckProver {
 
             proof.Wxi = await expTau(polWxi, PTau, curve, logger, "range_check multiexp Wxi");
 
-            let polWxiw = new BigBuffer((N + 3) * Fr.n8);
-            for (let i = 0; i < N + 3; i++) {
+            let polWxiw = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
+            for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
                 const i_n8 = i * Fr.n8;
                 const w = polZ.slice(i_n8, i_n8 + Fr.n8);
 
@@ -501,7 +498,7 @@ class RangeCheckProver {
             w1 = Fr.sub(w1, proof.eval_zw);
             polWxiw.set(w1, 0);
 
-            polWxiw = divPol1(polWxiw, Fr.mul(challenges.xi, Fr.w[self.gate.cirPower]), Fr);
+            polWxiw = divPol1(polWxiw, Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr);
 
             proof.Wxiw = await expTau(polWxiw, PTau, curve, logger, "range_check multiexp Wxiw");
         }
@@ -564,9 +561,7 @@ class RangeCheckProver {
         return [r, rz];
     }
 
-    mul3(a, b, c, ap, bp, cp, p, curve) {
-        const Fr = curve.Fr;
-
+    mul3(a, b, c, ap, bp, cp, p, Fr) {
         const Z1 = [
             Fr.zero,
             Fr.add(Fr.e(-1), Fr.w[2]),

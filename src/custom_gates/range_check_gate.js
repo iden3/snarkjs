@@ -28,10 +28,15 @@ const ZK_RANGE_CHECK_HEADER_SECTION = 4096;
 const ZK_RANGE_CHECK_Q_SECTION = 4097;
 const ZK_RANGE_CHECK_PREPROCESSED_SECTION = 4098;
 
+// lookup table constants
 export const C = 1 << 6;
 export const N = 1 << 2;
 export const MAX_RANGE = C * (N - 1);
+
+// circuit constants
 export const CIRCUIT_POWER = log2(N);
+export const DOMAIN_SIZE = N;
+
 
 class RangeCheckCG extends CustomGate {
     constructor(options) {
@@ -52,7 +57,7 @@ class RangeCheckCG extends CustomGate {
     }
 
     get domainSize() {
-        return N;
+        return DOMAIN_SIZE;
     }
 
     get cirPower() {
