@@ -1,34 +1,37 @@
 import {BigBuffer} from "ffjavascript";
+import {Polynomial} from "./polynomial/polynomial.js";
 
-export async function to4T(A, pz, Fr) {
-    pz = pz || [];
-    let domainSize = A.byteLength / Fr.n8;
+export async function computePolynomial(buffer, blindingFactors, Fr) {
+    blindingFactors = blindingFactors || [];
+    let domainSize = buffer.byteLength / Fr.n8;
 
-    let a = await Fr.ifft(A);
-    const a4 = new BigBuffer(Fr.n8*domainSize*4);
-    a4.set(a, 0);
+    let coefficients = await Fr.ifft(buffer);
 
-    const a1 = new BigBuffer(Fr.n8*(domainSize + pz.length));
-    a1.set(a, 0);
-    for (let i= 0; i<pz.length; i++) {
-        a1.set(
+    const coefficients4 = new BigBuffer(Fr.n8 * domainSize * 4);
+    coefficients4.set(coefficients, 0);
+
+    const blindedCoefficients = new BigBuffer(Fr.n8 * (domainSize + blindingFactors.length));
+    blindedCoefficients.set(coefficients, 0);
+    for (let i = 0; i < blindingFactors.length; i++) {
+        blindedCoefficients.set(
             Fr.add(
-                a1.slice((domainSize+i)*Fr.n8, (domainSize+i+1)*Fr.n8),
-                pz[i]
+                blindedCoefficients.slice((domainSize + i) * Fr.n8, (domainSize + i + 1) * Fr.n8),
+                blindingFactors[i]
             ),
-            (domainSize+i)*Fr.n8
+            (domainSize + i) * Fr.n8
         );
-        a1.set(
+        blindedCoefficients.set(
             Fr.sub(
-                a1.slice(i*Fr.n8, (i+1)*Fr.n8),
-                pz[i]
+                blindedCoefficients.slice(i * Fr.n8, (i + 1) * Fr.n8),
+                blindingFactors[i]
             ),
-            i*Fr.n8
+            i * Fr.n8
         );
     }
-    const A4 = await Fr.fft(a4);
 
-    return [a1, A4];
+    const evaluations = await Fr.fft(coefficients4);
+
+    return new Polynomial(blindedCoefficients, evaluations);
 }
 
 export async function expTau(polynomial, PTau, curve, logger, name) {
