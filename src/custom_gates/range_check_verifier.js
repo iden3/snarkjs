@@ -83,14 +83,11 @@ class RangeCheckVerifier {
     commitmentsBelongToG1(proof, curve) {
         const G1 = curve.G1;
 
-        return G1.isValid(proof.F)
-            && G1.isValid(proof.Table)
-            && G1.isValid(proof.H1)
-            && G1.isValid(proof.H2)
-            && G1.isValid(proof.Z)
-            && G1.isValid(proof.T)
-            && G1.isValid(proof.Wxi)
-            && G1.isValid(proof.Wxiw);
+        Object.keys(proof.polynomials).forEach(key => {
+            if(!G1.isValid(proof.polynomials[key])) return false;
+        });
+
+        return true;
     }
 
     computeChallenges(proof, curve, logger) {
@@ -99,14 +96,14 @@ class RangeCheckVerifier {
         const challenges = {};
         const transcript = new Keccak256Transcript(curve);
 
-        transcript.appendPolCommitment(proof.F);
-        transcript.appendPolCommitment(proof.H1);
-        transcript.appendPolCommitment(proof.H2);
+        transcript.appendPolCommitment(proof.polynomials.F);
+        transcript.appendPolCommitment(proof.polynomials.H1);
+        transcript.appendPolCommitment(proof.polynomials.H2);
 
         challenges.gamma = transcript.getChallenge();
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.Z);
+        transcript.appendPolCommitment(proof.polynomials.Z);
 
         challenges.alpha = transcript.getChallenge();
         challenges.alpha2 = Fr.mul(challenges.alpha, challenges.alpha);
@@ -115,7 +112,7 @@ class RangeCheckVerifier {
         challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.T);
+        transcript.appendPolCommitment(proof.polynomials.T);
 
         challenges.xi = transcript.getChallenge();
         challenges.xin = challenges.xi;
@@ -124,11 +121,11 @@ class RangeCheckVerifier {
         }
 
         transcript.reset();
-        transcript.appendScalar(proof.eval_f);
-        transcript.appendScalar(proof.eval_table);
-        transcript.appendScalar(proof.eval_h1);
-        transcript.appendScalar(proof.eval_h2);
-        transcript.appendScalar(proof.eval_zw);
+        transcript.appendScalar(proof.evaluations.f);
+        transcript.appendScalar(proof.evaluations.table);
+        transcript.appendScalar(proof.evaluations.h1);
+        transcript.appendScalar(proof.evaluations.h2);
+        transcript.appendScalar(proof.evaluations.zw);
 
         // 1. Get opening challenge v ∈ Zp.
         challenges.v = [];
@@ -140,8 +137,8 @@ class RangeCheckVerifier {
         }
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.Wxi);
-        transcript.appendPolCommitment(proof.Wxiw);
+        transcript.appendPolCommitment(proof.polynomials.Wxi);
+        transcript.appendPolCommitment(proof.polynomials.Wxiw);
 
         challenges.u = transcript.getChallenge();
 
@@ -190,16 +187,16 @@ class RangeCheckVerifier {
         let elA = lagrange[0];
 
         // IDENTITY B
-        let elB = Fr.add(proof.eval_h1, challenges.gamma);
+        let elB = Fr.add(proof.evaluations.h1, challenges.gamma);
         elB = Fr.mul(elB, challenges.gamma);
-        elB = Fr.mul(elB, proof.eval_zw);
+        elB = Fr.mul(elB, proof.evaluations.zw);
         elB = Fr.mul(elB, challenges.alpha);
 
         // IDENTITY D
         let elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], Fr.e(MAX_RANGE));
         elD = Fr.mul(elD, challenges.alpha3);
 
-        let res = proof.eval_r;
+        let res = proof.evaluations.r;
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
         res = Fr.sub(res, elD);
@@ -217,38 +214,38 @@ class RangeCheckVerifier {
         let elA = lagrange[0];
 
         elA = Fr.mul(elA, challenges.v[0]);
-        const identityA = G1.timesFr(proof.Z, elA);
+        const identityA = G1.timesFr(proof.polynomials.Z, elA);
 
         // IDENTITY B
-        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.eval_f), Fr.add(challenges.gamma, proof.eval_table));
+        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.evaluations.f), Fr.add(challenges.gamma, proof.evaluations.table));
         elB0 = Fr.mul(elB0, challenges.alpha);
         elB0 = Fr.mul(elB0, challenges.v[0]);
         elB0 = Fr.add(elB0, challenges.u);
-        elB0 = G1.timesFr(proof.Z, elB0);
+        elB0 = G1.timesFr(proof.polynomials.Z, elB0);
 
-        let elB1 = Fr.add(challenges.gamma, proof.eval_h1);
-        elB1 = Fr.mul(elB1, proof.eval_zw);
+        let elB1 = Fr.add(challenges.gamma, proof.evaluations.h1);
+        elB1 = Fr.mul(elB1, proof.evaluations.zw);
         elB1 = Fr.mul(elB1, challenges.alpha);
         elB1 = Fr.mul(elB1, challenges.v[0]);
-        elB1 = G1.timesFr(proof.H2, elB1);
+        elB1 = G1.timesFr(proof.polynomials.H2, elB1);
         const identityB = G1.sub(elB0, elB1);
 
         // IDENTITY C
         let elC = lagrange[0];
         elC = Fr.mul(elC, challenges.alpha2);
         elC = Fr.mul(elC, challenges.v[0]);
-        const identityC = G1.timesFr(proof.H1, elC);
+        const identityC = G1.timesFr(proof.polynomials.H1, elC);
 
         // IDENTITY D
         let elD = lagrange[DOMAIN_SIZE - 1];
         elD = Fr.mul(elD, challenges.alpha3);
         elD = Fr.mul(elD, challenges.v[0]);
-        const identityD = G1.timesFr(proof.H2, elD);
+        const identityD = G1.timesFr(proof.polynomials.H2, elD);
 
         // IDENTITY E
         let elE = challenges.alpha4;
         elE = Fr.mul(elE, challenges.v[0]);
-        const identityE = G1.timesFr(proof.P1, elE);
+        const identityE = G1.timesFr(proof.polynomials.P1, elE);
 
         // IDENTITY F
         let omegaN = Fr.one;
@@ -258,7 +255,7 @@ class RangeCheckVerifier {
         let elF = Fr.sub(challenges.xi, omegaN);
         elF = Fr.mul(elF, challenges.alpha5);
         elF = Fr.mul(elF, challenges.v[0]);
-        const identityF = G1.timesFr(proof.P2, elF);
+        const identityF = G1.timesFr(proof.polynomials.P2, elF);
 
         let res = identityA;
         res = G1.add(res, identityB);
@@ -273,13 +270,13 @@ class RangeCheckVerifier {
     computeF(proof, challenges, D, curve) {
         const G1 = curve.G1;
 
-        let res = proof.T;
+        let res = proof.polynomials.T;
         // let res = G1.add(proof.T1, G1.timesFr(proof.T2, challenges.xin));
         // res = G1.add(res, G1.timesFr(proof.T3, Fr.square(challenges.xin)));
         res = G1.add(res, D);
-        res = G1.add(res, G1.timesFr(proof.F, challenges.v[1]));
-        res = G1.add(res, G1.timesFr(proof.Table, challenges.v[2]));
-        res = G1.add(res, G1.timesFr(proof.H1, challenges.v[3]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.Table, challenges.v[2]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
 
         return res;
     }
@@ -289,11 +286,11 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
 
         let res = t;
-        res = Fr.add(res, Fr.mul(challenges.v[0], proof.eval_r));
-        res = Fr.add(res, Fr.mul(challenges.v[1], proof.eval_f));
-        res = Fr.add(res, Fr.mul(challenges.v[2], proof.eval_table));
-        res = Fr.add(res, Fr.mul(challenges.v[3], proof.eval_h1));
-        res = Fr.add(res, Fr.mul(challenges.u, proof.eval_zw));
+        res = Fr.add(res, Fr.mul(challenges.v[0], proof.evaluations.r));
+        res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
+        res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.table));
+        res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
+        res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
 
         res = G1.timesFr(G1.one, res);
 
@@ -304,47 +301,21 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
         const Fr = curve.Fr;
 
-        let A1 = proof.Wxi;
-        A1 = G1.add(A1, G1.timesFr(proof.Wxiw, challenges.u));
+        let A1 = proof.polynomials.Wxi;
+        A1 = G1.add(A1, G1.timesFr(proof.polynomials.Wxiw, challenges.u));
 
         let A2 = vk_verifier.X_2;
 
 
-        let B1 = G1.timesFr(proof.Wxi, challenges.xi);
+        let B1 = G1.timesFr(proof.polynomials.Wxi, challenges.xi);
         const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[CIRCUIT_POWER]);
-        B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
+        B1 = G1.add(B1, G1.timesFr(proof.polynomials.Wxiw, s));
         B1 = G1.add(B1, F);
         B1 = G1.sub(B1, E);
 
         let B2 = curve.G2.one;
 
         return await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
-    }
-
-    fromObjectProof(proof, curve) {
-        let res = {};
-        res.F = curve.G1.fromObject(proof.F);
-        res.Table = curve.G1.fromObject(proof.Table);
-        res.H1 = curve.G1.fromObject(proof.H1);
-        res.H2 = curve.G1.fromObject(proof.H2);
-        res.P1 = curve.G1.fromObject(proof.P1);
-        res.P2 = curve.G1.fromObject(proof.P2);
-        res.Z = curve.G1.fromObject(proof.Z);
-        res.T = curve.G1.fromObject(proof.T);
-        // res.T1 = curve.G1.fromObject(proof.T1);
-        // res.T2 = curve.G1.fromObject(proof.T2);
-        // res.T3 = curve.G1.fromObject(proof.T3);
-        res.Wxi = curve.G1.fromObject(proof.Wxi);
-        res.Wxiw = curve.G1.fromObject(proof.Wxiw);
-
-        res.eval_h1 = curve.Fr.fromObject(proof.eval_h1);
-        res.eval_h2 = curve.Fr.fromObject(proof.eval_h2);
-        res.eval_f = curve.Fr.fromObject(proof.eval_f);
-        res.eval_zw = curve.Fr.fromObject(proof.eval_zw);
-        res.eval_r = curve.Fr.fromObject(proof.eval_r);
-        res.eval_table = curve.Fr.fromObject(proof.eval_table);
-
-        return res;
     }
 }
 

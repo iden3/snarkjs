@@ -1,5 +1,5 @@
 import {BigBuffer} from "ffjavascript";
-import {Polynomial} from "./polynomial/polynomial.js";
+import {Polynomial} from "./polynomial.js";
 
 export async function computePolynomial(buffer, blindingFactors, Fr) {
     blindingFactors = blindingFactors || [];
@@ -31,7 +31,7 @@ export async function computePolynomial(buffer, blindingFactors, Fr) {
 
     const evaluations = await Fr.fft(coefficients4);
 
-    return new Polynomial(blindedCoefficients, evaluations);
+    return new Polynomial(blindedCoefficients, evaluations, Fr);
 }
 
 export async function expTau(polynomial, PTau, curve, logger, name) {

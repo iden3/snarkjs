@@ -23,6 +23,7 @@ import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
 import FactoryCG from "./custom_gates/cg_factory.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
+import {Proof} from "./proof.js";
 
 
 export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
@@ -52,9 +53,8 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         //get custom gate proof
         proof.customGates.proof = Array(length);
         for (let i = 0; i < length; i++) {
-            const verifier = FactoryCG.createVerifier(proof.customGates.gates[i]);
-
-            proof.customGates.proof[i] = verifier.fromObjectProof(objectProof.customGates[i].proof, curve);
+            proof.customGates.proof[i] = new Proof(curve, logger);
+            proof.customGates.proof[i].fromObjectProof(objectProof.customGates[i].proof);
         }
     }
 

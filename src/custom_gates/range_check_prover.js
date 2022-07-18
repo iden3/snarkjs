@@ -21,8 +21,9 @@ import Multiset from "../plookup/multiset.js";
 import {BigBuffer} from "ffjavascript";
 import {expTau, evalPol, getP4, divPol1, computePolynomial} from "../utils.js";
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
-import {C, MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, RANGE_CHECK_ID} from "./range_check_gate.js";
-import {Polynomial} from "../polynomial/polynomial.js";
+import {C, MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
+import {Polynomial} from "../polynomial.js";
+import {Proof} from "../proof.js";
 
 
 class RangeCheckProver {
@@ -35,7 +36,7 @@ class RangeCheckProver {
 
         let challenges = {};
 
-        let proof = {id: RANGE_CHECK_ID};
+        let proof = new Proof(curve, logger);
 
         await round1(); // Build polynomials h1(x) & h2(x)
         await round2(); // Build polynomial Z
@@ -106,19 +107,19 @@ class RangeCheckProver {
             polynomials.P1 = await computePolynomial(buffP1, []/*[challenges.b[7], challenges.b[6], challenges.b[5]]*/, Fr);
             polynomials.P2 = await computePolynomial(buffP1, []/*[challenges.b[7], challenges.b[6], challenges.b[5]]*/, Fr);
 
-            proof.F = await expTau(polynomials.F.coef, PTau, curve, logger, "range_check multiexp f(x)");
-            proof.Table = await expTau(polynomials.Table.coef, PTau, curve, logger, "range_check multiexp h1(x)");
-            proof.H1 = await expTau(polynomials.H1.coef, PTau, curve, logger, "range_check multiexp h1(x)");
-            proof.H2 = await expTau(polynomials.H2.coef, PTau, curve, logger, "range_check multiexp h2(x)");
-            proof.P1 = await expTau(polynomials.P1.coef, PTau, curve, logger, "range_check multiexp P(x)");
-            proof.P2 = await expTau(polynomials.P2.coef, PTau, curve, logger, "range_check multiexp P(x)");
+            proof.addPolynomial("F", await computepolynomialMultiExp("F", polynomials.F.coef));
+            proof.addPolynomial("Table", await computepolynomialMultiExp("Table", polynomials.Table.coef));
+            proof.addPolynomial("H1", await computepolynomialMultiExp("H1", polynomials.H1.coef));
+            proof.addPolynomial("H2", await computepolynomialMultiExp("H2", polynomials.H2.coef));
+            proof.addPolynomial("P1", await computepolynomialMultiExp("P1", polynomials.P1.coef));
+            proof.addPolynomial("P2", await computepolynomialMultiExp("P2", polynomials.P2.coef));
         }
 
         async function round2() {
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendPolCommitment(proof.F);
-            transcript.appendPolCommitment(proof.H1);
-            transcript.appendPolCommitment(proof.H2);
+            transcript.appendPolCommitment(proof.polynomials.F);
+            transcript.appendPolCommitment(proof.polynomials.H1);
+            transcript.appendPolCommitment(proof.polynomials.H2);
 
             challenges.gamma = transcript.getChallenge();
             if (logger) logger.debug("range_check gamma: " + Fr.toString(challenges.gamma));
@@ -157,12 +158,12 @@ class RangeCheckProver {
 
             polynomials.Z = await computePolynomial(buffers.Z, []/*[challenges.b[10], challenges.b[9], challenges.b[8]]*/, Fr);
 
-            proof.Z = await expTau(polynomials.Z.coef, PTau, curve, logger, "range_check multiexp Z(x)");
+            proof.addPolynomial("Z", await computepolynomialMultiExp("Z", polynomials.Z.coef));
         }
 
         async function round3() {
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendPolCommitment(proof.Z);
+            transcript.appendPolCommitment(proof.polynomials.Z);
 
             challenges.alpha = transcript.getChallenge();
             challenges.alpha2 = Fr.mul(challenges.alpha, challenges.alpha);
@@ -332,10 +333,11 @@ class RangeCheckProver {
                 }
             }
 
-            polynomials.T = new Polynomial();
+            polynomials.T = new Polynomial([], [], Fr);
             polynomials.T.coef = polTifft.slice(0, (DOMAIN_SIZE * 3 + 6) * Fr.n8);
 
-            proof.T = await expTau(polynomials.T.coef, PTau, curve, logger, "range_check multiexp T");
+            proof.addPolynomial("T", await computepolynomialMultiExp("T", polynomials.T.coef));
+            // proof.T = await expTau(polynomials.T.coef, PTau, curve, logger, "range_check multiexp T");
             // proof.T1 = await expTau(t.slice(0, DOMAIN_SIZE * Fr.n8), PTau, curve, logger, "range_check multiexp T");
             // proof.T2 = await expTau(t.slice(DOMAIN_SIZE * Fr.n8, DOMAIN_SIZE * Fr.n8 * 2), PTau, curve, logger, "range_check multiexp T");
             // proof.T3 = await expTau(t.slice(DOMAIN_SIZE * Fr.n8 * 2, (DOMAIN_SIZE * 3 + 6) * Fr.n8), PTau, curve, logger, "range_check multiexp T");
@@ -344,7 +346,7 @@ class RangeCheckProver {
         async function round4() {
             // 1. Get evaluation challenge xi ∈ Zp
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendPolCommitment(proof.T);
+            transcript.appendPolCommitment(proof.polynomials.T);
             // transcript.appendPolCommitment(proof.T1);
             // transcript.appendPolCommitment(proof.T2);
             // transcript.appendPolCommitment(proof.T3);
@@ -353,21 +355,21 @@ class RangeCheckProver {
             if (logger) logger.debug("Range check prover xi: " + Fr.toString(challenges.xi));
 
             // 2. Compute & output opening evaluations
-            proof.eval_f = evalPol(polynomials.F.coef, challenges.xi, Fr);
-            proof.eval_table = evalPol(polynomials.Table.coef, challenges.xi, Fr);
-            proof.eval_h1 = evalPol(polynomials.H1.coef, challenges.xi, Fr);
-            proof.eval_h2 = evalPol(polynomials.H2.coef, challenges.xi, Fr);
-            proof.eval_t = evalPol(polynomials.T.coef, challenges.xi, Fr);
-            proof.eval_zw = evalPol(polynomials.Z.coef, Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr);
+            proof.addEvaluation("f", evalPol(polynomials.F.coef, challenges.xi, Fr));
+            proof.addEvaluation("table", evalPol(polynomials.Table.coef, challenges.xi, Fr));
+            proof.addEvaluation("h1", evalPol(polynomials.H1.coef, challenges.xi, Fr));
+            proof.addEvaluation("h2", evalPol(polynomials.H2.coef, challenges.xi, Fr));
+            proof.addEvaluation("t", evalPol(polynomials.T.coef, challenges.xi, Fr));
+            proof.addEvaluation("zw", evalPol(polynomials.Z.coef, Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr));
         }
 
         async function round5() {
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendScalar(proof.eval_f);
-            transcript.appendScalar(proof.eval_table);
-            transcript.appendScalar(proof.eval_h1);
-            transcript.appendScalar(proof.eval_h2);
-            transcript.appendScalar(proof.eval_zw);
+            transcript.appendScalar(proof.evaluations.f);
+            transcript.appendScalar(proof.evaluations.table);
+            transcript.appendScalar(proof.evaluations.h1);
+            transcript.appendScalar(proof.evaluations.h2);
+            transcript.appendScalar(proof.evaluations.zw);
 
             // 1. Get opening challenge v ∈ Zp.
             challenges.v = [];
@@ -399,17 +401,17 @@ class RangeCheckProver {
             );
 
             // Prepare z constant coefficients for identity B
-            const b0f = Fr.add(challenges.gamma, proof.eval_f);
-            const b0t = Fr.add(challenges.gamma, proof.eval_table);
+            const b0f = Fr.add(challenges.gamma, proof.evaluations.f);
+            const b0t = Fr.add(challenges.gamma, proof.evaluations.table);
             let coefficientsBZ = Fr.mul(b0f, b0t);
             coefficientsBZ = Fr.mul(coefficientsBZ, challenges.alpha);
 
             // Prepare zw constant coefficients for identity B
-            let b1h1 = Fr.add(challenges.gamma, proof.eval_h1);
-            b1h1 = Fr.mul(b1h1, proof.eval_zw);
+            let b1h1 = Fr.add(challenges.gamma, proof.evaluations.h1);
+            b1h1 = Fr.mul(b1h1, proof.evaluations.zw);
             let coefficientsBH2 = Fr.mul(b1h1, challenges.alpha);
 
-            polynomials.R = new Polynomial();
+            polynomials.R = new Polynomial([], [], Fr);
             polynomials.R.coef = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
@@ -453,7 +455,7 @@ class RangeCheckProver {
                 polynomials.R.coef.set(identityValues, i_n8);
             }
 
-            proof.eval_r = evalPol(polynomials.R.coef, challenges.xi, Fr);
+            proof.addEvaluation("r", evalPol(polynomials.R.coef, challenges.xi, Fr));
 
             let polWxi = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
 
@@ -473,17 +475,17 @@ class RangeCheckProver {
             }
 
             let w0 = polWxi.slice(0, Fr.n8);
-            w0 = Fr.sub(w0, proof.eval_t);
-            w0 = Fr.sub(w0, Fr.mul(challenges.v[0], proof.eval_r));
-            w0 = Fr.sub(w0, Fr.mul(challenges.v[1], proof.eval_f));
-            w0 = Fr.sub(w0, Fr.mul(challenges.v[2], proof.eval_table));
-            w0 = Fr.sub(w0, Fr.mul(challenges.v[3], proof.eval_h1));
+            w0 = Fr.sub(w0, proof.evaluations.t);
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[0], proof.evaluations.r));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[1], proof.evaluations.f));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[2], proof.evaluations.table));
+            w0 = Fr.sub(w0, Fr.mul(challenges.v[3], proof.evaluations.h1));
 
             polWxi.set(w0, 0);
 
             polWxi = divPol1(polWxi, challenges.xi, Fr);
 
-            proof.Wxi = await expTau(polWxi, PTau, curve, logger, "range_check multiexp Wxi");
+            proof.addPolynomial("Wxi", await computepolynomialMultiExp("Wxi", polWxi));
 
             let polWxiw = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
             for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
@@ -494,40 +496,18 @@ class RangeCheckProver {
             }
 
             let w1 = polWxiw.slice(0, Fr.n8);
-            w1 = Fr.sub(w1, proof.eval_zw);
+            w1 = Fr.sub(w1, proof.evaluations.zw);
             polWxiw.set(w1, 0);
 
             polWxiw = divPol1(polWxiw, Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr);
 
-            proof.Wxiw = await expTau(polWxiw, PTau, curve, logger, "range_check multiexp Wxiw");
+            proof.addPolynomial("Wxiw", await computepolynomialMultiExp("Wxiw", polWxiw));
         }
-    }
 
-    toObjectProof(proof, curve) {
-        let res = {};
-        res.F = curve.G1.toObject(proof.F);
-        //TODO remove folowing line
-        res.Table = curve.G1.toObject(proof.Table);
-        res.H1 = curve.G1.toObject(proof.H1);
-        res.H2 = curve.G1.toObject(proof.H2);
-        res.P1 = curve.G1.toObject(proof.P1);
-        res.P2 = curve.G1.toObject(proof.P2);
-        res.Z = curve.G1.toObject(proof.Z);
-        res.T = curve.G1.toObject(proof.T);
-        // res.T1 = curve.G1.toObject(proof.T1);
-        // res.T2 = curve.G1.toObject(proof.T2);
-        // res.T3 = curve.G1.toObject(proof.T3);
-        res.Wxi = curve.G1.toObject(proof.Wxi);
-        res.Wxiw = curve.G1.toObject(proof.Wxiw);
+        async function computepolynomialMultiExp(key, polynomial) {
+            return await expTau(polynomial, PTau, curve, logger, `proof: multiexp ${key}`);
+        }
 
-        res.eval_h1 = curve.Fr.toObject(proof.eval_h1);
-        res.eval_h2 = curve.Fr.toObject(proof.eval_h2);
-        res.eval_f = curve.Fr.toObject(proof.eval_f);
-        res.eval_zw = curve.Fr.toObject(proof.eval_zw);
-        res.eval_r = curve.Fr.toObject(proof.eval_r);
-        res.eval_table = curve.Fr.toObject(proof.eval_table);
-
-        return res;
     }
 
     mul2(a, b, ap, bp, p, Fr) {
