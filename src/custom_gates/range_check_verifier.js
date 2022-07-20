@@ -66,7 +66,7 @@ class RangeCheckVerifier {
             logger.debug("range_check E: " + G1.toString(G1.toAffine(E), 16));
         }
 
-        // 10. Batch validate all evaluations
+        // 10. Batch validate all evaluations.js
         const res = await this.isValidPairing(proof, challenges, vk_verifier, E, F, curve);
 
         if (logger) {
@@ -245,7 +245,7 @@ class RangeCheckVerifier {
         // IDENTITY E
         let elE = challenges.alpha4;
         elE = Fr.mul(elE, challenges.v[0]);
-        const identityE = G1.timesFr(proof.polynomials.P1, elE);
+        // const identityE = G1.timesFr(proof.polynomials.P1, elE);
 
         // IDENTITY F
         let omegaN = Fr.one;
@@ -255,14 +255,14 @@ class RangeCheckVerifier {
         let elF = Fr.sub(challenges.xi, omegaN);
         elF = Fr.mul(elF, challenges.alpha5);
         elF = Fr.mul(elF, challenges.v[0]);
-        const identityF = G1.timesFr(proof.polynomials.P2, elF);
+        // const identityF = G1.timesFr(proof.polynomials.P2, elF);
 
         let res = identityA;
         res = G1.add(res, identityB);
         res = G1.add(res, identityC);
         res = G1.add(res, identityD);
-        res = G1.add(res, identityE);
-        res = G1.add(res, identityF);
+        // res = G1.add(res, identityE);
+        // res = G1.add(res, identityF);
 
         return res;
     }
