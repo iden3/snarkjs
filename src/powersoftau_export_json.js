@@ -19,6 +19,7 @@
 
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
+import { stringifyBigIntsWithField } from "./misc.js";
 
 export default async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
@@ -43,7 +44,7 @@ export default async function exportJson(pTauFilename, verbose) {
 
     await fd.close();
 
-    return pTau;
+    return stringifyBigIntsWithField(curve.Fr, pTau);
 
 
 
@@ -79,7 +80,7 @@ export default async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        await binFileUtils.endReadSection(fd);
+        await binFileUtils.endReadSection(fd, true);
         return res;
     }
 

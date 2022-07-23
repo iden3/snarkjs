@@ -1,10 +1,6 @@
 name: Check snarkjs tutorial
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
 
 jobs:
   test:
@@ -41,6 +37,8 @@ jobs:
       run: snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
     - name: 8. Verify the final ptau
       run: snarkjs powersoftau verify pot12_final.ptau -v
+    - name: Export ptau as JSON (not part of tutorial)
+      run: snarkjs powersoftau export json pot12_final.ptau pot12_final.json -v
     - name: 9. Create the circuit
       run: |
         cat <<EOT > circuit.circom
@@ -68,7 +66,7 @@ jobs:
     - name: 12. Print the constraints
       run: snarkjs r1cs print circuit.r1cs circuit.sym
     - name: 13. Export r1cs to json
-      run: | 
+      run: |
         snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
         cat circuit.r1cs.json
     - name: 14. Generate the reference zkey without phase 2 contributions
@@ -88,6 +86,9 @@ jobs:
       run: snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
     - name: 20. Verify the final zkey
       run: snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
+      # This is a test for a regression in the command
+    - name: Export zkey as JSON (not part of tutorial)
+      run: snarkjs zkey export json circuit_final.zkey circuit_final.zkey.json
     - name: 21. Export the verification key
       run: snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
     - name: 22. Calculate the witness

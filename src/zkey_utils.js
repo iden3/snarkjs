@@ -257,7 +257,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 
 
-async function readHeaderPlonk(fd, sections, protocol, toObject) {
+async function readHeaderPlonk(fd, sections, toObject) {
     const zkey = {};
 
     zkey.protocol = "plonk";
@@ -300,7 +300,7 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
 export async function readZKey(fileName, toObject) {
     const {fd, sections} = await binFileUtils.readBinFile(fileName, "zkey", 1);
 
-    const zkey = await readHeader(fd, sections, "groth16", toObject);
+    const zkey = await readHeader(fd, sections, toObject);
 
     const Fr = new F1Field(zkey.r);
     const Rr = Scalar.mod(Scalar.shl(1, zkey.n8r*8), zkey.r);

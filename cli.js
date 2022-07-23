@@ -40,6 +40,7 @@ import * as plonk from "./src/plonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
+import bfj from "bfj";
 
 import Logger from "logplease";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
@@ -380,8 +381,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1cs.exportJson(r1csName, logger);
 
-    const S = JSON.stringify(r1csObj, null, 1);
-    await fs.promises.writeFile(jsonName, S);
+    await bfj.write(jsonName, r1csObj, { space: 1 });
 
     return 0;
 }
@@ -430,7 +430,7 @@ async function wtnsExportJson(params, options) {
 
     const w = await wtns.exportJson(wtnsName);
 
-    await fs.promises.writeFile(jsonName, JSON.stringify(stringifyBigInts(w), null, 1));
+    await bfj.write(jsonName, stringifyBigInts(w), { space: 1 });
 
     return 0;
 }
@@ -452,9 +452,9 @@ async function zksnarkSetup(params, options) {
     const setup = zkSnark[protocol].setup(cir, options.verbose);
 
     await zkey.utils.write(zkeyName, setup.vk_proof);
-    // await fs.promises.writeFile(provingKeyName, JSON.stringify(stringifyBigInts(setup.vk_proof), null, 1), "utf-8");
+    await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
 
-    await fs.promises.writeFile(verificationKeyName, JSON.stringify(stringifyBigInts(setup.vk_verifier), null, 1), "utf-8");
+    await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
 
     return 0;
 }
@@ -472,8 +472,8 @@ async function groth16Prove(params, options) {
 
     const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -493,8 +493,8 @@ async function groth16FullProve(params, options) {
 
     const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName,  logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -530,8 +530,7 @@ async function zkeyExportVKey(params, options) {
 
     const vKey = await zkey.exportVerificationKey(zkeyName);
 
-    const S = JSON.stringify(utils.stringifyBigInts(vKey), null, 1);
-    await fs.promises.writeFile(verificationKeyName, S);
+    await bfj.write(verificationKeyName, stringifyBigInts(vKey), { space: 1 });
 }
 
 // zkey export json [circuit_final.zkey] [circuit.zkey.json]",
@@ -541,10 +540,9 @@ async function zkeyExportJson(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const zKey = await zkey.exportJson(zkeyName, logger);
+    const zKeyJson = await zkey.exportJson(zkeyName, logger);
 
-    const S = JSON.stringify(utils.stringifyBigInts(zKey), null, 1);
-    await fs.promises.writeFile(zkeyJsonName, S);
+    await bfj.write(zkeyJsonName, zKeyJson, { space: 1 });
 }
 
 async function fileExists(file) {
@@ -805,11 +803,9 @@ async function powersOfTauExportJson(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const pTau = await powersOfTau.exportJson(ptauName, logger);
+    const pTauJson = await powersOfTau.exportJson(ptauName, logger);
 
-    const S = JSON.stringify(stringifyBigInts(pTau), null, 1);
-    await fs.promises.writeFile(jsonName, S);
-
+    await bfj.write(jsonName, pTauJson, { space: 1 });
 }
 
 
@@ -1045,8 +1041,8 @@ async function plonkProve(params, options) {
 
     const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
@@ -1067,8 +1063,8 @@ async function plonkFullProve(params, options) {
 
     const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName,  logger);
 
-    await fs.promises.writeFile(proofName, JSON.stringify(stringifyBigInts(proof), null, 1), "utf-8");
-    await fs.promises.writeFile(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1), "utf-8");
+    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
 
     return 0;
 }
