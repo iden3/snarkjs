@@ -6,12 +6,20 @@ import exportVerificationKey from "./zkey_export_verificationkey.js";
 // module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
 
 
-
 export default async function exportSolidityVerifier(zKeyName, templates, logger) {
 
     const verificationKey = await exportVerificationKey(zKeyName, logger);
 
     let template = templates[verificationKey.protocol];
 
-    return ejs.render(template ,  verificationKey);
+    return ejs.render(template, verificationKey);
+}
+
+export async function exportSolidityRangeCheck(zKeyName, templates, logger) {
+
+    const verificationKey = await exportVerificationKey(zKeyName, logger);
+
+    let template = templates["range"];
+
+    return ejs.render(template, verificationKey);
 }

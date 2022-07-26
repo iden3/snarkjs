@@ -42,6 +42,7 @@ import * as curves from "./src/curves.js";
 import path from "path";
 
 import Logger from "logplease";
+import {exportSolidityRangeCheck} from "./src/zkey_export_solidityverifier.js";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
@@ -573,17 +574,23 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     const templates = {};
 
-    if (await fileExists(path.join(__dirname, "templates"))) {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");    
-    } else {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+    let dir = "";
+    if (!await fileExists(path.join(__dirname, "templates"))) {
+        dir = "..";
     }
-    
+    templates.groth16 = await fs.promises.readFile(path.join(__dirname, dir,  "templates", "verifier_groth16.sol.ejs"), "utf8");
+    templates.plonk = await fs.promises.readFile(path.join(__dirname, dir, "templates", "verifier_plonk.sol.ejs"), "utf8");
+    //TODO remove after developed
+    templates.range = await fs.promises.readFile(path.join(__dirname, dir, "templates", "verifier_range_check.sol.ejs"), "utf8");
+
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
+
+    //TODO remove after developed
+    const verifierCode2 = await zkey.exportSolidityRangeCheck(zkeyName, templates, logger);
+
+    fs.writeFileSync("test/range_check/range_check_verifier.sol", verifierCode2, "utf-8");
 
     return 0;
 }

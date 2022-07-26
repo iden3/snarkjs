@@ -118,8 +118,14 @@ async function plonkVk(zkey, fd, sections) {
             vKey.Qk[i] = curve.G1.toObject(zkey.Qk[i]);
 
             vKey.CG[i] = {};
+
             Object.keys(zkey.customGates[i].preInput).forEach(key => {
-                vKey.CG[i][key] = curve.G1.toObject(zkey.customGates[i].preInput[key]);
+                if(key !== "polynomials") {
+                    vKey.CG[i][key] = zkey.customGates[i].preInput[key];
+                }
+            });
+            Object.keys(zkey.customGates[i].preInput.polynomials).forEach(key => {
+                vKey.CG[i][key] = curve.G1.toObject(zkey.customGates[i].preInput.polynomials[key]);
             });
         }
     }

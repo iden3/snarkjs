@@ -15,4 +15,15 @@ export class Evaluations {
 
         return new Evaluations(evaluations, Fr, logger);
     }
+
+    get length() {
+        let length = this.eval.byteLength / this.Fr.n8;
+        if (length !== Math.floor(this.eval.byteLength / this.Fr.n8)) {
+            throw new Error("Polynomial coefficients buffer has incorrect size");
+        }
+        if (0 === length) {
+            this.logger.warn("Polynomial has length zero");
+        }
+        return length;
+    }
 }

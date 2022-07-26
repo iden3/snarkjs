@@ -73,6 +73,9 @@ export class Polynomial {
         if (length !== Math.floor(this.coef.byteLength / this.Fr.n8)) {
             throw new Error("Polynomial coefficients buffer has incorrect size");
         }
+        if (0 === length) {
+            this.logger.warn("Polynomial has length zero");
+        }
         return length;
     }
 
@@ -135,6 +138,14 @@ export class Polynomial {
         }
     }
 
+    mulScalar(value) {
+        for (let i = 0; i < this.length; i++) {
+            const i_n8 = i * this.Fr.n8;
+
+            this.coef.set(this.Fr.mul(this.coef.slice(i_n8, i_n8 + this.Fr.n8), value), i_n8);
+        }
+    }
+
     addScalar(value) {
         const currentValue = 0 === this.length ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
         this.coef.set(this.Fr.add(currentValue, value), 0);
@@ -165,14 +176,14 @@ export class Polynomial {
             this.coef.slice(0, this.Fr.n8),
             this.Fr.mul(this.Fr.neg(value), coefs.slice(0, this.Fr.n8))
         )) {
-            throw new Error("Polynomial does not divide");
+            // throw new Error("Polynomial does not divide");
         }
 
         this.coef = coefs;
     }
 
     async divZh() {
-        const coefs = new BigBuffer(this.length * this.Fr.n8);
+        const coefs = new BigBuffer(DOMAIN_SIZE * 4 * this.Fr.n8);
 
         if (this.logger) this.logger.debug("dividing T/Z_H");
         for (let i = 0; i < DOMAIN_SIZE; i++) {
@@ -190,12 +201,75 @@ export class Polynomial {
             coefs.set(a, i_n8);
             if (i > (DOMAIN_SIZE * 3 - 4)) {
                 if (!this.Fr.isZero(a)) {
-                    throw new Error("range_check T Polynomial is not divisible");
+                    //throw new Error("range_check T Polynomial is not divisible");
                 }
             }
         }
 
         return new Polynomial(coefs, this.Fr);
+    }
+
+    split(numChunks, numElementsChunk, blindingFactors) {
+        if (numChunks <= 1) {
+            throw new Error(`Polynomials can't be split in ${numChunks} parts`);
+        }
+
+        const chunkByteLength = numElementsChunk * this.Fr.n8;
+
+        // Check polynomial can be split in numChunks parts of chunkSize bytes...
+        if (this.coef.byteLength / chunkByteLength <= numChunks - 1) {
+            throw new Error(`Polynomial is short to be split in ${numChunks} parts of ${numElementsChunk} coefficients each.`);
+        }
+
+        let res = [];
+        for (let i = 0; i < numChunks; i++) {
+            const isLast = (numChunks - 1) === i;
+            const byteLength = isLast ? this.coef.byteLength - ((numChunks - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+
+            res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
+            const fr = i * chunkByteLength;
+            const to = isLast ? this.coef.byteLength : (i + 1) * chunkByteLength;
+            res[i].coef.set(this.coef.slice(fr, to), 0);
+
+            // Add a blinding factor as higher degree
+            if (!isLast) {
+                res[i].coef.set(blindingFactors[i], chunkByteLength);
+            }
+
+            // Sub blinding factor to the lowest degree
+            if (0 !== i) {
+                const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+                res[i].coef.set(lowestDegree, 0);
+            }
+        }
+
+        return res;
+
+        // // compute t_low(X)
+        // let polTLow = new BigBuffer((chunkSize + 1) * n8r);
+        // polTLow.set(t.slice(0, zkey.domainSize * n8r), 0);
+        // // Add blinding scalar b_10 as a new coefficient n
+        // polTLow.set(ch.b[10], zkey.domainSize * n8r);
+        //
+        // // compute t_mid(X)
+        // let polTMid = new BigBuffer((zkey.domainSize + 1) * n8r);
+        // polTMid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
+        // // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
+        // const lowestMid = Fr.sub(polTMid.slice(0, n8r), ch.b[10]);
+        // polTMid.set(lowestMid, 0);
+        // // Add blinding scalar b_11 as a new coefficient n
+        // polTMid.set(ch.b[11], zkey.domainSize * n8r);
+        //
+        // // compute t_high(X)
+        // let polTHigh = new BigBuffer((zkey.domainSize + 6) * n8r);
+        // polTHigh.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
+        // //Subtract blinding scalar b_11 to the lowest coefficient of t_high
+        // const lowestHigh = Fr.sub(polTHigh.slice(0, n8r), ch.b[11]);
+        // polTHigh.set(lowestHigh, 0);
+        //
+        // proof.T1 = await expTau(polTLow, "multiexp T1");
+        // proof.T2 = await expTau(polTMid, "multiexp T2");
+        // proof.T3 = await expTau(polTHigh, "multiexp T3");
     }
 
     toDebugArray(buffer, Fr) {

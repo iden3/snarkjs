@@ -50,7 +50,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1 << 22, 1 << 24);
 
-    const r1cs = await readR1cs(r1csName, {loadConstraints: true, loadMap: false, loadCustomGates: true, singleThread: false});
+    const r1cs = await readR1cs(r1csName, {
+        loadConstraints: true,
+        loadMap: false,
+        loadCustomGates: true,
+        singleThread: false
+    });
 
     let customGates;
     if (r1cs.useCustomGates) {
@@ -77,7 +82,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
     let nSections = r1cs.useCustomGates ? 16 : 14;
-    if(r1cs.useCustomGates) {
+    if (r1cs.useCustomGates) {
         nSections += customGates.gates.length * 3;
     }
 
@@ -91,7 +96,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         return -1;
     }
 
-    let cirPower = log2(plonkConstraints.length -1) +1;
+    let cirPower = log2(plonkConstraints.length - 1) + 1;
     if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
     const domainSize = 2 ** cirPower;
 
@@ -174,8 +179,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     ////////////
 
     await startWriteSection(fdZKey, 14);
-    const buffOut = new BigBuffer((domainSizeExt + 6) * sG1);
-    await fdPTau.readToBuffer(buffOut, 0, (domainSizeExt + 6) * sG1, sectionsPTau[2][0].p);
+    const buffOut = new BigBuffer((domainSizeExt * 4 + 6) * sG1);
+    await fdPTau.readToBuffer(buffOut, 0, (domainSizeExt * 4 + 6) * sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
     await endWriteSection(fdZKey);
     forceGarbageCollection();
@@ -374,6 +379,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await startWriteSection(fdZKey, customGates.gates[idx].preprocessedSectionId);
 
         vk.customGates[idx].preInput = {};
+        vk.customGates[idx].preInput.data = preInput.data;
+
         const keys = customGates.gates[idx].preprocessedInputKeys;
 
         //Write polynomials
@@ -559,6 +566,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
                 await startWriteSection(fdZKey, customGates.gates[i].headerSectionId);
                 await fdZKey.write(G1.toAffine(vk.customGates[i].Qk));
+
+                for (let j = 0; j < keys.data.length; j++) {
+                    await fdZKey.writeULE32(vk.customGates[i].preInput.data[keys.data[j]]);
+                }
 
                 for (let j = 0; j < keys.polynomials.length; j++) {
                     await fdZKey.write(vk.customGates[i].preInput[keys.polynomials[j]]);

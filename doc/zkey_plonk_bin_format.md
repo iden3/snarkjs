@@ -241,7 +241,7 @@ Any order of the section must be accepted.
 #### Section 12. Sigma Section
 #### Section 13. Lagrange Polynomials Section
 #### Section 14. Ptau points Section
-#### Section 15. Custom gates List Section [only on UltraPlonk schemes]
+#### Section 15. Custom gates List Section [only on custom gates schemes]
 
 Section Identifier: 0x00000010
 
@@ -280,7 +280,7 @@ Section Identifier: 0x00000010
 Custom gates are identified by the position in the list starting at index 0.
 
 
-#### Section 16. Custom gates Preprocessed Info Section [only on UltraPlonk schemes]
+#### Section 16. Custom gates Preprocessed Info Section [only on custom gates schemes]
 
        Custom gates preprocessed info offsets 
      ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -651,7 +651,7 @@ Section Type: 0x04
 
 Custom gates are identified by the position in the list starting at index 0.
 
-### Custom gates Application Section [Plonk]
+### Custom gates Application Section [only on custom gates schemes]
 
 Section Type: 0x05
 

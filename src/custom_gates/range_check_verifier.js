@@ -18,7 +18,7 @@
 */
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
-import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
+import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C} from "./range_check_gate.js";
 
 class RangeCheckVerifier {
     async verifyProof(proof, vk_verifier, curve, logger) {
@@ -112,9 +112,11 @@ class RangeCheckVerifier {
         challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.polynomials.T);
+        transcript.appendPolCommitment(proof.polynomials.T1);
+        transcript.appendPolCommitment(proof.polynomials.T2);
+        transcript.appendPolCommitment(proof.polynomials.T3);
 
-        challenges.xi = transcript.getChallenge();
+        challenges.xi = Fr.one;//transcript.getChallenge();
         challenges.xin = challenges.xi;
         for (let i = 0; i < CIRCUIT_POWER; i++) {
             challenges.xin = Fr.square(challenges.xin);
@@ -124,7 +126,6 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.evaluations.f);
         transcript.appendScalar(proof.evaluations.table);
         transcript.appendScalar(proof.evaluations.h1);
-        transcript.appendScalar(proof.evaluations.h2);
         transcript.appendScalar(proof.evaluations.zw);
 
         // 1. Get opening challenge v ∈ Zp.
@@ -132,7 +133,7 @@ class RangeCheckVerifier {
         challenges.v[0] = transcript.getChallenge();
         if (logger) logger.debug("v: " + Fr.toString(challenges.v[0]));
 
-        for (let i = 1; i < 4; i++) {
+        for (let i = 1; i < 6; i++) {
             challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
         }
 
@@ -196,10 +197,21 @@ class RangeCheckVerifier {
         let elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], Fr.e(MAX_RANGE));
         elD = Fr.mul(elD, challenges.alpha3);
 
+        // IDENTITY F
+        let omegaN = Fr.one;
+        for (let i = 1; i < DOMAIN_SIZE; i++) {
+            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
+        }
+        let elF = Fr.sub(challenges.xi, omegaN);
+        elF = Fr.mul(elF, this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr));
+        elF = Fr.mul(elF, challenges.alpha5);
+        elF = Fr.mul(elF, challenges.v[0]);
+
         let res = proof.evaluations.r;
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
         res = Fr.sub(res, elD);
+        res = Fr.add(res, elF);
 
         res = Fr.div(res, challenges.zh);
 
@@ -245,38 +257,41 @@ class RangeCheckVerifier {
         // IDENTITY E
         let elE = challenges.alpha4;
         elE = Fr.mul(elE, challenges.v[0]);
-        // const identityE = G1.timesFr(proof.polynomials.P1, elE);
+        const identityE = G1.timesFr(proof.polynomials.P1, elE);
 
         // IDENTITY F
-        let omegaN = Fr.one;
-        for (let i = 0; i < DOMAIN_SIZE - 1; i++) {
-            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER + 2]);
-        }
-        let elF = Fr.sub(challenges.xi, omegaN);
-        elF = Fr.mul(elF, challenges.alpha5);
-        elF = Fr.mul(elF, challenges.v[0]);
+        // let omegaN = Fr.one;
+        // for (let i = 1; i < DOMAIN_SIZE; i++) {
+        //     omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
+        // }
+        // let elF = Fr.sub(challenges.xi, omegaN);
+        // elF = Fr.mul(elF, challenges.alpha5);
+        // elF = Fr.mul(elF, challenges.v[0]);
         // const identityF = G1.timesFr(proof.polynomials.P2, elF);
 
         let res = identityA;
         res = G1.add(res, identityB);
         res = G1.add(res, identityC);
         res = G1.add(res, identityD);
-        // res = G1.add(res, identityE);
+        res = G1.add(res, identityE);
         // res = G1.add(res, identityF);
 
         return res;
     }
 
     computeF(proof, challenges, D, curve) {
+        const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        let res = proof.polynomials.T;
-        // let res = G1.add(proof.T1, G1.timesFr(proof.T2, challenges.xin));
-        // res = G1.add(res, G1.timesFr(proof.T3, Fr.square(challenges.xin)));
+        let res = proof.polynomials.T1;
+        res = G1.add(res, G1.timesFr(proof.polynomials.T2, challenges.xin));
+        res = G1.add(res, G1.timesFr(proof.polynomials.T3, Fr.square(challenges.xin)));
+
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
         res = G1.add(res, G1.timesFr(proof.polynomials.Table, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
 
         return res;
     }
@@ -291,6 +306,7 @@ class RangeCheckVerifier {
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.table));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
+        res = Fr.add(res, Fr.mul(Fr.one, proof.evaluations.h1w));
 
         res = G1.timesFr(G1.one, res);
 
@@ -316,6 +332,15 @@ class RangeCheckVerifier {
         let B2 = curve.G2.one;
 
         return await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
+    }
+
+    getResultPolP(x, Fr) {
+        let res = Fr.one;
+
+        for (let i = 0; i <= C; i++) {
+            res = Fr.mul(res, Fr.sub(x, Fr.e(i)));
+        }
+        return res;
     }
 }
 
