@@ -1,4 +1,5 @@
-pragma ultraPlonk;
+pragma circom 2.0.6;
+pragma custom_templates;
 
 include "range_check.circom";
 
