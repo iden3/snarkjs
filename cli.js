@@ -43,6 +43,7 @@ import path from "path";
 import bfj from "bfj";
 
 import Logger from "logplease";
+import * as binFileUtils from "@iden3/binfileutils";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
@@ -297,6 +298,13 @@ const commands = [
         alias: ["pkv"],
         options: "-verbose|v",
         action: plonkVerify
+    },
+    {
+        cmd: "file info [binary.file] [zkey|ptau|r1cs|wtns]",
+        description: "Check info of a binary file",
+        alias: ["fi"],
+        options: "-verbose|v",
+        action: fileInfo
     }
 ];
 
@@ -1089,5 +1097,52 @@ async function plonkVerify(params, options) {
         return 0;
     } else {
         return 1;
+    }
+}
+
+async function fileInfo(params) {
+    const filename = params[0];
+    const extension = filename.split(".").pop();
+
+    if (!["zkey", "r1cs", "ptau", "wtns"].includes(extension)) {
+        console.error(`Extension ${extension} is not allowed.`);
+        return;
+    }
+
+    try {
+        const {
+            fd: fd,
+            sections: sections
+        } = await binFileUtils.readBinFile(filename, extension, 2, 1 << 25, 1 << 23);
+
+        console.log(`File info for  ${filename}`);  //cyan
+        console.log();
+        console.log(`File size:     ${fd.totalSize}`);
+        console.log(`File type:     ${extension}`);
+        console.log(`Version:       ${fd.version}`);
+        console.log(`Bin version:   ${fd.binVersion}`);
+        console.log("");
+
+        sections.forEach((section, index) => {
+            let errors = [];
+            if (section.length > 1) errors.push("Section has more than one data chunk");
+            else {
+                if (section[0].size === 0) {
+                    errors.push("Section size has zero bytes. This could generates side errors on other sections");
+                }
+            }
+
+            const color = errors.length === 0 ? "%s%s%s" : "%s\x1b[31m%s\x1b[0m%s";
+            const text0 = "section " + ("#" + index).padStart(4, " ");
+            const text1 = errors.length === 0 ? "   " : " !!";
+            const text2 = ` size: ${section[0].size}\toffset: 0x${(section[0].p - 12).toString(16)}`;
+            console.log(color, text0, text1, text2);
+            errors.forEach((error) => {
+                console.error("\x1b[31m%s\x1b[0m", "                > " + error);
+            });
+        });
+    } catch (error)
+    {
+        console.error(error.message);
     }
 }
