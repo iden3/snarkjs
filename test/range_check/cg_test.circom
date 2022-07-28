@@ -1,5 +1,5 @@
-pragma circom 2.0.4;
-pragma ultraPlonk;
+pragma circom 2.0.6;
+pragma custom_templates;
 
 include "range_check.circom";
 
@@ -7,7 +7,8 @@ template Foo() {
     signal input lower_bound;
     signal input upper_bound;
     signal input to_check;
-    custom_component rangeCheck = RangeCheck();
+
+    component rangeCheck = RangeCheck();
 
     rangeCheck.lower_bound <== lower_bound;
     rangeCheck.upper_bound <== upper_bound;

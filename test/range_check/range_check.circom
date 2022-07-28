@@ -1,6 +1,7 @@
-pragma circom 2.0.4;
+pragma circom 2.0.6;
+pragma custom_templates;
 
-custom_gate RangeCheck() {
+template custom RangeCheck() {
     signal input lower_bound;
     signal input upper_bound;
     signal input to_check;
