@@ -1115,30 +1115,33 @@ async function fileInfo(params) {
             sections: sections
         } = await binFileUtils.readBinFile(filename, extension, 2, 1 << 25, 1 << 23);
 
-        console.log(`File info for  ${filename}`);  //cyan
+        console.log(`File info for    ${filename}`);
         console.log();
-        console.log(`File size:     ${fd.totalSize}`);
-        console.log(`File type:     ${extension}`);
-        console.log(`Version:       ${fd.version}`);
-        console.log(`Bin version:   ${fd.binVersion}`);
+        console.log(`File size:       ${fd.totalSize} bytes`);
+        console.log(`File type:       ${extension}`);
+        console.log(`Version:         ${fd.version}`);
+        console.log(`Bin version:     ${fd.binVersion}`);
         console.log("");
 
         sections.forEach((section, index) => {
             let errors = [];
-            if (section.length > 1) errors.push("Section has more than one data chunk");
+            if (section.length > 1) errors.push(`Section ${index} has more than one section definition`);
             else {
                 if (section[0].size === 0) {
-                    errors.push("Section size has zero bytes. This could generates side errors on other sections");
+                    errors.push(`Section ${index} size is zero. This could generate side errors on other sections.`);
                 }
+            }
+            if(section[0].p + section[0].size > fd.totalSize) {
+                errors.push(`Section ${index} is out of bounds of he file.`);
             }
 
             const color = errors.length === 0 ? "%s%s%s" : "%s\x1b[31m%s\x1b[0m%s";
-            const text0 = "section " + ("#" + index).padStart(4, " ");
+            const text0 = "section " + ("#" + index).padStart(5, " ");
             const text1 = errors.length === 0 ? "   " : " !!";
             const text2 = ` size: ${section[0].size}\toffset: 0x${(section[0].p - 12).toString(16)}`;
             console.log(color, text0, text1, text2);
             errors.forEach((error) => {
-                console.error("\x1b[31m%s\x1b[0m", "                > " + error);
+                console.error("\x1b[31m%s\x1b[0m", "                 > " + error);
             });
         });
     } catch (error)
