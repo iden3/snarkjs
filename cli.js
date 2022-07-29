@@ -300,10 +300,9 @@ const commands = [
         action: plonkVerify
     },
     {
-        cmd: "file info [binary.file] [zkey|ptau|r1cs|wtns]",
+        cmd: "file info [binary.file]",
         description: "Check info of a binary file",
         alias: ["fi"],
-        options: "-verbose|v",
         action: fileInfo
     }
 ];
@@ -1128,11 +1127,11 @@ async function fileInfo(params) {
             if (section.length > 1) errors.push(`Section ${index} has more than one section definition`);
             else {
                 if (section[0].size === 0) {
-                    errors.push(`Section ${index} size is zero. This could generate side errors on other sections.`);
+                    errors.push(`Section ${index} size is zero. This could cause false errors in other sections.`);
                 }
             }
             if(section[0].p + section[0].size > fd.totalSize) {
-                errors.push(`Section ${index} is out of bounds of he file.`);
+                errors.push(`Section ${index} is out of bounds of the file.`);
             }
 
             const color = errors.length === 0 ? "%s%s%s" : "%s\x1b[31m%s\x1b[0m%s";
