@@ -116,7 +116,7 @@ class RangeCheckVerifier {
         transcript.appendPolCommitment(proof.polynomials.T2);
         transcript.appendPolCommitment(proof.polynomials.T3);
 
-        challenges.xi = Fr.one;//transcript.getChallenge();
+        challenges.xi = transcript.getChallenge();
         challenges.xin = challenges.xi;
         for (let i = 0; i < CIRCUIT_POWER; i++) {
             challenges.xin = Fr.square(challenges.xin);
@@ -126,6 +126,7 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.evaluations.f);
         transcript.appendScalar(proof.evaluations.table);
         transcript.appendScalar(proof.evaluations.h1);
+        transcript.appendScalar(proof.evaluations.h2);
         transcript.appendScalar(proof.evaluations.zw);
 
         // 1. Get opening challenge v ∈ Zp.
@@ -211,7 +212,7 @@ class RangeCheckVerifier {
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
         res = Fr.sub(res, elD);
-        res = Fr.add(res, elF);
+        // res = Fr.add(res, elF);
 
         res = Fr.div(res, challenges.zh);
 
@@ -291,7 +292,7 @@ class RangeCheckVerifier {
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
         res = G1.add(res, G1.timesFr(proof.polynomials.Table, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
-        res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
+        // res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
 
         return res;
     }
@@ -306,7 +307,7 @@ class RangeCheckVerifier {
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.table));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
-        res = Fr.add(res, Fr.mul(Fr.one, proof.evaluations.h1w));
+        // res = Fr.add(res, Fr.mul(Fr.one, proof.evaluations.h1w));
 
         res = G1.timesFr(G1.one, res);
 

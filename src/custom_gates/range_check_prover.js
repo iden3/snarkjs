@@ -101,36 +101,33 @@ class RangeCheckProver {
             polynomials.H1.blindCoefficients([challenges.b[4], challenges.b[5]]);
             polynomials.H2.blindCoefficients([challenges.b[6], challenges.b[7]]);
 
-            let buffP1 = new BigBuffer(buffers.H1.byteLength);
-            let buffP2 = new BigBuffer(buffers.H2.byteLength);
+            let buffP1 = new BigBuffer(DOMAIN_SIZE * Fr.n8);
+            let buffP2 = new BigBuffer(DOMAIN_SIZE * Fr.n8);
 
-            for (let i = 0; i < h1.vec.length; i++) {
-                const item_h1w = h1.getElementAt((i + 1) % h1.vec.length);
-                const item_h1 = h1.getElementAt(i);
-                const item_h2 = h2.getElementAt(i);
+            for (let i = 0; i < DOMAIN_SIZE; i++) {
+                const i_n8 = i * Fr.n8;
+                const h1_i = Fr.add(buffers.H1.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
+                const h2_i = Fr.add(buffers.H2.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
 
-                const item_p1 = self.getResultPolP(Fr.sub(item_h2, item_h1), Fr);
-                buffP1.set(item_p1, i * Fr.n8);
-
-                const item_p2 = self.getResultPolP(Fr.sub(item_h1w, item_h2), Fr);
-                buffP2.set(item_p2, i * Fr.n8);
+                const item_p1 = self.getResultPolP(Fr.sub(h2_i, h1_i), Fr);
+                buffP1.set(item_p1, i_n8);
             }
 
             polynomials.P1 = await Polynomial.fromBuffer(buffP1, Fr, logger);
-            polynomials.P2 = await Polynomial.fromBuffer(buffP2, Fr, logger);
+            // polynomials.P2 = await Polynomial.fromBuffer(buffP2, Fr, logger);
 
             evaluations.P1 = await Evaluations.fromPolynomial(polynomials.P1, Fr, logger);
-            evaluations.P2 = await Evaluations.fromPolynomial(polynomials.P2, Fr, logger);
+            // evaluations.P2 = await Evaluations.fromPolynomial(polynomials.P2, Fr, logger);
 
             polynomials.P1.blindCoefficients([challenges.b[8], challenges.b[9]]);
-            polynomials.P2.blindCoefficients([]);
+            // polynomials.P2.blindCoefficients([]);
 
             proof.addPolynomial("F", await multiExpPolynomial("F", polynomials.F));
             proof.addPolynomial("Table", await multiExpPolynomial("Table", polynomials.Table));
             proof.addPolynomial("H1", await multiExpPolynomial("H1", polynomials.H1));
             proof.addPolynomial("H2", await multiExpPolynomial("H2", polynomials.H2));
             proof.addPolynomial("P1", await multiExpPolynomial("P1", polynomials.P1));
-            proof.addPolynomial("P2", await multiExpPolynomial("P2", polynomials.P2));
+            // proof.addPolynomial("P2", await multiExpPolynomial("P2", polynomials.P2));
         }
 
         async function round2() {
@@ -230,7 +227,7 @@ class RangeCheckProver {
                 const h1w_i = evaluations.H1.eval.slice(((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8, ((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8 + Fr.n8);
                 const h2_i = evaluations.H2.eval.slice(i_n8, i_n8 + Fr.n8);
                 const p1_i = evaluations.P1.eval.slice(i_n8, i_n8 + Fr.n8);
-                const p2_i = evaluations.P2.eval.slice(i_n8, i_n8 + Fr.n8);
+                // const p2_i = evaluations.P2.eval.slice(i_n8, i_n8 + Fr.n8);
                 const lagrange1_i = lagrange1.eval.slice(i_n8, i_n8 + Fr.n8);
                 const lagrangeN_i = lagrangeN.eval.slice(i_n8, i_n8 + Fr.n8);
 
@@ -239,7 +236,7 @@ class RangeCheckProver {
                 const h1p_i = Fr.add(challenges.b[4], Fr.mul(challenges.b[5], omega));
                 const h2p_i = Fr.add(challenges.b[6], Fr.mul(challenges.b[7], omega));
                 const p1p_i = Fr.add(challenges.b[8], Fr.mul(challenges.b[9], omega));
-                const p2p_i = Fr.zero;//Fr.add(challenges.b[10], Fr.mul(challenges.b[11], omega));
+                const p2p_i = Fr.add(challenges.b[10], Fr.mul(challenges.b[11], omega));
                 const zp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], omega));
                 const zWp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], Fr.mul(omega, Fr.w[CIRCUIT_POWER])));
 
@@ -281,8 +278,8 @@ class RangeCheckProver {
                 identityEz = p1p_i;
 
                 // IDENTITY F) (x−ω^n)P(h1(xω)−h2(x))=0
-                identityF = Fr.mul(Fr.sub(omega, omegaN), self.getResultPolP(Fr.sub(h1w_i, h2_i), Fr));
-                identityFz = p2p_i;
+                // identityF = Fr.mul(Fr.sub(omega, omegaN), self.getResultPolP(Fr.sub(h1w_i, h2_i), Fr));
+                // identityFz = p2p_i;
 
                 //Apply alpha random factor
                 identityB = Fr.mul(identityB, challenges.alpha);
@@ -302,14 +299,14 @@ class RangeCheckProver {
                 identities = Fr.add(identities, identityC);
                 identities = Fr.add(identities, identityD);
                 identities = Fr.add(identities, identityE);
-                identities = Fr.add(identities, identityF);
+                // identities = Fr.add(identities, identityF);
 
                 let identitiesZ = identityAz;
                 identitiesZ = Fr.add(identitiesZ, identityBz);
                 identitiesZ = Fr.add(identitiesZ, identityCz);
                 identitiesZ = Fr.add(identitiesZ, identityDz);
                 identitiesZ = Fr.add(identitiesZ, identityEz);
-                identitiesZ = Fr.add(identitiesZ, identityFz);
+                // identitiesZ = Fr.add(identitiesZ, identityFz);
 
                 buffT.set(identities, i_n8);
                 buffTz.set(identitiesZ, i_n8);
@@ -351,8 +348,8 @@ class RangeCheckProver {
             proof.addEvaluation("f", polynomials.F.evaluate(challenges.xi));
             proof.addEvaluation("table", polynomials.Table.evaluate(challenges.xi));
             proof.addEvaluation("h1", polynomials.H1.evaluate(challenges.xi));
-            proof.addEvaluation("h1w", polynomials.H1.evaluate(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr));
-            proof.addEvaluation("h2", polynomials.H2.evaluate(challenges.xi));
+            // proof.addEvaluation("h1w", polynomials.H1.evaluate(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr));
+            // proof.addEvaluation("h2", polynomials.H2.evaluate(challenges.xi));
             proof.addEvaluation("zw", polynomials.Z.evaluate(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]), Fr));
         }
 
@@ -361,6 +358,7 @@ class RangeCheckProver {
             transcript.appendScalar(proof.evaluations.f);
             transcript.appendScalar(proof.evaluations.table);
             transcript.appendScalar(proof.evaluations.h1);
+            transcript.appendScalar(proof.evaluations.h2);
             transcript.appendScalar(proof.evaluations.zw);
 
             // 1. Get opening challenge v ∈ Zp.
@@ -464,7 +462,7 @@ class RangeCheckProver {
             polWxi.add(polynomials.F, challenges.v[1]);
             polWxi.add(polynomials.Table, challenges.v[2]);
             polWxi.add(polynomials.H1, challenges.v[3]);
-            polWxi.add(polynomials.H2, challenges.v[4]);
+            // polWxi.add(polynomials.H2, challenges.v[4]);
 
             const evaluation_t = polynomials.T.evaluate(challenges.xi);
 
@@ -473,16 +471,16 @@ class RangeCheckProver {
             polWxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.f));
             polWxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.table));
             polWxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.h1));
-            polWxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.h2));
+            // polWxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.h2));
 
             polWxi.divByXValue(challenges.xi);
 
             // Compute opening proof polynomial W_{xiω}
             let polWxiw = new Polynomial(polynomials.Z.coef.slice(), Fr, logger);
-            polWxi.add(polynomials.H1);
+            // polWxi.add(polynomials.H1);
 
             polWxiw.subScalar(proof.evaluations.zw);
-            polWxiw.subScalar(Fr.mul(Fr.one, proof.evaluations.h1w));
+            // polWxiw.subScalar(Fr.mul(Fr.one, proof.evaluations.h1w));
 
             polWxiw.divByXValue(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]));
 
