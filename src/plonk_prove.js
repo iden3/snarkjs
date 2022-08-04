@@ -138,6 +138,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
             proof.customGates[i] = {};
             proof.customGates[i].id = customGates.gates[i].id;
+            proof.customGates[i].parameters = customGates.gates[i].parameters;
             proof.customGates[i].proof = _proof.toObjectProof();
         }
     }

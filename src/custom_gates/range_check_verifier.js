@@ -198,21 +198,24 @@ class RangeCheckVerifier {
         let elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], Fr.e(MAX_RANGE));
         elD = Fr.mul(elD, challenges.alpha3);
 
+        // IDENTITY E
+        const elE = Fr.mul(proof.evaluations.p1, challenges.alpha4);
+
         // IDENTITY F
-        let omegaN = Fr.one;
-        for (let i = 1; i < DOMAIN_SIZE; i++) {
-            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
-        }
-        let elF = Fr.sub(challenges.xi, omegaN);
-        elF = Fr.mul(elF, this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr));
-        elF = Fr.mul(elF, challenges.alpha5);
-        elF = Fr.mul(elF, challenges.v[0]);
+        // let omegaN = Fr.one;
+        // for (let i = 1; i < DOMAIN_SIZE; i++) {
+        //     omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
+        // }
+        // let elF = Fr.sub(challenges.xi, omegaN);
+        // elF = Fr.mul(elF, this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr));
+        // elF = Fr.mul(elF, challenges.alpha5);
+        // elF = Fr.mul(elF, challenges.v[0]);
 
         let res = proof.evaluations.r;
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
         res = Fr.sub(res, elD);
-        // res = Fr.add(res, elF);
+        // res = Fr.add(res, elE);
 
         res = Fr.div(res, challenges.zh);
 
@@ -274,7 +277,7 @@ class RangeCheckVerifier {
         res = G1.add(res, identityB);
         res = G1.add(res, identityC);
         res = G1.add(res, identityD);
-        res = G1.add(res, identityE);
+        // res = G1.add(res, identityE);
         // res = G1.add(res, identityF);
 
         return res;
@@ -292,7 +295,8 @@ class RangeCheckVerifier {
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
         res = G1.add(res, G1.timesFr(proof.polynomials.Table, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
-        // res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
+        // res = G1.add(res, proof.polynomials.P1);
+        // res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[5]));
 
         return res;
     }
@@ -306,6 +310,8 @@ class RangeCheckVerifier {
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.table));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
+        // res = Fr.add(res, proof.evaluations.p1);
+        // res = Fr.add(res, Fr.mul(challenges.v[5], proof.evaluations.h2));
         res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
         // res = Fr.add(res, Fr.mul(Fr.one, proof.evaluations.h1w));
 
@@ -320,6 +326,7 @@ class RangeCheckVerifier {
 
         let A1 = proof.polynomials.Wxi;
         A1 = G1.add(A1, G1.timesFr(proof.polynomials.Wxiw, challenges.u));
+        // A1 = G1.add(A1, proof.polynomials.Wxip);
 
         let A2 = vk_verifier.X_2;
 
@@ -327,6 +334,7 @@ class RangeCheckVerifier {
         let B1 = G1.timesFr(proof.polynomials.Wxi, challenges.xi);
         const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[CIRCUIT_POWER]);
         B1 = G1.add(B1, G1.timesFr(proof.polynomials.Wxiw, s));
+        // B1 = G1.add(B1, G1.timesFr(proof.polynomials.Wxip, Fr.sub(proof.evaluations.h2, proof.evaluations.h1)));
         B1 = G1.add(B1, F);
         B1 = G1.sub(B1, E);
 

@@ -94,23 +94,23 @@ class RangeCheckCG extends CustomGate {
         res.data = {power: this.cirPower, maxRange: MAX_RANGE};
 
         //t = polynomial with t_i = c * (i - 1)
-        let t = new Array(N);
+        let Table = new Array(N);
 
         for (let i = 0; i < N; i++) {
             if (i % 10000 === 0) {
                 console.log("Creating preprocessed polynomials for range check");
             }
-            t[i] = Fr.e(C * i);
+            Table[i] = Fr.e(C * i);
         }
 
-        res.polynomials = {t: t};
+        res.polynomials = {Table: Table};
         return res;
     }
 
     get preprocessedInputKeys() {
         return {
             data: ["power", "maxRange"],
-            polynomials: ["t"]
+            polynomials: ["Table"]
         };
     }
 

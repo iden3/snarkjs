@@ -82,10 +82,10 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     if (logger) {
         logger.debug("Lagrange Evaluations: ");
         for (let i=1; i<L.length; i++) {
-            logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));    
+            logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));
         }
     }
-    
+
     if (publicSignals.length != vk_verifier.nPublic) {
         logger.error("Number of public signals does not match with vk");
         return false;
@@ -179,12 +179,6 @@ function fromObjectVk(curve, vk, useCustomGates) {
     res.Qo = G1.fromObject(vk.Qo);
     res.Qc = G1.fromObject(vk.Qc);
 
-    if (useCustomGates) {
-        for (let i = 0; i < vk.Qk.length; i++) {
-            res.Qk[i] = G1.fromObject(vk.Qk[i]);
-        }
-    }
-
     res.S1 = G1.fromObject(vk.S1);
     res.S2 = G1.fromObject(vk.S2);
     res.S3 = G1.fromObject(vk.S3);
@@ -192,6 +186,11 @@ function fromObjectVk(curve, vk, useCustomGates) {
     res.k2 = Fr.fromObject(vk.k2);
     res.X_2 = G2.fromObject(vk.X_2);
 
+    if (useCustomGates) {
+        for (let i = 0; i < res.CG.length; i++) {
+            res.CG[i].Qk = G1.fromObject(res.CG[i].Qk);
+        }
+    }
     return res;
 }
 
@@ -333,6 +332,8 @@ function calculateD(curve, proof, challenges, vk, l1) {
     let s1 = Fr.mul(Fr.mul(proof.eval_a, proof.eval_b), challenges.v[1]);
     let res = G1.timesFr(vk.Qm, s1);
 
+    const equals = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
     if (proof.useCustomGates) {
         for (let i = 0; i < proof.customGates.gates.length; i++) {
             const plonkFactor = proof.customGates.gates[i].plonkFactor(
@@ -341,7 +342,14 @@ function calculateD(curve, proof, challenges, vk, l1) {
                 Fr.mul(proof.eval_c, challenges.v[1]),
                 Fr
             );
-            res = G1.add(res, G1.timesFr(vk.Qk[i], plonkFactor));
+            const vkGate = vk.CG.find( element => {
+                return element.id === proof.customGates.gates[i].id
+                    && equals(element.parameters, proof.customGates.gates[i].parameters);
+            });
+            if(undefined === vkGate) {
+                throw new Error("Custom gate doesn't exist");
+            }
+            res = G1.add(res, G1.timesFr(vkGate.Qk, plonkFactor));
         }
     }
 

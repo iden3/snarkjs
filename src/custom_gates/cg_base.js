@@ -21,7 +21,7 @@ class CustomGate {
     constructor(id, name, parameters) {
         this.id = id;
         this.name = name;
-        this.parameters = parameters;
+        this.parameters = parameters || [];
 
         return this;
     }

@@ -109,24 +109,34 @@ async function plonkVk(zkey, fd, sections) {
     };
 
     if (zkey.useCustomGates) {
-        const length = zkey.Qk.length;
+        vKey.CG = Array();
 
-        vKey.Qk = Array(length);
-        vKey.CG = Array(length);
-
-        for (let i = 0; i < length; i++) {
-            vKey.Qk[i] = curve.G1.toObject(zkey.Qk[i]);
-
+        for (let i = 0; i < zkey.customGates.length; i++) {
             vKey.CG[i] = {};
+            vKey.CG[i].id = zkey.customGates[i].id;
+            vKey.CG[i].parameters = zkey.customGates[i].parameters;
 
             Object.keys(zkey.customGates[i].preInput).forEach(key => {
                 if(key !== "polynomials") {
                     vKey.CG[i][key] = zkey.customGates[i].preInput[key];
                 }
             });
-            Object.keys(zkey.customGates[i].preInput.polynomials).forEach(key => {
-                vKey.CG[i][key] = curve.G1.toObject(zkey.customGates[i].preInput.polynomials[key]);
-            });
+
+            vKey.CG[i].Qk = curve.G1.toObject(zkey.Qk[i]);
+
+            if(undefined !== zkey.customGates[i].preInput.polynomials) {
+                vKey.CG[i].polynomials = {};
+                Object.keys(zkey.customGates[i].preInput.polynomials).forEach(key => {
+                    vKey.CG[i].polynomials[key] = curve.G1.toObject(zkey.customGates[i].preInput.polynomials[key]);
+                });
+            }
+
+            if(undefined !== zkey.customGates[i].preInput.evaluations) {
+                vKey.CG[i].evaluations = {};
+                Object.keys(zkey.customGates[i].preInput.evaluations).forEach(key => {
+                    vKey.CG[i].evaluations[key] = curve.G1.toObject(zkey.customGates[i].preInput.evaluations[key]);
+                });
+            }
         }
     }
 
