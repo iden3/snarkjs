@@ -2,7 +2,7 @@ import {BigBuffer} from "ffjavascript";
 import {DOMAIN_SIZE} from "../custom_gates/range_check_gate.js";
 
 export class Polynomial {
-    constructor(coefficients = new BigBuffer(0), Fr, logger) {
+    constructor(coefficients = new Uint8Array(0), Fr, logger) {
         this.coef = coefficients;
         this.Fr = Fr;
         this.logger = logger;
@@ -74,7 +74,10 @@ export class Polynomial {
             throw new Error("Polynomial coefficients buffer has incorrect size");
         }
         if (0 === length) {
-            this.logger.warn("Polynomial has length zero");
+            if(this.logger)
+            {
+                this.logger.warn("Polynomial has length zero");
+            }
         }
         return length;
     }
