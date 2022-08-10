@@ -339,7 +339,9 @@ export function calculateFirstChallengeHash(curve, power, logger) {
     return hasher.digest();
 
     function hashBlock(buff, n) {
-        const blockSize = 500000;
+        // this block size is a good compromise between speed and the maximum
+        // input size of the Blake2b update method (65,535,720 bytes).
+        const blockSize = 341000;
         const nBlocks = Math.floor(n / blockSize);
         const rem = n % blockSize;
         const bigBuff = new Uint8Array(blockSize * buff.byteLength);

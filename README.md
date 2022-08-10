@@ -21,8 +21,8 @@ The low-level cryptography is performed directly in `wasm`, and uses worker thre
 
 ## Preliminaries
 
-### Install node v14
-First off, make sure you have a recent version of `Node.js` installed. While any version after `v12` should work fine, we recommend you install `v14` or later.
+### Install node
+First off, make sure you have a recent version of `Node.js` installed. While any version after `v12` should work fine, we recommend you install `v16` or later.
 
 If you’re not sure which version of Node you have installed, you can run:
 
