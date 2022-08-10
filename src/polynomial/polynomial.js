@@ -38,6 +38,15 @@ export class Polynomial {
         this.coef = blindedCoefficients;
     }
 
+    getCoef(index) {
+        if(index > this.degree()) {
+            return this.Fr.zero;
+        }
+
+        const i_n8 = index * this.Fr.n8;
+        return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
+    }
+
     static async to4T(buffer, domainSize, blindingFactors, Fr) {
         blindingFactors = blindingFactors || [];
         let a = await Fr.ifft(buffer);

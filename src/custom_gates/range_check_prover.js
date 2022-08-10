@@ -26,6 +26,7 @@ import {Polynomial} from "../polynomial/polynomial.js";
 import {Evaluations} from "../polynomial/evaluations.js";
 import {Proof} from "../proof.js";
 import {mul3} from "../polynomial/mul_z.js";
+import * as Domain from "domain";
 
 
 class RangeCheckProver {
@@ -97,9 +98,9 @@ class RangeCheckProver {
             evaluations.H2 = await Evaluations.fromPolynomial(polynomials.H2, Fr, logger);
 
             polynomials.F.blindCoefficients([challenges.b[0], challenges.b[1]]);
-            polynomials.Table.blindCoefficients([challenges.b[2], challenges.b[3]]);
-            polynomials.H1.blindCoefficients([challenges.b[4], challenges.b[5]]);
-            polynomials.H2.blindCoefficients([challenges.b[6], challenges.b[7]]);
+            polynomials.Table.blindCoefficients([]);
+            polynomials.H1.blindCoefficients([challenges.b[2], challenges.b[3], challenges.b[4]]);
+            polynomials.H2.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
             let buffP1 = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             let buffP2 = new BigBuffer(DOMAIN_SIZE * Fr.n8);
@@ -174,7 +175,7 @@ class RangeCheckProver {
             polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
-            polynomials.Z.blindCoefficients([challenges.b[12], challenges.b[13]]);
+            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
             proof.addPolynomial("Z", await multiExpPolynomial("Z", polynomials.Z));
         }
@@ -232,13 +233,15 @@ class RangeCheckProver {
                 const lagrangeN_i = lagrangeN.eval.slice(i_n8, i_n8 + Fr.n8);
 
                 const fp_i = Fr.add(challenges.b[0], Fr.mul(challenges.b[1], omega));
-                const tp_i = Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omega));
-                const h1p_i = Fr.add(challenges.b[4], Fr.mul(challenges.b[5], omega));
-                const h2p_i = Fr.add(challenges.b[6], Fr.mul(challenges.b[7], omega));
+                const tp_i = Fr.zero;//Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omega));
+                const omega2 = Fr.square(omega);
+                const h1p_i = Fr.add(Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omega)), Fr.mul(challenges.b[4], omega2));
+
+                const h2p_i = Fr.add(challenges.b[5], Fr.mul(challenges.b[6], omega));
                 const p1p_i = Fr.zero;//Fr.add(challenges.b[8], Fr.mul(challenges.b[9], omega));
                 const p2p_i = Fr.add(challenges.b[10], Fr.mul(challenges.b[11], omega));
-                const zp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], omega));
-                const zWp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], Fr.mul(omega, Fr.w[CIRCUIT_POWER])));
+                const zp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
+                const zWp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
 
                 let identityA, identityAz;
                 let identityB, identityBz;
@@ -402,48 +405,65 @@ class RangeCheckProver {
             b1h1 = Fr.mul(b1h1, proof.evaluations.zw);
             let coefficientsBH2 = Fr.mul(b1h1, challenges.alpha);
 
-            let coefficientsR = new BigBuffer((DOMAIN_SIZE + 2) * Fr.n8);
-            for (let i = 0; i < DOMAIN_SIZE + 2; i++) {
+            let coefficientsR = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
+            for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
                 const i_n8 = i * Fr.n8;
 
-                //IDENTITY A) L_1(xi)(Z(x)-1) = 0
-                let identityAValue = Fr.mul(evalL1, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
+                let identityAValue, identityBValue, identityCValue, identityDValue;
 
+                //IDENTITY A) L_1(xi)(Z(x)-1) = 0
+                identityAValue = Fr.mul(evalL1, polynomials.Z.getCoef(i));
+
+                if(i === DOMAIN_SIZE + 2) {
+                    let a = 1;
+                }
                 //IDENTITY B) Z(x)(γ + f(x))(γ + t(x)) = Z(gx)(γ + h1(x))(γ + h2(x))
-                const identityB0Value = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
-                const identityB1Value = Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8));
-                const identityBValue = Fr.sub(identityB0Value, identityB1Value);
+                if (i < DOMAIN_SIZE + 2) {
+                    const identityB0Value = Fr.mul(coefficientsBZ, polynomials.Z.getCoef(i));
+                    const identityB1Value = Fr.mul(coefficientsBH2, polynomials.H2.getCoef(i));
+                    identityBValue = Fr.sub(identityB0Value, identityB1Value);
+                }
 
                 //IDENTITY C) L1(x)h1(x) = 0
-                let identityCValue = Fr.mul(evalL1, polynomials.H1.coef.slice(i_n8, i_n8 + Fr.n8));
+                identityCValue = Fr.mul(evalL1, polynomials.H1.getCoef(i));
 
-                //IDENTITY D) Ln(xi)h2(x) = c(n − 1)
-                let identityDValue = Fr.mul(evalLN, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8));
+                if (i < DOMAIN_SIZE + 2) {
+                    //IDENTITY D) Ln(xi)h2(x) = c(n − 1)
+                    identityDValue = Fr.mul(evalLN, polynomials.H2.getCoef(i));
 
-                //IDENTITY E) P(h2(x) − h1(x)) = 0
-                // let identityEValue = polynomials.P1.coef.slice(i_n8, i_n8 + Fr.n8);
+                    //IDENTITY E) P(h2(x) − h1(x)) = 0
+                    // let identityEValue = polynomials.P1.getCoef(i));
 
-                //IDENTITY F) (x−gn)P(h1(gx)−h2(x))=0
-                // let identityFValue;
-                // if (i < DOMAIN_SIZE) {
-                //     identityFValue = Fr.sub(challenges.xi, omegaN);
-                //     identityFValue = Fr.mul(identityFValue, polynomials.P2.coef.slice(i_n8, i_n8 + Fr.n8));
-                // }
+                    //IDENTITY F) (x−gn)P(h1(gx)−h2(x))=0
+                    // let identityFValue;
+                    // if (i < DOMAIN_SIZE) {
+                    //     identityFValue = Fr.sub(challenges.xi, omegaN);
+                    //     identityFValue = Fr.mul(identityFValue, polynomials.P2.getCoef(i));
+                    // }
+                }
 
                 // Apply alpha challenge
                 // Alpha on identityBValue was applied when computing coefficientsZ and coefficientsZw
                 // This was done to perform the multiplication only one time
                 identityCValue = Fr.mul(identityCValue, challenges.alpha2);
-                identityDValue = Fr.mul(identityDValue, challenges.alpha3);
-                // identityEValue = Fr.mul(identityEValue, challenges.alpha4);
-                // identityFValue = Fr.mul(identityFValue, challenges.alpha5);
+                if (i < DOMAIN_SIZE + 2) {
+                    identityDValue = Fr.mul(identityDValue, challenges.alpha3);
+                    // identityEValue = Fr.mul(identityEValue, challenges.alpha4);
+                    // identityFValue = Fr.mul(identityFValue, challenges.alpha5);
+                }
 
-                let identityValues = identityAValue;
-                identityValues = Fr.add(identityValues, identityBValue);
+                let identityValues = Fr.zero;
+                if (i < DOMAIN_SIZE + 2) {
+                    identityValues = Fr.add(identityValues, identityAValue);
+
+                    identityValues = Fr.add(identityValues, identityBValue);
+                    }
                 identityValues = Fr.add(identityValues, identityCValue);
-                identityValues = Fr.add(identityValues, identityDValue);
-                // identityValues = Fr.add(identityValues, identityEValue);
-                // identityValues = Fr.add(identityValues, identityFValue);
+                if (i < DOMAIN_SIZE + 2) {
+                    identityValues = Fr.add(identityValues, identityDValue);
+                    // identityValues = Fr.add(identityValues, identityEValue);
+                    // identityValues = Fr.add(identityValues, identityFValue);
+                }
 
                 coefficientsR.set(identityValues, i_n8);
             }
