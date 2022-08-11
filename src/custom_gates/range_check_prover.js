@@ -174,7 +174,7 @@ class RangeCheckProver {
             polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
-            polynomials.Z.blindCoefficients([challenges.b[12], challenges.b[13]]);
+            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
             proof.addPolynomial("Z", await multiExpPolynomial("Z", polynomials.Z));
         }
@@ -219,6 +219,8 @@ class RangeCheckProver {
 
                 const i_n8 = i * Fr.n8;
                 const omega2 = Fr.square(omega);
+                const omegaW = Fr.mul(omega, Fr.w[CIRCUIT_POWER]);
+                const omegaW2 = Fr.square(omegaW);
 
                 const z_i = evaluations.Z.eval.slice(i_n8, i_n8 + Fr.n8);
                 const zw_i = evaluations.Z.eval.slice(((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8, ((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8 + Fr.n8);
@@ -238,8 +240,8 @@ class RangeCheckProver {
                 const h2p_i = Fr.add(challenges.b[5], Fr.mul(challenges.b[6], omega));
                 const p1p_i = Fr.zero;//Fr.add(challenges.b[8], Fr.mul(challenges.b[9], omega));
                 const p2p_i = Fr.add(challenges.b[10], Fr.mul(challenges.b[11], omega));
-                const zp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], omega));
-                const zWp_i = Fr.add(challenges.b[12], Fr.mul(challenges.b[13], Fr.mul(omega, Fr.w[CIRCUIT_POWER])));
+                const zp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
+                const zWp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omegaW)), Fr.mul(challenges.b[9], omegaW2));
 
                 let identityA, identityAz;
                 let identityB, identityBz;
@@ -408,16 +410,19 @@ class RangeCheckProver {
                 const i_n8 = i * Fr.n8;
 
                 let identityAValue, identityBValue, identityCValue, identityDValue;
-                if (i < DOMAIN_SIZE + 2) {
-                    //IDENTITY A) L_1(xi)(Z(x)-1) = 0
-                    identityAValue = Fr.mul(evalL1, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
 
-                    //IDENTITY B) Z(x)(γ + f(x))(γ + t(x)) = Z(gx)(γ + h1(x))(γ + h2(x))
-                    const identityB0Value = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
-                    const identityB1Value = Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8));
-                    identityBValue = Fr.sub(identityB0Value, identityB1Value);
-                }
+                //IDENTITY A) L_1(xi)(Z(x)-1) = 0
+                identityAValue = Fr.mul(evalL1, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
 
+                //IDENTITY B) Z(x)(γ + f(x))(γ + t(x)) = Z(gx)(γ + h1(x))(γ + h2(x))
+                // identityBValue = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
+                // if (i < DOMAIN_SIZE + 2) {
+                //     identityBValue = Fr.sub(identityBValue, Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8)));
+                // }
+                const identityB0Value = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
+                const identityB1Value = (i < DOMAIN_SIZE + 2) ? Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8)) : Fr.zero;
+                identityBValue = Fr.sub(identityB0Value, identityB1Value);
+                
                 //IDENTITY C) L1(x)h1(x) = 0
                 identityCValue = Fr.mul(evalL1, polynomials.H1.coef.slice(i_n8, i_n8 + Fr.n8));
 
@@ -447,10 +452,8 @@ class RangeCheckProver {
                 // identityFValue = Fr.mul(identityFValue, challenges.alpha5);
 
                 let identityValues = Fr.zero;
-                if (i < DOMAIN_SIZE + 2) {
-                    identityValues = Fr.add(identityValues, identityAValue);
-                    identityValues = Fr.add(identityValues, identityBValue);
-                }
+                identityValues = Fr.add(identityValues, identityAValue);
+                identityValues = Fr.add(identityValues, identityBValue);
 
                 identityValues = Fr.add(identityValues, identityCValue);
 
