@@ -415,14 +415,10 @@ class RangeCheckProver {
                 identityAValue = Fr.mul(evalL1, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
 
                 //IDENTITY B) Z(x)(γ + f(x))(γ + t(x)) = Z(gx)(γ + h1(x))(γ + h2(x))
-                // identityBValue = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
-                // if (i < DOMAIN_SIZE + 2) {
-                //     identityBValue = Fr.sub(identityBValue, Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8)));
-                // }
                 const identityB0Value = Fr.mul(coefficientsBZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
                 const identityB1Value = (i < DOMAIN_SIZE + 2) ? Fr.mul(coefficientsBH2, polynomials.H2.coef.slice(i_n8, i_n8 + Fr.n8)) : Fr.zero;
                 identityBValue = Fr.sub(identityB0Value, identityB1Value);
-                
+
                 //IDENTITY C) L1(x)h1(x) = 0
                 identityCValue = Fr.mul(evalL1, polynomials.H1.coef.slice(i_n8, i_n8 + Fr.n8));
 
