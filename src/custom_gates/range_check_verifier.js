@@ -134,7 +134,7 @@ class RangeCheckVerifier {
         challenges.v[0] = transcript.getChallenge();
         if (logger) logger.debug("v: " + Fr.toString(challenges.v[0]));
 
-        for (let i = 1; i < 6; i++) {
+        for (let i = 1; i < 5; i++) {
             challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
         }
 
@@ -186,16 +186,21 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
 
         // IDENTITY A
-        let elA = lagrange[0];
+        let elA0 = Fr.add(proof.evaluations.h1, challenges.gamma);
+        let elA1 = Fr.add(proof.evaluations.h2, challenges.gamma);
+        let elA = Fr.mul(elA0, elA1);
+        elA = Fr.mul(elA, proof.evaluations.zw);
 
         // IDENTITY B
-        let elB = Fr.add(proof.evaluations.h1, challenges.gamma);
-        elB = Fr.mul(elB, challenges.gamma);
-        elB = Fr.mul(elB, proof.evaluations.zw);
-        elB = Fr.mul(elB, challenges.alpha);
+        let elB = Fr.mul(lagrange[0], challenges.alpha);
+
+        // IDENTITY C
+        let elC = Fr.mul(lagrange[0], proof.evaluations.h1);
+        elC = Fr.mul(elC, challenges.alpha2);
 
         // IDENTITY D
-        let elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], Fr.e(MAX_RANGE));
+        let elD = Fr.sub(proof.evaluations.h2, Fr.e(MAX_RANGE));
+        elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], elD);
         elD = Fr.mul(elD, challenges.alpha3);
 
         // IDENTITY E
@@ -214,7 +219,8 @@ class RangeCheckVerifier {
         let res = proof.evaluations.r;
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
-        res = Fr.sub(res, elD);
+        res = Fr.add(res, elC);
+        res = Fr.add(res, elD);
         // res = Fr.add(res, elE);
 
         res = Fr.div(res, challenges.zh);
@@ -227,60 +233,20 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
 
         // IDENTITY A
-        let elA = lagrange[0];
-
+        let elA0 = Fr.add(challenges.gamma, proof.evaluations.f);
+        let elA1 = Fr.add(challenges.gamma, proof.evaluations.lookupTable);
+        let elA = Fr.mul(elA0, elA1);
         elA = Fr.mul(elA, challenges.v[0]);
+        elA = Fr.add(elA, challenges.u);
         const identityA = G1.timesFr(proof.polynomials.Z, elA);
 
         // IDENTITY B
-        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.evaluations.f), Fr.add(challenges.gamma, proof.evaluations.lookupTable));
-        elB0 = Fr.mul(elB0, challenges.alpha);
-        elB0 = Fr.mul(elB0, challenges.v[0]);
-        elB0 = Fr.add(elB0, challenges.u);
-        elB0 = G1.timesFr(proof.polynomials.Z, elB0);
+        let elB = lagrange[0];
+        elB = Fr.mul(elB, challenges.v[0]);
+        elB = Fr.mul(elB, challenges.alpha);
+        const identityB = G1.timesFr(proof.polynomials.Z, elB);
 
-        let elB1 = Fr.add(challenges.gamma, proof.evaluations.h1);
-        elB1 = Fr.mul(elB1, proof.evaluations.zw);
-        elB1 = Fr.mul(elB1, challenges.alpha);
-        elB1 = Fr.mul(elB1, challenges.v[0]);
-        elB1 = G1.timesFr(proof.polynomials.H2, elB1);
-        const identityB = G1.sub(elB0, elB1);
-
-        // IDENTITY C
-        let elC = lagrange[0];
-        elC = Fr.mul(elC, challenges.alpha2);
-        elC = Fr.mul(elC, challenges.v[0]);
-        const identityC = G1.timesFr(proof.polynomials.H1, elC);
-
-        // IDENTITY D
-        let elD = lagrange[DOMAIN_SIZE - 1];
-        elD = Fr.mul(elD, challenges.alpha3);
-        elD = Fr.mul(elD, challenges.v[0]);
-        const identityD = G1.timesFr(proof.polynomials.H2, elD);
-
-        // IDENTITY E
-        let elE = challenges.alpha4;
-        elE = Fr.mul(elE, challenges.v[0]);
-        const identityE = G1.timesFr(proof.polynomials.P1, elE);
-
-        // IDENTITY F
-        // let omegaN = Fr.one;
-        // for (let i = 1; i < DOMAIN_SIZE; i++) {
-        //     omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
-        // }
-        // let elF = Fr.sub(challenges.xi, omegaN);
-        // elF = Fr.mul(elF, challenges.alpha5);
-        // elF = Fr.mul(elF, challenges.v[0]);
-        // const identityF = G1.timesFr(proof.polynomials.P2, elF);
-
-        let res = identityA;
-        res = G1.add(res, identityB);
-        res = G1.add(res, identityC);
-        res = G1.add(res, identityD);
-        // res = G1.add(res, identityE);
-        // res = G1.add(res, identityF);
-
-        return res;
+        return G1.add(identityA, identityB);
     }
 
     computeF(proof, challenges, D, curve) {
@@ -295,8 +261,7 @@ class RangeCheckVerifier {
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
         res = G1.add(res, G1.timesFr(proof.polynomials.LookupTable, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
-        // res = G1.add(res, proof.polynomials.P1);
-        // res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[5]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
 
         return res;
     }
@@ -310,10 +275,8 @@ class RangeCheckVerifier {
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
-        // res = Fr.add(res, proof.evaluations.p1);
-        // res = Fr.add(res, Fr.mul(challenges.v[5], proof.evaluations.h2));
+        res = Fr.add(res, Fr.mul(challenges.v[4], proof.evaluations.h2));
         res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
-        // res = Fr.add(res, Fr.mul(Fr.one, proof.evaluations.h1w));
 
         res = G1.timesFr(G1.one, res);
 
@@ -334,7 +297,6 @@ class RangeCheckVerifier {
         let B1 = G1.timesFr(proof.polynomials.Wxi, challenges.xi);
         const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[CIRCUIT_POWER]);
         B1 = G1.add(B1, G1.timesFr(proof.polynomials.Wxiw, s));
-        // B1 = G1.add(B1, G1.timesFr(proof.polynomials.Wxip, Fr.sub(proof.evaluations.h2, proof.evaluations.h1)));
         B1 = G1.add(B1, F);
         B1 = G1.sub(B1, E);
 
