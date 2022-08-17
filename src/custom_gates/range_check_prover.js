@@ -77,27 +77,27 @@ class RangeCheckProver {
             let {h1, h2} = s.halvesAlternating();
 
             buffers.F = f.toBigBuffer();
-            buffers.Table = table.toBigBuffer();
+            buffers.lookupTable = table.toBigBuffer();
             buffers.H1 = h1.toBigBuffer();
             buffers.H2 = h2.toBigBuffer();
 
             // buffers.F = await Fr.batchToMontgomery(buffers.F);
-            // buffers.Table = await Fr.batchToMontgomery(buffers.Table);
+            // buffers.lookupTable = await Fr.batchToMontgomery(buffers.lookupTable);
             // buffers.H1 = await Fr.batchToMontgomery(buffers.H1);
             // buffers.H2 = await Fr.batchToMontgomery(buffers.H2);
 
             polynomials.F = await Polynomial.fromBuffer(buffers.F, Fr, logger);
-            polynomials.Table = await Polynomial.fromBuffer(buffers.Table, Fr, logger);
+            polynomials.LookupTable = await Polynomial.fromBuffer(buffers.lookupTable, Fr, logger);
             polynomials.H1 = await Polynomial.fromBuffer(buffers.H1, Fr, logger);
             polynomials.H2 = await Polynomial.fromBuffer(buffers.H2, Fr, logger);
 
             evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
-            evaluations.Table = await Evaluations.fromPolynomial(polynomials.Table, Fr, logger);
+            evaluations.lookupTable = await Evaluations.fromPolynomial(polynomials.LookupTable, Fr, logger);
             evaluations.H1 = await Evaluations.fromPolynomial(polynomials.H1, Fr, logger);
             evaluations.H2 = await Evaluations.fromPolynomial(polynomials.H2, Fr, logger);
 
             polynomials.F.blindCoefficients([challenges.b[0], challenges.b[1]]);
-            // polynomials.Table.blindCoefficients([challenges.b[2], challenges.b[3]]);
+            // polynomials.LookupTable.blindCoefficients([challenges.b[2], challenges.b[3]]);
             polynomials.H1.blindCoefficients([challenges.b[2], challenges.b[3], challenges.b[4]]);
             polynomials.H2.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
@@ -123,7 +123,7 @@ class RangeCheckProver {
             // polynomials.P2.blindCoefficients([]);
 
             proof.addPolynomial("F", await multiExpPolynomial("F", polynomials.F));
-            proof.addPolynomial("Table", await multiExpPolynomial("Table", polynomials.Table));
+            proof.addPolynomial("LookupTable", await multiExpPolynomial("LookupTable", polynomials.LookupTable));
             proof.addPolynomial("H1", await multiExpPolynomial("H1", polynomials.H1));
             proof.addPolynomial("H2", await multiExpPolynomial("H2", polynomials.H2));
             proof.addPolynomial("P1", await multiExpPolynomial("P1", polynomials.P1));
@@ -149,7 +149,7 @@ class RangeCheckProver {
             for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
                 const f_i = Fr.add(buffers.F.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
-                const t_i = Fr.add(buffers.Table.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
+                const t_i = Fr.add(buffers.lookupTable.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
                 const h1_i = Fr.add(buffers.H1.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
                 const h2_i = Fr.add(buffers.H2.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
 
@@ -225,7 +225,7 @@ class RangeCheckProver {
                 const z_i = evaluations.Z.eval.slice(i_n8, i_n8 + Fr.n8);
                 const zw_i = evaluations.Z.eval.slice(((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8, ((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8 + Fr.n8);
                 const f_i = evaluations.F.eval.slice(i_n8, i_n8 + Fr.n8);
-                const lt_i = evaluations.Table.eval.slice(i_n8, i_n8 + Fr.n8);
+                const lt_i = evaluations.lookupTable.eval.slice(i_n8, i_n8 + Fr.n8);
                 const h1_i = evaluations.H1.eval.slice(i_n8, i_n8 + Fr.n8);
                 const h1w_i = evaluations.H1.eval.slice(((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8, ((i + DOMAIN_SIZE * 4 + 4) % (DOMAIN_SIZE * 4)) * Fr.n8 + Fr.n8);
                 const h2_i = evaluations.H2.eval.slice(i_n8, i_n8 + Fr.n8);
@@ -349,7 +349,7 @@ class RangeCheckProver {
 
             // 2. Compute & output opening evaluations.js
             proof.addEvaluation("f", polynomials.F.evaluate(challenges.xi));
-            proof.addEvaluation("table", polynomials.Table.evaluate(challenges.xi));
+            proof.addEvaluation("lookupTable", polynomials.LookupTable.evaluate(challenges.xi));
             proof.addEvaluation("h1", polynomials.H1.evaluate(challenges.xi));
             // proof.addEvaluation("h2", polynomials.H2.evaluate(challenges.xi));
             // proof.addEvaluation("p1", polynomials.P1.evaluate(Fr.sub(proof.evaluations.h2, proof.evaluations.h1)));
@@ -360,7 +360,7 @@ class RangeCheckProver {
         async function round5() {
             const transcript = new Keccak256Transcript(curve);
             transcript.appendScalar(proof.evaluations.f);
-            transcript.appendScalar(proof.evaluations.table);
+            transcript.appendScalar(proof.evaluations.lookupTable);
             transcript.appendScalar(proof.evaluations.h1);
             transcript.appendScalar(proof.evaluations.h2);
             transcript.appendScalar(proof.evaluations.zw);
@@ -396,7 +396,7 @@ class RangeCheckProver {
 
             // Prepare z constant coefficients for identity B
             const b0f = Fr.add(challenges.gamma, proof.evaluations.f);
-            const b0t = Fr.add(challenges.gamma, proof.evaluations.table);
+            const b0t = Fr.add(challenges.gamma, proof.evaluations.lookupTable);
             let coefficientsBZ = Fr.mul(b0f, b0t);
             coefficientsBZ = Fr.mul(coefficientsBZ, challenges.alpha);
 
@@ -476,7 +476,7 @@ class RangeCheckProver {
 
             polWxi.add(polynomials.R, challenges.v[0]);
             polWxi.add(polynomials.F, challenges.v[1]);
-            polWxi.add(polynomials.Table, challenges.v[2]);
+            polWxi.add(polynomials.LookupTable, challenges.v[2]);
             polWxi.add(polynomials.H1, challenges.v[3]);
             // polWxi.add(polynomials.P1, challenges.v[4]);
             // polWxi.add(polynomials.H2, challenges.v[5]);
@@ -486,7 +486,7 @@ class RangeCheckProver {
             polWxi.subScalar(evaluation_t);
             polWxi.subScalar(Fr.mul(challenges.v[0], eval_r));
             polWxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.f));
-            polWxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.table));
+            polWxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
             polWxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.h1));
             // polWxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.p1));
             // polWxi.subScalar(Fr.mul(challenges.v[5], proof.evaluations.h2));

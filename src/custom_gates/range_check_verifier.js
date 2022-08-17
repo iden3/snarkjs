@@ -124,7 +124,7 @@ class RangeCheckVerifier {
 
         transcript.reset();
         transcript.appendScalar(proof.evaluations.f);
-        transcript.appendScalar(proof.evaluations.table);
+        transcript.appendScalar(proof.evaluations.lookupTable);
         transcript.appendScalar(proof.evaluations.h1);
         transcript.appendScalar(proof.evaluations.h2);
         transcript.appendScalar(proof.evaluations.zw);
@@ -233,7 +233,7 @@ class RangeCheckVerifier {
         const identityA = G1.timesFr(proof.polynomials.Z, elA);
 
         // IDENTITY B
-        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.evaluations.f), Fr.add(challenges.gamma, proof.evaluations.table));
+        let elB0 = Fr.mul(Fr.add(challenges.gamma, proof.evaluations.f), Fr.add(challenges.gamma, proof.evaluations.lookupTable));
         elB0 = Fr.mul(elB0, challenges.alpha);
         elB0 = Fr.mul(elB0, challenges.v[0]);
         elB0 = Fr.add(elB0, challenges.u);
@@ -293,7 +293,7 @@ class RangeCheckVerifier {
 
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
-        res = G1.add(res, G1.timesFr(proof.polynomials.Table, challenges.v[2]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.LookupTable, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
         // res = G1.add(res, proof.polynomials.P1);
         // res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[5]));
@@ -308,7 +308,7 @@ class RangeCheckVerifier {
         let res = t;
         res = Fr.add(res, Fr.mul(challenges.v[0], proof.evaluations.r));
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
-        res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.table));
+        res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         // res = Fr.add(res, proof.evaluations.p1);
         // res = Fr.add(res, Fr.mul(challenges.v[5], proof.evaluations.h2));
