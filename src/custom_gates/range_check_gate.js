@@ -30,7 +30,7 @@ const ZK_RANGE_CHECK_PREPROCESSED_SECTION = 4098;
 
 // lookup table constants
 export const C = 1 << 1;
-export const N = 1 << 4;
+export const N = 1 << 6;
 export const MAX_RANGE = C * (N - 1);
 
 // circuit constants

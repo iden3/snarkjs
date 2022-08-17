@@ -84,7 +84,7 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
 
         Object.keys(proof.polynomials).forEach(key => {
-            if(!G1.isValid(proof.polynomials[key])) return false;
+            if (!G1.isValid(proof.polynomials[key])) return false;
         });
 
         return true;
@@ -128,6 +128,7 @@ class RangeCheckVerifier {
         transcript.appendScalar(proof.evaluations.h1);
         transcript.appendScalar(proof.evaluations.h2);
         transcript.appendScalar(proof.evaluations.zw);
+        transcript.appendScalar(proof.evaluations.h1w);
 
         // 1. Get opening challenge v ∈ Zp.
         challenges.v = [];
@@ -137,6 +138,10 @@ class RangeCheckVerifier {
         for (let i = 1; i < 5; i++) {
             challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
         }
+
+        transcript.reset();
+        transcript.appendScalar(challenges.v[0]);
+        challenges.vp = transcript.getChallenge();
 
         transcript.reset();
         transcript.appendPolCommitment(proof.polynomials.Wxi);
@@ -204,24 +209,27 @@ class RangeCheckVerifier {
         elD = Fr.mul(elD, challenges.alpha3);
 
         // IDENTITY E
-        const elE = Fr.mul(proof.evaluations.p1, challenges.alpha4);
+        let elE = Fr.sub(proof.evaluations.h2, proof.evaluations.h1);
+        elE = this.getResultPolP(elE, Fr);
+        elE = Fr.mul(elE, challenges.alpha4);
 
         // IDENTITY F
-        // let omegaN = Fr.one;
-        // for (let i = 1; i < DOMAIN_SIZE; i++) {
-        //     omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
-        // }
-        // let elF = Fr.sub(challenges.xi, omegaN);
-        // elF = Fr.mul(elF, this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr));
-        // elF = Fr.mul(elF, challenges.alpha5);
-        // elF = Fr.mul(elF, challenges.v[0]);
+        let omegaN = Fr.one;
+        for (let i = 1; i < DOMAIN_SIZE; i++) {
+            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
+        }
+        let elF0 = Fr.sub(challenges.xi, omegaN);
+        let elF1 = this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr);
+        let elF = Fr.mul(elF0, elF1);
+        elF = Fr.mul(elF, challenges.alpha5);
 
         let res = proof.evaluations.r;
         res = Fr.sub(res, elA);
         res = Fr.sub(res, elB);
         res = Fr.add(res, elC);
         res = Fr.add(res, elD);
-        // res = Fr.add(res, elE);
+        res = Fr.add(res, elE);
+        res = Fr.add(res, elF);
 
         res = Fr.div(res, challenges.zh);
 
@@ -262,6 +270,7 @@ class RangeCheckVerifier {
         res = G1.add(res, G1.timesFr(proof.polynomials.LookupTable, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.H1, Fr.mul(challenges.vp, challenges.u)));
 
         return res;
     }
@@ -277,6 +286,7 @@ class RangeCheckVerifier {
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         res = Fr.add(res, Fr.mul(challenges.v[4], proof.evaluations.h2));
         res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
+        res = Fr.add(res, Fr.mul(Fr.mul(challenges.u, challenges.vp), proof.evaluations.h1w));
 
         res = G1.timesFr(G1.one, res);
 
@@ -289,7 +299,6 @@ class RangeCheckVerifier {
 
         let A1 = proof.polynomials.Wxi;
         A1 = G1.add(A1, G1.timesFr(proof.polynomials.Wxiw, challenges.u));
-        // A1 = G1.add(A1, proof.polynomials.Wxip);
 
         let A2 = vk_verifier.X_2;
 
