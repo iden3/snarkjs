@@ -114,7 +114,6 @@ class RangeCheckVerifier {
         transcript.reset();
         transcript.appendPolCommitment(proof.polynomials.T1);
         transcript.appendPolCommitment(proof.polynomials.T2);
-        transcript.appendPolCommitment(proof.polynomials.T3);
 
         challenges.xi = transcript.getChallenge();
         challenges.xin = challenges.xi;
@@ -262,8 +261,13 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
 
         let res = proof.polynomials.T1;
-        res = G1.add(res, G1.timesFr(proof.polynomials.T2, challenges.xin));
-        res = G1.add(res, G1.timesFr(proof.polynomials.T3, Fr.square(challenges.xin)));
+
+        // Compute xi^{n+3} to add to the split polynomial
+        let xinAdd3 = challenges.xin;
+        for (let i = 0; i < 3; i++) {
+            xinAdd3 = Fr.mul(xinAdd3, challenges.xi);
+        }
+        res = G1.add(res, G1.timesFr(proof.polynomials.T2, xinAdd3));
 
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));

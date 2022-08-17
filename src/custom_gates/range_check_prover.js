@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
+import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C} from "./range_check_gate.js";
 import {BigBuffer} from "ffjavascript";
 import {expTau} from "../utils.js";
 import Multiset from "../plookup/multiset.js";
@@ -54,7 +54,7 @@ class RangeCheckProver {
 
         async function round1() {
             challenges.b = [];
-            for (let i = 0; i < 16; i++) {
+            for (let i = 0; i < 11; i++) {
                 challenges.b[i] = Fr.random();
             }
 
@@ -298,17 +298,16 @@ class RangeCheckProver {
             if (logger) logger.debug("range_check ifft Tz");
             const polTz = await Polynomial.fromBuffer(buffTz, Fr, logger);
 
-            if (polTz.degree() > (DOMAIN_SIZE * 3 + 5)) {
-                throw new Error("range_check Tz Polynomial is not well calculated");
-            }
-
             polynomials.T.add(polTz);
 
-            polynomials.splitT = polynomials.T.split(3, DOMAIN_SIZE, [challenges.b[14], challenges.b[15]]);
+            if (polynomials.T.degree() > C * (DOMAIN_SIZE + 2) + 3) {
+                throw new Error("range_check T Polynomial is not well calculated");
+            }
+
+            polynomials.splitT = polynomials.T.split(2, DOMAIN_SIZE + 3, [challenges.b[10]]);
 
             proof.addPolynomial("T1", await multiExpPolynomial("T1", polynomials.splitT[0]));
             proof.addPolynomial("T2", await multiExpPolynomial("T2", polynomials.splitT[1]));
-            proof.addPolynomial("T3", await multiExpPolynomial("T3", polynomials.splitT[2]));
         }
 
         async function round4() {
@@ -316,7 +315,6 @@ class RangeCheckProver {
             const transcript = new Keccak256Transcript(curve);
             transcript.appendPolCommitment(proof.polynomials.T1);
             transcript.appendPolCommitment(proof.polynomials.T2);
-            transcript.appendPolCommitment(proof.polynomials.T3);
 
             challenges.xi = transcript.getChallenge();
             if (logger) logger.debug("Range check prover xi: " + Fr.toString(challenges.xi));
@@ -355,13 +353,13 @@ class RangeCheckProver {
             challenges.vp = transcript.getChallenge();
 
             // 2. Compute linearization polynomial r(x)
-            challenges.xim = challenges.xi;
+            challenges.xin = challenges.xi;
             for (let i = 0; i < CIRCUIT_POWER; i++) {
-                challenges.xim = Fr.square(challenges.xim);
+                challenges.xin = Fr.square(challenges.xin);
             }
 
             const evalL1 = Fr.div(
-                Fr.sub(challenges.xim, Fr.one),
+                Fr.sub(challenges.xin, Fr.one),
                 Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(DOMAIN_SIZE))
             );
 
@@ -397,11 +395,15 @@ class RangeCheckProver {
 
             const eval_r = polynomials.R.evaluate(challenges.xi);
 
-            polynomials.splitT[2].mulScalar(Fr.square(challenges.xim));
-            polynomials.splitT[1].mulScalar(challenges.xim);
+            // Compute xi^{n+3} to add to the split polynomial
+            let ximAdd3 = challenges.xin;
+            for (let i = 0; i < 3; i++) {
+                ximAdd3 = Fr.mul(ximAdd3, challenges.xi);
+            }
 
-            let polWxi = new Polynomial(polynomials.splitT[2].coef.slice(), Fr, logger);
-            polWxi.add(polynomials.splitT[1]);
+            polynomials.splitT[1].mulScalar(ximAdd3);
+
+            let polWxi = new Polynomial(polynomials.splitT[1].coef.slice(), Fr, logger);
             polWxi.add(polynomials.splitT[0]);
 
             polWxi.add(polynomials.R, challenges.v[0]);
