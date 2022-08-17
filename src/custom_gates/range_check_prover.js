@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {C, MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
+import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER} from "./range_check_gate.js";
 import {BigBuffer} from "ffjavascript";
 import {expTau} from "../utils.js";
 import Multiset from "../plookup/multiset.js";
@@ -25,7 +25,7 @@ import {Keccak256Transcript} from "../Keccak256Transcript.js";
 import {Polynomial} from "../polynomial/polynomial.js";
 import {Evaluations} from "../polynomial/evaluations.js";
 import {Proof} from "../proof.js";
-import {mul3} from "../polynomial/mul_z.js";
+import {mul2, mul3} from "../polynomial/mul_z.js";
 
 
 class RangeCheckProver {
@@ -96,9 +96,9 @@ class RangeCheckProver {
             evaluations.H1 = await Evaluations.fromPolynomial(polynomials.H1, Fr, logger);
             evaluations.H2 = await Evaluations.fromPolynomial(polynomials.H2, Fr, logger);
 
-            // polynomials.F.blindCoefficients([challenges.b[0], challenges.b[1]]);
-            // polynomials.H1.blindCoefficients([challenges.b[2], challenges.b[3], challenges.b[4]]);
-            // polynomials.H2.blindCoefficients([challenges.b[5], challenges.b[6]]);
+            polynomials.F.blindCoefficients([challenges.b[0], challenges.b[1]]);
+            polynomials.H1.blindCoefficients([challenges.b[2], challenges.b[3], challenges.b[4]]);
+            polynomials.H2.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
             proof.addPolynomial("F", await multiExpPolynomial("F", polynomials.F));
             proof.addPolynomial("LookupTable", await multiExpPolynomial("LookupTable", polynomials.LookupTable));
@@ -150,7 +150,7 @@ class RangeCheckProver {
             polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
-            // polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
             proof.addPolynomial("Z", await multiExpPolynomial("Z", polynomials.Z));
         }
@@ -207,19 +207,13 @@ class RangeCheckProver {
                 const lagrange1_i = lagrange1.eval.slice(i_n8, i_n8 + Fr.n8);
                 const lagrangeN_i = lagrangeN.eval.slice(i_n8, i_n8 + Fr.n8);
 
-                const fp_i = Fr.zero;
+                const fp_i = Fr.add(challenges.b[0], Fr.mul(challenges.b[1], omega));
                 const tp_i = Fr.zero;
-                const h1p_i = Fr.zero;
-                const h2p_i = Fr.zero;
-                const zp_i = Fr.zero;
-                const zWp_i = Fr.zero;
-
-                // const fp_i = Fr.add(challenges.b[0], Fr.mul(challenges.b[1], omega));
-                // const tp_i = Fr.zero;
-                // const h1p_i = Fr.add(Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omega)), Fr.mul(challenges.b[4], omega2));
-                // const h2p_i = Fr.add(challenges.b[5], Fr.mul(challenges.b[6], omega));
-                // const zp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
-                // const zWp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omegaW)), Fr.mul(challenges.b[9], omegaW2));
+                const h1p_i = Fr.add(Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omega)), Fr.mul(challenges.b[4], omega2));
+                const h1Wp_i = Fr.add(Fr.add(challenges.b[2], Fr.mul(challenges.b[3], omegaW)), Fr.mul(challenges.b[4], omegaW2));
+                const h2p_i = Fr.add(challenges.b[5], Fr.mul(challenges.b[6], omega));
+                const zp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
+                const zWp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omegaW)), Fr.mul(challenges.b[9], omegaW2));
 
                 let identityA, identityAz;
                 let identityB, identityBz;
@@ -255,14 +249,14 @@ class RangeCheckProver {
                 identityDz = Fr.mul(h2p_i, lagrangeN_i);
 
                 // IDENTITY E) P(h2(x) − h1(x)) = 0
-                identityE = self.getResultPolP(Fr.sub(h2_i, h1_i), Fr);
-                identityEz = Fr.zero;
+                [identityE, identityEz] = self.getResultPolP2(Fr.sub(h2_i, h1_i), Fr.sub(h2p_i, h1p_i), i % 4, Fr);
 
                 // IDENTITY F) (x−ω^n)P(h1(xω)−h2(x))=0
                 const identityF0 = Fr.sub(omega, omegaN);
-                const identityF1 = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr);
+                // const identityF1 = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr);
+                const [identityF1, identityF1z] = self.getResultPolP2(Fr.sub(h1_wi, h2_i), Fr.sub(h1Wp_i, h2p_i), i % 4, Fr);
                 identityF = Fr.mul(identityF0, identityF1);
-                identityFz = Fr.zero;
+                identityFz = Fr.mul(identityF0, identityF1z);
 
                 //Apply alpha random factor
                 identityB = Fr.mul(identityB, challenges.alpha);
@@ -381,8 +375,8 @@ class RangeCheckProver {
             const a0t = Fr.add(challenges.gamma, proof.evaluations.lookupTable);
             const coefficientsAZ = Fr.mul(a0f, a0t);
 
-            let coefficientsR = new BigBuffer((DOMAIN_SIZE/* + 3*/) * Fr.n8);
-            for (let i = 0; i < DOMAIN_SIZE/* + 3*/; i++) {
+            let coefficientsR = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
+            for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
                 const i_n8 = i * Fr.n8;
 
                 let identityAValue, identityBValue;
@@ -449,13 +443,31 @@ class RangeCheckProver {
 
     }
 
-    getResultPolP(x, Fr) {
-        let res = Fr.one;
+    // getResultPolP(x, Fr) {
+    //     let res = Fr.one;
+    //
+    //     for (let i = 0; i <= C; i++) {
+    //         res = Fr.mul(res, Fr.sub(x, Fr.e(i)));
+    //     }
+    //     return res;
+    // }
 
-        for (let i = 0; i <= C; i++) {
-            res = Fr.mul(res, Fr.sub(x, Fr.e(i)));
-        }
-        return res;
+    // This is a specific implementation to compute polynomial P when C===2
+    // The result is X·(X-1)·(X-2) = X^3-3X^2+2X
+    getResultPolP2(val, valp, p, Fr) {
+        let coef = Fr.mul(Fr.e(2), val);
+        let coefp = Fr.mul(Fr.e(2), valp);
+
+        let [val2, valp2] = mul2(val, val, valp, valp, p, Fr);
+        let coef2 = Fr.mul(Fr.e(-3), val2);
+        let coefp2 = Fr.mul(Fr.e(-3), valp2);
+
+        let [val3, valp3] = mul2(val, val2, valp, valp2, p, Fr);
+
+        return [
+            Fr.add(Fr.add(val3, coef2), coef),
+            Fr.add(Fr.add(valp3, coefp2), coefp),
+        ];
     }
 
     toDebugArray(buffer, Fr) {
