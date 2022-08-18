@@ -19,54 +19,62 @@
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
 import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C} from "./range_check_gate.js";
+import * as Domain from "domain";
 
 class RangeCheckVerifier {
     async verifyProof(proof, vk_verifier, curve, logger) {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        // 1. Validate that the commitments belong to G_1
+        // 1. Validate that [f(x)]_1, [h_1(x)]_1, [h_2(x)]_1, [z(x)]_1,
+        // [q_1(x)]_1, ..., [q_c(x)]_1, [W_xi(x)]_1, [W_xiω(x)]_1 ∈ G_1
         if (!this.commitmentsBelongToG1(proof, curve)) {
             logger.error("range_check: Proof is not well constructed");
             return false;
         }
 
-        // 2. Validate that the openings belong to F
+        // TODO
+        // 2. Validate that f(xi), t(xi), h_1(xi), h_2(xi), z(xiω), h_1(xiω) ∈ F
 
-        // 3. Compute challenges as in the prover's algorithm
+        // TODO
+        // 3. Validate that (t_i)_{i ∈ [n]} ∈ F^{n}
+
+        // 4. Compute the challenges γ, α, xi, v, vp and multipoint evaluation challenge u ∈ F
+        // as in prover description, from the common preprocessed inputs and elements of π
         const challenges = this.computeChallenges(proof, curve, logger);
 
-        // 4. Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
-        challenges.zh = Fr.sub(challenges.xin, Fr.one);
+        // 5. Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
+        challenges.zh = Fr.sub(challenges.xiN, Fr.one);
 
-        // 5. Compute the lagrange polynomial evaluation L_1(xi)
-        const lagrange = this.computeLagrangeEvaluations(challenges, curve, logger);
+        // 6. Compute the lagrange polynomial evaluation L_1(xi), L_N(xi)
+        const [lagrange1, lagrangeN] = this.computeLagrangeEvaluations(challenges, curve, logger);
 
-        // 6. Compute t(x)
-        const t = this.computeR0(proof, challenges, lagrange, curve);
+        // 7. To save a verifier scalar multiplication, we split r(X) into its constant and non-constant terms.
+        // Compute r(X)'s constant term where r'(X) := r(X) - r_0
+        const r0 = this.computeR0(proof, challenges, lagrange1, lagrangeN, curve);
         if (logger) {
-            logger.debug("range_check r0: " + Fr.toString(t, 16));
+            logger.debug("range_check r0: " + Fr.toString(r0, 16));
         }
 
-        // 7. Compute the first part of the batched polynomial commitment
-        const D = this.computeD(proof, challenges, lagrange, curve);
+        // 7. Compute the first part of the batched polynomial commitment [D]_1:= [r'(x)] +  u[z(x)]_1
+        const D = this.computeD(proof, challenges, lagrange1, curve);
         if (logger) {
             logger.debug("range_check D: " + G1.toString(G1.toAffine(D), 16));
         }
 
-        // 8. Compute the full batched polynomial commitment
+        // 8. Compute the full batched polynomial commitment [F]_1
         const F = this.computeF(proof, challenges, D, curve);
         if (logger) {
             logger.debug("range_check F: " + G1.toString(G1.toAffine(F), 16));
         }
 
         // 9. Compute the group-encoded batch evaluation [E]_1
-        const E = this.computeE(proof, challenges, t, curve);
+        const E = this.computeE(proof, challenges, r0, curve);
         if (logger) {
             logger.debug("range_check E: " + G1.toString(G1.toAffine(E), 16));
         }
 
-        // 10. Batch validate all evaluations.js
+        // 10. Batch validate all evaluations
         const res = await this.isValidPairing(proof, challenges, vk_verifier, E, F, curve);
 
         if (logger) {
@@ -112,13 +120,14 @@ class RangeCheckVerifier {
         challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.polynomials.T1);
-        transcript.appendPolCommitment(proof.polynomials.T2);
+        transcript.appendPolCommitment(proof.polynomials.Q1);
+        transcript.appendPolCommitment(proof.polynomials.Q2);
 
         challenges.xi = transcript.getChallenge();
-        challenges.xin = challenges.xi;
+        challenges.xiN = challenges.xi;
         for (let i = 0; i < CIRCUIT_POWER; i++) {
-            challenges.xin = Fr.square(challenges.xin);
+            challenges.xiN = Fr.square(challenges.xiN);
+
         }
 
         transcript.reset();
@@ -142,11 +151,17 @@ class RangeCheckVerifier {
         transcript.appendScalar(challenges.v[0]);
         challenges.vp = transcript.getChallenge();
 
+        // Compute multipoint evaluation challenge u ∈ F
         transcript.reset();
         transcript.appendPolCommitment(proof.polynomials.Wxi);
         transcript.appendPolCommitment(proof.polynomials.Wxiw);
 
         challenges.u = transcript.getChallenge();
+
+        challenges.omegaN = Fr.one;
+        for (let i = 1; i < DOMAIN_SIZE; i++) {
+            challenges.omegaN = Fr.mul(challenges.omegaN, Fr.w[CIRCUIT_POWER]);
+        }
 
         if (logger) {
             logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));
@@ -162,62 +177,54 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
 
         const domainSize_F = Fr.e(DOMAIN_SIZE);
-        let omega = Fr.one;
 
-        const lagrangeEvaluations = [];
-        for (let i = 0; i < DOMAIN_SIZE; i++) {
-            //numerator: omega * (xi^n - 1)
-            const num = Fr.mul(omega, challenges.zh);
+        // Lagrange 1 : ω (xi^n - 1) / n (xi - ω)
+        let num = Fr.mul(Fr.one, challenges.zh);
+        let den = Fr.mul(domainSize_F, Fr.sub(challenges.xi, Fr.one));
+        const lagrange1 = Fr.div(num, den);
 
-            //denominator: n * (xi - omega)
-            const den = Fr.mul(domainSize_F, Fr.sub(challenges.xi, omega));
-
-            lagrangeEvaluations[i] = Fr.div(num, den);
-            omega = Fr.mul(omega, Fr.w[CIRCUIT_POWER]);
-        }
+        // Lagrange N : ω^n * (xi^n - 1) / n * (xi - ω^n)
+        num = Fr.mul(challenges.omegaN, challenges.zh);
+        den = Fr.mul(domainSize_F, Fr.sub(challenges.xi, challenges.omegaN));
+        const lagrangeN = Fr.div(num, den);
 
         if (logger) {
             logger.debug("Lagrange Evaluations: ");
-            for (let i = 0; i < lagrangeEvaluations.length; i++) {
-                logger.debug(`L${i}(xi)=` + Fr.toString(lagrangeEvaluations[i], 16));
-            }
+            logger.debug("L1(xi)=" + Fr.toString(lagrange1, 16));
+            logger.debug("LN(xi)=" + Fr.toString(lagrangeN, 16));
         }
 
-        return lagrangeEvaluations;
+        return [lagrange1, lagrangeN];
     }
 
-    computeR0(proof, challenges, lagrange, curve) {
+    computeR0(proof, challenges, lagrange1, lagrangeN, curve) {
         const Fr = curve.Fr;
 
-        // IDENTITY A
+        // IDENTITY A  -z(xiω)(γ + h1(xi))(γ + h2(xi))
         let elA0 = Fr.add(proof.evaluations.h1, challenges.gamma);
         let elA1 = Fr.add(proof.evaluations.h2, challenges.gamma);
         let elA = Fr.mul(elA0, elA1);
         elA = Fr.mul(elA, proof.evaluations.zw);
 
-        // IDENTITY B
-        let elB = Fr.mul(lagrange[0], challenges.alpha);
+        // IDENTITY B  -αL_1(xi)
+        let elB = Fr.mul(lagrange1, challenges.alpha);
 
-        // IDENTITY C
-        let elC = Fr.mul(lagrange[0], proof.evaluations.h1);
+        // IDENTITY C   α^2h_1(xi)L_1(xi)
+        let elC = Fr.mul(lagrange1, proof.evaluations.h1);
         elC = Fr.mul(elC, challenges.alpha2);
 
-        // IDENTITY D
+        // IDENTITY D   α^3(h_2(xi) - c(n-1))L_n(xi)
         let elD = Fr.sub(proof.evaluations.h2, Fr.e(MAX_RANGE));
-        elD = Fr.mul(lagrange[DOMAIN_SIZE - 1], elD);
+        elD = Fr.mul(lagrangeN, elD);
         elD = Fr.mul(elD, challenges.alpha3);
 
-        // IDENTITY E
+        // IDENTITY E   α^4P(h_2(xi) - h1(xi))
         let elE = Fr.sub(proof.evaluations.h2, proof.evaluations.h1);
         elE = this.getResultPolP(elE, Fr);
         elE = Fr.mul(elE, challenges.alpha4);
 
-        // IDENTITY F
-        let omegaN = Fr.one;
-        for (let i = 1; i < DOMAIN_SIZE; i++) {
-            omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
-        }
-        let elF0 = Fr.sub(challenges.xi, omegaN);
+        // IDENTITY F   α^5(xi - ω^n)P(h_1(xiω) - h2(xi))
+        let elF0 = Fr.sub(challenges.xi, challenges.omegaN);
         let elF1 = this.getResultPolP(Fr.sub(proof.evaluations.h1w, proof.evaluations.h2), Fr);
         let elF = Fr.mul(elF0, elF1);
         elF = Fr.mul(elF, challenges.alpha5);
@@ -235,11 +242,11 @@ class RangeCheckVerifier {
         return res;
     }
 
-    computeD(proof, challenges, lagrange, curve) {
+    computeD(proof, challenges, lagrange1, curve) {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        // IDENTITY A
+        // IDENTITY A  ((γ + f(xi))(γ + t(xi)) + u)[z(x)]_1
         let elA0 = Fr.add(challenges.gamma, proof.evaluations.f);
         let elA1 = Fr.add(challenges.gamma, proof.evaluations.lookupTable);
         let elA = Fr.mul(elA0, elA1);
@@ -247,8 +254,8 @@ class RangeCheckVerifier {
         elA = Fr.add(elA, challenges.u);
         const identityA = G1.timesFr(proof.polynomials.Z, elA);
 
-        // IDENTITY B
-        let elB = lagrange[0];
+        // IDENTITY B  αL_1(xi)[z(x)]_1
+        let elB = lagrange1;
         elB = Fr.mul(elB, challenges.v[0]);
         elB = Fr.mul(elB, challenges.alpha);
         const identityB = G1.timesFr(proof.polynomials.Z, elB);
@@ -260,14 +267,15 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
-        let res = proof.polynomials.T1;
+        // [F]_1 := [D]_1 + v · [f(x)]_1 + v^2 ·[t(x)]_1 + v^3 · [h_1(x)]_1 + v^4 · [h_2(x)]_1 + u · v' ·[h_1(x)]_1
+        let res = proof.polynomials.Q1;
 
         // Compute xi^{n+3} to add to the split polynomial
-        let xinAdd3 = challenges.xin;
+        let xinAdd3 = challenges.xiN;
         for (let i = 0; i < 3; i++) {
             xinAdd3 = Fr.mul(xinAdd3, challenges.xi);
         }
-        res = G1.add(res, G1.timesFr(proof.polynomials.T2, xinAdd3));
+        res = G1.add(res, G1.timesFr(proof.polynomials.Q2, xinAdd3));
 
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
@@ -283,14 +291,16 @@ class RangeCheckVerifier {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
+        //[E]_1 := [-r_0 + v · f(xi) + v^2 · t(xi) + v^3 · h_1(xi) + v^4 · h_2(xi) + u · (z(xiω) + v'h_1(xiω)) ]_1
         let res = t;
         res = Fr.add(res, Fr.mul(challenges.v[0], proof.evaluations.r));
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         res = Fr.add(res, Fr.mul(challenges.v[4], proof.evaluations.h2));
-        res = Fr.add(res, Fr.mul(challenges.u, proof.evaluations.zw));
-        res = Fr.add(res, Fr.mul(Fr.mul(challenges.u, challenges.vp), proof.evaluations.h1w));
+
+        const partial = Fr.add(proof.evaluations.zw, Fr.mul(challenges.vp, proof.evaluations.h1w));
+        res = Fr.add(res, Fr.mul(challenges.u, partial));
 
         res = G1.timesFr(G1.one, res);
 

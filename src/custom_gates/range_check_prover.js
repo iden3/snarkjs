@@ -53,31 +53,31 @@ class RangeCheckProver {
         return proof;
 
         async function round1() {
+            // 1. Generate random blinding scalars b_1, b_2, ..., b_{(c-2) + 11} ∈ F.
             challenges.b = [];
-            for (let i = 0; i < 11; i++) {
+            for (let i = 0; i < (C - 2) + 11; i++) {
                 challenges.b[i] = Fr.random();
             }
 
             const length = Math.max(preInput.t.length, witnesses.length);
 
-            // Prepare query vector
+            // 2. Compute the query polynomial f(X) ∈ F_{<n}[X] and the lookup polynomial t(X) ∈ F_{<n}[X]:
             let f = new Multiset(0, Fr);
             f.fromArray(witnesses);
             f.pad(length, f.lastElement());
 
-            // Prepare table multiset
-            let table = new Multiset(0, Fr);
-            table.fromArray(preInput.t);
-            table.pad(length, table.lastElement());
+            let t = new Multiset(0, Fr);
+            t.fromArray(preInput.t);
+            t.pad(length, t.lastElement());
 
-            //We already have the table vector in t
-            //Create s = (f,t) sorted in t
-            let s = table.sortedVersion(f);
+            // 3. Let s ∈ F^{2n} be the vector that is (f, t) sorted by t.
+            let s = t.sortedVersion(f);
 
+            // We represent s by the vectors h_1, h_2 ∈ F^n
             let {h1, h2} = s.halvesAlternating();
 
             buffers.F = f.toBigBuffer();
-            buffers.lookupTable = table.toBigBuffer();
+            buffers.lookupTable = t.toBigBuffer();
             buffers.H1 = h1.toBigBuffer();
             buffers.H2 = h2.toBigBuffer();
 
@@ -96,10 +96,28 @@ class RangeCheckProver {
             evaluations.H1 = await Evaluations.fromPolynomial(polynomials.H1, Fr, logger);
             evaluations.H2 = await Evaluations.fromPolynomial(polynomials.H2, Fr, logger);
 
+            // blind f(X) adding (b_1X+b_2)Z_H(X), becomes F_{<n+2}[X]
             polynomials.F.blindCoefficients([challenges.b[0], challenges.b[1]]);
+            // blind h_1(X) adding (b_3X^2+b_4X+b_5)Z_H(X), becomes F_{<n+3}[X]
             polynomials.H1.blindCoefficients([challenges.b[2], challenges.b[3], challenges.b[4]]);
+            // blind h_2(X) adding (b_6X+b_7)Z_H(X), becomes F_{<n+2}[X]
             polynomials.H2.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
+            if (polynomials.F.degree() >= DOMAIN_SIZE + 2) {
+                throw new Error("range_check: F Polynomial is not well calculated");
+            }
+            if (polynomials.LookupTable.degree() >= DOMAIN_SIZE) {
+                throw new Error("range_check: LookupTable Polynomial is not well calculated");
+            }
+            if (polynomials.H1.degree() >= DOMAIN_SIZE + 3) {
+                throw new Error("range_check: H1 Polynomial is not well calculated");
+            }
+            if (polynomials.H2.degree() >= DOMAIN_SIZE + 2) {
+                throw new Error("range_check: H2 Polynomial is not well calculated");
+            }
+
+            // 5. The first output of the prover is ([f(x)]_1, [h_1(x)]_1, [h_2(x)]_1)
+            // TODO remove lookup table from the proof and use it from the verification key
             proof.addPolynomial("F", await multiExpPolynomial("F", polynomials.F));
             proof.addPolynomial("LookupTable", await multiExpPolynomial("LookupTable", polynomials.LookupTable));
             proof.addPolynomial("H1", await multiExpPolynomial("H1", polynomials.H1));
@@ -107,6 +125,7 @@ class RangeCheckProver {
         }
 
         async function round2() {
+            // 1. Compute the permutation challenge gamma ∈ F_p:
             const transcript = new Keccak256Transcript(curve);
             transcript.appendPolCommitment(proof.polynomials.F);
             transcript.appendPolCommitment(proof.polynomials.H1);
@@ -115,6 +134,7 @@ class RangeCheckProver {
             challenges.gamma = transcript.getChallenge();
             if (logger) logger.debug("range_check gamma: " + Fr.toString(challenges.gamma));
 
+            // 2. Compute the permutation polynomial z(X) ∈ F_{<n}[X]
             buffers.Z = new BigBuffer(DOMAIN_SIZE * Fr.n8);
 
             let numArr = new BigBuffer(DOMAIN_SIZE * Fr.n8);
@@ -150,12 +170,19 @@ class RangeCheckProver {
             polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
+            // blind z(X) adding (b_8X^2+b_9X+b_10)Z_H(X), becomes F_{<n+3}[X]
             polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
+            if (polynomials.Z.degree() >= DOMAIN_SIZE + 3) {
+                throw new Error("range_check: Z Polynomial is not well calculated");
+            }
+
+            // 3. The second output of the prover is ([z(x)]_1)
             proof.addPolynomial("Z", await multiExpPolynomial("Z", polynomials.Z));
         }
 
         async function round3() {
+            // 1. Compute the quotient challenge alpha ∈ F_p
             const transcript = new Keccak256Transcript(curve);
             transcript.appendPolCommitment(proof.polynomials.Z);
 
@@ -167,27 +194,30 @@ class RangeCheckProver {
 
             if (logger) logger.debug("range_check alpha: " + Fr.toString(challenges.alpha));
 
-            const buffT = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
-            const buffTz = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
+            // 2. Compute the quotient polynomial q(X) ∈ F[X]
+            const buffQ = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
+            const buffQz = new BigBuffer(DOMAIN_SIZE * 4 * Fr.n8);
 
-            //Compute Lagrange polynomial L_1 evaluations
+            // Compute Lagrange polynomial L_1 evaluations
             let buffLagrange1 = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             buffLagrange1.set(Fr.one, 0);
+            if (logger) logger.debug("computing lagrange 1");
             let polLagrange1 = await Polynomial.fromBuffer(buffLagrange1, Fr, logger);
             let lagrange1 = await Evaluations.fromPolynomial(polLagrange1, Fr, logger);
-            if (logger) logger.debug("computing lagrange 1");
 
-            //Compute Lagrange polynomial L_N evaluations
+            // Compute Lagrange polynomial L_N evaluations
             let buffLagrangeN = new BigBuffer(DOMAIN_SIZE * Fr.n8);
             buffLagrangeN.set(Fr.one, (DOMAIN_SIZE - 1) * Fr.n8);
+            if (logger) logger.debug("computing lagrange N");
             let polLagrangeN = await Polynomial.fromBuffer(buffLagrangeN, Fr, logger);
             let lagrangeN = await Evaluations.fromPolynomial(polLagrangeN, Fr, logger);
-            if (logger) logger.debug("computing lagrange N");
 
+            if (logger) logger.debug("computing omega^n");
             let omegaN = Fr.one;
             for (let i = 1; i < DOMAIN_SIZE; i++) {
                 omegaN = Fr.mul(omegaN, Fr.w[CIRCUIT_POWER]);
             }
+
             let omega = Fr.one;
             for (let i = 0; i < DOMAIN_SIZE * 4; i++) {
                 if ((i % 4096 === 0) && (logger)) logger.debug(`range_check calculating t ${i}/${DOMAIN_SIZE * 4}`);
@@ -215,13 +245,6 @@ class RangeCheckProver {
                 const zp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omega)), Fr.mul(challenges.b[9], omega2));
                 const zWp_i = Fr.add(Fr.add(challenges.b[7], Fr.mul(challenges.b[8], omegaW)), Fr.mul(challenges.b[9], omegaW2));
 
-                let identityA, identityAz;
-                let identityB, identityBz;
-                let identityC, identityCz;
-                let identityD, identityDz;
-                let identityE, identityEz;
-                let identityF, identityFz;
-
                 // IDENTITY A) Z(x)(γ + f(x))(γ + t(x)) = Z(xω)(γ + h1(x))(γ + h2(x))
                 const a0z = z_i;
                 const a0f = Fr.add(challenges.gamma, f_i);
@@ -233,30 +256,30 @@ class RangeCheckProver {
                 const a1h2 = Fr.add(challenges.gamma, h2_i);
                 const [a1, a1p] = mul3(a1zw, a1h1, a1h2, zWp_i, h1p_i, h2p_i, i % 4, Fr);
 
-                identityA = Fr.sub(a0, a1);
-                identityAz = Fr.sub(a0p, a1p);
+                let identityA = Fr.sub(a0, a1);
+                let identityAz = Fr.sub(a0p, a1p);
 
                 // IDENTITY B) L_1(x)(Z(x)-1) = 0
-                identityB = Fr.mul(Fr.sub(z_i, Fr.one), lagrange1_i);
-                identityBz = Fr.mul(zp_i, lagrange1_i);
+                let identityB = Fr.mul(Fr.sub(z_i, Fr.one), lagrange1_i);
+                let identityBz = Fr.mul(zp_i, lagrange1_i);
 
                 // IDENTITY C) L1(x)h1(x) = 0
-                identityC = Fr.mul(h1_i, lagrange1_i);
-                identityCz = Fr.mul(h1p_i, lagrange1_i);
+                let identityC = Fr.mul(h1_i, lagrange1_i);
+                let identityCz = Fr.mul(h1p_i, lagrange1_i);
 
                 // IDENTITY D) Ln(x)h2(x) = c(n − 1)
-                identityD = Fr.mul(Fr.sub(h2_i, Fr.e(MAX_RANGE)), lagrangeN_i);
-                identityDz = Fr.mul(h2p_i, lagrangeN_i);
+                let identityD = Fr.mul(Fr.sub(h2_i, Fr.e(MAX_RANGE)), lagrangeN_i);
+                let identityDz = Fr.mul(h2p_i, lagrangeN_i);
 
                 // IDENTITY E) P(h2(x) − h1(x)) = 0
-                [identityE, identityEz] = self.getResultPolP(Fr.sub(h2_i, h1_i), Fr.sub(h2p_i, h1p_i), i % 4, Fr);
+                let [identityE, identityEz] = self.getResultPolP(Fr.sub(h2_i, h1_i), Fr.sub(h2p_i, h1p_i), i % 4, Fr);
 
                 // IDENTITY F) (x−ω^n)P(h1(xω)−h2(x))=0
                 const identityF0 = Fr.sub(omega, omegaN);
                 // const identityF1 = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr);
                 const [identityF1, identityF1z] = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr.sub(h1Wp_i, h2p_i), i % 4, Fr);
-                identityF = Fr.mul(identityF0, identityF1);
-                identityFz = Fr.mul(identityF0, identityF1z);
+                let identityF = Fr.mul(identityF0, identityF1);
+                let identityFz = Fr.mul(identityF0, identityF1z);
 
                 //Apply alpha random factor
                 identityB = Fr.mul(identityB, challenges.alpha);
@@ -285,41 +308,44 @@ class RangeCheckProver {
                 identitiesZ = Fr.add(identitiesZ, identityEz);
                 identitiesZ = Fr.add(identitiesZ, identityFz);
 
-                buffT.set(identities, i_n8);
-                buffTz.set(identitiesZ, i_n8);
+                buffQ.set(identities, i_n8);
+                buffQz.set(identitiesZ, i_n8);
 
                 omega = Fr.mul(omega, Fr.w[CIRCUIT_POWER + 2]);
             }
 
-            if (logger) logger.debug("range_check ifft T");
-            polynomials.T = await Polynomial.fromBuffer(buffT, Fr, logger);
-            polynomials.T = await polynomials.T.divZh();
+            if (logger) logger.debug("range_check ifft Q");
+            polynomials.Q = await Polynomial.fromBuffer(buffQ, Fr, logger);
+            polynomials.Q = await polynomials.Q.divZh();
 
             if (logger) logger.debug("range_check ifft Tz");
-            const polTz = await Polynomial.fromBuffer(buffTz, Fr, logger);
+            const polTz = await Polynomial.fromBuffer(buffQz, Fr, logger);
 
-            polynomials.T.add(polTz);
+            polynomials.Q.add(polTz);
 
-            if (polynomials.T.degree() > C * (DOMAIN_SIZE + 2) + 3) {
+            if (polynomials.Q.degree() > C * (DOMAIN_SIZE + 2) + 3) {
                 throw new Error("range_check T Polynomial is not well calculated");
             }
 
-            polynomials.splitT = polynomials.T.split(2, DOMAIN_SIZE + 3, [challenges.b[10]]);
+            // 3. Split q(X) into c-1 polynomials  q_1'(X), ..., q_{c-1}'(X)
+            // of degree lower than n+3 and another polynomial q'_c(X) of degree at most n+4
+            polynomials.splitQ = polynomials.Q.split(2, DOMAIN_SIZE + 3, [challenges.b[10]]);
 
-            proof.addPolynomial("T1", await multiExpPolynomial("T1", polynomials.splitT[0]));
-            proof.addPolynomial("T2", await multiExpPolynomial("T2", polynomials.splitT[1]));
+            // 4. The third output of the prover is ([q_1(x)]_1, ..., [q_{c-1}(x)]_1, [q_c(x)]_1)
+            proof.addPolynomial("Q1", await multiExpPolynomial("Q1", polynomials.splitQ[0]));
+            proof.addPolynomial("Q2", await multiExpPolynomial("Q2", polynomials.splitQ[1]));
         }
 
         async function round4() {
-            // 1. Get evaluation challenge xi ∈ Zp
+            // 1. Compute the evaluation challenge xi ∈ F_p
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendPolCommitment(proof.polynomials.T1);
-            transcript.appendPolCommitment(proof.polynomials.T2);
+            transcript.appendPolCommitment(proof.polynomials.Q1);
+            transcript.appendPolCommitment(proof.polynomials.Q2);
 
             challenges.xi = transcript.getChallenge();
             if (logger) logger.debug("Range check prover xi: " + Fr.toString(challenges.xi));
 
-            // 2. Compute & output opening evaluations.js
+            // 2. Compute the opening evaluations
             proof.addEvaluation("f", polynomials.F.evaluate(challenges.xi));
             proof.addEvaluation("lookupTable", polynomials.LookupTable.evaluate(challenges.xi));
             proof.addEvaluation("h1", polynomials.H1.evaluate(challenges.xi));
@@ -328,9 +354,11 @@ class RangeCheckProver {
             const xiw = Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]);
             proof.addEvaluation("zw", polynomials.Z.evaluate(xiw, Fr));
             proof.addEvaluation("h1w", polynomials.H1.evaluate(xiw, Fr));
+            // The fourth output of the prover is (f(xi), t(xi), h_1(xi), h_2(xi), z(xiω), h_1(xiω))
         }
 
         async function round5() {
+            // 1. Compute the opening challenges v, vp ∈ F_p
             const transcript = new Keccak256Transcript(curve);
             transcript.appendScalar(proof.evaluations.f);
             transcript.appendScalar(proof.evaluations.lookupTable);
@@ -339,7 +367,6 @@ class RangeCheckProver {
             transcript.appendScalar(proof.evaluations.zw);
             transcript.appendScalar(proof.evaluations.h1w);
 
-            // 1. Get opening challenge v ∈ Zp.
             challenges.v = [];
             challenges.v[0] = transcript.getChallenge();
             if (logger) logger.debug("v: " + Fr.toString(challenges.v[0]));
@@ -352,7 +379,7 @@ class RangeCheckProver {
             transcript.appendScalar(challenges.v[0]);
             challenges.vp = transcript.getChallenge();
 
-            // 2. Compute linearization polynomial r(x)
+            // 2. Compute the linearisation polynomial r(x) ∈ F_{<n+5}[X]
             challenges.xin = challenges.xi;
             for (let i = 0; i < CIRCUIT_POWER; i++) {
                 challenges.xin = Fr.square(challenges.xin);
@@ -379,10 +406,10 @@ class RangeCheckProver {
 
                 let identityAValue, identityBValue;
 
-                //IDENTITY A) Z(x)(γ + f(x))(γ + t(x)) = Z(gx)(γ + h1(x))(γ + h2(x))
+                //IDENTITY A) z(X)(γ + f(xi))(γ + t(xi))
                 identityAValue = Fr.mul(coefficientsAZ, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
 
-                //IDENTITY B) L_1(xi)(Z(x)-1) = 0
+                //IDENTITY B) αL_1(xi)z(x)
                 identityBValue = Fr.mul(evalL1, polynomials.Z.coef.slice(i_n8, i_n8 + Fr.n8));
                 identityBValue = Fr.mul(identityBValue, challenges.alpha);
 
@@ -393,50 +420,63 @@ class RangeCheckProver {
 
             polynomials.R = new Polynomial(coefficientsR, Fr, logger);
 
+            if (polynomials.R.degree() >= DOMAIN_SIZE + 5) {
+                throw new Error("range_check R Polynomial is not well calculated");
+            }
+
             const eval_r = polynomials.R.evaluate(challenges.xi);
 
             // Compute xi^{n+3} to add to the split polynomial
-            let ximAdd3 = challenges.xin;
+            let xinAdd3 = challenges.xin;
             for (let i = 0; i < 3; i++) {
-                ximAdd3 = Fr.mul(ximAdd3, challenges.xi);
+                xinAdd3 = Fr.mul(xinAdd3, challenges.xi);
             }
 
-            polynomials.splitT[1].mulScalar(ximAdd3);
+            polynomials.splitQ[1].mulScalar(xinAdd3);
 
-            let polWxi = new Polynomial(polynomials.splitT[1].coef.slice(), Fr, logger);
-            polWxi.add(polynomials.splitT[0]);
+            // 3.1 Compute the opening proof polynomials W_xi(X) ∈ F_{<n+4}[X]
+            polynomials.Wxi = new Polynomial(polynomials.splitQ[1].coef.slice(), Fr, logger);
+            polynomials.Wxi.add(polynomials.splitQ[0]);
 
-            polWxi.add(polynomials.R, challenges.v[0]);
-            polWxi.add(polynomials.F, challenges.v[1]);
-            polWxi.add(polynomials.LookupTable, challenges.v[2]);
-            polWxi.add(polynomials.H1, challenges.v[3]);
-            polWxi.add(polynomials.H2, challenges.v[4]);
+            polynomials.Wxi.add(polynomials.R, challenges.v[0]);
+            polynomials.Wxi.add(polynomials.F, challenges.v[1]);
+            polynomials.Wxi.add(polynomials.LookupTable, challenges.v[2]);
+            polynomials.Wxi.add(polynomials.H1, challenges.v[3]);
+            polynomials.Wxi.add(polynomials.H2, challenges.v[4]);
 
-            const evaluation_t = polynomials.T.evaluate(challenges.xi);
+            const evaluation_q = polynomials.Q.evaluate(challenges.xi);
 
-            polWxi.subScalar(evaluation_t);
-            polWxi.subScalar(Fr.mul(challenges.v[0], eval_r));
-            polWxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.f));
-            polWxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
-            polWxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.h1));
-            polWxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.h2));
+            polynomials.Wxi.subScalar(evaluation_q);
+            polynomials.Wxi.subScalar(Fr.mul(challenges.v[0], eval_r));
+            polynomials.Wxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.f));
+            polynomials.Wxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
+            polynomials.Wxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.h1));
+            polynomials.Wxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.h2));
 
-            polWxi.divByXValue(challenges.xi);
+            polynomials.Wxi.divByXValue(challenges.xi);
 
-            // Compute opening proof polynomial W_{xiω}
-            let polWxiw = new Polynomial(polynomials.Z.coef.slice(), Fr, logger);
-            polWxiw.add(polynomials.H1, challenges.vp);
+            if (polynomials.Wxi.degree() >= DOMAIN_SIZE + 4) {
+                throw new Error("range_check Wxi Polynomial is not well calculated");
+            }
 
-            polWxiw.subScalar(proof.evaluations.zw);
-            polWxiw.subScalar(Fr.mul(challenges.vp, proof.evaluations.h1w));
+            // 3.2 Compute the opening proof polynomials W_xiω(X) ∈ F_{<n+2}[X]
+            polynomials.Wxiw = new Polynomial(polynomials.Z.coef.slice(), Fr, logger);
+            polynomials.Wxiw.add(polynomials.H1, challenges.vp);
 
-            polWxiw.divByXValue(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]));
+            polynomials.Wxiw.subScalar(proof.evaluations.zw);
+            polynomials.Wxiw.subScalar(Fr.mul(challenges.vp, proof.evaluations.h1w));
+
+            polynomials.Wxiw.divByXValue(Fr.mul(challenges.xi, Fr.w[CIRCUIT_POWER]));
 
             proof.addEvaluation("r", eval_r);
 
-            // Commit polynomials W_xi and W_{xiω}
-            proof.addPolynomial("Wxi", await multiExpPolynomial("Wxi", polWxi));
-            proof.addPolynomial("Wxiw", await multiExpPolynomial("Wxiw", polWxiw));
+            if (polynomials.Wxiw.degree() >= DOMAIN_SIZE + 2) {
+                throw new Error("range_check Wxiw Polynomial is not well calculated");
+            }
+
+            // 4. The fifth output of the prover is ([W_xi(x)]_1, [W_xiω(x)]_1)
+            proof.addPolynomial("Wxi", await multiExpPolynomial("Wxi", polynomials.Wxi));
+            proof.addPolynomial("Wxiw", await multiExpPolynomial("Wxiw", polynomials.Wxiw));
         }
 
         async function multiExpPolynomial(key, polynomial) {
