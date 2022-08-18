@@ -249,12 +249,12 @@ class RangeCheckProver {
                 identityDz = Fr.mul(h2p_i, lagrangeN_i);
 
                 // IDENTITY E) P(h2(x) − h1(x)) = 0
-                [identityE, identityEz] = self.getResultPolP2(Fr.sub(h2_i, h1_i), Fr.sub(h2p_i, h1p_i), i % 4, Fr);
+                [identityE, identityEz] = self.getResultPolP(Fr.sub(h2_i, h1_i), Fr.sub(h2p_i, h1p_i), i % 4, Fr);
 
                 // IDENTITY F) (x−ω^n)P(h1(xω)−h2(x))=0
                 const identityF0 = Fr.sub(omega, omegaN);
                 // const identityF1 = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr);
-                const [identityF1, identityF1z] = self.getResultPolP2(Fr.sub(h1_wi, h2_i), Fr.sub(h1Wp_i, h2p_i), i % 4, Fr);
+                const [identityF1, identityF1z] = self.getResultPolP(Fr.sub(h1_wi, h2_i), Fr.sub(h1Wp_i, h2p_i), i % 4, Fr);
                 identityF = Fr.mul(identityF0, identityF1);
                 identityFz = Fr.mul(identityF0, identityF1z);
 
@@ -445,31 +445,14 @@ class RangeCheckProver {
 
     }
 
-    // getResultPolP(x, Fr) {
-    //     let res = Fr.one;
-    //
-    //     for (let i = 0; i <= C; i++) {
-    //         res = Fr.mul(res, Fr.sub(x, Fr.e(i)));
-    //     }
-    //     return res;
-    // }
+    getResultPolP(val, valp, p, Fr) {
+        let res = val;
+        let resp = valp;
 
-    // This is a specific implementation to compute polynomial P when C===2
-    // The result is X·(X-1)·(X-2) = X^3-3X^2+2X
-    getResultPolP2(val, valp, p, Fr) {
-        let coef = Fr.mul(Fr.e(2), val);
-        let coefp = Fr.mul(Fr.e(2), valp);
-
-        let [val2, valp2] = mul2(val, val, valp, valp, p, Fr);
-        let coef2 = Fr.mul(Fr.e(-3), val2);
-        let coefp2 = Fr.mul(Fr.e(-3), valp2);
-
-        let [val3, valp3] = mul2(val, val2, valp, valp2, p, Fr);
-
-        return [
-            Fr.add(Fr.add(val3, coef2), coef),
-            Fr.add(Fr.add(valp3, coefp2), coefp),
-        ];
+        for (let i = 1; i <= C; i++) {
+            [res, resp] = mul2(res, Fr.sub(val, Fr.e(i)), resp, valp, p, Fr);
+        }
+        return [res, resp];
     }
 
     toDebugArray(buffer, Fr) {
