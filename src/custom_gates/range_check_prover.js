@@ -401,6 +401,7 @@ class RangeCheckProver {
             const coefficientsAZ = Fr.mul(a0f, a0t);
 
             let coefficientsR = new BigBuffer((DOMAIN_SIZE + 3) * Fr.n8);
+            // NOTE: DOMAIN_SIZE + 3 === number of coefficients of polynomial Z which is the only  polynomial involved in R(X)
             for (let i = 0; i < DOMAIN_SIZE + 3; i++) {
                 const i_n8 = i * Fr.n8;
 
