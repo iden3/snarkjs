@@ -39,7 +39,7 @@ export class Polynomial {
     }
 
     getCoef(index) {
-        if(index > this.degree()) {
+        if (index > this.degree()) {
             return this.Fr.zero;
         }
 
@@ -83,8 +83,7 @@ export class Polynomial {
             throw new Error("Polynomial coefficients buffer has incorrect size");
         }
         if (0 === length) {
-            if(this.logger)
-            {
+            if (this.logger) {
                 this.logger.warn("Polynomial has length zero");
             }
         }
@@ -116,7 +115,7 @@ export class Polynomial {
 
     add(polynomial, blindingValue) {
         // Due to performance reasons currently we only accept to add polynomials with equal or smaller size
-        if (polynomial.length > this.length) {
+        if ((polynomial.degree() + 1) > this.length) {
             throw new Error("Add a greater size polynomial is not allowed");
         }
 
@@ -221,22 +220,28 @@ export class Polynomial {
         return new Polynomial(coefs, this.Fr);
     }
 
-    split(numChunks, numElementsChunk, blindingFactors) {
-        if (numChunks <= 1) {
-            throw new Error(`Polynomials can't be split in ${numChunks} parts`);
+    /**
+     * @param numPols number of polynomials to be divided
+     * @param degPols degree of the resultant polynomials. Last polynomial could be bigger
+     * @param blindingFactors
+     * @returns {*[]}
+     */
+    split(numPols, degPols, blindingFactors) {
+        if (numPols <= 1) {
+            throw new Error(`Polynomials can't be split in ${numPols} parts`);
         }
 
-        const chunkByteLength = numElementsChunk * this.Fr.n8;
+        const chunkByteLength = (degPols + 1) * this.Fr.n8;
 
         // Check polynomial can be split in numChunks parts of chunkSize bytes...
-        if (this.coef.byteLength / chunkByteLength <= numChunks - 1) {
-            throw new Error(`Polynomial is short to be split in ${numChunks} parts of ${numElementsChunk} coefficients each.`);
+        if (this.coef.byteLength / chunkByteLength <= numPols - 1) {
+            throw new Error(`Polynomial is short to be split in ${numPols} parts of ${degPols} coefficients each.`);
         }
 
         let res = [];
-        for (let i = 0; i < numChunks; i++) {
-            const isLast = (numChunks - 1) === i;
-            const byteLength = isLast ? this.coef.byteLength - ((numChunks - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+        for (let i = 0; i < numPols; i++) {
+            const isLast = (numPols - 1) === i;
+            const byteLength = isLast ? this.coef.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
 
             res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
             const fr = i * chunkByteLength;
@@ -252,6 +257,15 @@ export class Polynomial {
             if (0 !== i) {
                 const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
                 res[i].coef.set(lowestDegree, 0);
+            }
+
+            if (isLast) {
+                const deg = res[i].degree();
+                if (deg + 1 < res[i].coef.byteLength / this.Fr.n8) {
+                    const newCoefs = new BigBuffer((deg + 1) * this.Fr.n8);
+                    newCoefs.set(res[i].coef.slice(0, (deg + 1) * this.Fr.n8), 0);
+                    res[i].coef = newCoefs;
+                }
             }
         }
 

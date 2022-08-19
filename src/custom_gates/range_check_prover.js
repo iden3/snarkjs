@@ -323,24 +323,27 @@ class RangeCheckProver {
 
             polynomials.Q.add(polTz);
 
-            if (polynomials.Q.degree() > C * (DOMAIN_SIZE + 2) + 3) {
-                throw new Error("range_check T Polynomial is not well calculated");
+            const degQ = polynomials.Q.degree();
+            if (degQ > C * (DOMAIN_SIZE + 2) + 3) {
+                throw new Error("range_check Q Polynomial is not well calculated");
             }
 
             // 3. Split q(X) into c-1 polynomials  q_1'(X), ..., q_{c-1}'(X)
             // of degree lower than n+3 and another polynomial q'_c(X) of degree at most n+4
-            polynomials.splitQ = polynomials.Q.split(2, DOMAIN_SIZE + 3, [challenges.b[10]]);
+            polynomials.splitQ = polynomials.Q.split(C, DOMAIN_SIZE + 2, challenges.b.slice(10));
 
             // 4. The third output of the prover is ([q_1(x)]_1, ..., [q_{c-1}(x)]_1, [q_c(x)]_1)
-            proof.addPolynomial("Q1", await multiExpPolynomial("Q1", polynomials.splitQ[0]));
-            proof.addPolynomial("Q2", await multiExpPolynomial("Q2", polynomials.splitQ[1]));
+            for (let i = 0; i < C; i++) {
+                proof.addPolynomial(`Q${i}`, await multiExpPolynomial(`Q${i}`, polynomials.splitQ[i]));
+            }
         }
 
         async function round4() {
             // 1. Compute the evaluation challenge xi ∈ F_p
             const transcript = new Keccak256Transcript(curve);
-            transcript.appendPolCommitment(proof.polynomials.Q1);
-            transcript.appendPolCommitment(proof.polynomials.Q2);
+            for (let i = 0; i < C; i++) {
+                transcript.appendPolCommitment(proof.polynomials[`Q${i}`]);
+            }
 
             challenges.xi = transcript.getChallenge();
             if (logger) logger.debug("Range check prover xi: " + Fr.toString(challenges.xi));
@@ -380,13 +383,13 @@ class RangeCheckProver {
             challenges.vp = transcript.getChallenge();
 
             // 2. Compute the linearisation polynomial r(x) ∈ F_{<n+5}[X]
-            challenges.xin = challenges.xi;
+            challenges.xiN = challenges.xi;
             for (let i = 0; i < CIRCUIT_POWER; i++) {
-                challenges.xin = Fr.square(challenges.xin);
+                challenges.xiN = Fr.square(challenges.xiN);
             }
 
             const evalL1 = Fr.div(
-                Fr.sub(challenges.xin, Fr.one),
+                Fr.sub(challenges.xiN, Fr.one),
                 Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(DOMAIN_SIZE))
             );
 
@@ -427,17 +430,33 @@ class RangeCheckProver {
 
             const eval_r = polynomials.R.evaluate(challenges.xi);
 
-            // Compute xi^{n+3} to add to the split polynomial
-            let xinAdd3 = challenges.xin;
-            for (let i = 0; i < 3; i++) {
-                xinAdd3 = Fr.mul(xinAdd3, challenges.xi);
+            // Compute xi^{n+2} to add to the split polynomial
+            let xinAdd2 = Fr.mul(Fr.mul(challenges.xiN, challenges.xi, challenges.xi));
+
+            let xinTotal = xinAdd2;
+            for (let i = 1; i < C; i++) {
+                polynomials.splitQ[i].mulScalar(Fr.mul(xinTotal, challenges.xi));
+                xinTotal = Fr.mul(xinTotal, xinAdd2);
             }
 
-            polynomials.splitQ[1].mulScalar(xinAdd3);
+            let maxDegree = 0;
+            Object.keys(polynomials).forEach(key => {
+                // splitQ is an array of polynomials...
+                if (Array.isArray(polynomials[key])) {
+                    for (let i = 0; i < polynomials[key].length; i++) {
+                        maxDegree = Math.max(maxDegree, polynomials[key][i].degree());
+                    }
+                } else {
+                    maxDegree = Math.max(maxDegree, polynomials[key].degree());
+                }
+            });
 
+            let voidBuffer = new BigBuffer((maxDegree + 1) * Fr.n8);
             // 3.1 Compute the opening proof polynomials W_xi(X) ∈ F_{<n+4}[X]
-            polynomials.Wxi = new Polynomial(polynomials.splitQ[1].coef.slice(), Fr, logger);
-            polynomials.Wxi.add(polynomials.splitQ[0]);
+            polynomials.Wxi = new Polynomial(voidBuffer, Fr, logger);
+            for (let i = 0; i < C; i++) {
+                polynomials.Wxi.add(polynomials.splitQ[i]);
+            }
 
             polynomials.Wxi.add(polynomials.R, challenges.v[0]);
             polynomials.Wxi.add(polynomials.F, challenges.v[1]);

@@ -19,7 +19,7 @@
 
 import {Keccak256Transcript} from "../Keccak256Transcript.js";
 import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C} from "./range_check_gate.js";
-import * as Domain from "domain";
+
 
 class RangeCheckVerifier {
     async verifyProof(proof, vk_verifier, curve, logger) {
@@ -120,8 +120,9 @@ class RangeCheckVerifier {
         challenges.alpha5 = Fr.mul(challenges.alpha4, challenges.alpha);
 
         transcript.reset();
-        transcript.appendPolCommitment(proof.polynomials.Q1);
-        transcript.appendPolCommitment(proof.polynomials.Q2);
+        for (let i = 0; i < C; i++) {
+            transcript.appendPolCommitment(proof.polynomials[`Q${i}`]);
+        }
 
         challenges.xi = transcript.getChallenge();
         challenges.xiN = challenges.xi;
@@ -268,14 +269,15 @@ class RangeCheckVerifier {
         const G1 = curve.G1;
 
         // [F]_1 := [D]_1 + v · [f(x)]_1 + v^2 ·[t(x)]_1 + v^3 · [h_1(x)]_1 + v^4 · [h_2(x)]_1 + u · v' ·[h_1(x)]_1
-        let res = proof.polynomials.Q1;
+        let res = proof.polynomials.Q0;
 
-        // Compute xi^{n+3} to add to the split polynomial
-        let xinAdd3 = challenges.xiN;
-        for (let i = 0; i < 3; i++) {
-            xinAdd3 = Fr.mul(xinAdd3, challenges.xi);
+        // Compute xi^{n+2} to add to the split polynomial
+        let xinAdd2 = Fr.mul(Fr.mul(challenges.xiN, challenges.xi, challenges.xi));
+        let xinTotal = xinAdd2;
+        for (let i = 1; i < C; i++) {
+            res = G1.add(res, G1.timesFr(proof.polynomials[`Q${i}`], Fr.mul(xinTotal, challenges.xi)));
+            xinTotal = Fr.mul(xinTotal, xinAdd2);
         }
-        res = G1.add(res, G1.timesFr(proof.polynomials.Q2, xinAdd3));
 
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
