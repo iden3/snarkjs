@@ -121,7 +121,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
 
-    const LPoints = new BigBuffer(domainSizeExt * sG1);
+    const LPoints = new BigBuffer((domainSizeExt * 4 + 6) * sG1);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) - 1) * sG1;
     await fdPTau.readToBuffer(LPoints, 0, domainSizeExt * sG1, o);
 
@@ -374,7 +374,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     async function writeZKeyCustomGatesPreprocessedInput(idx) {
         const name = customGates.gates[idx].name;
-        const preInput = customGates.gates[idx].preprocessedInput(curve.Fr);
+        const preInput = customGates.gates[idx].preprocessedInput();
 
         await startWriteSection(fdZKey, customGates.gates[idx].preprocessedSectionId);
 
@@ -384,20 +384,22 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         const keys = customGates.gates[idx].preprocessedInputKeys;
 
         //Write polynomials
-        for (let i = 0; i < keys.polynomials.length; i++) {
-            const polynomial = preInput.polynomials[keys.polynomials[i]];
-            let buffer = new BigBuffer(polynomial.length * n8r);
+        if(keys.polynomials) {
+            for (let i = 0; i < keys.polynomials.length; i++) {
+                const polynomial = preInput.polynomials[keys.polynomials[i]];
+                let buffer = new BigBuffer(polynomial.length * n8r);
 
-            for (let i = 0; i < polynomial.length; i++) {
-                buffer.set(polynomial[i], i * n8r);
-                if ((logger) && (0 === i % 1000000)) logger.debug(`writing preprocessed input for ${name}: ${i}/${polynomial.length}`);
+                for (let i = 0; i < polynomial.length; i++) {
+                    buffer.set(polynomial[i], i * n8r);
+                    if ((logger) && (0 === i % 1000000)) logger.debug(`writing preprocessed input for ${name}: ${i}/${polynomial.length}`);
+                }
+                await writeP4_2(buffer);
+
+                const mExp = await expTau(buffer, LPoints, curve, logger, "multiexp " + name);
+
+                vk.customGates[idx].preInput[keys.polynomials[i]] = curve.G1.toAffine(mExp);
+                forceGarbageCollection();
             }
-            await writeP4_2(buffer);
-
-            const mExp = await expTau(buffer, LPoints, curve, logger, "multiexp " + name);
-
-            vk.customGates[idx].preInput[keys.polynomials[i]] = curve.G1.toAffine(mExp);
-            forceGarbageCollection();
         }
         await endWriteSection(fdZKey);
     }
@@ -571,8 +573,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                     await fdZKey.writeULE32(vk.customGates[i].preInput.data[keys.data[j]]);
                 }
 
-                for (let j = 0; j < keys.polynomials.length; j++) {
-                    await fdZKey.write(vk.customGates[i].preInput[keys.polynomials[j]]);
+                if(keys.polynomials) {
+                    for (let j = 0; j < keys.polynomials.length; j++) {
+                        await fdZKey.write(vk.customGates[i].preInput[keys.polynomials[j]]);
+                    }
                 }
 
                 await endWriteSection(fdZKey);

@@ -88,49 +88,43 @@ class RangeCheckCG extends CustomGate {
         return Fr.add(Fr.neg(a), b);
     }
 
-    preprocessedInput(Fr) {
+    preprocessedInput() {
         let res = {};
 
-        res.data = {power: this.cirPower, maxRange: MAX_RANGE};
+        res.data = {power: this.cirPower, maxRange: MAX_RANGE, c: C};
 
-        //t = polynomial with t_i = c * (i - 1)
-        let Table = new Array(N);
-
-        for (let i = 0; i < N; i++) {
-            if (i % 10000 === 0) {
-                console.log("Creating preprocessed polynomials for range check");
-            }
-            Table[i] = Fr.e(C * i);
-        }
-
-        res.polynomials = {Table: Table};
         return res;
     }
 
     get preprocessedInputKeys() {
         return {
-            data: ["power", "maxRange"],
-            polynomials: ["Table"]
+            data: ["power", "maxRange", "c"],
         };
     }
 
     solidityCallDataKeys() {
+        let arrQ = [];
+        for (let i = 0; i < C; i++) {
+            arrQ.push(`Q${i}`);
+        }
+
         return {
-            polynomials: ["F", "Table", "H1", "H2", "P1", "P2", "Z", "T1", "T2", "T3", "Wxi", "Wxiw"],
-            evaluations: ["f", "table", "h1", "zw", "r"]
+            polynomials: ["F", "LT", "H1", "H2", "Z", "Wxi", "Wxiw"].concat(arrQ),
+            evaluations: ["f", "lt", "h1", "h2", "zw", "h1w", "r"]
         };
     }
 
     async readZKeyPreprocessedInput(fd, sections, Fr) {
-        let buffer = await binFileUtils.readSection(fd, sections, this.preprocessedSectionId, N * Fr.n8);
-
-        let tArr = Array(N);
-        for (let i = 0; i < N; i++) {
-            const offset = i * Fr.n8 * 4;
-            tArr[i] = buffer.slice(offset, offset + Fr.n8);
-        }
-
-        return {t: tArr};
+        // let buffer = await binFileUtils.readSection(fd, sections, this.preprocessedSectionId, N * Fr.n8);
+        //
+        // let ltArr = Array(N);
+        // for (let i = 0; i < N; i++) {
+        //     const offset = i * Fr.n8 * 4;
+        //     ltArr[i] = buffer.slice(offset, offset + Fr.n8);
+        // }
+        //
+        // return {lt: ltArr};
+        return {};
     }
 
     computeWitness(witness, Fr) {

@@ -321,10 +321,13 @@ async function readHeaderPlonk(fd, sections, protocol, toObject) {
                 zkey.customGates[i].preInput[preInputKeys.data[j]] = await fd.readULE32();
             }
 
-            zkey.customGates[i].preInput.polynomials = {};
-            for (let j = 0; j < preInputKeys.polynomials.length; j++) {
-                zkey.customGates[i].preInput.polynomials[preInputKeys.polynomials[j]] = await readG1(fd, zkey.curve, toObject);
+            if(preInputKeys.polynomials) {
+                zkey.customGates[i].preInput.polynomials = {};
+                for (let j = 0; j < preInputKeys.polynomials.length; j++) {
+                    zkey.customGates[i].preInput.polynomials[preInputKeys.polynomials[j]] = await readG1(fd, zkey.curve, toObject);
+                }
             }
+
             await binFileUtils.endReadSection(fd, false);
         }
     }

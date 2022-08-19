@@ -289,12 +289,12 @@ class RangeCheckVerifier {
         return res;
     }
 
-    computeE(proof, challenges, t, curve) {
+    computeE(proof, challenges, r0, curve) {
         const Fr = curve.Fr;
         const G1 = curve.G1;
 
         //[E]_1 := [-r_0 + v · f(xi) + v^2 · t(xi) + v^3 · h_1(xi) + v^4 · h_2(xi) + u · (z(xiω) + v'h_1(xiω)) ]_1
-        let res = t;
+        let res = r0;
         res = Fr.add(res, Fr.mul(challenges.v[0], proof.evaluations.r));
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
         res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lt));

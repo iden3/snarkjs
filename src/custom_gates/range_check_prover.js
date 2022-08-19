@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C} from "./range_check_gate.js";
+import {MAX_RANGE, DOMAIN_SIZE, CIRCUIT_POWER, C, N} from "./range_check_gate.js";
 import {BigBuffer} from "ffjavascript";
 import {expTau} from "../utils.js";
 import Multiset from "../plookup/multiset.js";
@@ -53,13 +53,23 @@ class RangeCheckProver {
         return proof;
 
         async function round1() {
+            //t = polynomial with t_i = c * (i - 1)
+            let arrayLT = new Array(N);
+
+            for (let i = 0; i < N; i++) {
+                if (i % 10000 === 0) {
+                    console.log("Creating preprocessed polynomials for range check");
+                }
+                arrayLT[i] = Fr.e(C * i);
+            }
+
             // 1. Generate random blinding scalars b_1, b_2, ..., b_{(c-2) + 11} ∈ F.
             challenges.b = [];
             for (let i = 0; i < (C - 2) + 11; i++) {
                 challenges.b[i] = Fr.random();
             }
 
-            const length = Math.max(preInput.t.length, witnesses.length);
+            const length = Math.max(arrayLT.length, witnesses.length);
 
             // 2. Compute the query polynomial f(X) ∈ F_{<n}[X] and the lookup polynomial t(X) ∈ F_{<n}[X]:
             let f = new Multiset(0, Fr);
@@ -67,7 +77,7 @@ class RangeCheckProver {
             f.pad(length, f.lastElement());
 
             let lt = new Multiset(0, Fr);
-            lt.fromArray(preInput.t);
+            lt.fromArray(arrayLT);
             lt.pad(length, lt.lastElement());
 
             // 3. Let s ∈ F^{2n} be the vector that is (f, t) sorted by t.

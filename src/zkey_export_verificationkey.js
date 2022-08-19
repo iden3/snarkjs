@@ -117,7 +117,7 @@ async function plonkVk(zkey, fd, sections) {
             vKey.CG[i].parameters = zkey.customGates[i].parameters;
 
             Object.keys(zkey.customGates[i].preInput).forEach(key => {
-                if(key !== "polynomials") {
+                if(key !== "polynomials" && key !== "evaluations") {
                     vKey.CG[i][key] = zkey.customGates[i].preInput[key];
                 }
             });
