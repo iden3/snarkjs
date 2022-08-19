@@ -133,7 +133,7 @@ class RangeCheckVerifier {
 
         transcript.reset();
         transcript.appendScalar(proof.evaluations.f);
-        transcript.appendScalar(proof.evaluations.lookupTable);
+        transcript.appendScalar(proof.evaluations.lt);
         transcript.appendScalar(proof.evaluations.h1);
         transcript.appendScalar(proof.evaluations.h2);
         transcript.appendScalar(proof.evaluations.zw);
@@ -249,7 +249,7 @@ class RangeCheckVerifier {
 
         // IDENTITY A  ((γ + f(xi))(γ + t(xi)) + u)[z(x)]_1
         let elA0 = Fr.add(challenges.gamma, proof.evaluations.f);
-        let elA1 = Fr.add(challenges.gamma, proof.evaluations.lookupTable);
+        let elA1 = Fr.add(challenges.gamma, proof.evaluations.lt);
         let elA = Fr.mul(elA0, elA1);
         elA = Fr.mul(elA, challenges.v[0]);
         elA = Fr.add(elA, challenges.u);
@@ -281,7 +281,7 @@ class RangeCheckVerifier {
 
         res = G1.add(res, D);
         res = G1.add(res, G1.timesFr(proof.polynomials.F, challenges.v[1]));
-        res = G1.add(res, G1.timesFr(proof.polynomials.LookupTable, challenges.v[2]));
+        res = G1.add(res, G1.timesFr(proof.polynomials.LT, challenges.v[2]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, challenges.v[3]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H2, challenges.v[4]));
         res = G1.add(res, G1.timesFr(proof.polynomials.H1, Fr.mul(challenges.vp, challenges.u)));
@@ -297,7 +297,7 @@ class RangeCheckVerifier {
         let res = t;
         res = Fr.add(res, Fr.mul(challenges.v[0], proof.evaluations.r));
         res = Fr.add(res, Fr.mul(challenges.v[1], proof.evaluations.f));
-        res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lookupTable));
+        res = Fr.add(res, Fr.mul(challenges.v[2], proof.evaluations.lt));
         res = Fr.add(res, Fr.mul(challenges.v[3], proof.evaluations.h1));
         res = Fr.add(res, Fr.mul(challenges.v[4], proof.evaluations.h2));
 
