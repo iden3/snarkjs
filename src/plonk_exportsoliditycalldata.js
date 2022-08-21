@@ -64,7 +64,7 @@ export default async function plonkExportSolidityCallData(_proof, _pub) {
         }
     }
 
-    const proofBuff = new Uint8Array(G1.F.n8 * 2 * (9 + nPolynomials) + Fr.n8 * (7 + nEvaluations));
+    let proofBuff = new Uint8Array(G1.F.n8 * 2 * (9 + nPolynomials) + Fr.n8 * (7 + nEvaluations));
     G1.toRprUncompressed(proofBuff, 0, G1.e(proof.A));
     G1.toRprUncompressed(proofBuff, G1.F.n8 * 2, G1.e(proof.B));
     G1.toRprUncompressed(proofBuff, G1.F.n8 * 4, G1.e(proof.C));
@@ -83,6 +83,9 @@ export default async function plonkExportSolidityCallData(_proof, _pub) {
     Fr.toRprBE(proofBuff, G1.F.n8 * 18 + Fr.n8 * 6, Fr.e(proof.eval_r));
 
     let offset = G1.F.n8 * 18 + Fr.n8 * 7;
+
+    proofBuff = new Uint8Array(G1.F.n8 * 2 * (nPolynomials) + Fr.n8 * (nEvaluations));
+    offset = 0;
     if ("customGates" in _proof) {
         for (let i = 0; i < _proof.customGates.length; i++) {
             let cg = FactoryCG.create(_proof.customGates[i].id, {parameters: {}});
@@ -101,7 +104,8 @@ export default async function plonkExportSolidityCallData(_proof, _pub) {
 
     const proofHex = Array.from(proofBuff).map(i2hex).join("");
 
-    const S = "0x" + proofHex + ",[" + inputs + "]";
+    // const S = "0x" + proofHex + ",[" + inputs + "]";
+    const S = "0x" + proofHex;
 
     return S;
 }
