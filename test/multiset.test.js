@@ -4,6 +4,7 @@ import {getRandomValue, getRandomArray} from "./test_utils.js";
 import {getCurveFromName} from "../src/curves.js";
 import fs from "fs";
 import * as fastFile from "fastfile";
+import {BigBuffer} from "ffjavascript";
 
 describe("snarkjs: Plookup > Multiset tests", function () {
     this.timeout(150000);
@@ -19,7 +20,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should properly construct a new multiset from an array", async () => {
-        let array = getRandomArray();
+        let array = getRandomArray(curve.Fr);
         let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(array);
 
@@ -32,10 +33,8 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should throw an error when trying to import data from an array on a non void multiset", async () => {
-        let multiset = new Multiset(0, curve.Fr);
-        let element = curve.Fr.random();
-        multiset.push(element);
-        assert.throws(() => multiset.fromArray([element]), Error("Multiset.fromArray: it is not able to import data from an array in a non void multiset"));
+        let multiset = new Multiset(1, curve.Fr);
+        assert.throws(() => multiset.fromArray([]), Error("Multiset.fromArray: it is not able to import data from an array in a non void multiset"));
     });
 
     it("should write and read data to/from a file", async () => {
@@ -61,7 +60,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         await fd2.close();
         await fs.promises.unlink(fileName);
 
-        assert.deepEqual(multiset.vec, multiset2.vec);
+        assert.deepEqual(multiset.buff, multiset2.buff);
     });
 
 
@@ -89,19 +88,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         multiset.pad(length1 + length2);
 
         assert.equal(multiset.length(), length1 + length2);
-        assert.deepEqual(multiset.vec[multiset.vec.length - 1], curve.Fr.zero);
-    });
-
-    it("should push a new element properly on a multiset", async () => {
-        let multiset = new Multiset(0, curve.Fr);
-        let element1 = getRandomValue(1000);
-        let element2 = getRandomValue(1000);
-
-        multiset.push(element1);
-        assert.deepEqual([element1], multiset.toArray());
-        multiset.push(element2);
-        assert.deepEqual([element1, element2], multiset.toArray());
-
+        assert.deepEqual(multiset.lastElement(), curve.Fr.zero);
     });
 
     it("should throw an error when trying to read an element on an invalid position", async () => {
@@ -111,13 +98,14 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         assert.throws(() => multiset.getElementAt(length), Error("Multiset.getElementAt: Index out of bounds"));
     });
 
-    it("should return element at position indicated", async () => {
-        let array = getRandomArray();
+    it("should return element at indicated position", async () => {
+        let array = getRandomArray(curve.Fr);
         let multiset = new Multiset(0, curve.Fr);
 
         multiset.fromArray(array);
+
         for (let i = 0; i < array.length; i++) {
-            assert.equal(array[i], multiset.getElementAt(i));
+            assert.deepEqual(array[i], multiset.getElementAt(i));
         }
     });
 
@@ -130,7 +118,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should set element at indicated position", async () => {
-        let array = getRandomArray();
+        let array = getRandomArray(curve.Fr);
         let multiset = new Multiset(0, curve.Fr);
         let element = curve.Fr.e(getRandomValue(1000));
         let index = getRandomValue(multiset.length() - 1);
@@ -141,29 +129,29 @@ describe("snarkjs: Plookup > Multiset tests", function () {
     });
 
     it("should first and last element properly", async () => {
-        let array = getRandomArray();
+        let array = getRandomArray(curve.Fr);
         let multiset = new Multiset(0, curve.Fr);
 
         multiset.fromArray(array);
-        assert.equal(array[0], multiset.firstElement());
-        assert.equal(array[array.length - 1], multiset.lastElement());
+        assert.deepEqual(array[0], multiset.firstElement());
+        assert.deepEqual(array[array.length - 1], multiset.lastElement());
     });
 
     it("should whether is empty or not", async () => {
         let multiset = new Multiset(0, curve.Fr);
-
         assert.equal(true, multiset.isEmpty());
 
-        multiset.push(1);
-        assert.equal(false, multiset.isEmpty());
+        let multisetNoEmpty = new Multiset(1, curve.Fr);
+
+        assert.equal(false, multisetNoEmpty.isEmpty());
     });
 
     it("should return the index of an element or -1 if it doesn't exist", async () => {
         let multiset = new Multiset(0, curve.Fr);
         let length = getRandomValue(50);
         let element = curve.Fr.e(getRandomValue(1000));
-        let index = Math.floor(length / 2);
 
+        let index = Math.floor(length / 2);
         multiset.pad(length);
 
         assert.equal(-1, multiset.indexOf(element));
@@ -230,7 +218,7 @@ describe("snarkjs: Plookup > Multiset tests", function () {
 
     it("should return a sorted version of two multisets", async () => {
         //sortedVersion({1,2,3,4} {5,4,3,2,1}) = {1,1,2,2,3,3,4,4,5}
-        let arr1 = [curve.Fr.e(1), curve.Fr.e(4), curve.Fr.e(8), curve.Fr.e(16),curve.Fr.e(32)];
+        let arr1 = [curve.Fr.e(1), curve.Fr.e(4), curve.Fr.e(8), curve.Fr.e(16), curve.Fr.e(32)];
         let arr2 = [curve.Fr.e(5), curve.Fr.e(4), curve.Fr.e(3), curve.Fr.e(2), curve.Fr.e(1)];
 
         let arrOk = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(4),
@@ -242,20 +230,24 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         multiset1.fromArray(arr1);
         multiset2.fromArray(arr2);
 
-        let res = multiset1.sortedVersion(multiset2);
+        let s = multiset1.sortedBy(multiset2);
 
-        assert.deepEqual(arrOk, res.toArray());
+        assert.deepEqual(arrOk, s.toArray());
     });
 
     it("should return halves of a multiset", async () => {
-        let arr = [1, 1, 2, 2, 3, 3, 4, 4, 5];
+        let arr = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2), curve.Fr.e(3),
+            curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(4), curve.Fr.e(5)];
+        let arr1 = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2), curve.Fr.e(3)];
+        let arr2 = [curve.Fr.e(3), curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(4), curve.Fr.e(5)];
 
         let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(arr);
 
-        let res = multiset.halves();
-        assert.deepEqual([1, 1, 2, 2, 3], res.h1);
-        assert.deepEqual([3, 3, 4, 4, 5], res.h2);
+        let halves = multiset.halves();
+
+        assert.deepEqual(arr1, halves.h1.toArray());
+        assert.deepEqual(arr2, halves.h2.toArray());
     });
 
     it("should return halves alternating of a multiset", async () => {
@@ -267,10 +259,24 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         let multiset = new Multiset(0, curve.Fr);
         multiset.fromArray(arr);
 
-        let res = multiset.halvesAlternating();
+        let halves = multiset.halvesAlternating();
 
-        assert.deepEqual(arr1, res.h1.toArray());
-        assert.deepEqual(arr2, res.h2.toArray());
+        assert.deepEqual(arr1, halves.h1.toArray());
+        assert.deepEqual(arr2, halves.h2.toArray());
+
+        arr = [curve.Fr.e(1), curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(2),
+            curve.Fr.e(3), curve.Fr.e(3), curve.Fr.e(4), curve.Fr.e(6)];
+        arr1 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(4)];
+        arr2 = [curve.Fr.e(1), curve.Fr.e(2), curve.Fr.e(3), curve.Fr.e(6)];
+
+        multiset = new Multiset(0, curve.Fr);
+        multiset.fromArray(arr);
+
+        halves = multiset.halvesAlternating();
+
+        assert.deepEqual(arr1, halves.h1.toArray());
+        assert.deepEqual(arr2, halves.h2.toArray());
+
     });
 
     it("should throw an error when argument randomChallenge passed to compress is not an Uint8Array", async () => {
@@ -312,5 +318,24 @@ describe("snarkjs: Plookup > Multiset tests", function () {
         multiset3.fromArray(arr3);
 
         assert.deepEqual(res, Multiset.compress(multiset1, multiset2, multiset3, curve.Fr.e(2), curve.Fr).toArray());
+    });
+
+    it("should order a multiset", async () => {
+        let length = getRandomValue(4096);
+
+        let buff = new BigBuffer(length * curve.Fr.n8);
+        for (let i = 0; i < length; i++) {
+            buff.set(curve.Fr.random(), i * curve.Fr.n8);
+        }
+
+        buff.quickSort(0, length - 1, curve.Fr);
+
+        for (let i = 1; i < length; i++) {
+            let diff = curve.Fr.sub(
+                buff.slice((i - 1) * curve.Fr.n8, i * curve.Fr.n8),
+                buff.slice(i * curve.Fr.n8, (i + 1) * curve.Fr.n8));
+
+            assert(curve.Fr.isNegative(diff) || curve.Fr.isZero(diff));
+        }
     });
 });

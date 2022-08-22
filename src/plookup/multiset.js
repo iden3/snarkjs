@@ -24,11 +24,19 @@ class Multiset {
         if (undefined === Fr) {
             throw new Error("Constructor of multiset needs a F");
         }
-        this.vec = new Array(initialSize);
+        this.buff = new BigBuffer(initialSize * Fr.n8);
 
         this.Fr = Fr;
 
         return this;
+    }
+
+    length() {
+        return this.buff.byteLength / this.Fr.n8;
+    }
+
+    isEmpty() {
+        return 0 === this.length();
     }
 
     fromArray(array) {
@@ -36,101 +44,98 @@ class Multiset {
             throw new Error("Multiset.fromArray: Element is not an array");
         }
 
-        if (this.vec.length !== 0) {
+        if (this.length() !== 0) {
             throw new Error("Multiset.fromArray: it is not able to import data from an array in a non void multiset");
         }
-        this.vec = [...array];
-    }
 
-    toArray() {
-        return this.vec;
+        this.buff = new BigBuffer(array.length * this.Fr.n8);
+
+        for (let i = 0; i < array.length; i++) {
+            this.setElementAt(array[i], i);
+        }
     }
 
     toBigBuffer() {
-        let res = new BigBuffer(this.vec.length * this.Fr.n8);
-        for (let i = 0; i < this.vec.length; i++) {
-            res.set(this.vec[i], i * this.Fr.n8);
+        return this.buff;
+    }
+
+    toArray() {
+        const length = this.length();
+
+        let res = new Array(length);
+        for (let i = 0; i < length; i++) {
+            res[i] = this.getElementAt(i);
         }
 
         return res;
     }
 
     async toFile(fd) {
-        await fd.writeULE64(this.vec.length);
+        const length = this.length();
+        await fd.writeULE64(length);
 
-        for (let i = 0; i < this.vec.length; i++) {
-            await fd.write(this.vec[i]);
+        for (let i = 0; i < length; i++) {
+            await fd.write(this.buff.slice(i * this.Fr.n8, (i + 1) * this.Fr.n8));
         }
     }
 
     async fromFile(fd) {
-        if (this.vec.length !== 0) {
+        if (this.length() !== 0) {
             throw new Error("Multiset.fromArray: it is not able to import data from a file in a non void multiset");
         }
         let length = await fd.readULE64();
-        this.vec = new Array(length);
+        this.buff = new BigBuffer(length * this.Fr.n8);
         for (let i = 0; i < length; i++) {
-            this.vec[i] = await fd.read(this.Fr.n8);
+            this.setElementAt(await fd.read(this.Fr.n8), i);
         }
     }
 
     //Extends the number of elements of the Multiset to newLength
     pad(newLength, defaultValue = this.Fr.zero) {
-        // const isPowerOfTwo = 0 === ((Math.log(newLength) / Math.log(2)) % 1);
-        // if (!isPowerOfTwo) {
-        //     throw new Error("Multiset.pad: New length must by power of two");
-        // }
-        let diff = newLength - this.length();
+        const diff = newLength - this.length();
 
         if (diff < 0) {
             throw new Error("Multiset.pad: A multiset pad length cannot reduce length");
         }
+
         if (diff > 0) {
-            this.vec = this.vec.concat(Array(diff).fill(defaultValue.slice()));
+            const buff2 = new BigBuffer(newLength * this.Fr.n8);
+            buff2.set(this.buff, 0);
+            for (let i = this.length(); i < newLength; i++) {
+                buff2.set(defaultValue, i * this.Fr.n8);
+            }
+            this.buff = buff2;
         }
-    }
-
-    //Push a new Element to the end of the Multiset
-    push(element) {
-        this.vec.push(element);
-    }
-
-    length() {
-        return this.vec.length;
     }
 
     getElementAt(index) {
-        if (index < 0 || index > this.vec.length - 1) {
+        if (index < 0 || index >= this.length()) {
             throw new Error("Multiset.getElementAt: Index out of bounds");
         }
-        return this.vec[index];
+        return this.buff.slice(index * this.Fr.n8, (index + 1) * this.Fr.n8);
     }
 
     setElementAt(element, index) {
-        if (this.length() === 0 || index >= this.vec.length) {
+        if (this.length() === 0 || index >= this.length()) {
             throw new Error("Multiset.setElementAt: Index out of bounds");
         }
-        this.vec[index] = element.slice();
+        this.buff.set(element, index * this.Fr.n8);
     }
 
     //Fetch first element on the Multiset. Returns undefined if there are no elements in the Multiset
     firstElement() {
-        return this.length() > 0 ? this.vec[0] : undefined;
+        return this.length() > 0 ? this.getElementAt(0) : undefined;
     }
 
     //Fetch last element on the Multiset. Returns undefined if there are no elements in the Multiset
     lastElement() {
-        return this.length() > 0 ? this.vec[this.vec.length - 1] : undefined;
-    }
-
-    isEmpty() {
-        return 0 === this.length();
+        return this.length() > 0 ? this.getElementAt(this.length() - 1) : undefined;
     }
 
     //Returns the first index at which a given element can be found in the array, or -1 if it is not present.
     indexOf(element, fromIndex = 0) {
-        for (let i = fromIndex; i < this.vec.length; i++) {
-            if (this.Fr.eq(this.vec[i], element)) {
+        for (let i = fromIndex; i < this.length(); i++) {
+            if (this.Fr.eq(this.getElementAt(i), element)) {
                 return i;
             }
         }
@@ -154,8 +159,8 @@ class Multiset {
         }
 
         let lastIndex = 0;
-        for (let i = 0; i < this.vec.length; i++) {
-            lastIndex = multiset.indexOf(this.vec[i], lastIndex);
+        for (let i = 0; i < this.length(); i++) {
+            lastIndex = multiset.indexOf(this.getElementAt(i), lastIndex);
             if (-1 === lastIndex) {
                 return false;
             }
@@ -166,27 +171,25 @@ class Multiset {
 
     //Concatenates and sort two Multisets
     // sortedVersion({1,2,3,4},{5,4,3,2,1})={1,1,2,2,3,3,4,4,5}
-    sortedVersion(multiset) {
+    sortedBy(multiset) {
         if (!(multiset instanceof Multiset)) {
             throw new Error("Multiset.sortedVersion: multiset argument must be of type Multiset");
         }
 
-        let array = this.vec.concat(multiset.toArray());
+        if (multiset.length() <= 0) {
+            return this;
+        }
 
-        array.sort((a, b) => {
-            let diff = this.Fr.sub(a, b);
+        const newLength = this.length() + multiset.length();
+        let buff2 = new BigBuffer(newLength * this.Fr.n8);
 
-            if (this.Fr.isNegative(diff)) {
-                return -1;
-            }
-            if (this.Fr.isZero(diff)) {
-                return 0;
-            }
-            return 1;
-        });
+        buff2.set(this.buff, 0);
+        buff2.set(multiset.buff, this.length() * this.Fr.n8);
+
+        buff2.quickSort(0, newLength - 1, this.Fr);
 
         let res = new Multiset(0, this.Fr);
-        res.fromArray(array);
+        res.buff = buff2;
 
         return res;
     }
@@ -196,31 +199,37 @@ class Multiset {
     halves() {
         let newLength = Math.floor(this.length() / 2);
 
-        let first_half = this.vec.slice(0, newLength + 1);
-        let second_half = this.vec.slice(newLength, this.length());
+        let h1 = new Multiset(newLength + 1, this.Fr);
+        let h2 = new Multiset(this.length() - newLength, this.Fr);
 
-        return {h1: first_half, h2: second_half};
+        h1.buff = this.buff.slice(0, (newLength + 1) * this.Fr.n8);
+        h2.buff = this.buff.slice(newLength * this.Fr.n8, this.length() * this.Fr.n8);
+
+        return {h1: h1, h2: h2};
     }
 
     //Divides a multiset into odd and even halves
     halvesAlternating() {
-        let evens = new Multiset(0, this.Fr);
-        let odds = new Multiset(0, this.Fr);
-        for (let i = 0; i < this.vec.length; i++) {
-            if (i % 2 === 0) {
-                evens.push(this.vec[i].slice());
-            } else {
-                odds.push(this.vec[i].slice());
-            }
+        const lengthEvens = this.length() - Math.floor(this.length() / 2);
+        const lengthOdds = this.length() - lengthEvens;
+
+        let evens = new Multiset(lengthEvens, this.Fr);
+        let odds = new Multiset(lengthOdds, this.Fr);
+
+        for (let i = 0; i < lengthOdds; i++) {
+            evens.setElementAt(this.getElementAt(i * 2), i);
+            odds.setElementAt(this.getElementAt(i * 2 + 1), i);
+        }
+        if (lengthEvens > lengthOdds) {
+            evens.setElementAt(this.lastElement(), lengthEvens - 1);
         }
 
         return {h1: evens, h2: odds};
-
     }
 
     //Compress the elements of three Multisets in one Multiset using a random challenge value
     //a_i + (b_i * random_challenge) + (c_i * random_challenge^2)
-    static compress(multiset_a, multiset_b, multiset_c, randomChallenge, F) {
+    static compress(multiset_a, multiset_b, multiset_c, randomChallenge, Fr) {
         if (!(randomChallenge instanceof Uint8Array)) {
             throw new Error("Multiset.compress: randomChallenge argument must be an Uint8Array");
         }
@@ -233,14 +242,14 @@ class Multiset {
             throw new Error("Multiset.compress: All Multisets must have same length");
         }
 
-        let res = new Multiset(multiset_a.length(), F);
+        let res = new Multiset(multiset_a.length(), Fr);
         for (let i = 0; i < multiset_a.length(); i++) {
             let elementA = multiset_a.getElementAt(i).slice();
-            let elementB = F.mul(multiset_b.getElementAt(i).slice(), randomChallenge);
-            let elementC = F.mul(multiset_c.getElementAt(i).slice(), F.square(randomChallenge));
+            let elementB = Fr.mul(multiset_b.getElementAt(i).slice(), randomChallenge);
+            let elementC = Fr.mul(multiset_c.getElementAt(i).slice(), Fr.square(randomChallenge));
 
-            let element = F.add(elementA, elementB);
-            element = F.add(element, elementC);
+            let element = Fr.add(elementA, elementB);
+            element = Fr.add(element, elementC);
 
             res.setElementAt(element, i);
         }

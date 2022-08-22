@@ -53,35 +53,36 @@ class RangeCheckProver {
         return proof;
 
         async function round1() {
-            //t = polynomial with t_i = c * (i - 1)
-            let arrayLT = new Array(N);
-
-            for (let i = 0; i < N; i++) {
-                if (i % 10000 === 0) {
-                    console.log("Creating preprocessed polynomials for range check");
-                }
-                arrayLT[i] = Fr.e(C * i);
-            }
-
             // 1. Generate random blinding scalars b_1, b_2, ..., b_{(c-2) + 11} ∈ F.
             challenges.b = [];
             for (let i = 0; i < (C - 2) + 11; i++) {
                 challenges.b[i] = Fr.random();
             }
 
-            const length = Math.max(arrayLT.length, witnesses.length);
+            const length = Math.max(N, witnesses.length);
 
             // 2. Compute the query polynomial f(X) ∈ F_{<n}[X] and the lookup polynomial t(X) ∈ F_{<n}[X]:
             let f = new Multiset(0, Fr);
             f.fromArray(witnesses);
             f.pad(length, f.lastElement());
 
-            let lt = new Multiset(0, Fr);
-            lt.fromArray(arrayLT);
-            lt.pad(length, lt.lastElement());
+            //t = polynomial with t_i = c * (i - 1)
+            let lt = new Multiset(N, Fr);
+
+            for (let i = 0; i < N; i++) {
+                if (i % 10000 === 0) {
+                    console.log("Creating preprocessed polynomials for range check");
+                }
+                lt.setElementAt(Fr.e(C * i), i);
+            }
+
+            const lastElement = lt.lastElement();
+            for (let i = N; i < length; i++) {
+                lt.setElementAt(lastElement, i);
+            }
 
             // 3. Let s ∈ F^{2n} be the vector that is (f, t) sorted by t.
-            let s = lt.sortedVersion(f);
+            let s = lt.sortedBy(f);
 
             // We represent s by the vectors h_1, h_2 ∈ F^n
             let {h1, h2} = s.halvesAlternating();

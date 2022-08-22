@@ -6,3 +6,13 @@ export async function expTau(polynomial, PTau, curve, logger, name) {
     res = curve.G1.toAffine(res);
     return res;
 }
+
+export function toDebugArray(buffer, Fr) {
+    const length = buffer.byteLength / Fr.n8;
+    let res = [];
+    for (let i = 0; i < length; i++) {
+        res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+    }
+
+    return res;
+}

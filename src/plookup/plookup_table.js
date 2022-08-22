@@ -46,15 +46,15 @@ class PlookupTable {
     }
 
     toMultisets() {
-        let multisetA = new Multiset(0, this.F);
-        let multisetB = new Multiset(0, this.F);
-        let multisetC = new Multiset(0, this.F);
+        let multisetA = new Multiset(this.vec.length, this.F);
+        let multisetB = new Multiset(this.vec.length, this.F);
+        let multisetC = new Multiset(this.vec.length, this.F);
 
         for (let i = 0; i < this.vec.length; i++) {
             const row = this.getRowAt(i);
-            multisetA.push(row[0]);
-            multisetB.push(row[1]);
-            multisetC.push(row[2]);
+            multisetA.setElementAt(row[0], i);
+            multisetB.setElementAt(row[1], i);
+            multisetC.setElementAt(row[2], i);
         }
         return {a: multisetA, b: multisetB, c: multisetC};
     }
