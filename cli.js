@@ -322,10 +322,8 @@ clProcessor(commands).then( (res) => {
 });
 
 /*
-
 TODO COMMANDS
 =============
-
     {
         cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
         description: "Run a simple setup for a circuit generating the proving key.",
@@ -347,17 +345,17 @@ TODO COMMANDS
 
 function changeExt(fileName, newExt) {
   let S = fileName;
-    while ((S.length>0) && (S[S.length-1] != ".")) S = S.slice(0, S.length-1);
-    if (S.length>0) {
-    return S + newExt;
+  while ((S.length>0) && (S[S.length-1] != ".")) S = S.slice(0, S.length-1);
+  if (S.length>0) {
+      return S + newExt;
   } else {
-        return fileName+"."+newExt;
+      return fileName+"."+newExt;
   }
 }
 
 // r1cs export circomJSON [circuit.r1cs] [circuit.json]
 async function r1csInfo(params, options) {
-    const r1csName = params[0] ||  "circuit.r1cs";
+  const r1csName = params[0] ||  "circuit.r1cs";
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
@@ -451,24 +449,17 @@ async function wtnsExportJson(params, options) {
 /*
 // zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
 async function zksnarkSetup(params, options) {
-
-    const r1csName = params[0] || "circuit.r1cs";
-    const zkeyName = params[1] || changeExt(r1csName, "zkey");
-    const verificationKeyName = params[2] || "verification_key.json";
-
-    const protocol = options.protocol || "groth16";
-
-    const cir = await readR1cs(r1csName, true);
-
-    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-    const setup = zkSnark[protocol].setup(cir, options.verbose);
-
-    await zkey.utils.write(zkeyName, setup.vk_proof);
-    await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
-
-    await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
-
-    return 0;
+  const r1csName = params[0] || "circuit.r1cs";
+  const zkeyName = params[1] || changeExt(r1csName, "zkey");
+  const verificationKeyName = params[2] || "verification_key.json";
+  const protocol = options.protocol || "groth16";
+  const cir = await readR1cs(r1csName, true);
+  if (!zkSnark[protocol]) throw new Error("Invalid protocol");
+  const setup = zkSnark[protocol].setup(cir, options.verbose);
+  await zkey.utils.write(zkeyName, setup.vk_proof);
+  await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
+  await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
+  return 0;
 }
 */
 
@@ -482,7 +473,7 @@ async function groth16Prove(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
+  const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
 
   await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
   await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
@@ -503,7 +494,7 @@ async function groth16FullProve(params, options) {
 
   const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
-    const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName,  logger);
+  const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName,  logger);
 
   await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
   await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
@@ -518,7 +509,7 @@ async function groth16Verify(params, options) {
   const publicName = params[1] || "public.json";
   const proofName = params[2] || "proof.json";
 
-    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+  const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
   const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
   const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
@@ -527,9 +518,9 @@ async function groth16Verify(params, options) {
   const isValid = await groth16.verify(verificationKey, pub, proof, logger);
 
   if (isValid) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 }
 
@@ -558,10 +549,11 @@ async function zkeyExportJson(params, options) {
 }
 
 async function fileExists(file) {
-    return fs.promises.access(file, fs.constants.F_OK)
-    .then(() => true)
-    .catch(() => false);
+  return fs.promises.access(file, fs.constants.F_OK)
+      .then(() => true)
+      .catch(() => false);
 }
+
 // solidity genverifier [circuit_final.zkey] [verifier.sol]
 async function zkeyExportSolidityVerifier(params, options) {
   let zkeyName;
@@ -643,15 +635,15 @@ async function zkeyExportSolidityCalldata(params, options) {
   let proofName;
 
   if (params.length < 1) {
-    publicName = "public.json";
+      publicName = "public.json";
   } else {
-    publicName = params[0];
+      publicName = params[0];
   }
 
   if (params.length < 2) {
-    proofName = "proof.json";
+      proofName = "proof.json";
   } else {
-    proofName = params[1];
+      proofName = params[1];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
@@ -661,11 +653,11 @@ async function zkeyExportSolidityCalldata(params, options) {
 
   let res;
   if (proof.protocol == "groth16") {
-    res = await groth16.exportSolidityCallData(proof, pub);
+      res = await groth16.exportSolidityCallData(proof, pub);
   } else if (proof.protocol == "plonk") {
-    res = await plonk.exportSolidityCallData(proof, pub);
+      res = await plonk.exportSolidityCallData(proof, pub);
   } else {
-    throw new Error("Invalid Protocol");
+      throw new Error("Invalid Protocol");
   }
   console.log(res);
 
@@ -681,14 +673,14 @@ async function powersOfTauNew(params, options) {
   curveName = params[0];
 
   power = parseInt(params[1]);
-    if ((power<1) || (power>28)) {
-    throw new Error("Power must be between 1 and 28");
+  if ((power<1) || (power>28)) {
+      throw new Error("Power must be between 1 and 28");
   }
 
   if (params.length < 3) {
-    ptauName = "powersOfTau" + power + "_0000.ptau";
+      ptauName = "powersOfTau" + power + "_0000.ptau";
   } else {
-    ptauName = params[2];
+      ptauName = params[2];
   }
 
   const curve = await curves.getCurveFromName(curveName);
@@ -705,9 +697,9 @@ async function powersOfTauExportChallenge(params, options) {
   ptauName = params[0];
 
   if (params.length < 2) {
-    challengeName = "challenge";
+      challengeName = "challenge";
   } else {
-    challengeName = params[1];
+      challengeName = params[1];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
@@ -725,14 +717,14 @@ async function powersOfTauChallengeContribute(params, options) {
   challengeName = params[1];
 
   if (params.length < 3) {
-    responseName = changeExt(challengeName, "response");
+      responseName = changeExt(challengeName, "response");
   } else {
-    responseName = params[2];
+      responseName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+  return await powersOfTau.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
 
@@ -752,7 +744,7 @@ async function powersOfTauImport(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
+  const res = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
   if (res) return res;
   if (!doCheck) return;
@@ -769,9 +761,9 @@ async function powersOfTauVerify(params, options) {
 
   const res = await powersOfTau.verify(ptauName, logger);
   if (res === true) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 }
 
@@ -788,7 +780,7 @@ async function powersOfTauBeacon(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
+  return await powersOfTau.beacon(oldPtauName, newPtauName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
 async function powersOfTauContribute(params, options) {
@@ -800,7 +792,7 @@ async function powersOfTauContribute(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
+  return await powersOfTau.contribute(oldPtauName, newPtauName, options.name , options.entropy, logger);
 }
 
 async function powersOfTauPreparePhase2(params, options) {
@@ -834,9 +826,9 @@ async function powersOfTauTruncate(params, options) {
   ptauName = params[0];
 
   let template = ptauName;
-    while ((template.length>0) && (template[template.length-1] != ".")) template = template.slice(0, template.length-1);
-    template = template.slice(0, template.length-1);
-    template = template+"_";
+  while ((template.length>0) && (template[template.length-1] != ".")) template = template.slice(0, template.length-1);
+  template = template.slice(0, template.length-1);
+  template = template+"_";
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
@@ -866,21 +858,21 @@ async function zkeyNew(params, options) {
   let zkeyName;
 
   if (params.length < 1) {
-    r1csName = "circuit.r1cs";
+      r1csName = "circuit.r1cs";
   } else {
-    r1csName = params[0];
+      r1csName = params[0];
   }
 
   if (params.length < 2) {
-    ptauName = "powersoftau.ptau";
+      ptauName = "powersoftau.ptau";
   } else {
-    ptauName = params[1];
+      ptauName = params[1];
   }
 
   if (params.length < 3) {
-    zkeyName = "circuit_0000.zkey";
+      zkeyName = "circuit_0000.zkey";
   } else {
-    zkeyName = params[2];
+      zkeyName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
@@ -896,9 +888,9 @@ async function zkeyExportBellman(params, options) {
   zkeyName = params[0];
 
   if (params.length < 2) {
-    mpcparamsName = "circuit.mpcparams";
+      mpcparamsName = "circuit.mpcparams";
   } else {
-    mpcparamsName = params[1];
+      mpcparamsName = params[1];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
@@ -920,11 +912,11 @@ async function zkeyImportBellman(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid = await zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
+  const isValid = await zkey.importBellman(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
   if (isValid) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 }
 
@@ -935,30 +927,30 @@ async function zkeyVerifyFromR1cs(params, options) {
   let zkeyName;
 
   if (params.length < 1) {
-    r1csName = "circuit.r1cs";
+      r1csName = "circuit.r1cs";
   } else {
-    r1csName = params[0];
+      r1csName = params[0];
   }
 
   if (params.length < 2) {
-    ptauName = "powersoftau.ptau";
+      ptauName = "powersoftau.ptau";
   } else {
-    ptauName = params[1];
+      ptauName = params[1];
   }
 
   if (params.length < 3) {
-    zkeyName = "circuit_final.zkey";
+      zkeyName = "circuit_final.zkey";
   } else {
-    zkeyName = params[2];
+      zkeyName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
   const res = await zkey.verifyFromR1cs(r1csName, ptauName, zkeyName, logger);
   if (res === true) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 
 }
@@ -970,30 +962,30 @@ async function zkeyVerifyFromInit(params, options) {
   let zkeyName;
 
   if (params.length < 1) {
-    initZKeyName = "circuit_0000.zkey";
+      initZKeyName = "circuit_0000.zkey";
   } else {
-    initZKeyName = params[0];
+      initZKeyName = params[0];
   }
 
   if (params.length < 2) {
-    ptauName = "powersoftau.ptau";
+      ptauName = "powersoftau.ptau";
   } else {
-    ptauName = params[1];
+      ptauName = params[1];
   }
 
   if (params.length < 3) {
-    zkeyName = "circuit_final.zkey";
+      zkeyName = "circuit_final.zkey";
   } else {
-    zkeyName = params[2];
+      zkeyName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await zkey.verifyFromInit(initZKeyName, ptauName, zkeyName, logger);
+  const res = await zkey.verifyFromInit(initZKeyName, ptauName, zkeyName, logger);
   if (res === true) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 }
 
@@ -1007,7 +999,7 @@ async function zkeyContribute(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
+  return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
 }
 
 // zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>
@@ -1024,7 +1016,7 @@ async function zkeyBeacon(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await zkey.beacon(zkeyOldName, zkeyNewName, options.name ,beaconHashStr, numIterationsExp, logger);
+  return await zkey.beacon(zkeyOldName, zkeyNewName, options.name ,beaconHashStr, numIterationsExp, logger);
 }
 
 
@@ -1038,14 +1030,14 @@ async function zkeyBellmanContribute(params, options) {
   challengeName = params[1];
 
   if (params.length < 3) {
-    responseName = changeExt(challengeName, "response");
+      responseName = changeExt(challengeName, "response");
   } else {
-    responseName = params[2];
+      responseName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
+  return zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 }
 
 
@@ -1056,21 +1048,21 @@ async function plonkSetup(params, options) {
   let zkeyName;
 
   if (params.length < 1) {
-    r1csName = "circuit.r1cs";
+      r1csName = "circuit.r1cs";
   } else {
-    r1csName = params[0];
+      r1csName = params[0];
   }
 
   if (params.length < 2) {
-    ptauName = "powersoftau.ptau";
+      ptauName = "powersoftau.ptau";
   } else {
-    ptauName = params[1];
+      ptauName = params[1];
   }
 
   if (params.length < 3) {
-    zkeyName = "circuit.zkey";
+      zkeyName = "circuit.zkey";
   } else {
-    zkeyName = params[2];
+      zkeyName = params[2];
   }
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
@@ -1089,7 +1081,7 @@ async function plonkProve(params, options) {
 
   if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
+  const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
 
   await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
   await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
@@ -1111,7 +1103,7 @@ async function plonkFullProve(params, options) {
 
   const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
-    const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName,  logger);
+  const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName,  logger);
 
   await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
   await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
@@ -1127,7 +1119,7 @@ async function plonkVerify(params, options) {
   const publicName = params[1] || "public.json";
   const proofName = params[2] || "proof.json";
 
-    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+  const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
   const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
   const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
@@ -1136,58 +1128,58 @@ async function plonkVerify(params, options) {
   const isValid = await plonk.verify(verificationKey, pub, proof, logger);
 
   if (isValid) {
-    return 0;
+      return 0;
   } else {
-    return 1;
+      return 1;
   }
 }
 
 async function fileInfo(params) {
-    const filename = params[0];
-    const extension = filename.split(".").pop();
+  const filename = params[0];
+  const extension = filename.split(".").pop();
 
-    if (!["zkey", "r1cs", "ptau", "wtns"].includes(extension)) {
-        console.error(`Extension ${extension} is not allowed.`);
-        return;
-    }
+  if (!["zkey", "r1cs", "ptau", "wtns"].includes(extension)) {
+      console.error(`Extension ${extension} is not allowed.`);
+      return;
+  }
 
-    try {
-        const {
-            fd: fd,
-            sections: sections
-        } = await binFileUtils.readBinFile(filename, extension, 2, 1 << 25, 1 << 23);
+  try {
+      const {
+          fd: fd,
+          sections: sections
+      } = await binFileUtils.readBinFile(filename, extension, 2, 1 << 25, 1 << 23);
 
-        console.log(`File info for    ${filename}`);
-        console.log();
-        console.log(`File size:       ${fd.totalSize} bytes`);
-        console.log(`File type:       ${extension}`);
-        console.log(`Version:         ${fd.version}`);
-        console.log(`Bin version:     ${fd.binVersion}`);
-        console.log("");
+      console.log(`File info for    ${filename}`);
+      console.log();
+      console.log(`File size:       ${fd.totalSize} bytes`);
+      console.log(`File type:       ${extension}`);
+      console.log(`Version:         ${fd.version}`);
+      console.log(`Bin version:     ${fd.binVersion}`);
+      console.log("");
 
-        sections.forEach((section, index) => {
-            let errors = [];
-            if (section.length > 1) errors.push(`Section ${index} has more than one section definition`);
-            else {
-                if (section[0].size === 0) {
-                    errors.push(`Section ${index} size is zero. This could cause false errors in other sections.`);
-                }
-            }
-            if(section[0].p + section[0].size > fd.totalSize) {
-                errors.push(`Section ${index} is out of bounds of the file.`);
-            }
+      sections.forEach((section, index) => {
+          let errors = [];
+          if (section.length > 1) errors.push(`Section ${index} has more than one section definition`);
+          else {
+              if (section[0].size === 0) {
+                  errors.push(`Section ${index} size is zero. This could cause false errors in other sections.`);
+              }
+          }
+          if(section[0].p + section[0].size > fd.totalSize) {
+              errors.push(`Section ${index} is out of bounds of the file.`);
+          }
 
-            const color = errors.length === 0 ? "%s%s%s" : "%s\x1b[31m%s\x1b[0m%s";
-            const text0 = "section " + ("#" + index).padStart(5, " ");
-            const text1 = errors.length === 0 ? "   " : " !!";
-            const text2 = ` size: ${section[0].size}\toffset: 0x${(section[0].p - 12).toString(16)}`;
-            console.log(color, text0, text1, text2);
-            errors.forEach((error) => {
-                console.error("\x1b[31m%s\x1b[0m", "                 > " + error);
-            });
-        });
-    } catch (error)
-    {
-        console.error(error.message);
-    }
+          const color = errors.length === 0 ? "%s%s%s" : "%s\x1b[31m%s\x1b[0m%s";
+          const text0 = "section " + ("#" + index).padStart(5, " ");
+          const text1 = errors.length === 0 ? "   " : " !!";
+          const text2 = ` size: ${section[0].size}\toffset: 0x${(section[0].p - 12).toString(16)}`;
+          console.log(color, text0, text1, text2);
+          errors.forEach((error) => {
+              console.error("\x1b[31m%s\x1b[0m", "                 > " + error);
+          });
+      });
+  } catch (error)
+  {
+      console.error(error.message);
+  }
 }
