@@ -239,6 +239,12 @@ const commands = [
         action: zkeyExportSolidityVerifier
     },
     {
+        cmd: "zkey export vyperverifier [circuit_final.zkey] [verifier.vy]",
+        description: "Creates a verifier in vyper",
+        alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        action: zkeyExportVyperVerifier
+    },
+    {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
@@ -586,12 +592,46 @@ async function zkeyExportSolidityVerifier(params, options) {
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
     }
     
-    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
+    const verifierCode = await zkey.exportVerifier(zkeyName, templates, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
     return 0;
 }
+
+// solidity genverifier [circuit_final.zkey] [verifier.vy]
+async function zkeyExportVyperVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+  
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+  
+    if (params.length < 2) {
+        verifierName = "verifier.vy";
+    } else {
+        verifierName = params[1];
+    }
+  
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+  
+    const templates = {};
+  
+    if (await fileExists(path.join(__dirname, "templates"))) {
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.vy.ejs"), "utf8");
+    } else {
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.vy.ejs"), "utf8");
+    }
+  
+    const verifierCode = await zkey.exportVerifier(zkeyName, templates, logger);
+  
+    fs.writeFileSync(verifierName, verifierCode, "utf-8");
+  
+    return 0;
+  }
 
 
 // solidity gencall <public.json> <proof.json>
