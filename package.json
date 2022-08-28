@@ -14,7 +14,8 @@
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
-    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js"
+    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
+    "buildworker": "BROWSER=true rollup -c config/rollup.worker.config.js"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -42,6 +43,7 @@
     "blake2b-wasm": "^2.4.0",
     "bfj": "^7.0.2",
     "circom_runtime": "0.1.18",
+    "comlink": "^4.3.1",
     "ejs": "^3.1.6",
     "fastfile": "0.0.20",
     "ffjavascript": "0.2.55",
