@@ -591,7 +591,7 @@ async function zkeyExportSolidityVerifier(params, options) {
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
   }
 
-    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
+    const verifierCode = await zkey.exportVerifier(zkeyName, templates, logger);
 
   fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
