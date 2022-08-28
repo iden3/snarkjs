@@ -6006,7 +6006,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
-    const r1cs = await r1csfile.readR1csHeader(fdR1cs, sectionsR1cs, false);
+
+    const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
     const sG1 = curve.G1.F.n8*2;
     const G1 = curve.G1;
@@ -6015,7 +6016,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    let sR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
+    await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -6023,7 +6024,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
-    await processConstraints();
+    await processConstraints(curve.Fr, r1cs, logger);
+
     if (globalThis.gc) {globalThis.gc();}
 
     const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
@@ -6103,105 +6105,164 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     return ;
 
-    async function processConstraints() {
+    async function processConstraints(Fr, r1cs, logger) {
 
-        let r1csPos = 0;
-
-        function r1cs_readULE32() {
-            const buff = sR1cs.slice(r1csPos, r1csPos+4);
-            r1csPos += 4;
-            const buffV = new DataView(buff.buffer);
-            return buffV.getUint32(0, true);
+        function normalize(linearComb) {
+            const ss = Object.keys(linearComb);
+            for (let i = 0; i < ss.length; i++) {
+                if (linearComb[ss[i]] == 0n) delete linearComb[ss[i]];
+            }
         }
 
-        function r1cs_readCoef() {
-            const res = Fr.fromRprLE(sR1cs.slice(r1csPos, r1csPos+curve.Fr.n8));
-            r1csPos += curve.Fr.n8;
-            return res;
-        }
+        function join(linearComb1, k, linearComb2) {
+            const res = {};
 
-        function r1cs_readCoefs() {
-            const coefs = [];
-            const res = {
-                k: curve.Fr.zero
-            };
-            const nA = r1cs_readULE32();
-            for (let i=0; i<nA; i++) {
-                const s = r1cs_readULE32();
-                const coefp = r1cs_readCoef();
-
-                if (s==0) {
-                    res.k = coefp;
+            for (let s in linearComb1) {
+                if (typeof res[s] == "undefined") {
+                    res[s] = Fr.mul(k, linearComb1[s]);
                 } else {
-                    coefs.push([s, coefp]);
+                    res[s] = Fr.add(res[s], Fr.mul(k, linearComb1[s]));
                 }
             }
 
-            const resCoef = reduceCoef(coefs);
-            res.s = resCoef[0];
-            res.coef = resCoef[1];
+            for (let s in linearComb2) {
+                if (typeof res[s] == "undefined") {
+                    res[s] = linearComb2[s];
+                } else {
+                    res[s] = Fr.add(res[s], linearComb2[s]);
+                }
+            }
+            normalize(res);
             return res;
         }
 
-        function reduceCoef(coefs) {
-            if (coefs.length == 0) {
-                return [0, curve.Fr.zero];
+        function reduceCoefs(linearComb, maxC) {
+            const res = {
+                k: Fr.zero,
+                s: [],
+                coefs: []
+            };
+            const cs = [];
+
+            for (let s in linearComb) {
+                if (s == 0) {
+                    res.k = Fr.add(res.k, linearComb[s]);
+                } else if (linearComb[s] != 0n) {
+                    cs.push([Number(s), linearComb[s]]);
+                }
             }
-            if (coefs.length == 1) {
-                return coefs[0];
+            while (cs.length > maxC) {
+                const c1 = cs.shift();
+                const c2 = cs.shift();
+
+                const sl = c1[0];
+                const sr = c2[0];
+                const so = plonkNVars++;
+                const qm = Fr.zero;
+                const ql = Fr.neg(c1[1]);
+                const qr = Fr.neg(c2[1]);
+                const qo = Fr.one;
+                const qc = Fr.zero;
+
+                plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+
+                plonkAdditions.push([sl, sr, c1[1], c2[1]]);
+
+                cs.push([so, Fr.one]);
             }
-            const arr1 = coefs.slice(0, coefs.length >> 1);
-            const arr2 = coefs.slice(coefs.length >> 1);
-            const coef1 = reduceCoef(arr1);
-            const coef2 = reduceCoef(arr2);
-
-            const sl = coef1[0];
-            const sr = coef2[0];
-            const so = plonkNVars++;
-            const qm = curve.Fr.zero;
-            const ql = Fr.neg(coef1[1]);
-            const qr = Fr.neg(coef2[1]);
-            const qo = curve.Fr.one;
-            const qc = curve.Fr.zero;
-
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
-
-            plonkAdditions.push([sl, sr, coef1[1], coef2[1]]);
-
-            return [so, curve.Fr.one];
+            for (let i = 0; i < cs.length; i++) {
+                res.s[i] = cs[i][0];
+                res.coefs[i] = cs[i][1];
+            }
+            while (res.coefs.length < maxC) {
+                res.s.push(0);
+                res.coefs.push(Fr.zero);
+            }
+            return res;
         }
 
-        for (let s = 1; s <= nPublic ; s++) {
+        function addConstraintSum(lc) {
+            const C = reduceCoefs(lc, 3);
+            const sl = C.s[0];
+            const sr = C.s[1];
+            const so = C.s[2];
+            const qm = Fr.zero;
+            const ql = C.coefs[0];
+            const qr = C.coefs[1];
+            const qo = C.coefs[2];
+            const qc = C.k;
+            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+        }
+
+        function addConstraintMul(lcA, lcB, lcC) {
+            const A = reduceCoefs(lcA, 1);
+            const B = reduceCoefs(lcB, 1);
+            const C = reduceCoefs(lcC, 1);
+
+
+            const sl = A.s[0];
+            const sr = B.s[0];
+            const so = C.s[0];
+            const qm = Fr.mul(A.coefs[0], B.coefs[0]);
+            const ql = Fr.mul(A.coefs[0], B.k);
+            const qr = Fr.mul(A.k, B.coefs[0]);
+            const qo = Fr.neg(C.coefs[0]);
+            const qc = Fr.sub(Fr.mul(A.k, B.k), C.k);
+            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+        }
+
+        function getLinearCombinationType(lc) {
+            let k = Fr.zero;
+            let n = 0;
+            const ss = Object.keys(lc);
+            for (let i = 0; i < ss.length; i++) {
+                if (lc[ss[i]] == 0n) {
+                    delete lc[ss[i]];
+                } else if (ss[i] == 0) {
+                    k = Fr.add(k, lc[ss[i]]);
+                } else {
+                    n++;
+                }
+            }
+            if (n > 0) return n.toString();
+            if (k != Fr.zero) return "k";
+            return "0";
+        }
+
+        function process(lcA, lcB, lcC) {
+            const lctA = getLinearCombinationType(lcA);
+            const lctB = getLinearCombinationType(lcB);
+            if ((lctA === "0") || (lctB === "0")) {
+                normalize(lcC);
+                addConstraintSum(lcC);
+            } else if (lctA === "k") {
+                const lcCC = join(lcB, lcA[0], lcC);
+                addConstraintSum(lcCC);
+            } else if (lctB === "k") {
+                const lcCC = join(lcA, lcB[0], lcC);
+                addConstraintSum(lcCC);
+            } else {
+                addConstraintMul(lcA, lcB, lcC);
+            }
+        }
+
+        for (let s = 1; s <= nPublic; s++) {
             const sl = s;
             const sr = 0;
             const so = 0;
-            const qm = curve.Fr.zero;
-            const ql = curve.Fr.one;
-            const qr = curve.Fr.zero;
-            const qo = curve.Fr.zero;
-            const qc = curve.Fr.zero;
+            const qm = Fr.zero;
+            const ql = Fr.one;
+            const qr = Fr.zero;
+            const qo = Fr.zero;
+            const qc = Fr.zero;
 
             plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
         }
 
-        for (let c=0; c<r1cs.nConstraints; c++) {
-            if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
-            const A = r1cs_readCoefs();
-            const B = r1cs_readCoefs();
-            const C = r1cs_readCoefs();
-
-            const sl = A.s;
-            const sr = B.s;
-            const so = C.s;
-            const qm = curve.Fr.mul(A.coef, B.coef);
-            const ql = curve.Fr.mul(A.coef, B.k);
-            const qr = curve.Fr.mul(A.k, B.coef);
-            const qo = curve.Fr.neg(C.coef);
-            const qc = curve.Fr.sub(curve.Fr.mul(A.k, B.k) , C.k);
-
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
+        for (let c = 0; c < r1cs.constraints.length; c++) {
+            if ((logger) && (c % 10000 === 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
+            process(...r1cs.constraints[c]);
         }
-
     }
 
     async function writeWitnessMap(sectionNum, posConstraint, name) {
@@ -6603,7 +6664,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     async function round1() {
         ch.b = [];
-        for (let i=1; i<=9; i++) {
+        for (let i=1; i<=11; i++) {
             ch.b[i] = curve.Fr.random();
         }
     
@@ -6927,11 +6988,43 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
             }
         }
 
-        pol_t = t.slice(0, (zkey.domainSize*3+6)*n8r);
+        pol_t = t.slice(0, (zkey.domainSize * 3 + 6) * n8r);
 
-        proof.T1 = await expTau( t.slice(0, zkey.domainSize*n8r) , "multiexp T1");
-        proof.T2 = await expTau( t.slice(zkey.domainSize*n8r, zkey.domainSize*2*n8r) , "multiexp T2");
-        proof.T3 = await expTau( t.slice(zkey.domainSize*2*n8r, (zkey.domainSize*3+6)*n8r) , "multiexp T3");
+        // t(x) has degree 3n + 5, we are going to split t(x) into three smaller polynomials:
+        // t'_low and t'_mid  with a degree < n and t'_high with a degree n+5
+        // such that t(x) = t'_low(X) + X^n t'_mid(X) + X^{2n} t'_hi(X)
+        // To randomize the parts we use blinding scalars b_10 and b_11 in a way that doesn't change t(X):
+        // t_low(X) = t'_low(X) + b_10 X^n
+        // t_mid(X) = t'_mid(X) - b_10 + b_11 X^n
+        // t_high(X) = t'_high(X) - b_11
+        // such that
+        // t(X) = t_low(X) + X^n t_mid(X) + X^2n t_high(X)
+
+        // compute t_low(X)
+        let polTLow = new ffjavascript.BigBuffer((zkey.domainSize + 1) * n8r);
+        polTLow.set(t.slice(0, zkey.domainSize * n8r), 0);
+        // Add blinding scalar b_10 as a new coefficient n
+        polTLow.set(ch.b[10], zkey.domainSize * n8r);
+
+        // compute t_mid(X)
+        let polTMid = new ffjavascript.BigBuffer((zkey.domainSize + 1) * n8r);
+        polTMid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
+        // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
+        const lowestMid = Fr.sub(polTMid.slice(0, n8r), ch.b[10]);
+        polTMid.set(lowestMid, 0);
+        // Add blinding scalar b_11 as a new coefficient n
+        polTMid.set(ch.b[11], zkey.domainSize * n8r);
+
+        // compute t_high(X)
+        let polTHigh = new ffjavascript.BigBuffer((zkey.domainSize + 6) * n8r);
+        polTHigh.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
+        //Subtract blinding scalar b_11 to the lowest coefficient of t_high
+        const lowestHigh = Fr.sub(polTHigh.slice(0, n8r), ch.b[11]);
+        polTHigh.set(lowestHigh, 0);
+
+        proof.T1 = await expTau(polTLow, "multiexp T1");
+        proof.T2 = await expTau(polTMid, "multiexp T2");
+        proof.T3 = await expTau(polTHigh, "multiexp T3");
 
         function mul2(a,b, ap, bp,  p) {
             let r, rz;
@@ -7116,28 +7209,47 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
         const xi2m = Fr.mul(ch.xim, ch.xim);
 
-        for (let i=0; i<zkey.domainSize+6; i++) {
+        for (let i = 0; i < zkey.domainSize + 6; i++) {
             let w = Fr.zero;
-            w = Fr.add(w, Fr.mul(xi2m,  pol_t.slice( (zkey.domainSize*2+i)*n8r, (zkey.domainSize*2+i+1)*n8r )));
 
-            if (i<zkey.domainSize+3) {
-                w = Fr.add(w, Fr.mul(ch.v[1],  pol_r.slice(i*n8r, (i+1)*n8r)));
+            const polTHigh = pol_t.slice((zkey.domainSize * 2 + i) * n8r, (zkey.domainSize * 2 + i + 1) * n8r);
+            w = Fr.add(w, Fr.mul(xi2m, polTHigh));
+
+            if (i < zkey.domainSize + 3) {
+                w = Fr.add(w, Fr.mul(ch.v[1], pol_r.slice(i * n8r, (i + 1) * n8r)));
             }
 
-            if (i<zkey.domainSize+2) {
-                w = Fr.add(w, Fr.mul(ch.v[2],  pol_a.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[3],  pol_b.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[4],  pol_c.slice(i*n8r, (i+1)*n8r)));
-            }
-            
-            if (i<zkey.domainSize) {
-                w = Fr.add(w, pol_t.slice(i*n8r, (i+1)*n8r));
-                w = Fr.add(w, Fr.mul(ch.xim,  pol_t.slice( (zkey.domainSize+i)*n8r, (zkey.domainSize+i+1)*n8r )));
-                w = Fr.add(w, Fr.mul(ch.v[5],  pol_s1.slice(i*n8r, (i+1)*n8r)));
-                w = Fr.add(w, Fr.mul(ch.v[6],  pol_s2.slice(i*n8r, (i+1)*n8r)));
+            if (i < zkey.domainSize + 2) {
+                w = Fr.add(w, Fr.mul(ch.v[2], pol_a.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[3], pol_b.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[4], pol_c.slice(i * n8r, (i + 1) * n8r)));
             }
 
-            pol_wxi.set(w, i*n8r);
+            if (i < zkey.domainSize) {
+                const polTLow = pol_t.slice(i * n8r, (i + 1) * n8r);
+                w = Fr.add(w, polTLow);
+
+                const polTMid = pol_t.slice((zkey.domainSize + i) * n8r, (zkey.domainSize + i + 1) * n8r);
+                w = Fr.add(w, Fr.mul(ch.xim, polTMid));
+
+                w = Fr.add(w, Fr.mul(ch.v[5], pol_s1.slice(i * n8r, (i + 1) * n8r)));
+                w = Fr.add(w, Fr.mul(ch.v[6], pol_s2.slice(i * n8r, (i + 1) * n8r)));
+            }
+
+            // b_10 and b_11 blinding scalars were applied on round 3 to randomize the polynomials t_low, t_mid, t_high
+            // Subtract blinding scalar b_10 and b_11 to the lowest coefficient
+            if (i === 0) {
+                w = Fr.sub(w, Fr.mul(xi2m, ch.b[11]));
+                w = Fr.sub(w, Fr.mul(ch.xim, ch.b[10]));
+            }
+
+            // Add blinding scalars b_10 and b_11 to the coefficient n
+            if (i === zkey.domainSize) {
+                w = Fr.add(w, ch.b[10]);
+                w = Fr.add(w, Fr.mul(ch.xim, ch.b[11]));
+            }
+
+            pol_wxi.set(w, i * n8r);
         }
 
         let w0 = pol_wxi.slice(0, n8r);
