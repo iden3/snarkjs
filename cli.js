@@ -307,7 +307,6 @@ const commands = [
 ];
 
 
-
 clProcessor(commands).then( (res) => {
     process.exit(res);
 }, (err) => {
