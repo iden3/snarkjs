@@ -51,267 +51,274 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const commands = [
   {
-    cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
-    description: "Starts a powers of tau ceremony",
-    alias: ["ptn"],
-    options: "-verbose|v",
-        action: powersOfTauNew
+      cmd: "powersoftau new <curve> <power> [powersoftau_0000.ptau]",
+      description: "Starts a powers of tau ceremony",
+      alias: ["ptn"],
+      options: "-verbose|v",
+      action: powersOfTauNew
   },
   {
-    cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
-    description: "creates a ptau file with a new contribution",
-    alias: ["ptc"],
-    options: "-verbose|v -name|n -entropy|e",
-        action: powersOfTauContribute
+      cmd: "powersoftau contribute <powersoftau.ptau> <new_powersoftau.ptau>",
+      description: "creates a ptau file with a new contribution",
+      alias: ["ptc"],
+      options: "-verbose|v -name|n -entropy|e",
+      action: powersOfTauContribute
   },
   {
-    cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
-    description: "Creates a challenge",
-    alias: ["ptec"],
-    options: "-verbose|v",
-        action: powersOfTauExportChallenge
+      cmd: "powersoftau export challenge <powersoftau_0000.ptau> [challenge]",
+      description: "Creates a challenge",
+      alias: ["ptec"],
+      options: "-verbose|v",
+      action: powersOfTauExportChallenge
   },
   {
-    cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
-    description: "Contribute to a challenge",
-    alias: ["ptcc"],
-    options: "-verbose|v -entropy|e",
-        action: powersOfTauChallengeContribute
+      cmd: "powersoftau challenge contribute <curve> <challenge> [response]",
+      description: "Contribute to a challenge",
+      alias: ["ptcc"],
+      options: "-verbose|v -entropy|e",
+      action: powersOfTauChallengeContribute
   },
   {
-    cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
-    description: "import a response to a ptau file",
-    alias: ["ptir"],
-    options: "-verbose|v -nopoints -nocheck -name|n",
-        action: powersOfTauImport
+      cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
+      description: "import a response to a ptau file",
+      alias: ["ptir"],
+      options: "-verbose|v -nopoints -nocheck -name|n",
+      action: powersOfTauImport
   },
   {
-    cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
-    description: "adds a beacon",
-    alias: ["ptb"],
-    options: "-verbose|v -name|n",
-        action: powersOfTauBeacon
+      cmd: "powersoftau beacon <old_powersoftau.ptau> <new_powersoftau.ptau> <beaconHash(Hex)> <numIterationsExp>",
+      description: "adds a beacon",
+      alias: ["ptb"],
+      options: "-verbose|v -name|n",
+      action: powersOfTauBeacon
   },
   {
-    cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
-    description: "Prepares phase 2. ",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
-    alias: ["pt2"],
-    options: "-verbose|v",
-        action: powersOfTauPreparePhase2
+      cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
+      description: "Prepares phase 2. ",
+      longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+      alias: ["pt2"],
+      options: "-verbose|v",
+      action: powersOfTauPreparePhase2
   },
   {
-    cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
-    description: "Convert ptau",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
-    alias: ["ptcv"],
-    options: "-verbose|v",
-        action: powersOfTauConvert
+      cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
+      description: "Convert ptau",
+      longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+      alias: ["ptcv"],
+      options: "-verbose|v",
+      action: powersOfTauConvert
   },
   {
-    cmd: "powersoftau truncate <powersoftau.ptau>",
-    description: "Generate diferent powers of tau with smoller sizes ",
-        longDescription: " This process generates smaller ptau files from a bigger power ptau",
-    alias: ["ptt"],
-    options: "-verbose|v",
-        action: powersOfTauTruncate
+      cmd: "powersoftau truncate <powersoftau.ptau>",
+      description: "Generate diferent powers of tau with smoller sizes ",
+      longDescription: " This process generates smaller ptau files from a bigger power ptau",
+      alias: ["ptt"],
+      options: "-verbose|v",
+      action: powersOfTauTruncate
   },
   {
-    cmd: "powersoftau verify <powersoftau.ptau>",
-    description: "verifies a powers of tau file",
-    alias: ["ptv"],
-    options: "-verbose|v",
-        action: powersOfTauVerify
+      cmd: "powersoftau verify <powersoftau.ptau>",
+      description: "verifies a powers of tau file",
+      alias: ["ptv"],
+      options: "-verbose|v",
+      action: powersOfTauVerify
   },
   {
-    cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
-    description: "Exports a power of tau file to a JSON",
-    alias: ["ptej"],
-    options: "-verbose|v",
-        action: powersOfTauExportJson
+      cmd: "powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
+      description: "Exports a power of tau file to a JSON",
+      alias: ["ptej"],
+      options: "-verbose|v",
+      action: powersOfTauExportJson
   },
   {
-    cmd: "r1cs info [circuit.r1cs]",
-    description: "Print statistiscs of a circuit",
-    alias: ["ri", "info -r|r1cs:circuit.r1cs"],
-        action: r1csInfo
+      cmd: "r1cs info [circuit.r1cs]",
+      description: "Print statistiscs of a circuit",
+      alias: ["ri", "info -r|r1cs:circuit.r1cs"],
+      action: r1csInfo
   },
   {
-    cmd: "r1cs print [circuit.r1cs] [circuit.sym]",
-    description: "Print the constraints of a circuit",
-    alias: ["rp", "print -r|r1cs:circuit.r1cs -s|sym"],
-        action: r1csPrint
+      cmd: "r1cs print [circuit.r1cs] [circuit.sym]",
+      description: "Print the constraints of a circuit",
+      alias: ["rp", "print -r|r1cs:circuit.r1cs -s|sym"],
+      action: r1csPrint
   },
   {
-    cmd: "r1cs export json [circuit.r1cs] [circuit.json]",
-    description: "Export r1cs to JSON file",
-    alias: ["rej"],
-        action: r1csExportJSON
+      cmd: "r1cs export json [circuit.r1cs] [circuit.json]",
+      description: "Export r1cs to JSON file",
+      alias: ["rej"],
+      action: r1csExportJSON
   },
   {
-    cmd: "wtns calculate [circuit.wasm] [input.json] [witness.wtns]",
-    description: "Caclculate specific witness of a circuit given an input",
-        alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
-        action: wtnsCalculate
+      cmd: "wtns calculate [circuit.wasm] [input.json] [witness.wtns]",
+      description: "Caclculate specific witness of a circuit given an input",
+      alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
+      action: wtnsCalculate
   },
   {
-    cmd: "wtns debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
-    description: "Calculate the witness with debug info.",
-        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
-    options: "-get|g -set|s -trigger|t",
-    alias: ["wd"],
-        action: wtnsDebug
+      cmd: "wtns debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
+      description: "Calculate the witness with debug info.",
+      longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+      options: "-get|g -set|s -trigger|t",
+      alias: ["wd"],
+      action: wtnsDebug
   },
   {
-    cmd: "wtns export json [witness.wtns] [witnes.json]",
-    description: "Calculate the witness with debug info.",
-        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
-    options: "-verbose|v",
-    alias: ["wej"],
-        action: wtnsExportJson
+      cmd: "wtns export json [witness.wtns] [witnes.json]",
+      description: "Calculate the witness with debug info.",
+      longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+      options: "-verbose|v",
+      alias: ["wej"],
+      action: wtnsExportJson
   },
   {
-    cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
-    description: "creates a zkey file with a new contribution",
-    alias: ["zkc"],
-    options: "-verbose|v  -entropy|e -name|n",
-        action: zkeyContribute
+      cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
+      description: "creates a zkey file with a new contribution",
+      alias: ["zkc"],
+      options: "-verbose|v  -entropy|e -name|n",
+      action: zkeyContribute
   },
   {
-    cmd: "zkey export bellman <circuit_xxxx.zkey> [circuit.mpcparams]",
-        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman)",
-    alias: ["zkeb"],
-    options: "-verbose|v",
-        action: zkeyExportBellman
+      cmd: "zkey export bellman <circuit_xxxx.zkey> [circuit.mpcparams]",
+      description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman)",
+      alias: ["zkeb"],
+      options: "-verbose|v",
+      action: zkeyExportBellman
   },
   {
-    cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
-    description: "contributes to a challenge file in bellman format",
-    alias: ["zkbc"],
-    options: "-verbose|v  -entropy|e",
-        action: zkeyBellmanContribute
+      cmd: "zkey bellman contribute <curve> <circuit.mpcparams> <circuit_response.mpcparams>",
+      description: "contributes to a challenge file in bellman format",
+      alias: ["zkbc"],
+      options: "-verbose|v  -entropy|e",
+      action: zkeyBellmanContribute
   },
   {
-    cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
-        description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
-    alias: ["zkib"],
-    options: "-verbose|v -name|n",
-        action: zkeyImportBellman
+      cmd: "zkey import bellman <circuit_old.zkey> <circuit.mpcparams> <circuit_new.zkey>",
+      description: "Export a zKey to a MPCParameters file compatible with kobi/phase2 (Bellman) ",
+      alias: ["zkib"],
+      options: "-verbose|v -name|n",
+      action: zkeyImportBellman
   },
   {
-    cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
-    description: "adds a beacon",
-    alias: ["zkb"],
-    options: "-verbose|v -name|n",
-        action: zkeyBeacon
+      cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
+      description: "adds a beacon",
+      alias: ["zkb"],
+      options: "-verbose|v -name|n",
+      action: zkeyBeacon
   },
   {
-    cmd: "zkey verify r1cs [circuit.r1cs] [powersoftau.ptau] [circuit_final.zkey]",
-        description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
-    alias: ["zkv", "zkvr", "zkey verify"],
-    options: "-verbose|v",
-        action: zkeyVerifyFromR1cs
+      cmd: "zkey verify r1cs [circuit.r1cs] [powersoftau.ptau] [circuit_final.zkey]",
+      description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
+      alias: ["zkv", "zkvr", "zkey verify"],
+      options: "-verbose|v",
+      action: zkeyVerifyFromR1cs
   },
   {
-    cmd: "zkey verify init [circuit_0000.zkey] [powersoftau.ptau] [circuit_final.zkey]",
-        description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
-    alias: ["zkvi"],
-    options: "-verbose|v",
-        action: zkeyVerifyFromInit
+      cmd: "zkey verify init [circuit_0000.zkey] [powersoftau.ptau] [circuit_final.zkey]",
+      description: "Verify zkey file contributions and verify that matches with the original circuit.r1cs and ptau",
+      alias: ["zkvi"],
+      options: "-verbose|v",
+      action: zkeyVerifyFromInit
   },
   {
-    cmd: "zkey export verificationkey [circuit_final.zkey] [verification_key.json]",
-    description: "Exports a verification key",
-    alias: ["zkev"],
-    action: zkeyExportVKey
+      cmd: "zkey export verificationkey [circuit_final.zkey] [verification_key.json]",
+      description: "Exports a verification key",
+      alias: ["zkev"],
+      action: zkeyExportVKey
   },
   {
-    cmd: "zkey export json [circuit_final.zkey] [circuit_final.zkey.json]",
-    description: "Exports a circuit key to a JSON file",
-    alias: ["zkej"],
-    options: "-verbose|v",
-        action: zkeyExportJson
+      cmd: "zkey export json [circuit_final.zkey] [circuit_final.zkey.json]",
+      description: "Exports a circuit key to a JSON file",
+      alias: ["zkej"],
+      options: "-verbose|v",
+      action: zkeyExportJson
   },
   {
-    cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
-    description: "Creates a verifier in solidity",
-    alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
-    action: zkeyExportSolidityVerifier
+      cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
+      description: "Creates a verifier in solidity",
+      alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+      action: zkeyExportSolidityVerifier
   },
   {
-    cmd: "zkey export vyperverifier [circuit_final.zkey] [verifier.vy]",
-    description: "Creates a verifier in vyper",
-    alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
-    action: zkeyExportVyperVerifier
+      cmd: "zkey export vyperverifier [circuit_final.zkey] [verifier.vy]",
+      description: "Creates a verifier in vyper",
+      alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+      action: zkeyExportVyperVerifier
   },
   {
-    cmd: "zkey export soliditycalldata [public.json] [proof.json]",
-    description: "Generates call parameters ready to be called.",
-    alias: ["zkesc", "generatecall -pub|public -p|proof"],
-        action: zkeyExportSolidityCalldata
+      cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
+      description: "Creates a verifier in solidity",
+      alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+      action: zkeyExportSolidityVerifier
   },
   {
-    cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
-    description: "Creates an initial groth16 pkey file with zero contributions",
-    alias: ["g16s", "zkn", "zkey new"],
-    options: "-verbose|v",
-        action: zkeyNew
+      cmd: "zkey export soliditycalldata [public.json] [proof.json]",
+      description: "Generates call parameters ready to be called.",
+      alias: ["zkesc", "generatecall -pub|public -p|proof"],
+      action: zkeyExportSolidityCalldata
   },
   {
-    cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
-    description: "Generates a zk Proof from witness",
-        alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-    options: "-verbose|v -protocol",
-        action: groth16Prove
+      cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
+      description: "Creates an initial groth16 pkey file with zero contributions",
+      alias: ["g16s", "zkn", "zkey new"],
+      options: "-verbose|v",
+      action: zkeyNew
   },
   {
-    cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
-    description: "Generates a zk Proof from input",
-    alias: ["g16f", "g16i"],
-    options: "-verbose|v -protocol",
-        action: groth16FullProve
+      cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
+      description: "Generates a zk Proof from witness",
+      alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
+      options: "-verbose|v -protocol",
+      action: groth16Prove
   },
   {
-    cmd: "groth16 verify [verification_key.json] [public.json] [proof.json]",
-    description: "Verify a zk Proof",
-    alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
-        action: groth16Verify
+      cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
+      description: "Generates a zk Proof from input",
+      alias: ["g16f", "g16i"],
+      options: "-verbose|v -protocol",
+      action: groth16FullProve
   },
   {
-    cmd: "plonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
-    description: "Creates an initial PLONK pkey ",
-    alias: ["pks"],
-    options: "-verbose|v",
-        action: plonkSetup
+      cmd: "groth16 verify [verification_key.json] [public.json] [proof.json]",
+      description: "Verify a zk Proof",
+      alias: ["g16v", "verify -vk|verificationkey -pub|public -p|proof"],
+      action: groth16Verify
   },
   {
-    cmd: "plonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
-    description: "Generates a PLONK Proof from witness",
-    alias: ["pkp"],
-    options: "-verbose|v -protocol",
-        action: plonkProve
+      cmd: "plonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+      description: "Creates an initial PLONK pkey ",
+      alias: ["pks"],
+      options: "-verbose|v",
+      action: plonkSetup
   },
   {
-    cmd: "plonk fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
-    description: "Generates a PLONK Proof from input",
-    alias: ["pkf"],
-    options: "-verbose|v -protocol",
-        action: plonkFullProve
+      cmd: "plonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+      description: "Generates a PLONK Proof from witness",
+      alias: ["pkp"],
+      options: "-verbose|v -protocol",
+      action: plonkProve
   },
   {
-    cmd: "plonk verify [verification_key.json] [public.json] [proof.json]",
-    description: "Verify a PLONK Proof",
-    alias: ["pkv"],
-    options: "-verbose|v",
-        action: plonkVerify
-    },
-    {
-        cmd: "file info [binary.file]",
-        description: "Check info of a binary file",
-        alias: ["fi"],
-        action: fileInfo
-    }
+      cmd: "plonk fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
+      description: "Generates a PLONK Proof from input",
+      alias: ["pkf"],
+      options: "-verbose|v -protocol",
+      action: plonkFullProve
+  },
+  {
+      cmd: "plonk verify [verification_key.json] [public.json] [proof.json]",
+      description: "Verify a PLONK Proof",
+      alias: ["pkv"],
+      options: "-verbose|v",
+      action: plonkVerify
+  },
+  {
+      cmd: "file info [binary.file]",
+      description: "Check info of a binary file",
+      alias: ["fi"],
+      action: fileInfo
+  }
 ];
+
 
 
 clProcessor(commands).then( (res) => {
@@ -322,8 +329,10 @@ clProcessor(commands).then( (res) => {
 });
 
 /*
+
 TODO COMMANDS
 =============
+
     {
         cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
         description: "Run a simple setup for a circuit generating the proving key.",
