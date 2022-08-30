@@ -1,4 +1,4 @@
-# @version >=0.3.3
+# @version >=0.3.4
 
 # The prime q in the base field F_q for G1 
 BASE_MODULUS : constant(uint256) = 21888242871839275222246405745257275088696311157297823662689037894645226208583
@@ -62,8 +62,7 @@ def negate(p: G1Point) -> G1Point:
         return G1Point({X: 0, Y: 0})
 
     # Validate input or revert
-    if (p.X >= BASE_MODULUS) or (p.Y >= BASE_MODULUS):
-        raise "invalid proof"
+    assert (p.X < BASE_MODULUS) or (p.Y < BASE_MODULUS), "invalid proof"
 
     # We know p.Y > 0 and p.Y < BASE_MODULUS.
     return G1Point({X: p.X, Y: BASE_MODULUS - p.Y})
@@ -128,10 +127,7 @@ def pairing_check_4(p1 : DynArray[G1Point, 4], p2: DynArray[G2Point, 4]) -> bool
                         is_static_call=True
                         )
 
-    if response == b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01':
-        return True
-    else:
-        return False
+    return _abi_decode(response, bool)
 
 
 # @dev compute verifying key
@@ -167,7 +163,7 @@ def verify_proof(a: uint256[2], b: uint256[2][2], c: uint256[2], input: DynArray
     vk: VerifyingKey = self.verifying_key()
 
     # Compute the linear combination vk_x of inputs times IC
-    assert len(input) + 1 == len(vk.ic), "invalid proof"
+    assert unsafe_add(len(input), 1) == len(vk.ic), "invalid proof"
     vk_x: G1Point = vk.ic[0]
 
     if N_INPUTS > 1:
