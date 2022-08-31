@@ -41,7 +41,7 @@
     "@iden3/binfileutils": "0.0.11",
     "blake2b-wasm": "^2.4.0",
     "bfj": "^7.0.2",
-    "circom_runtime": "0.1.19",
+    "circom_runtime": "0.1.20",
     "ejs": "^3.1.6",
     "fastfile": "0.0.20",
     "ffjavascript": "0.2.55",
