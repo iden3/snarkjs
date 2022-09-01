@@ -5370,6 +5370,20 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
     return ejs__default["default"].render(template ,  verificationKey);
 }
 
+// Not ready yet
+// module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
+
+
+
+async function exportScryptVerifier(zKeyName, templates, logger) {
+
+    const verificationKey = await zkeyExportVerificationKey(zKeyName);
+
+    let template = templates[verificationKey.protocol];
+
+    return ejs__default["default"].render(template,  verificationKey);
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -8212,6 +8226,12 @@ const commands = [
         action: zkeyExportJson
     },
     {
+        cmd: "zkey export scryptverifier [circuit_final.zkey] [verifier.scrypt]",
+        description: "Creates a verifier in scrypt",
+        alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        action: zkeyExportScryptVerifier
+    },
+    {
         cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
         description: "Creates a verifier in solidity",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
@@ -8571,6 +8591,43 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     return 0;
 }
+
+// scrypt genverifier [circuit_final.zkey] [verifier.scrypt]
+async function zkeyExportScryptVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.scrypt";
+    } else {
+        verifierName = params[1];
+    }
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    const templates = {};
+
+    if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
+        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.scrypt.ejs"), "utf8");
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+    } else {
+        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.scrypt.ejs"), "utf8");
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+    }
+    
+    const verifierCode = await exportScryptVerifier(zkeyName, templates);
+
+    fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
 
 
 // solidity gencall <public.json> <proof.json>

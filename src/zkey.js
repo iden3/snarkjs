@@ -28,3 +28,4 @@ export {default as exportJson} from "./zkey_export_json.js";
 export {default as bellmanContribute} from "./zkey_bellman_contribute.js";
 export {default as exportVerificationKey} from "./zkey_export_verificationkey.js";
 export {default as exportSolidityVerifier} from "./zkey_export_solidityverifier.js";
+export {default as exportScryptVerifier} from "./zkey_export_scryptverifier.js";
