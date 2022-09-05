@@ -1890,13 +1890,15 @@ library ZKSNARK {
                     <%=vk_delta_2[1][0]%>,
                     <%=vk_delta_2[1][1]%>
                 }
-            },[{
-                <%=IC[0][0]%>,
-                <%=IC[0][1]%>
-            },{
-                <%=IC[1][0]%>,
-                <%=IC[1][1]%>
-            }]};
+            },[<% for (let i=0; i<IC.length; i++) { %>
+                { 
+                    <%=IC[i][0]%>,
+                    <%=IC[i][1]%>
+                }<% if (i < IC.length - 1) { %>, <% } %> <% } %>
+            ]};
+
+
+
 
     // Number of inputs.
     static const int N = <%=IC.length - 1%>;
