@@ -3,7 +3,7 @@ import { getCurveFromName } from "../src/curves.js";
 import assert from "assert";
 import path from "path";
 
-describe("Full process", function ()  {
+describe("snarkjs: Full process", function ()  {
     this.timeout(1000000000);
 
     let curve;
