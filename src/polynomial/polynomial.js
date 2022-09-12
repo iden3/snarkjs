@@ -223,8 +223,10 @@ export class Polynomial {
     }
 
     split(numPols, degPols, blindingFactors) {
-        if (numPols <= 1) {
+        if (numPols < 1) {
             throw new Error(`Polynomials can't be split in ${numPols} parts`);
+        } else if(1 === numPols) {
+            return [this];
         }
 
         //blinding factors can be void or must have a length of numPols - 1
