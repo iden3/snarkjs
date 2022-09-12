@@ -342,7 +342,8 @@ class RangeCheckProver {
             polynomials.Q.add(polTz);
 
             const degQ = polynomials.Q.degree();
-            if (degQ > C * (DOMAIN_SIZE + 2) + 3) {
+            const expectedDegree = 1 === C ? 2 * DOMAIN_SIZE + 5 : C * (DOMAIN_SIZE + 2) + 3;
+            if (degQ > expectedDegree) {
                 throw new Error("range_check Q Polynomial is not well calculated");
             }
 
@@ -492,7 +493,8 @@ class RangeCheckProver {
 
             polynomials.Wxi.divByXValue(challenges.xi);
 
-            if (polynomials.Wxi.degree() >= DOMAIN_SIZE + 4) {
+            const expectedDegree = 1 === C ? 2 * DOMAIN_SIZE + 5 : DOMAIN_SIZE + 5;
+            if (polynomials.Wxi.degree() > expectedDegree) {
                 throw new Error("range_check Wxi Polynomial is not well calculated");
             }
 
