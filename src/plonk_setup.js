@@ -37,7 +37,6 @@ import {R1CS_FILE_CUSTOM_GATES_LIST_SECTION, R1CS_FILE_CUSTOM_GATES_USES_SECTION
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
-
     if (globalThis.gc) {globalThis.gc();}
 
     await Blake2b.ready();

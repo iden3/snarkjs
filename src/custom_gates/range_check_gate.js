@@ -27,8 +27,8 @@ const ZK_RANGE_CHECK_Q_MAP_SECTION = 4096;
 const ZK_RANGE_CHECK_HEADER_SECTION = 4097;
 
 // lookup table constants
-export const C = 1 << 1;
-export const N = 1 << 8;
+export const C = 1 << 0;
+export const N = 1 << 10;
 export const MAX_RANGE = C * (N - 1);
 
 // circuit constants

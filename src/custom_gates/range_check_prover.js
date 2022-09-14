@@ -85,11 +85,7 @@ class RangeCheckProver {
                 }
                 lt.setElementAt(Fr.e(C * i), i);
             }
-
-            const lastElement = lt.lastElement();
-            for (let i = N; i < length; i++) {
-                lt.setElementAt(lastElement, i);
-            }
+            lt.pad(length, lt.lastElement());
 
             // 3. Let s ∈ F^{2n} be the vector that is (f, t) sorted by t.
             let s = lt.sortedBy(f);
@@ -97,17 +93,17 @@ class RangeCheckProver {
             let {h1, h2} = s.halvesAlternating();
 
             buffers.F = f.toBigBuffer();
-            buffers.lt = lt.toBigBuffer();
+            buffers.LT = lt.toBigBuffer();
             buffers.H1 = h1.toBigBuffer();
             buffers.H2 = h2.toBigBuffer();
 
             // buffers.F = await Fr.batchToMontgomery(buffers.F);
-            // buffers.lt = await Fr.batchToMontgomery(buffers.lt);
+            // buffers.LT = await Fr.batchToMontgomery(buffers.LT);
             // buffers.H1 = await Fr.batchToMontgomery(buffers.H1);
             // buffers.H2 = await Fr.batchToMontgomery(buffers.H2);
 
             polynomials.F = await Polynomial.fromBuffer(buffers.F, Fr, logger);
-            polynomials.LT = await Polynomial.fromBuffer(buffers.lt, Fr, logger);
+            polynomials.LT = await Polynomial.fromBuffer(buffers.LT, Fr, logger);
             polynomials.H1 = await Polynomial.fromBuffer(buffers.H1, Fr, logger);
             polynomials.H2 = await Polynomial.fromBuffer(buffers.H2, Fr, logger);
 
@@ -165,7 +161,7 @@ class RangeCheckProver {
             for (let i = 0; i < DOMAIN_SIZE; i++) {
                 const i_n8 = i * Fr.n8;
                 const f_i = Fr.add(buffers.F.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
-                const t_i = Fr.add(buffers.lt.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
+                const t_i = Fr.add(buffers.LT.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
                 const h1_i = Fr.add(buffers.H1.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
                 const h2_i = Fr.add(buffers.H2.slice(i_n8, i_n8 + Fr.n8), challenges.gamma);
 
@@ -532,16 +528,6 @@ class RangeCheckProver {
             [res, resp] = mul2(res, Fr.sub(val, Fr.e(i)), resp, valp, p, Fr);
         }
         return [res, resp];
-    }
-
-    toDebugArray(buffer, Fr) {
-        const length = buffer.byteLength / Fr.n8;
-        let res = [];
-        for (let i = 0; i < length; i++) {
-            res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
-        }
-
-        return res;
     }
 }
 
