@@ -124,8 +124,10 @@ describe("snarkjs: Plookup tests", function () {
             rows.push(row);
             plookupTable.pushRow(row[0], row[1], row[2]);
         }
-
-        assert.deepEqual(rows, plookupTable.getRows());
+        const pushedRows = plookupTable.getRows();
+        for (let i = 0; i < length; i++) {
+            assert.deepEqual(rows[i], pushedRows[i]);
+        }
     });
 
     it("should throw an error when trying to set a row on an invalid position", async () => {

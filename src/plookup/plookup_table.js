@@ -18,6 +18,7 @@
 */
 
 import Multiset from "./multiset.js";
+import Bigarray from "../bigarray.js";
 
 class PlookupTable {
     constructor(F) {
@@ -26,7 +27,7 @@ class PlookupTable {
         }
 
         this.F = F;
-        this.vec = [];
+        this.vec = new Bigarray();
 
         return this;
     }
