@@ -39,6 +39,7 @@ import * as groth16 from "./src/groth16.js";
 import * as plonk from "./src/plonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
+import * as pil from "./src/pil.js";
 import path from "path";
 import bfj from "bfj";
 
@@ -304,7 +305,25 @@ const commands = [
         description: "Check info of a binary file",
         alias: ["fi"],
         action: fileInfo
-    }
+    },
+    {
+        cmd: "pil build constant [state_machine.pil] [state_machine_builder.js] [polynomial.cnst]",
+        description: "Build all the constant polynomials defined in the PIL program using the javascript builder",
+        options: "-verbose|v -config|c",
+        action: pilBuildConstant
+    },
+    {
+        cmd: "pil build committed [state_machine.pil] [state_machine_builder.js] [state_machine_input.json] [polynomial.cmmt]",
+        description: "Build all the constant polynomials defined in the PIL program using the javascript builder",
+        options: "-verbose|v -config|c",
+        action: pilBuildCommitted
+    },
+    {
+        cmd: "pil verify [state_machine.pil] [polynomial.cnst] [polynomial.cmmt]",
+        description: "Check if constant polynomials and committed polynomials fit with the PIL program",
+        options: "-verbose|v -config|c",
+        action: pilVerify
+    },
 ];
 
 
@@ -1147,4 +1166,41 @@ async function fileInfo(params) {
     {
         console.error(error.message);
     }
+}
+
+async function pilBuildConstant(params, options) {
+    // pil build constant [state_machine.pil] [state_machine_builder.js] [polynomial.cnst]
+    const stateMachinePIL = params[0] || "state_machine.pil";
+    const stateMachineBuilder = params[1] || "state_machine_builder.js";
+    const output = params[2] || "polynomial.cnst";
+    const pilConfig = options.config || undefined;
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return pil.pilBuildConstant(stateMachinePIL, pilConfig, path.join(__dirname, stateMachineBuilder), output, logger);
+}
+
+async function pilBuildCommitted(params, options) {
+    // pil build committed [state_machine.pil] [state_machine_builder.js] [state_machine_input.json] [polynomial.cmmt]
+    const stateMachinePIL = params[0] || "state_machine.pil";
+    const stateMachineBuilder = params[1] || "state_machine_builder.js";
+    const stateMachineInput = params[2] || "state_machine_input.json";
+    const output = params[3] || "polynomial.cmmt";
+    const pilConfig = options.config || undefined;
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return pil.pilBuildCommitted(stateMachinePIL, pilConfig, path.join(__dirname, stateMachineBuilder), stateMachineInput, output, logger);
+}
+
+async function pilVerify(params, options) {
+    // pil verify [state_machine.pil] [polynomial.cnst] [polynomial.cmmt]
+    const stateMachinePIL = params[0] || "state_machine.pil";
+    const cnstPolynomials = params[1] || "polynomial.cnst";
+    const cmmtPolynomials = params[2] || "polynomial.cmmt";
+    const pilConfig = options.config || undefined;
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return pil.pilVerify(stateMachinePIL, pilConfig, cnstPolynomials, cmmtPolynomials, logger);
 }

@@ -1,0 +1,20 @@
+namespace Fibonacci(%N);
+    pol constant L1, LLAST;
+    pol commit l1,l2;
+
+    pol l2c = l2;
+
+    public in1 = l2c(0);
+    public in2 = l1(0);
+    public out = l1(%N-1);
+
+    (l2' - l1)*(1-LLAST) = 0;
+
+    pol next = l1*l1 + l2*l2;
+
+    (l1' - next)*(1-LLAST) = 0;
+
+    L1 * (l2 - :in1) = 0;
+    L1 * (l1 - :in2) = 0;
+    LLAST * (l1 - :out) = 0;
+
