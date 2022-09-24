@@ -1,7 +1,7 @@
 {
   "name": "snarkjs",
   "type": "module",
-  "version": "0.4.25",
+  "version": "0.5.0",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
   "module": "./main.js",
@@ -41,18 +41,18 @@
     "@iden3/binfileutils": "0.0.11",
     "blake2b-wasm": "^2.4.0",
     "bfj": "^7.0.2",
-    "circom_runtime": "0.1.18",
+    "circom_runtime": "0.1.21",
     "ejs": "^3.1.6",
     "fastfile": "0.0.20",
-    "ffjavascript": "0.2.55",
+    "ffjavascript": "0.2.56",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.40"
+    "r1csfile": "0.0.41"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^22.0.0",
     "@rollup/plugin-json": "^4.1.0",
-    "@rollup/plugin-node-resolve": "^13.3.0",
+    "@rollup/plugin-node-resolve": "^14.0.0",
     "@rollup/plugin-replace": "^4.0.0",
     "@rollup/plugin-virtual": "^2.0.3",
     "chai": "^4.2.0",
