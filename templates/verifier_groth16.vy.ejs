@@ -59,7 +59,7 @@ def P2() -> G2Point:
 @view
 def negate(p: G1Point) -> G1Point:
     if (p.X == 0) and (p.Y == 0):
-        return G1Point({X: 0, Y: 0})
+        return p
 
     # Validate input or revert
     assert (p.X < BASE_MODULUS) or (p.Y < BASE_MODULUS), "invalid proof"
@@ -118,10 +118,10 @@ def pairing_check_4(p1 : DynArray[G1Point, 4], p2: DynArray[G2Point, 4]) -> bool
                                    input[12], input[13], input[14], input[15], input[16], input[17], 
                                    input[18],input[19], input[20], input[21], input[22], input[23])
 
-    response: Bytes[32] = b''
-
     # raw_call to ecpairing contract
-    response = raw_call(0x0000000000000000000000000000000000000008, 
+    # the precompiled ecpairing contract returns 0x01 if success, 0x00 if the pairing fails 
+    # https://www.evm.codes/precompiled#0x08?fork=arrowGlacier
+    response: Bytes[32] = raw_call(0x0000000000000000000000000000000000000008, 
                         converted, 
                         max_outsize=32, 
                         is_static_call=True
@@ -166,11 +166,8 @@ def verify_proof(a: uint256[2], b: uint256[2][2], c: uint256[2], input: DynArray
     assert unsafe_add(len(input), 1) == len(vk.ic), "invalid proof"
     vk_x: G1Point = vk.ic[0]
 
-    if N_INPUTS > 1:
-        for i in range(N_INPUTS):
-            vk_x = self.addition(vk_x, self.scalar_mul(vk.ic[i+1], input[i]))
-    else:
-        vk_x = self.addition(vk_x, self.scalar_mul(vk.ic[1], input[0]))
+    for i in range(N_INPUTS):
+        vk_x = self.addition(vk_x, self.scalar_mul(vk.ic[i+1], input[i]))
 
     # check pairing
     p1: DynArray[G1Point, 4] = [
