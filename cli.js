@@ -1170,37 +1170,50 @@ async function fileInfo(params) {
 
 async function pilBuildConstant(params, options) {
     // pil build constant [state_machine.pil] [state_machine_builder.js] [polynomial.cnst]
-    const stateMachinePIL = params[0] || "state_machine.pil";
-    const stateMachineBuilder = params[1] || "state_machine_builder.js";
-    const output = params[2] || "polynomial.cnst";
-    const pilConfig = options.config || undefined;
+    const pilFile = params[0] || "state_machine.pil";
+    const pilConfigFile = options.config || undefined;
+    const smBuilderFile = params[1] || "state_machine_builder.js";
+    const outputFile = params[2] || "polynomial.cnst";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return pil.pilBuildConstant(stateMachinePIL, pilConfig, path.join(__dirname, stateMachineBuilder), output, logger);
+    return pil.pilBuildConstant(pilFile, pilConfigFile, path.join(__dirname, smBuilderFile), outputFile, logger);
 }
 
 async function pilBuildCommitted(params, options) {
     // pil build committed [state_machine.pil] [state_machine_builder.js] [state_machine_input.json] [polynomial.cmmt]
-    const stateMachinePIL = params[0] || "state_machine.pil";
-    const stateMachineBuilder = params[1] || "state_machine_builder.js";
-    const stateMachineInput = params[2] || "state_machine_input.json";
-    const output = params[3] || "polynomial.cmmt";
-    const pilConfig = options.config || undefined;
+    const pilFile = params[0] || "state_machine.pil";
+    const pilConfigFile = options.config || undefined;
+    const smBuilderFile = params[1] || "state_machine_builder.js";
+    const smInputFile = params[2] || "state_machine_input.json";
+    const outputFile = params[3] || "polynomial.cmmt";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return pil.pilBuildCommitted(stateMachinePIL, pilConfig, path.join(__dirname, stateMachineBuilder), stateMachineInput, output, logger);
+    return pil.pilBuildCommitted(pilFile, pilConfigFile, path.join(__dirname, smBuilderFile), smInputFile, outputFile, logger);
 }
 
 async function pilVerify(params, options) {
     // pil verify [state_machine.pil] [polynomial.cnst] [polynomial.cmmt]
-    const stateMachinePIL = params[0] || "state_machine.pil";
-    const cnstPolynomials = params[1] || "polynomial.cnst";
-    const cmmtPolynomials = params[2] || "polynomial.cmmt";
-    const pilConfig = options.config || undefined;
+    const pilFile = params[0] || "state_machine.pil";
+    const pilConfigFile = options.config || undefined;
+    const cnstPolsFile = params[1] || "polynomial.cnst";
+    const cmmtPolsFile = params[2] || "polynomial.cmmt";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return pil.pilVerify(stateMachinePIL, pilConfig, cnstPolynomials, cmmtPolynomials, logger);
+    return pil.pilVerify(pilFile, pilConfigFile, cnstPolsFile, cmmtPolsFile, logger);
+}
+
+async function kateSetup(params, options) {
+    // kate setup [state_machine.pil] [polynomial.cnst] [powersOfTau.ptau] [verificationKey.json]
+    const pilFile = params[0] || "state_machine.pil";
+    const pilConfigFile = options.config || undefined;
+    const cnstPolsFile = params[1] || "polynomial.cnst";
+    const ptauFile = params[2] || "powersOfTau.ptau";
+    const vkOutputFile = params[3] || "verificationKey.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return kate.kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, vkOutputFile, logger);
 }

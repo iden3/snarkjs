@@ -22,17 +22,18 @@ import fs from "fs";
 import {F1Field} from "ffjavascript";
 
 
-export default async function pilBuildConstant(stateMachinePIL, pilConfig, stateMachineBuilder, outputFile, logger) {
-    logger.info(`Build constant polynomials file from ${stateMachinePIL} file`);
+export default async function pilBuildConstant(pilFile, pilConfigFile, smBuilderFile, outputFile, logger) {
+    logger.info(`Build constant polynomials file from ${pilFile} file`);
 
     const F = new F1Field("0xFFFFFFFF00000001");
 
-    const config = undefined !== pilConfig ? JSON.parse(fs.readFileSync(pilConfig)) : {};
-    const pil = await compile(F, stateMachinePIL, null, config);
+    const config = undefined !== pilConfigFile ? JSON.parse(fs.readFileSync(pilConfigFile)) : {};
+    const pil = await compile(F, pilFile, null, config);
 
+    //TODO check if there are constant pols defined
     const cnstPols = newConstantPolsArray(pil);
 
-    let {buildConstants} = await import(stateMachineBuilder);
+    let {buildConstants} = await import(smBuilderFile);
     await buildConstants(cnstPols);
 
     await cnstPols.saveToFile(outputFile);

@@ -22,19 +22,19 @@ import fs from "fs";
 import {F1Field} from "ffjavascript";
 
 
-export default async function pilBuildConstant(stateMachinePIL, pilConfig, stateMachineBuilder, inputFile, outputFile, logger) {
-    logger.info(`Build committed polynomials file from ${stateMachinePIL} file with input from ${inputFile}`);
+export default async function pilBuildConstant(pilFile, pilConfigFile, smBuilderFile, inputFile, outputFile, logger) {
+    logger.info(`Build committed polynomials file from ${pilFile} file with input from ${inputFile}`);
 
     const F = new F1Field("0xFFFFFFFF00000001");
 
-    const config = undefined !== pilConfig ? JSON.parse(fs.readFileSync(pilConfig)) : {};
-    const pil = await compile(F, stateMachinePIL, null, config);
+    const config = undefined !== pilConfigFile ? JSON.parse(fs.readFileSync(pilConfigFile)) : {};
+    const pil = await compile(F, pilFile, null, config);
 
     const input = JSON.parse(await fs.promises.readFile(inputFile, "utf8"));
 
     const cmmtPols =  newCommitPolsArray(pil);
 
-    let {execute:buildCmmt} = await import(stateMachineBuilder);
+    let {execute:buildCmmt} = await import(smBuilderFile);
     const res = await buildCmmt(cmmtPols, input);
 
     await cmmtPols.saveToFile(outputFile);

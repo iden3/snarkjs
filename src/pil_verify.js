@@ -21,31 +21,31 @@ import {F1Field} from "ffjavascript";
 import {newCommitPolsArray, newConstantPolsArray, verifyPil, compile} from "pilcom";
 import fs from "fs";
 
-export default async function pilVerify(stateMachinePIL, pilConfig, cnstPolynomials, cmmtPolynomials, logger) {
-    logger.info(`PIL verify ${stateMachinePIL} file`);
+export default async function pilVerify(pilFile, pilConfigFile, cnstPolsFile, cmmtPolsFile, logger) {
+    logger.info(`PIL verify ${pilFile} file`);
 
     const F = new F1Field("0xFFFFFFFF00000001");
 
-    const config = undefined !== pilConfig ? JSON.parse(fs.readFileSync(pilConfig)) : {};
-    const pil = await compile(F, stateMachinePIL, null, config);
+    const pilConfig = undefined !== pilConfigFile ? JSON.parse(fs.readFileSync(pilConfigFile)) : {};
+    const pil = await compile(F, pilFile, null, pilConfig);
 
-    const constPols = newConstantPolsArray(pil);
-    const cmPols = newCommitPolsArray(pil);
+    const cnstPols = newConstantPolsArray(pil);
+    const cmmtPols = newCommitPolsArray(pil);
 
-    await constPols.loadFromFile(cnstPolynomials);
-    await cmPols.loadFromFile(cmmtPolynomials);
+    await cmmtPols.loadFromFile(cmmtPolsFile);
+    await cnstPols.loadFromFile(cnstPolsFile);
 
-    const res = await verifyPil(F, pil, cmPols, constPols);
+    const res = await verifyPil(F, pil, cmmtPols, cnstPols, pilConfig);
 
     if (0 !== res.length) {
-        logger.warn(`PIL ${stateMachinePIL} verified with errors`);
+        logger.warn(`PIL ${pilFile} verified with errors`);
         for (let i = 0; i < res.length; i++) {
             logger.warn(res[i]);
         }
         return 1;
     }
 
-    logger.info(`PIL ${stateMachinePIL} successfully verified`);
+    logger.info(`PIL ${pilFile} successfully verified`);
     return 0;
 }
 
