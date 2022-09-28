@@ -1,7 +1,8 @@
 import {F1Field} from "ffjavascript";
 
-export async function buildConstants(constPols) {
-    const fibonacciPol = constPols.Fibonacci;
+export async function buildConstants(cnstPols) {
+    const fibonacciPol = cnstPols.Fibonacci;
+
     const N = fibonacciPol.L1.length;
 
     for ( let i=0; i<N; i++) {
@@ -11,8 +12,9 @@ export async function buildConstants(constPols) {
 }
 
 
-export async function execute(committedPols, input) {
-    const fibonacciPol = committedPols.Fibonacci;
+export async function execute(cmmtPols, input) {
+    const fibonacciPol = cmmtPols.Fibonacci;
+
     const N = fibonacciPol.l1.length;
 
     const Fr = new F1Field("0xFFFFFFFF00000001");

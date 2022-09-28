@@ -1,4 +1,3 @@
-
 constant %N = 2**10;
 
 include "fibonacci.pil";

@@ -45,6 +45,7 @@ import bfj from "bfj";
 
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
+import * as kate from "./src/kate.js";
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
@@ -323,6 +324,12 @@ const commands = [
         description: "Check if constant polynomials and committed polynomials fit with the PIL program",
         options: "-verbose|v -config|c",
         action: pilVerify
+    },
+    {
+        cmd: "kate setup [state_machine.pil] [polynomial.cnst] [powersOfTau.ptau] [verificationKey.json]",
+        description: "", //TODO
+        options: "-verbose|v -config|c",
+        action: kateSetup
     },
 ];
 
