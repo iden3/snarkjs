@@ -26,42 +26,47 @@ import {utils as ffjavascriptUtils} from "ffjavascript";
 const {stringifyBigInts} = ffjavascriptUtils;
 import {readBinFile} from "@iden3/binfileutils";
 import {readPTauHeader} from "./powersoftau_utils.js";
+import {log2} from "./misc.js";
 
 export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, vkOutputFile, logger) {
     logger.info("Starting kate setup");
 
-    //Get ptau data
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauFile, "ptau", 1, 1 << 22, 1 << 24);
-    const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
+    if (!sectionsPTau[12]) {
+        if (logger) logger.error("Powers of tau is not prepared.");
+        return -1;
+    }
 
-    // let cirPower = log2(plonkConstraints.length -1) +1;
-    // if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
-    // const domainSize = 2 ** cirPower;
-    //
-    // if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
-    // if (cirPower > power) {
-    //     if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${power}`);
-    //     return -1;
-    // }
-    //
-    // if (!sectionsPTau[12]) {
-    //     if (logger) logger.error("Powers of tau is not prepared.");
-    //     return -1;
-    // }
-    //
-    //
-    // const ptau = new BigBuffer(domainSize*sG1);
-    // const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) -1)*sG1;
-    // await fdPTau.readToBuffer(LPoints, 0, domainSize*sG1, o);
-
+    const {curve, ptauPower} = await readPTauHeader(fdPTau, sectionsPTau);
 
     const F = new F1Field("0xFFFFFFFF00000001");
 
     const pil = await compile(F, pilFile, null, pilConfigFile);
 
     //Find the max polDeg
-    // const maxDeg = Math.max(....map(o => o.y))
+    let maxPolDeg = 0;
+    for (const polRef in pil.references) {
+        maxPolDeg = Math.max(maxPolDeg, pil.references[polRef].polDeg);
+    }
 
+    const pilPower = log2(maxPolDeg - 1) + 1;
+    const domainSize = 2 ** pilPower;
+
+    if (pilPower > ptauPower) {
+        if (logger) logger.error(`PIL polygons degree is too big for this powers of Tau, 2**${pilPower} > 2**${ptauPower}`);
+        return -1;
+    }
+
+    const sG1 = curve.G1.F.n8*2;
+    //    const G1 = curve.G1;
+    //    const sG2 = curve.G2.F.n8*2;
+    //    const Fr = curve.Fr;
+
+    const pTau = new BigBuffer(domainSize * sG1);
+    const o = sectionsPTau[12][0].p + ((2 ** (pilPower)) - 1) * sG1;
+    await fdPTau.readToBuffer(pTau, 0, domainSize * sG1, o);
+
+    // Load preprocessed polynomials
     const cnstPols = newConstantPolsArray(pil);
     await cnstPols.loadFromFile(cnstPolsFile);
 
@@ -79,10 +84,10 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
         }
 
         //Calculates the commitment
-        const polynomial = await Polynomial.fromBuffer(cnstPolBuffer, F, logger);
+        const polynomial = await Polynomial.fromBuffer(cnstPolBuffer, curve.Fr, logger);
         //polynomial.blindCoefficients([challenges.b[0], challenges.b[1]]);
 
-        vKey.pols[cnstPols.$$defArray[i].name] = 22;//await multiExpPolynomial(polynomial, ptau, curve, logger); TODO
+        vKey.pols[cnstPols.$$defArray[i].name] = await multiExpPolynomial(polynomial, pTau, curve, logger);
     }
 
     vKey = stringifyBigInts(vKey);
