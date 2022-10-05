@@ -18,6 +18,8 @@
 */
 
 export {default as kateSetup} from "./kate_setup.js";
+export {default as kateProve} from "./kate_prove.js";
+export {default as kateVerify} from "./kate_verify.js";
 //export {default as kateProve} from "./pil_build_committed.js";
 //export {default as kateVerify} from "./pil_verify.js";
 //export {default as kateSolidityVerifier} from "./pil_verify.js";

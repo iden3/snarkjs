@@ -331,6 +331,18 @@ const commands = [
         options: "-verbose|v -config|c",
         action: kateSetup
     },
+    {
+        cmd: "kate prove [state_machine.pil] [polynomial.cnst] [polynomial.cmmt] [powersOfTau.ptau] [public.json] [proof.json]",
+        description: "", //TODO
+        options: "-verbose|v -config|c",
+        action: kateProve
+    },
+    {
+        cmd: "kate verify [verificationKey.json] [public.json] [proof.json]",
+        description: "", //TODO
+        options: "-verbose|v -config|c",
+        action: kateVerify
+    },
 ];
 
 
@@ -1218,9 +1230,54 @@ async function kateSetup(params, options) {
     const pilConfigFile = options.config || undefined;
     const cnstPolsFile = params[1] || "polynomial.cnst";
     const ptauFile = params[2] || "powersOfTau.ptau";
-    const vkOutputFile = params[3] || "verificationKey.json";
+    const verificationKeyFile = params[3] || "verificationKey.json";
+
+    //TODO check files exists or in case file to be create, check if exists already
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return kate.kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, vkOutputFile, logger);
+    const vkOutput = await kate.kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, logger);
+
+    await bfj.write(verificationKeyFile, vkOutput, { space: 1 });
+
+    return 0;
+}
+
+async function kateProve(params, options) {
+    // kate prove [state_machine.pil] [polynomial.cnst] [polynomial.cmmt] [powersOfTau.ptau] [public.json] [proof.json]
+    const pilFile = params[0] || "state_machine.pil";
+    const pilConfigFile = options.config || undefined;
+    const cnstPolsFile = params[1] || "polynomial.cnst";
+    const cmmtPolsFile = params[2] || "polynomial.cmmt";
+    const ptauFile = params[3] || "powersOfTau.ptau";
+    const publicFile = params[4] || "public.json";
+    const proofFile = params[5] || "proof.json";
+
+    //TODO check files exists or in case file to be create, check if exists already
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const {publicInputs: publicInputs, proof: proof} = await kate.kateProve(pilFile, pilConfigFile, cnstPolsFile, cmmtPolsFile, ptauFile, logger);
+
+    await bfj.write(publicFile, publicInputs, { space: 1 });
+    await bfj.write(proofFile, proof, { space: 1 });
+
+    return 0;
+}
+
+async function kateVerify(params, options) {
+    // kate verify [verificationKey.json] [public.json] [proof.json]
+    const verificationKeyFile = params[0] || "verificationKey.json";
+    const publicFile = params[1] || "proof.json";
+    const proofFile = params[2] || "public.json";
+
+    //TODO check files exists or in case file to be create, check if exists already
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyFile, "utf8"));
+    const publicInputs = JSON.parse(fs.readFileSync(publicFile, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofFile, "utf8"));
+
+    return await kate.kateVerify(verificationKey, publicInputs, proof, logger);
 }
