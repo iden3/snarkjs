@@ -20,7 +20,6 @@
 import {BigBuffer, F1Field} from "ffjavascript";
 import {newConstantPolsArray, compile, newCommitPolsArray} from "pilcom";
 import {Polynomial} from "./polynomial/polynomial.js";
-import {expTau} from "./polynomial/evaluations.js";
 import {readBinFile} from "@iden3/binfileutils";
 import {readPTauHeader} from "./powersoftau_utils.js";
 import {log2} from "./misc.js";
@@ -89,21 +88,18 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
             logger.info(`Preparing constant ${cnstPol.name} polynomial`);
         }
 
-        // Get the polynomial coefficient
-        let polCoefs = await F.ifft(cnstPolBuffer);
-
         // Convert from one filed to another (bigger), TODO check if a new constraint is needed
-        let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
-        for (let i = 0; i < polCoefs.length; i++) {
-            polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
+        let polEvalBuff = new BigBuffer(cnstPolBuffer.length * curve.Fr.n8);
+        for (let i = 0; i < cnstPolBuffer.length; i++) {
+            polEvalBuff.set(curve.Fr.e(cnstPolBuffer[i]), i * curve.Fr.n8);
         }
 
-        const domainSize = cnstPolBuffer.length;
-        polynomials[cnstPol.name] = await Polynomial.to4T(polCoefsBuff, domainSize, [], curve.Fr);
-        polynomials[cnstPol.name] = await polynomials[cnstPol.name].divZh(domainSize);
+        polynomials[cnstPol.name] = await Polynomial.fromBuffer(polEvalBuff, curve.Fr, logger);
+
+        // polynomials[cnstPol.name] = await polynomials[cnstPol.name].divZh(); TODO remove?????
 
         // Calculates the commitment
-        const polCommitment = await expTau(polynomials[cnstPol.name].coef, pTau, curve, logger);
+        const polCommitment = await polynomials[cnstPol.name].expTau(pTau, curve, logger);
 
         // Add the commitment to the proof
         proof.addPolynomial(cnstPol.name, polCommitment, pTau, curve, logger);
@@ -118,24 +114,22 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
             logger.info(`Preparing committed ${cmmtPol.name} polynomial`);
         }
 
-        // Get the polynomial coefficient
-        let polCoefs = await F.ifft(cmmtPolBuffer);
-
         // Convert from one filed to another (bigger), TODO check if a new constraint is needed
-        let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
-        for (let i = 0; i < polCoefs.length; i++) {
-            polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
+        let polEvalBuff = new BigBuffer(cmmtPolBuffer.length * curve.Fr.n8);
+        for (let i = 0; i < cmmtPolBuffer.length; i++) {
+            polEvalBuff.set(curve.Fr.e(cmmtPolBuffer[i]), i * curve.Fr.n8);
         }
 
-        // Blind polynomial with random blinding scalars b_{2i}, b_{2i+1} ∈ Zp
-        challenges.b[cmmtPol.name] = [curve.Fr.random(), curve.Fr.random()];
+        polynomials[cmmtPol.name] = await Polynomial.fromBuffer(polEvalBuff, curve.Fr, logger);
 
-        const domainSize = cmmtPolBuffer.length;
-        polynomials[cmmtPol.name] = await Polynomial.to4T(polCoefsBuff, domainSize, challenges.b[cmmtPol.name], curve.Fr);
-        polynomials[cmmtPol.name] = await polynomials[cmmtPol.name].divZh(domainSize);
+        // Blind polynomial with random blinding scalars b_{2i}, b_{2i+1} ∈ Zp
+        // challenges.b[cmmtPol.name] = [curve.Fr.random(), curve.Fr.random()];
+        // polynomials[cmmtPol.name].blindCoefficients(challenges.b[cmmtPol.name]); // What to do with the blind coefficients!!!!
+
+        // polynomials[cmmtPol.name] = await polynomials[cmmtPol.name].divZh(); TODO remove?????
 
         // Calculates the commitment
-        const polCommitment = await expTau(polynomials[cmmtPol.name].coef, pTau, curve, logger);
+        const polCommitment = await polynomials[cmmtPol.name].expTau(pTau, curve, logger);
 
         // Add the commitment to the proof
         proof.addPolynomial(cmmtPol.name, polCommitment, pTau, curve, logger);
@@ -144,28 +138,28 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
     // KATE 2. Samples an evaluation challenge z ∈ Z_p:
     const transcript = new Keccak256Transcript(curve);
 
-    logger.info("Computing challenge z");
     for (const polName in polynomials) {
         transcript.appendPolCommitment(proof.polynomials[polName]);
-        logger.warn(`Append polynomial ${polName} to transcript: ${curve.Fr.toString(proof.polynomials[polName])}`);
     }
 
     challenges.z = transcript.getChallenge();
-    if (logger) logger.info("Challenge z computed: " + curve.Fr.toString(challenges.z));
+    if (logger) {
+        logger.info("Challenge z computed: " + curve.Fr.toString(challenges.z));
+    }
 
     // KATE 3. Computes pi(z),for i = 1,...,t.
-    logger.info("Computing challenge alpha");
     transcript.reset();
     for (const polName in polynomials) {
         const evaluation = polynomials[polName].evaluate(challenges.z);
         proof.addEvaluation(polName, evaluation);
         transcript.appendScalar(evaluation);
-        logger.warn(`Evaluating ${polName}: ${curve.Fr.toString(proof.evaluations[polName])}`);
     }
 
     // KATE 4. Samples an opening challenge α ∈ Zp.
     challenges.alpha = transcript.getChallenge();
-    if (logger) logger.info("Challenge alpha computed: " + curve.Fr.toString(challenges.alpha));
+    if (logger) {
+        logger.info("Challenge alpha computed: " + curve.Fr.toString(challenges.alpha));
+    }
 
     // KATE 5 Computes the proof π = [q(s)]1
     // Computes the polynomial q(x) := ∑ α^{i-1} (pi(x) − pi(z)) / (x - z)
@@ -182,7 +176,9 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         alphaCoef = curve.Fr.mul(alphaCoef, challenges.alpha);
     }
 
-    proof.pi = await expTau(polQ.coef, pTau, curve, logger);
+    // polQ = await polQ.divZh();
+
+    proof.pi = await polQ.expTau(pTau, curve, logger);
 
     logger.info("Kate prover finished successfully");
 
@@ -195,4 +191,14 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
     }
 
     return {publicInputs: stringifyBigInts(publicSignals), proof: stringifyBigInts(proof.toObjectProof())};
+}
+
+export function toDebugArray(buffer, Fr) {
+    const length = buffer.byteLength / Fr.n8;
+    let res = [];
+    for (let i = 0; i < length; i++) {
+        res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+    }
+
+    return res;
 }

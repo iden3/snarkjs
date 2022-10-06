@@ -28,6 +28,8 @@ export class Evaluations {
     }
 }
 
+
+//TODO remove from here when polynomial.expTau checked
 export async function expTau(polynomial, PTau, curve, logger, name) {
     const n = polynomial.byteLength / curve.Fr.n8;
     const PTauN = PTau.slice(0, n * curve.G1.F.n8 * 2);

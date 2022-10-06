@@ -37,7 +37,7 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
         return -1;
     }
 
-    const {curve, ptauPower} = await readPTauHeader(fdPTau, sectionsPTau);
+    const {curve, power: ptauPower} = await readPTauHeader(fdPTau, sectionsPTau);
     const F = new F1Field("0xFFFFFFFF00000001");
 
     // PIL compile
@@ -85,21 +85,18 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
             logger.info(`Preparing ${cnstPol.name} polynomial`);
         }
 
-        // Get the polynomial coefficient
-        let polCoefs = await F.ifft(cnstPolBuffer);
-
         // Convert from one filed to another (bigger), TODO check if a new constraint is needed
-        let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
-        for (let i = 0; i < polCoefs.length; i++) {
-            polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
+        let polEvalBuff = new BigBuffer(cnstPolBuffer.length * curve.Fr.n8);
+        for (let i = 0; i < cnstPolBuffer.length; i++) {
+            polEvalBuff.set(curve.Fr.e(cnstPolBuffer[i]), i * curve.Fr.n8);
         }
 
-        const domainSize = cnstPolBuffer.length;
-        let pol4T = await Polynomial.to4T(polCoefsBuff, domainSize, [], curve.Fr);
-        pol4T = await pol4T.divZh(domainSize);
+        let pol = await Polynomial.fromBuffer(polEvalBuff, curve.Fr, logger);
+
+        // pol = await pol.divZh(); TODO remove?????
 
         // Calculates the commitment
-        const polCommitment = await expTau(pol4T.coef, pTau, curve, logger);
+        const polCommitment = await pol.expTau(pTau, curve, logger);
 
         // Add the commitment to the preprocessed polynomials
         preprocessed.polynomials[cnstPols.$$defArray[i].name] = curve.G1.toObject(polCommitment);
@@ -110,4 +107,14 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
     logger.info("Kate setup finished");
 
     return stringifyBigInts(preprocessed);
+}
+
+export function toDebugArray(buffer, Fr) {
+    const length = buffer.byteLength / Fr.n8;
+    let res = [];
+    for (let i = 0; i < length; i++) {
+        res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+    }
+
+    return res;
 }

@@ -29,16 +29,17 @@ export default async function kateVerify(_preprocessed, _publicInputs, _proof, l
     logger.info("Starting kate verifier");
 
     // 0. Setup
-    let preprocessed = unstringifyBigInts(_preprocessed);
+    _preprocessed = unstringifyBigInts(_preprocessed);
+    _publicInputs = unstringifyBigInts(_publicInputs);
+    _proof = unstringifyBigInts(_proof);
 
-    const publicInputs = unstringifyBigInts(_publicInputs);
+    const curve = await curves.getCurveFromName(_preprocessed.curve);
 
-    const curve = await curves.getCurveFromName(preprocessed.curve);
+    const preprocessed = fromObjectVk(_preprocessed, curve);
 
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
-    preprocessed = fromObjectVk(preprocessed, curve);
 
     // 1. Validate that all polynomial commitments ∈ G_1
     if (!commitmentsBelongToG1(proof, curve)) {
@@ -49,7 +50,7 @@ export default async function kateVerify(_preprocessed, _publicInputs, _proof, l
     // 2. Validate that all evaluations ∈ F TODO
 
     // 3. Compute the challenges z, alpha as in prover description from the common preprocessed inputs and elements of π
-    const challenges = computeChallenges(proof, curve, logger);
+    const challenges = computeChallenges(preprocessed, proof, curve, logger);
 
     // 4. Check identities TODO
 
@@ -89,38 +90,43 @@ function commitmentsBelongToG1(proof, curve) {
     return true;
 }
 
-function computeChallenges(proof, curve, logger) {
+function computeChallenges(preprocessed, proof, curve, logger) {
     let challenges = {};
 
     const transcript = new Keccak256Transcript(curve);
 
     // Compute z challenge from polynomials
-    // TODO s'han d'afegir tb els polinomis preprocessats ?
+    for (const [polName] of Object.entries(preprocessed.polynomials)) {
+        transcript.appendPolCommitment(preprocessed.polynomials[polName]);
+    }
+
     for (const [polName] of Object.entries(proof.polynomials)) {
         transcript.appendPolCommitment(proof.polynomials[polName]);
-        logger.warn(`Pol Cmmt ${polName}: ${curve.Fr.toString(proof.polynomials[polName])}`);
     }
 
     challenges.z = transcript.getChallenge();
-    if (logger) logger.info("Computed challenge z: " + curve.Fr.toString(challenges.z));
+    if (logger) {
+        logger.info("Computed challenge z: " + curve.Fr.toString(challenges.z));
+    }
 
     // Compute alpha challenge from evaluations
     transcript.reset();
     for (const [evalPol] of Object.entries(proof.evaluations)) {
         transcript.appendScalar(proof.evaluations[evalPol]);
-        logger.warn(`Eval ${evalPol}: ${curve.Fr.toString(proof.evaluations[evalPol])}`);
     }
 
     challenges.alpha = transcript.getChallenge();
-    if (logger) logger.info("Computed challenge alpha: " + curve.Fr.toString(challenges.alpha));
+    if (logger) {
+        logger.info("Computed challenge alpha: " + curve.Fr.toString(challenges.alpha));
+    }
 
     return challenges;
 }
 
 function computeF(proof, preprocessed, challenges, curve) {
-    let alphaCoef = curve.Fr.one;
     let res = curve.G1.zero;
 
+    let alphaCoef = curve.Fr.one;
     for (const [polName] of Object.entries(proof.evaluations).sort()) {
         if(polName in proof.polynomials) {
             res = curve.G1.add(res, curve.G1.timesFr(proof.polynomials[polName], alphaCoef));
@@ -137,9 +143,9 @@ function computeF(proof, preprocessed, challenges, curve) {
 }
 
 function computeE(proof, preprocessed, challenges, curve) {
-    let alphaCoef = curve.Fr.one;
     let res = curve.Fr.zero;
 
+    let alphaCoef = curve.Fr.one;
     for (const [polName] of Object.entries(proof.evaluations).sort()) {
         res = curve.Fr.add(res, curve.Fr.mul(proof.evaluations[polName], alphaCoef));
 
@@ -155,7 +161,7 @@ async function isValidPairing(proof, preprocessed, challenges, E, F, curve) {
     let A1 = proof.pi;
     // A1 = G1.add(A1, G1.timesFr(proof.polynomials.Wxiw, challenges.u)); TODO prime
 
-    let A2 = preprocessed.X_2; //TODO check
+    let A2 = curve.G2.timesFr(curve.G2.one, curve.Fr.sub(curve.Fr.w[preprocessed.power], challenges.z));
 
     // let B1 = G1.timesFr(proof.polynomials.Wxi, challenges.xi);
     // // const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[CIRCUIT_POWER]);
@@ -167,7 +173,7 @@ async function isValidPairing(proof, preprocessed, challenges, E, F, curve) {
 
     let B2 = curve.G2.one;
 
-    return await curve.pairingEq(curve.G1.neg(A1), A2, B1, B2);
+    return await curve.pairingEq(A1, A2, B1, B2);
 }
 
 function fromObjectVk(preprocessed, curve) {

@@ -326,7 +326,7 @@ const commands = [
         action: pilVerify
     },
     {
-        cmd: "kate setup [state_machine.pil] [polynomial.cnst] [powersOfTau.ptau] [verificationKey.json]",
+        cmd: "kate setup [state_machine.pil] [polynomial.cnst] [powersOfTau.ptau] [preprocessed.json]",
         description: "", //TODO
         options: "-verbose|v -config|c",
         action: kateSetup
@@ -338,7 +338,7 @@ const commands = [
         action: kateProve
     },
     {
-        cmd: "kate verify [verificationKey.json] [public.json] [proof.json]",
+        cmd: "kate verify [preprocessed.json] [public.json] [proof.json]",
         description: "", //TODO
         options: "-verbose|v -config|c",
         action: kateVerify
@@ -1230,7 +1230,7 @@ async function kateSetup(params, options) {
     const pilConfigFile = options.config || undefined;
     const cnstPolsFile = params[1] || "polynomial.cnst";
     const ptauFile = params[2] || "powersOfTau.ptau";
-    const verificationKeyFile = params[3] || "verificationKey.json";
+    const preprocessedFile = params[3] || "preprocessed.json";
 
     //TODO check files exists or in case file to be create, check if exists already
 
@@ -1238,7 +1238,7 @@ async function kateSetup(params, options) {
 
     const vkOutput = await kate.kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, logger);
 
-    await bfj.write(verificationKeyFile, vkOutput, { space: 1 });
+    await bfj.write(preprocessedFile, vkOutput, { space: 1 });
 
     return 0;
 }
@@ -1267,17 +1267,17 @@ async function kateProve(params, options) {
 
 async function kateVerify(params, options) {
     // kate verify [verificationKey.json] [public.json] [proof.json]
-    const verificationKeyFile = params[0] || "verificationKey.json";
-    const publicFile = params[1] || "proof.json";
-    const proofFile = params[2] || "public.json";
+    const preprocessedFile = params[0] || "preprocessed.json";
+    const publicFile = params[1] || "public.json";
+    const proofFile = params[2] || "proof.json";
 
     //TODO check files exists or in case file to be create, check if exists already
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyFile, "utf8"));
+    const preprocessed = JSON.parse(fs.readFileSync(preprocessedFile, "utf8"));
     const publicInputs = JSON.parse(fs.readFileSync(publicFile, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofFile, "utf8"));
 
-    return await kate.kateVerify(verificationKey, publicInputs, proof, logger);
+    return await kate.kateVerify(preprocessed, publicInputs, proof, logger);
 }

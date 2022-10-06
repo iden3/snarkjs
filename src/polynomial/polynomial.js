@@ -111,7 +111,6 @@ export class Polynomial {
     add(polynomial, blindingValue) {
         let srcPol, dstPol;
 
-        // Due to performance reasons currently we only accept to add polynomials with equal or smaller size
         if ((polynomial.degree() + 1) > this.length) {
             srcPol = polynomial;
             dstPol = this;
@@ -126,7 +125,7 @@ export class Polynomial {
             const i_n8 = i * this.Fr.n8;
 
             const a = i <= thisDegree ? srcPol.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i <= polyDegree ? dstPol.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            let b = i < polyDegree ? dstPol.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
             if (blindingValue !== undefined) {
                 b = this.Fr.mul(b, blindingValue);
             }
@@ -198,7 +197,8 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    async divZh(domainSize) {
+    async divZh() {
+        const domainSize = this.coef.byteLength / this.Fr.n8;
         const coefs = new BigBuffer(domainSize * 4 * this.Fr.n8);
 
         if (this.logger) this.logger.debug("dividing T/Z_H");
@@ -375,5 +375,14 @@ export class Polynomial {
             newCoefs.set(this.coef.slice(0, (deg + 1) * this.Fr.n8), 0);
             this.coef = newCoefs;
         }
+    }
+
+    async expTau(PTau, curve, logger, name) {
+        const n = this.coef.byteLength / curve.Fr.n8;
+        const PTauN = PTau.slice(0, n * curve.G1.F.n8 * 2);
+        const bm = await curve.Fr.batchFromMontgomery(this.coef);
+        let res = await curve.G1.multiExpAffine(PTauN, bm, logger, name);
+        res = curve.G1.toAffine(res);
+        return res;
     }
 }
