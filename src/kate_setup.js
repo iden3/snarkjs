@@ -26,6 +26,7 @@ const {stringifyBigInts} = ffjavascriptUtils;
 import {readBinFile} from "@iden3/binfileutils";
 import {readPTauHeader} from "./powersoftau_utils.js";
 import {log2} from "./misc.js";
+import {Polynomial} from "./polynomial/polynomial.js";
 
 export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, ptauFile, logger) {
     logger.info("Starting kate setup");
@@ -87,14 +88,21 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
         // Get the polynomial coefficient
         let polCoefs = await F.ifft(cnstPolBuffer);
 
-        // TODO forço a fer un canvi de primer, segur que hi ha una forma millor de fer-ho...
-        let newCoefficients = new BigBuffer(polCoefs.length * curve.Fr.n8);
+        // Convert from one filed to another (bigger), TODO check if a new constraint is needed
+        let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
         for (let i = 0; i < polCoefs.length; i++) {
-            newCoefficients.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
+            polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
         }
 
-        preprocessed.polynomials[cnstPols.$$defArray[i].name] = await expTau(newCoefficients, pTau, curve, logger);
-        preprocessed.polynomials[cnstPols.$$defArray[i].name] = curve.G1.toObject(preprocessed.polynomials[cnstPols.$$defArray[i].name]);
+        const domainSize = cnstPolBuffer.length;
+        let pol4T = await Polynomial.to4T(polCoefsBuff, domainSize, [], curve.Fr);
+        pol4T = await pol4T.divZh(domainSize);
+
+        // Calculates the commitment
+        const polCommitment = await expTau(pol4T.coef, pTau, curve, logger);
+
+        // Add the commitment to the preprocessed polynomials
+        preprocessed.polynomials[cnstPols.$$defArray[i].name] = curve.G1.toObject(polCommitment);
     }
 
     fdPTau.close();

@@ -46,34 +46,30 @@ export class Polynomial {
         return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
     }
 
-    static async to4T(buffer, domainSize, blindingFactors, Fr) {
+    static async to4T(buffer, domainSize, blindingFactors, Fr, logger) {
         blindingFactors = blindingFactors || [];
-        let a = await Fr.ifft(buffer);
+        let coefs = await Fr.ifft(buffer);
 
-        const a4 = new BigBuffer(domainSize * 4 * Fr.n8);
-        a4.set(a, 0);
-
-        const a1 = new BigBuffer((domainSize + blindingFactors.length) * Fr.n8);
-        a1.set(a, 0);
+        const blindedCoefs = new BigBuffer((domainSize + blindingFactors.length) * Fr.n8);
+        blindedCoefs.set(coefs, 0);
         for (let i = 0; i < blindingFactors.length; i++) {
-            a1.set(
+            blindedCoefs.set(
                 Fr.add(
-                    a1.slice((domainSize + i) * Fr.n8, (domainSize + i + 1) * Fr.n8),
+                    blindedCoefs.slice((domainSize + i) * Fr.n8, (domainSize + i + 1) * Fr.n8),
                     blindingFactors[i]
                 ),
                 (domainSize + i) * Fr.n8
             );
-            a1.set(
+            blindedCoefs.set(
                 Fr.sub(
-                    a1.slice(i * Fr.n8, (i + 1) * Fr.n8),
+                    blindedCoefs.slice(i * Fr.n8, (i + 1) * Fr.n8),
                     blindingFactors[i]
                 ),
                 i * Fr.n8
             );
         }
-        const A4 = await Fr.fft(a4);
 
-        return [a1, A4];
+        return new Polynomial(blindedCoefs, Fr, logger);
     }
 
     get length() {
@@ -202,24 +198,24 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    async divZh() {
-        const coefs = new BigBuffer(DOMAIN_SIZE * 4 * this.Fr.n8);
+    async divZh(domainSize) {
+        const coefs = new BigBuffer(domainSize * 4 * this.Fr.n8);
 
         if (this.logger) this.logger.debug("dividing T/Z_H");
-        for (let i = 0; i < DOMAIN_SIZE; i++) {
+        for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
             coefs.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
-        for (let i = DOMAIN_SIZE; i < DOMAIN_SIZE * 4; i++) {
+        for (let i = domainSize; i < domainSize * 4; i++) {
             const i_n8 = i * this.Fr.n8;
 
             const a = this.Fr.sub(
-                coefs.slice((i - DOMAIN_SIZE) * this.Fr.n8, (i - DOMAIN_SIZE) * this.Fr.n8 + this.Fr.n8),
+                coefs.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
                 this.coef.slice(i_n8, i_n8 + this.Fr.n8)
             );
             coefs.set(a, i_n8);
-            if (i > (DOMAIN_SIZE * 3 - 4)) {
+            if (i > (domainSize * 3 - 4)) {
                 if (!this.Fr.isZero(a)) {
                     //throw new Error("range_check T Polynomial is not divisible");
                 }

@@ -74,7 +74,7 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
     await cmmtPols.loadFromFile(cmmtPolsFile);
 
     let challenges = {};
-    challenges.b = [];
+    challenges.b = {};
 
     let proof = new Proof(curve, logger);
     let polynomials = {};
@@ -92,20 +92,21 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         // Get the polynomial coefficient
         let polCoefs = await F.ifft(cnstPolBuffer);
 
-        // TODO forço a fer un canvi de primer, segur que hi ha una forma millor de fer-ho...
+        // Convert from one filed to another (bigger), TODO check if a new constraint is needed
         let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
         for (let i = 0; i < polCoefs.length; i++) {
             polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
         }
 
-        // Calculates the commitment
-        polynomials[cnstPol.name] = new Polynomial(polCoefsBuff, curve.Fr, logger);
+        const domainSize = cnstPolBuffer.length;
+        polynomials[cnstPol.name] = await Polynomial.to4T(polCoefsBuff, domainSize, [], curve.Fr);
+        polynomials[cnstPol.name] = await polynomials[cnstPol.name].divZh(domainSize);
 
         // Calculates the commitment
-        const cmmt = await expTau(polynomials[cnstPol.name].coef, pTau, curve, logger);
+        const polCommitment = await expTau(polynomials[cnstPol.name].coef, pTau, curve, logger);
 
         // Add the commitment to the proof
-        proof.addPolynomial(cnstPol.name, cmmt, pTau, curve, logger);
+        proof.addPolynomial(cnstPol.name, polCommitment, pTau, curve, logger);
     }
 
     // Add committed polynomials commitments to the proof
@@ -120,26 +121,24 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         // Get the polynomial coefficient
         let polCoefs = await F.ifft(cmmtPolBuffer);
 
-        // TODO forço a fer un canvi de primer, segur que hi ha una forma millor de fer-ho...
+        // Convert from one filed to another (bigger), TODO check if a new constraint is needed
         let polCoefsBuff = new BigBuffer(polCoefs.length * curve.Fr.n8);
         for (let i = 0; i < polCoefs.length; i++) {
             polCoefsBuff.set(curve.Fr.e(polCoefs[i]), i * curve.Fr.n8);
         }
 
         // Blind polynomial with random blinding scalars b_{2i}, b_{2i+1} ∈ Zp
-        challenges.b.push(curve.Fr.random());
-        challenges.b.push(curve.Fr.random());
+        challenges.b[cmmtPol.name] = [curve.Fr.random(), curve.Fr.random()];
+
+        const domainSize = cmmtPolBuffer.length;
+        polynomials[cmmtPol.name] = await Polynomial.to4T(polCoefsBuff, domainSize, challenges.b[cmmtPol.name], curve.Fr);
+        polynomials[cmmtPol.name] = await polynomials[cmmtPol.name].divZh(domainSize);
 
         // Calculates the commitment
-        polynomials[cmmtPol.name] = new Polynomial(polCoefsBuff, curve.Fr, logger);
-        // TODO fix next line
-        // polynomials[cmmtPol.name].blindCoefficients([challenges.b[challenges.b.length - 2], challenges.b[challenges.b.length - 1]]);
-
-        // Calculates the commitment
-        const cmmt = await expTau(polynomials[cmmtPol.name].coef, pTau, curve, logger);
+        const polCommitment = await expTau(polynomials[cmmtPol.name].coef, pTau, curve, logger);
 
         // Add the commitment to the proof
-        proof.addPolynomial(cmmtPol.name, cmmt, pTau, curve, logger);
+        proof.addPolynomial(cmmtPol.name, polCommitment, pTau, curve, logger);
     }
 
     // KATE 2. Samples an evaluation challenge z ∈ Z_p:
