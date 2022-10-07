@@ -38,7 +38,7 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         return -1;
     }
 
-    const {curve, ptauPower} = await readPTauHeader(fdPTau, sectionsPTau);
+    const {curve, power: ptauPower} = await readPTauHeader(fdPTau, sectionsPTau);
     const F = new F1Field("0xFFFFFFFF00000001");
 
     // PIL compile
@@ -95,14 +95,13 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         }
 
         polynomials[cnstPol.name] = await Polynomial.fromBuffer(polEvalBuff, curve.Fr, logger);
-
-        // polynomials[cnstPol.name] = await polynomials[cnstPol.name].divZh(); TODO remove?????
+        polynomials[cnstPol.name] = await polynomials[cnstPol.name].divZh();
 
         // Calculates the commitment
         const polCommitment = await polynomials[cnstPol.name].expTau(pTau, curve, logger);
 
         // Add the commitment to the proof
-        proof.addPolynomial(cnstPol.name, polCommitment, pTau, curve, logger);
+        proof.addPolynomial(cnstPol.name, polCommitment);
     }
 
     // Add committed polynomials commitments to the proof
@@ -126,13 +125,13 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
         // challenges.b[cmmtPol.name] = [curve.Fr.random(), curve.Fr.random()];
         // polynomials[cmmtPol.name].blindCoefficients(challenges.b[cmmtPol.name]); // What to do with the blind coefficients!!!!
 
-        // polynomials[cmmtPol.name] = await polynomials[cmmtPol.name].divZh(); TODO remove?????
+        polynomials[cmmtPol.name] = await polynomials[cmmtPol.name].divZh();
 
         // Calculates the commitment
         const polCommitment = await polynomials[cmmtPol.name].expTau(pTau, curve, logger);
 
         // Add the commitment to the proof
-        proof.addPolynomial(cmmtPol.name, polCommitment, pTau, curve, logger);
+        proof.addPolynomial(cmmtPol.name, polCommitment);
     }
 
     // KATE 2. Samples an evaluation challenge z ∈ Z_p:
@@ -163,22 +162,26 @@ export default async function kateProve(pilFile, pilConfigFile, cnstPolsFile, cm
 
     // KATE 5 Computes the proof π = [q(s)]1
     // Computes the polynomial q(x) := ∑ α^{i-1} (pi(x) − pi(z)) / (x - z)
-    let polQ = new Polynomial(new Uint8Array(0), curve.Fr, logger);
+    let maxDegree = 0;
+    Object.keys(polynomials).forEach(key => {
+        maxDegree = Math.max(maxDegree, polynomials[key].degree());
+    });
+
+    let polQ = new Polynomial(new BigBuffer((maxDegree + 1) * curve.Fr.n8), curve.Fr, logger);
 
     let alphaCoef = curve.Fr.one;
     for (const [polName] of Object.entries(polynomials).sort()) {
-        polynomials[polName].mulScalar(alphaCoef);
-        polynomials[polName].subScalar(proof.evaluations[polName]);
-        polynomials[polName].divByXValue(challenges.z);
-
-        polQ.add(polynomials[polName]);
+        polQ.add(polynomials[polName], alphaCoef);
+        polQ.subScalar(curve.Fr.mul(alphaCoef, proof.evaluations[polName]));
 
         alphaCoef = curve.Fr.mul(alphaCoef, challenges.alpha);
     }
-
-    // polQ = await polQ.divZh();
+    polQ.divByXValue(challenges.z);
 
     proof.pi = await polQ.expTau(pTau, curve, logger);
+    if (logger) {
+        logger.info("Proof computed: " + curve.Fr.toString(proof.pi));
+    }
 
     logger.info("Kate prover finished successfully");
 

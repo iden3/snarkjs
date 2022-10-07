@@ -19,7 +19,6 @@
 
 import {BigBuffer, F1Field} from "ffjavascript";
 import {newConstantPolsArray, compile} from "pilcom";
-import {expTau} from "./polynomial/evaluations.js";
 import {utils as ffjavascriptUtils} from "ffjavascript";
 
 const {stringifyBigInts} = ffjavascriptUtils;
@@ -57,19 +56,19 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
         return -1;
     }
 
-    const sG1 = curve.G1.F.n8 * 2;
+    const sizeG1 = curve.G1.F.n8 * 2;
     const sG2 = curve.G2.F.n8 * 2;
 
-    const pTau = new BigBuffer(domainSize * sG1);
-    const o = sectionsPTau[12][0].p + ((2 ** (pilPower)) - 1) * sG1;
-    await fdPTau.readToBuffer(pTau, 0, domainSize * sG1, o);
+    const pTau = new BigBuffer(domainSize * sizeG1);
+    const o = sectionsPTau[12][0].p + ((2 ** (pilPower)) - 1) * sizeG1;
+    await fdPTau.readToBuffer(pTau, 0, domainSize * sizeG1, o);
 
     let preprocessed = {
         protocol: "kate",
         curve: "bn128",
         power: pilPower,
-        w: curve.Fr.toObject(curve.Fr.w[pilPower]),
-        X_2: curve.G2.toObject(await fdPTau.read(sG2, sectionsPTau[3][0].p + sG2)),
+        // w: curve.Fr.toObject(curve.Fr.w[pilPower]),
+        S_2: curve.G2.toObject(await fdPTau.read(sG2, sectionsPTau[3][0].p + sG2)),
         polynomials: {},
     };
 
@@ -92,14 +91,13 @@ export default async function kateSetup(pilFile, pilConfigFile, cnstPolsFile, pt
         }
 
         let pol = await Polynomial.fromBuffer(polEvalBuff, curve.Fr, logger);
-
-        // pol = await pol.divZh(); TODO remove?????
+        pol = await pol.divZh();
 
         // Calculates the commitment
         const polCommitment = await pol.expTau(pTau, curve, logger);
 
         // Add the commitment to the preprocessed polynomials
-        preprocessed.polynomials[cnstPols.$$defArray[i].name] = curve.G1.toObject(polCommitment);
+        preprocessed.polynomials[cnstPol.name] = curve.G1.toObject(polCommitment);
     }
 
     fdPTau.close();

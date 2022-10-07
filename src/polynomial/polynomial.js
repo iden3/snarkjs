@@ -109,30 +109,22 @@ export class Polynomial {
     }
 
     add(polynomial, blindingValue) {
-        let srcPol, dstPol;
-
         if ((polynomial.degree() + 1) > this.length) {
-            srcPol = polynomial;
-            dstPol = this;
-        } else {
-            dstPol = polynomial;
-            srcPol = this;
+            throw new Error("Add a greater size polynomial is not allowed");
         }
 
-        const thisDegree = srcPol.degree();
-        const polyDegree = dstPol.degree();
-        for (let i = 0; i < srcPol.length; i++) {
+        const thisDegree = this.degree();
+        const polyDegree = polynomial.degree();
+        for (let i = 0; i < this.length; i++) {
             const i_n8 = i * this.Fr.n8;
 
-            const a = i <= thisDegree ? srcPol.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i < polyDegree ? dstPol.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            const a = i <= thisDegree ? this.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            let b = i <= polyDegree ? polynomial.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
             if (blindingValue !== undefined) {
                 b = this.Fr.mul(b, blindingValue);
             }
-            srcPol.coef.set(this.Fr.add(a, b), i_n8);
+            this.coef.set(this.Fr.add(a, b), i_n8);
         }
-
-        this.coef = srcPol.coef;
     }
 
     sub(polynomial, blindingValue) {
@@ -191,7 +183,7 @@ export class Polynomial {
             this.coef.slice(0, this.Fr.n8),
             this.Fr.mul(this.Fr.neg(value), coefs.slice(0, this.Fr.n8))
         )) {
-            // throw new Error("Polynomial does not divide");
+            throw new Error("Polynomial does not divide");
         }
 
         this.coef = coefs;
