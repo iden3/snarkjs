@@ -54,7 +54,7 @@
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^14.0.0",
     "@rollup/plugin-replace": "^4.0.0",
-    "@rollup/plugin-virtual": "^2.0.3",
+    "@rollup/plugin-virtual": "^3.0.0",
     "chai": "^4.2.0",
     "eslint": "^8.7.0",
     "mocha": "^10.0.0",
