@@ -14,7 +14,7 @@ var path = require('path');
 var binFileUtils = require('@iden3/binfileutils');
 var ejs = require('ejs');
 var circom_runtime = require('circom_runtime');
-var jsSha3 = require('js-sha3');
+var jsSha256 = require('js-sha256');
 var bfj = require('bfj');
 var Logger = require('logplease');
 
@@ -47,7 +47,7 @@ var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
-var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
+var jsSha256__default = /*#__PURE__*/_interopDefaultLegacy(jsSha256);
 var bfj__default = /*#__PURE__*/_interopDefaultLegacy(bfj);
 var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
 
@@ -6544,7 +6544,7 @@ async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
-const { keccak256: keccak256$1 } = jsSha3__default["default"];
+const { sha256: sha256$1 } = jsSha256__default["default"];
 
 async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -7337,7 +7337,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     }
 
     function hashToFr(transcript) {
-        const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256$1.arrayBuffer(transcript)));
+        const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(sha256$1.arrayBuffer(transcript)));
         return Fr.e(v);
     }
 
@@ -7471,7 +7471,7 @@ async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
-const { keccak256 } = jsSha3__default["default"];
+const { sha256 } = jsSha256__default["default"];
 
 
 async function plonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
@@ -7690,7 +7690,7 @@ function calculateLagrangeEvaluations(curve, challanges, vk) {
 }
 
 function hashToFr(curve, transcript) {
-    const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
+    const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(sha256.arrayBuffer(transcript)));
     return curve.Fr.e(v);
 }
 
@@ -8615,10 +8615,10 @@ async function zkeyExportScryptVerifier(params, options) {
 
     if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
         templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.scrypt.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.scrypt.ejs"), "utf8");    
     } else {
         templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.scrypt.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.scrypt.ejs"), "utf8");    
     }
     
     const verifierCode = await exportScryptVerifier(zkeyName, templates);

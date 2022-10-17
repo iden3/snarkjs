@@ -22,11 +22,10 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import { getCurveFromQ as getCurve } from "./curves.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
-const { keccak256 } = jsSha3;
+import jsSha256 from "js-sha256";
+const { sha256 } = jsSha256;
 
 export default async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -819,7 +818,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     function hashToFr(transcript) {
-        const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
+        const v = Scalar.fromRprBE(new Uint8Array(sha256.arrayBuffer(transcript)));
         return Fr.e(v);
     }
 

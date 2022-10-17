@@ -22,8 +22,8 @@ import { Scalar } from "ffjavascript";
 import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
-const { keccak256 } = jsSha3;
+import jsSha256 from "js-sha256";
+const { sha256 } = jsSha256;
 
 
 export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
@@ -242,7 +242,7 @@ function calculateLagrangeEvaluations(curve, challanges, vk) {
 }
 
 function hashToFr(curve, transcript) {
-    const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
+    const v = Scalar.fromRprBE(new Uint8Array(sha256.arrayBuffer(transcript)));
     return curve.Fr.e(v);
 }
 

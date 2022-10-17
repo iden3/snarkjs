@@ -11,7 +11,7 @@ var fastFile = require('fastfile');
 var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
 var ejs = require('ejs');
-var jsSha3 = require('js-sha3');
+var jsSha256 = require('js-sha256');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -39,7 +39,7 @@ var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
-var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
+var jsSha256__default = /*#__PURE__*/_interopDefaultLegacy(jsSha256);
 
 ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -6502,7 +6502,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 const {stringifyBigInts} = ffjavascript.utils;
-const { keccak256: keccak256$1 } = jsSha3__default["default"];
+const { sha256: sha256$1 } = jsSha256__default["default"];
 
 async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -7295,7 +7295,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     }
 
     function hashToFr(transcript) {
-        const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256$1.arrayBuffer(transcript)));
+        const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(sha256$1.arrayBuffer(transcript)));
         return Fr.e(v);
     }
 
@@ -7429,7 +7429,7 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
-const { keccak256 } = jsSha3__default["default"];
+const { sha256 } = jsSha256__default["default"];
 
 
 async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
@@ -7648,7 +7648,7 @@ function calculateLagrangeEvaluations(curve, challanges, vk) {
 }
 
 function hashToFr(curve, transcript) {
-    const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
+    const v = ffjavascript.Scalar.fromRprBE(new Uint8Array(sha256.arrayBuffer(transcript)));
     return curve.Fr.e(v);
 }
 
