@@ -30,8 +30,8 @@ export default function r1csPrint(r1cs, syms, logger) {
                 if (name == "one") name = "";
 
                 let vs = r1cs.curve.Fr.toString(lc[k]);
-                if (vs == "1") vs = "";  // Do not show ones
-                if (vs == "-1") vs = "-";  // Do not show ones
+                if ((vs == "1")&&(name != "")) vs = "";  // Do not show ones
+                if ((vs == "-1")&&(name != "")) vs = "-";  // Do not show ones
                 if ((S!="")&&(vs[0]!="-")) vs = "+"+vs;
                 if (S!="") vs = " "+vs;
                 S= S + vs   + name;
