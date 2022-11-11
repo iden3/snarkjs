@@ -83,10 +83,10 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     await startWriteSection(fdZKey, 2);
     const primeQ = curve.q;
-    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+    const n8q = (~~( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
     const primeR = curve.r;
-    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+    const n8r = (~~( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
     const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
     const R2r = curve.Fr.e(Scalar.mod(Scalar.mul(Rr,Rr), primeR));
 
@@ -518,7 +518,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const buff1 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + (offset + domainSize)*sG1);
         const buff2 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + offset*sG1);
         const concurrency= curve.tm.concurrency;
-        const nPointsPerThread = Math.floor(nPoints / concurrency);
+        const nPointsPerThread = ~~(nPoints / concurrency);
         const opPromises = [];
         for (let i=0; i<concurrency; i++) {
             let n;

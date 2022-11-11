@@ -448,10 +448,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
         await startWriteSection(fdZKey, 2);
         const primeQ = curve.q;
-        const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+        const n8q = (~~( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
         const primeR = curve.r;
-        const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+        const n8r = (~~( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
 
         await fdZKey.writeULE32(n8q);
         await writeBigInt(fdZKey, primeQ, n8q);

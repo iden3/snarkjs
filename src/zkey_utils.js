@@ -65,10 +65,10 @@ export async function writeHeader(fd, zkey) {
 
     await binFileUtils.startWriteSection(fd, 2);
     const primeQ = curve.q;
-    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+    const n8q = (~~( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
     const primeR = curve.r;
-    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+    const n8r = (~~( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
 
     await fd.writeULE32(n8q);
     await binFileUtils.writeBigInt(fd, primeQ, n8q);
@@ -96,7 +96,7 @@ export async function writeZKey(fileName, zkey) {
     const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
 
     await writeHeader(fd, zkey);
-    const n8r = (Math.floor( (Scalar.bitLength(zkey.r) - 1) / 64) +1)*8;
+    const n8r = (~~( (Scalar.bitLength(zkey.r) - 1) / 64) +1)*8;
     const Rr = Scalar.mod(Scalar.shl(1, n8r*8), zkey.r);
     const R2r = Scalar.mod(Scalar.mul(Rr,Rr), zkey.r);
 

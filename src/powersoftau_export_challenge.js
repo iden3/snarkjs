@@ -62,7 +62,7 @@ export default async function exportChallenge(pTauFilename, challengeFilename, l
     async function exportSection(sectionId, groupName, nPoints, sectionName) {
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
+        const nPointsChunk = ~~((1<<24)/sG);
 
         await binFileUtils.startReadUniqueSection(fdFrom, sections, sectionId);
         for (let i=0; i< nPoints; i+= nPointsChunk) {
