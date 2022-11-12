@@ -300,6 +300,27 @@ const commands = [
         action: plonkVerify
     },
     {
+        cmd: "babyplonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial PLONK pkey ",
+        alias: ["pks"],
+        options: "-verbose|v",
+        action: plonkSetup
+    },
+    {
+        cmd: "babyplonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a PLONK Proof from witness",
+        alias: ["pkp"],
+        options: "-verbose|v -protocol",
+        action: plonkProve
+    },
+    {
+        cmd: "babyplonk verify [verification_key.json] [public.json] [proof.json]",
+        description: "Verify a PLONK Proof",
+        alias: ["pkv"],
+        options: "-verbose|v",
+        action: plonkVerify
+    },
+    {
         cmd: "file info [binary.file]",
         description: "Check info of a binary file",
         alias: ["fi"],
