@@ -37,6 +37,7 @@ const {stringifyBigInts} = utils;
 import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
 import * as plonk from "./src/plonk.js";
+import * as babyPlonk from "./src/babyplonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
@@ -304,21 +305,21 @@ const commands = [
         description: "Creates an initial PLONK pkey ",
         alias: ["pks"],
         options: "-verbose|v",
-        action: plonkSetup
+        action: babyPlonkSetup
     },
     {
         cmd: "babyplonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a PLONK Proof from witness",
         alias: ["pkp"],
         options: "-verbose|v -protocol",
-        action: plonkProve
+        action: babyPlonkProve
     },
     {
         cmd: "babyplonk verify [verification_key.json] [public.json] [proof.json]",
         description: "Verify a PLONK Proof",
         alias: ["pkv"],
         options: "-verbose|v",
-        action: plonkVerify
+        action: babyPlonkVerify
     },
     {
         cmd: "file info [binary.file]",
@@ -1118,6 +1119,49 @@ async function plonkVerify(params, options) {
     } else {
         return 1;
     }
+}
+
+async function babyPlonkSetup(params, options) {
+    const r1csName = params[0] || "circuit.r1cs";
+    const ptauName = params[1] || "powersoftau.ptau";
+    const zkeyName = params[2] || "circuit.zkey";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return babyPlonk.setup(r1csName, ptauName, zkeyName, logger);
+}
+
+
+async function babyPlonkProve(params, options) {
+    const zkeyName = params[0] || "circuit.zkey";
+    const wtnsName = params[1] || "witness.wtns";
+    const proofName = params[2] || "proof.json";
+    const pblcName = params[3] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const {proof, publicSignals} = await babyPlonk.prove(zkeyName, wtnsName, logger);
+
+    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
+    await bfj.write(pblcName, stringifyBigInts(publicSignals), { space: 1 });
+
+    return 0;
+}
+
+async function babyPlonkVerify(params, options) {
+    const vkeyName = params[0] || "verification_key.json";
+    const pblcName = params[1] || "public.json";
+    const proofName = params[2] || "proof.json";
+
+    const vkey = JSON.parse(fs.readFileSync(vkeyName, "utf8"));
+    const pblc = JSON.parse(fs.readFileSync(pblcName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const isValid = await babyPlonk.verify(vkey, pblc, proof, logger);
+
+    return isValid ? 0 : 1;
 }
 
 async function fileInfo(params) {
