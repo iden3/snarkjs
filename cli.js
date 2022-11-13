@@ -1129,7 +1129,7 @@ async function babyPlonkSetup(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await babyPlonkCmd.babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
+    return await babyPlonkCmd.babyPlonkSetupCmd(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
 }
 
 
@@ -1141,7 +1141,7 @@ async function babyPlonkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await babyPlonkCmd.babyPlonkProve(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
+    return await babyPlonkCmd.babyPlonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
 }
 
 async function babyPlonkVerify(params, options) {
@@ -1151,7 +1151,7 @@ async function babyPlonkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await babyPlonkCmd.babyPlonkVerify(vkeyFilename, publicInputsFilename, proofFilename, logger);
+    return await babyPlonkCmd.babyPlonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
 }
 
 async function fileInfo(params) {

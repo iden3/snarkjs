@@ -17,6 +17,6 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export {babyPlonkSetup} from "./babyplonk_setup_cmd.js";
-export {babyPlonkProve} from "./babyplonk_prove_cmd.js";
-export {babyPlonkVerify} from "./babyplonk_verify_cmd.js";
+export {babyPlonkSetupCmd} from "./babyplonk_setup_cmd.js";
+export {babyPlonkProveCmd} from "./babyplonk_prove_cmd.js";
+export {babyPlonkVerifyCmd} from "./babyplonk_verify_cmd.js";

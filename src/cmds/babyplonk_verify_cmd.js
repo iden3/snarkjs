@@ -15,15 +15,15 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import * as babyPlonk from "../babyplonk.js";
 import fs from "fs";
+import babyPlonkVerify from "../babyplonk_verify.js";
 
-export async function babyPlonkVerify(vkeyFilename, publicInputsFilename, proofFilename, logger) {
+export async function babyPlonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger) {
     const vkey = JSON.parse(fs.readFileSync(vkeyFilename, "utf8"));
     const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
 
-    const isValid = await babyPlonk.verify(vkey, publicInputs, proof, logger);
+    const isValid = await babyPlonkVerify(vkey, publicInputs, proof, logger);
 
     return isValid ? 0 : 1;
 }

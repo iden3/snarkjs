@@ -15,14 +15,14 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import * as babyPlonk from "../babyplonk.js";
 import bfj from "bfj";
-import {  utils }   from "ffjavascript";
+import {utils} from "ffjavascript";
+import babyPlonkProve from "../babyplonk_prove.js";
 
 const {stringifyBigInts} = utils;
 
-export async function babyPlonkProve(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
-    const {proof, publicSignals} = await babyPlonk.prove(pkeyFilename, witnessFilename, logger);
+export async function babyPlonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
+    const {proof, publicSignals} = await babyPlonkProve(pkeyFilename, witnessFilename, logger);
 
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});

@@ -15,8 +15,9 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import * as babyPlonk from "../babyplonk.js";
 
-export async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger) {
-    return babyPlonk.setup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
+import babyPlonkSetup from "../babyplonk_setup.js";
+
+export async function babyPlonkSetupCmd(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger) {
+    return babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
 }
