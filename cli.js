@@ -301,7 +301,7 @@ const commands = [
         action: plonkVerify
     },
     {
-        cmd: "babyplonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        cmd: "babyplonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.pkey] [circuit.vkey]",
         description: "Creates an initial PLONK pkey ",
         alias: ["pks"],
         options: "-verbose|v",

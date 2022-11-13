@@ -17,7 +17,9 @@
 
 import * as babyPlonk from "../babyplonk.js";
 import bfj from "bfj";
-import {stringifyBigInts} from "ffjavascript/src/utils.js";
+import {  utils }   from "ffjavascript";
+
+const {stringifyBigInts} = utils;
 
 export async function babyPlonkProve(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
     const {proof, publicSignals} = await babyPlonk.prove(pkeyFilename, witnessFilename, logger);
