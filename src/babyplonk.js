@@ -23,7 +23,7 @@
 export const BP_T_POL_DEG_MIN = 3;
 
 // ZKEY constants
-export const ZKEY_BP_NSECTIONS = 10;
+export const BP_ZKEY_NSECTIONS = 10;
 
 export const BP_HEADER_ZKEY_SECTION = 2;
 export const BP_ADDITIONS_ZKEY_SECTION = 3;

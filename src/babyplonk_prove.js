@@ -33,9 +33,9 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
 
-    const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+    const {fd: fdZKey, sections: zkeySections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
+    const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
     if (zkey.protocol != "plonk") {
         throw new Error("zkey file is not plonk");
     }
@@ -68,7 +68,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     let proof = {};
 
     const sigmaBuff = new BigBuffer(zkey.domainSize*n8r*4*3);
-    let o = sectionsZKey[12][0].p + zkey.domainSize*n8r;
+    let o = zkeySections[12][0].p + zkey.domainSize*n8r;
     await fdZKey.readToBuffer(sigmaBuff, 0 , zkey.domainSize*n8r*4, o);
     o += zkey.domainSize*n8r*5;
     await fdZKey.readToBuffer(sigmaBuff, zkey.domainSize*n8r*4 , zkey.domainSize*n8r*4, o);
@@ -76,12 +76,12 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     await fdZKey.readToBuffer(sigmaBuff, zkey.domainSize*n8r*8 , zkey.domainSize*n8r*4, o);
 
     const pol_s1 = new BigBuffer(zkey.domainSize*n8r);
-    await fdZKey.readToBuffer(pol_s1, 0 , zkey.domainSize*n8r, sectionsZKey[12][0].p);
+    await fdZKey.readToBuffer(pol_s1, 0 , zkey.domainSize*n8r, zkeySections[12][0].p);
 
     const pol_s2 = new BigBuffer(zkey.domainSize*n8r);
-    await fdZKey.readToBuffer(pol_s2, 0 , zkey.domainSize*n8r, sectionsZKey[12][0].p + 5*zkey.domainSize*n8r);
+    await fdZKey.readToBuffer(pol_s2, 0 , zkey.domainSize*n8r, zkeySections[12][0].p + 5*zkey.domainSize*n8r);
 
-    const PTau = await binFileUtils.readSection(fdZKey, sectionsZKey, 14);
+    const PTau = await binFileUtils.readSection(fdZKey, zkeySections, 14);
 
 
     const ch = {};
@@ -139,7 +139,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     return {proof, publicSignals};
 
     async function calculateAdditions() {
-        const additionsBuff = await binFileUtils.readSection(fdZKey, sectionsZKey, 3);
+        const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, 3);
 
         const sSum = 8+curve.Fr.n8*2;
 
@@ -165,9 +165,9 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         let B = new BigBuffer(zkey.domainSize * n8r);
         let C = new BigBuffer(zkey.domainSize * n8r);
 
-        const aMap = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
-        const bMap = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
-        const cMap = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
+        const aMap = await binFileUtils.readSection(fdZKey, zkeySections, 4);
+        const bMap = await binFileUtils.readSection(fdZKey, zkeySections, 5);
+        const cMap = await binFileUtils.readSection(fdZKey, zkeySections, 6);
 
         for (let i=0; i<zkey.nConstrains; i++) {
             const iA = readUInt32(aMap, i*4);
@@ -332,25 +332,25 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
         if (logger) logger.debug("phse3: Reading QM4");    
         const QM4 = new BigBuffer(zkey.domainSize*4*n8r);
-        await fdZKey.readToBuffer(QM4, 0 , zkey.domainSize*n8r*4, sectionsZKey[7][0].p + zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(QM4, 0 , zkey.domainSize*n8r*4, zkeySections[7][0].p + zkey.domainSize*n8r);
 
         if (logger) logger.debug("phse3: Reading QL4");    
         const QL4 = new BigBuffer(zkey.domainSize*4*n8r);
-        await fdZKey.readToBuffer(QL4, 0 , zkey.domainSize*n8r*4, sectionsZKey[8][0].p + zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(QL4, 0 , zkey.domainSize*n8r*4, zkeySections[8][0].p + zkey.domainSize*n8r);
 
         if (logger) logger.debug("phse3: Reading QR4");    
         const QR4 = new BigBuffer(zkey.domainSize*4*n8r);
-        await fdZKey.readToBuffer(QR4, 0 , zkey.domainSize*n8r*4, sectionsZKey[9][0].p + zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(QR4, 0 , zkey.domainSize*n8r*4, zkeySections[9][0].p + zkey.domainSize*n8r);
 
         if (logger) logger.debug("phse3: Reading QO4");    
         const QO4 = new BigBuffer(zkey.domainSize*4*n8r);
-        await fdZKey.readToBuffer(QO4, 0 , zkey.domainSize*n8r*4, sectionsZKey[10][0].p + zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(QO4, 0 , zkey.domainSize*n8r*4, zkeySections[10][0].p + zkey.domainSize*n8r);
 
         if (logger) logger.debug("phse3: Reading QC4");    
         const QC4 = new BigBuffer(zkey.domainSize*4*n8r);
-        await fdZKey.readToBuffer(QC4, 0 , zkey.domainSize*n8r*4, sectionsZKey[11][0].p + zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(QC4, 0 , zkey.domainSize*n8r*4, zkeySections[11][0].p + zkey.domainSize*n8r);
 
-        const lPols = await binFileUtils.readSection(fdZKey, sectionsZKey, 13);
+        const lPols = await binFileUtils.readSection(fdZKey, zkeySections, 13);
 
         const transcript3 = new Uint8Array(G1.F.n8*2);
         G1.toRprUncompressed(transcript3, 0, proof.Z);
@@ -636,22 +636,22 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
     async function round4() {
         const pol_qm = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_qm, 0 , zkey.domainSize*n8r, sectionsZKey[7][0].p);
+        await fdZKey.readToBuffer(pol_qm, 0 , zkey.domainSize*n8r, zkeySections[7][0].p);
 
         const pol_ql = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_ql, 0 , zkey.domainSize*n8r, sectionsZKey[8][0].p);
+        await fdZKey.readToBuffer(pol_ql, 0 , zkey.domainSize*n8r, zkeySections[8][0].p);
 
         const pol_qr = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_qr, 0 , zkey.domainSize*n8r, sectionsZKey[9][0].p);
+        await fdZKey.readToBuffer(pol_qr, 0 , zkey.domainSize*n8r, zkeySections[9][0].p);
 
         const pol_qo = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_qo, 0 , zkey.domainSize*n8r, sectionsZKey[10][0].p);
+        await fdZKey.readToBuffer(pol_qo, 0 , zkey.domainSize*n8r, zkeySections[10][0].p);
 
         const pol_qc = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_qc, 0 , zkey.domainSize*n8r, sectionsZKey[11][0].p);
+        await fdZKey.readToBuffer(pol_qc, 0 , zkey.domainSize*n8r, zkeySections[11][0].p);
 
         const pol_s3 = new BigBuffer(zkey.domainSize*n8r);
-        await fdZKey.readToBuffer(pol_s3, 0 , zkey.domainSize*n8r, sectionsZKey[12][0].p + 10*zkey.domainSize*n8r);
+        await fdZKey.readToBuffer(pol_s3, 0 , zkey.domainSize*n8r, zkeySections[12][0].p + 10*zkey.domainSize*n8r);
 
         const transcript4 = new Uint8Array(G1.F.n8*2*3);
         G1.toRprUncompressed(transcript4, 0, proof.T1);
