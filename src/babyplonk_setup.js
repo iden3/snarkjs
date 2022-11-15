@@ -43,6 +43,11 @@ import {
     BP_ZKEY_NSECTIONS,
 } from "./babyplonk.js";
 import {BABY_PLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey.js";
+import {
+    getBPlonkAdditionConstraint,
+    getBPlonkConstantConstraint,
+    getBPlonkMultiplicationConstraint
+} from "./babyplonk_equation.js";
 
 
 export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger) {
@@ -80,7 +85,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
     let nVars = r1cs.nVars;
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
-    if (logger) logger.info("Processing r1cs constraints");
+    if (logger) logger.info("Processing Baby Plonk constraints");
     await processConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
 
@@ -97,9 +102,10 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
     const domainSize = 2 ** cirPower;
 
     if (logger) {
-        logger.info(`circuit power: ${nConstraints}`);
-        logger.info(`domain size: ${nConstraints}`);
-        logger.info(`#baby Plonk constraints: ${nConstraints}`);
+        logger.info(`Selected curve: ${curve.name}`);
+        logger.info(`Circuit power:  ${cirPower}`);
+        logger.info(`Domain size:    ${domainSize}`);
+        logger.info(`Number of constraints: ${nConstraints}`);
     }
 
     const pTauPoints = new BigBuffer(domainSize * sG1);
@@ -110,7 +116,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
 
     const vk = {};
 
-    if (logger) logger.info("Starting to write zkey file");
+    if (logger) logger.info("Writing the zkey file");
     const fdZKey = await createBinFile(pkeyFilename, "zkey", 1, BP_ZKEY_NSECTIONS, 1 << 22, 1 << 24);
 
     if (logger) logger.info(`Writing Section ${HEADER_ZKEY_SECTION}: Zkey Header`);
@@ -144,12 +150,14 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
     await writeLagrangePolynomials();
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_PTAU_ZKEY_SECTION}. Powers of Tau Values`);
+    if (logger) logger.info(`Writing Section ${BP_PTAU_ZKEY_SECTION}. Powers of Tau`);
     await writePtau();
     if (globalThis.gc) globalThis.gc();
 
     if (logger) logger.info(`Writing Section ${BP_HEADER_ZKEY_SECTION}. Baby Plonk Header`);
     await writeBabyPlonkHeader();
+
+    if (logger) logger.info("Writing the zkey finished");
 
     //TODO create&write vkey
 
@@ -161,11 +169,10 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
 
     return 0;
 
-    //
     async function processConstraints(Fr, r1cs, logger) {
         // Add public inputs and outputs
         for (let i = 0; i < nPublic; i++) {
-            plonkConstraints.push(...getConstantConstraint(i + 1));
+            plonkConstraints.push(...getBPlonkConstantConstraint(i + 1, Fr));
         }
 
         // Add all constraints from r1cs file
@@ -177,12 +184,6 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
         }
 
         return 0;
-
-        function getConstantConstraint(a) {
-            // [[a, b, q1, q2], [a', b', q1', q2']]
-            //TODO check: we must use i or Fr.e(i) ????
-            return [[a, Fr.zero, Fr.one, Fr.zero], [Fr.zero, a, Fr.zero, Fr.zero]];
-        }
 
         function processR1csConstraint(lcA, lcB, lcC) {
             const lctA = getLinearCombinationType(lcA);
@@ -207,23 +208,23 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
             let n = 0;
             const ss = Object.keys(lc);
             for (let i = 0; i < ss.length; i++) {
-                if (lc[ss[i]] == 0n) {
+                if (lc[ss[i]] === 0n) {
                     delete lc[ss[i]];
-                } else if (ss[i] == 0) {
+                } else if (ss[i] === "0") {
                     k = Fr.add(k, lc[ss[i]]);
                 } else {
                     n++;
                 }
             }
             if (n > 0) return n.toString();
-            if (k != Fr.zero) return "k";
+            if (Fr.eq(k, Fr.zero)) return "k";
             return "0";
         }
 
         function normalize(linearComb) {
             const ss = Object.keys(linearComb);
             for (let i = 0; i < ss.length; i++) {
-                if (linearComb[ss[i]] == 0n) delete linearComb[ss[i]];
+                if (linearComb[ss[i]] === 0n) delete linearComb[ss[i]];
             }
         }
 
@@ -231,20 +232,15 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
             const res = {};
 
             for (let s in linearComb1) {
-                if (typeof res[s] == "undefined") {
-                    res[s] = Fr.mul(k, linearComb1[s]);
-                } else {
-                    res[s] = Fr.add(res[s], Fr.mul(k, linearComb1[s]));
-                }
+                const val = Fr.mul(k, linearComb1[s]);
+                res[s] = res[s] === undefined ? val : Fr.add(val, res[s]);
             }
 
             for (let s in linearComb2) {
-                if (typeof res[s] == "undefined") {
-                    res[s] = linearComb2[s];
-                } else {
-                    res[s] = Fr.add(res[s], linearComb2[s]);
-                }
+                const val = Fr.mul(k, linearComb2[s]);
+                res[s] = res[s] === undefined ? val : Fr.add(val, res[s]);
             }
+
             normalize(res);
             return res;
         }
@@ -258,9 +254,9 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
             const cs = [];
 
             for (let s in linearComb) {
-                if (s == 0) {
+                if (s === "0") {
                     res.k = Fr.add(res.k, linearComb[s]);
-                } else if (linearComb[s] != 0n) {
+                } else if (linearComb[s] !== 0n) {
                     cs.push([Number(s), linearComb[s]]);
                 }
             }
@@ -269,10 +265,11 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
                 const c2 = cs.shift();
                 const so = nVars++;
 
-                const constraints = [
-                    [c1[0], c2[1], Fr.neg(c1[1]), Fr.neg(c2[1]), Fr.zero],
-                    [Fr.zero, so, Fr.zero, Fr.zero, Fr.zero]
-                ];
+                const constraints = getBPlonkAdditionConstraint(c1[0], c2[0], so, c1[1], c2[1], Fr.one, Fr.zero, Fr);
+                // const constraints = [
+                //     [c1[0], c2[0], c1[1], c2[1], Fr.zero],
+                //     [Fr.zero, so, Fr.zero, Fr.zero, Fr.zero]
+                // ];
 
                 plonkConstraints.push(...constraints);
 
@@ -293,10 +290,8 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
 
         function addConstraintSum(lc) {
             const C = reduceCoefs(lc, 3);
-            const constraints = [
-                [C.s[0], C.s[1], Fr.div(C.coefs[0], C.coefs[2]), Fr.div(C.coefs[1], C.coefs[2]), C.k],
-                [Fr.zero, C.s[2], Fr.zero, Fr.zero, Fr.zero]
-            ];
+
+            const constraints = getBPlonkAdditionConstraint(C.s[0], C.s[1], C.s[2], C.coefs[0], C.coefs[1], C.coefs[2], C.k, Fr);
             plonkConstraints.push(...constraints);
         }
 
@@ -305,21 +300,32 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
             const B = reduceCoefs(lcB, 1);
             const C = reduceCoefs(lcC, 1);
 
-            let a = A.s[0];
-            let b = B.s[0];
-            let q1 = Fr.div(Fr.mul(A.coefs[0], B.k), C.coefs[0]);
-            let q2 = Fr.div(Fr.mul(A.k, B.coefs[0]), C.coefs[0]);
-            let qk = Fr.sub(Fr.mul(A.k, B.k), C.k);
+            // let a = A.s[0];
+            // let b = B.s[0];
+            // let q1 = Fr.div(Fr.mul(A.coefs[0], B.k), C.coefs[0]);
+            // let q2 = Fr.div(Fr.mul(A.k, B.coefs[0]), C.coefs[0]);
+            // let qk = Fr.sub(Fr.mul(A.k, B.k), C.k);
+            //
+            // plonkConstraints.push([a, b, q1, q2, qk]);
+            //
+            // a = Fr.zero;
+            // b = C.s[0];
+            // q1 = Fr.div(Fr.mul(A.coefs[0], B.coefs[0]), C.coefs[0]);
+            // q2 = Fr.zero;
+            // qk = Fr.zero;
+            //
+            // plonkConstraints.push([a, b, q1, q2, qk]);
 
-            plonkConstraints.push([a, b, q1, q2, qk]);
+            const constraints = getBPlonkMultiplicationConstraint(
+                A.s[0], B.s[0], C.s[0],
+                Fr.mul(A.coefs[0], B.k),
+                Fr.mul(A.k, B.coefs[0]),
+                Fr.mul(A.coefs[0], B.coefs[0]),
+                C.coefs[2],
+                Fr.sub(Fr.mul(A.k, B.k), C.k),
+                Fr);
 
-            a = Fr.zero;
-            b = C.s[0];
-            q1 = Fr.div(Fr.mul(A.coefs[0], B.coefs[0]), C.coefs[0]);
-            q2 = Fr.zero;
-            qk = Fr.zero;
-
-            plonkConstraints.push([a, b, q1, q2, qk]);
+            plonkConstraints.push(...constraints);
         }
     }
 
