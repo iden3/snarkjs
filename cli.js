@@ -301,7 +301,7 @@ const commands = [
         action: plonkVerify
     },
     {
-        cmd: "babyplonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.pkey] [circuit.vkey]",
+        cmd: "babyplonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
         description: "Creates an initial PLONK pkey ",
         alias: ["pks"],
         options: "-verbose|v",
@@ -552,14 +552,16 @@ async function groth16Verify(params, options) {
 
 // zkey export vkey [circuit_final.zkey] [verification_key.json]",
 async function zkeyExportVKey(params, options) {
-    const zkeyName = params[0] || "circuit_final.zkey";
-    const verificationKeyName = params[1] || "verification_key.json";
+    const zKeyFileName = params[0] || "circuit_final.zkey";
+    const vKeyFilename = params[1] || "circuit_vk.json";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zkeyName);
+    const vKey = await zkey.exportVerificationKey(zKeyFileName);
 
-    await bfj.write(verificationKeyName, stringifyBigInts(vKey), { space: 1 });
+    await bfj.write(vKeyFilename, stringifyBigInts(vKey), { space: 1 });
+
+    return 0;
 }
 
 // zkey export json [circuit_final.zkey] [circuit.zkey.json]",
@@ -1124,12 +1126,11 @@ async function plonkVerify(params, options) {
 async function babyPlonkSetup(params, options) {
     const r1csFilename = params[0] || "circuit.r1cs";
     const ptauFilename = params[1] || "powersoftau.ptau";
-    const pkeyFilename = params[2] || "circuit.pkey";
-    const vkeyFilename = params[2] || "circuit.vkey";
+    const zkeyFilename = params[2] || "circuit.zkey";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await babyPlonkCmd.babyPlonkSetupCmd(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
+    return await babyPlonkCmd.babyPlonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger);
 }
 
 

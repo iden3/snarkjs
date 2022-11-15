@@ -18,6 +18,6 @@
 
 import babyPlonkSetup from "../babyplonk_setup.js";
 
-export async function babyPlonkSetupCmd(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger) {
-    return babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger);
+export async function babyPlonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger) {
+    return babyPlonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger);
 }

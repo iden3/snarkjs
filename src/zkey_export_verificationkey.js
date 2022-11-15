@@ -21,6 +21,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { utils } from "ffjavascript";
+import {BABY_PLONK_PROTOCOL_ID} from "./zkey.js";
 const {stringifyBigInts} = utils;
 
 export default async function zkeyExportVerificationKey(zkeyName, /* logger */ ) {
@@ -33,6 +34,8 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */ )
         res = await groth16Vk(zkey, fd, sections);
     } else if (zkey.protocol == "plonk") {
         res = await plonkVk(zkey);
+    } else if (zkey.protocolId && zkey.protocolId === BABY_PLONK_PROTOCOL_ID) {
+        res = await exportBabyPlonkVk(zkey);
     } else {
         throw new Error("zkey file is not groth16");
     }
@@ -109,4 +112,28 @@ async function plonkVk(zkey) {
     vKey = stringifyBigInts(vKey);
 
     return vKey;
+}
+
+async function exportBabyPlonkVk(zkey) {
+    const curve = await getCurve(zkey.q);
+
+    let vKey = {
+        protocol: zkey.protocol,
+        curve: curve.name,
+        nPublic: zkey.nPublic,
+        power: zkey.power,
+
+        k1: curve.Fr.toObject(zkey.k1),
+
+        Q1: curve.G1.toObject(zkey.Q1),
+        Q2: curve.G1.toObject(zkey.Q2),
+        S1: curve.G1.toObject(zkey.S1),
+        S2: curve.G1.toObject(zkey.S2),
+
+        X_2: curve.G2.toObject(zkey.X_2),
+
+        w: curve.Fr.toObject(curve.Fr.w[zkey.power])
+    };
+
+    return stringifyBigInts(vKey);
 }

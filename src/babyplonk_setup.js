@@ -50,7 +50,7 @@ import {
 } from "./babyplonk_equation.js";
 
 
-export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFilename, vkeyFilename, logger) {
+export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("Baby Plonk setup started");
 
     if (globalThis.gc) globalThis.gc();
@@ -117,7 +117,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
     const vk = {};
 
     if (logger) logger.info("Writing the zkey file");
-    const fdZKey = await createBinFile(pkeyFilename, "zkey", 1, BP_ZKEY_NSECTIONS, 1 << 22, 1 << 24);
+    const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, BP_ZKEY_NSECTIONS, 1 << 22, 1 << 24);
 
     if (logger) logger.info(`Writing Section ${HEADER_ZKEY_SECTION}: Zkey Header`);
     await writeZkeyHeader();
@@ -158,8 +158,6 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, pkeyFil
     await writeBabyPlonkHeader();
 
     if (logger) logger.info("Writing the zkey finished");
-
-    //TODO create&write vkey
 
     await fdZKey.close();
     await fdR1cs.close();

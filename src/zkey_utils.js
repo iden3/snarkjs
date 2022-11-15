@@ -302,7 +302,7 @@ async function readHeaderBabyPlonk(fd, sections, toObject) {
     const zkey = {};
 
     zkey.protocol = "baby_plonk";
-    zkey.protocol_id = BABY_PLONK_PROTOCOL_ID;
+    zkey.protocolId = BABY_PLONK_PROTOCOL_ID;
 
     await binFileUtils.startReadUniqueSection(fd, sections, BP_HEADER_ZKEY_SECTION);
     const n8q = await fd.readULE32();
