@@ -23,14 +23,15 @@
 export const BP_T_POL_DEG_MIN = 3;
 
 // ZKEY constants
-export const BP_ZKEY_NSECTIONS = 10;
+export const BP_ZKEY_NSECTIONS = 11;
 
 export const BP_HEADER_ZKEY_SECTION = 2;
 export const BP_ADDITIONS_ZKEY_SECTION = 3;
 export const BP_A_MAP_ZKEY_SECTION = 4;
 export const BP_B_MAP_ZKEY_SECTION = 5;
-export const BP_Q1_ZKEY_SECTION = 6;
-export const BP_Q2_ZKEY_SECTION = 7;
-export const BP_SIGMA_ZKEY_SECTION = 8;
-export const BP_LAGRANGE_ZKEY_SECTION = 9;
-export const BP_PTAU_ZKEY_SECTION = 10;
+export const BP_K_ZKEY_SECTION = 6;
+export const BP_Q1_ZKEY_SECTION = 7;
+export const BP_Q2_ZKEY_SECTION = 8;
+export const BP_SIGMA_ZKEY_SECTION = 9;
+export const BP_LAGRANGE_ZKEY_SECTION = 10;
+export const BP_PTAU_ZKEY_SECTION = 11;

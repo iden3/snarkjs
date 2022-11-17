@@ -1,16 +1,17 @@
-template Multiplier(n) {
-    signal private input a;
+template TestPlonk() {
+    signal input a;
     signal private input b;
     signal output c;
    
-    signal int[n];
+    signal i1;
+    signal i2;
+    signal i4;
 
-    int[0] <== a*a + b;
-    for (var i=1; i<n; i++) {
-	int[i] <== int[i-1]*int[i-1] + b;
-    }
+    i1 <== a+b+3;
 
-    c <== int[n-1];
+    i2 <== i1*i1;
+    i4 <== i2*i2;
+    c <== i1*i4;
 }
 
-component main = Multiplier(1000);
+component main = TestPlonk();

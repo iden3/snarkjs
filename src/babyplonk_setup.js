@@ -40,7 +40,7 @@ import {
     BP_PTAU_ZKEY_SECTION,
     BP_SIGMA_ZKEY_SECTION,
     BP_T_POL_DEG_MIN,
-    BP_ZKEY_NSECTIONS,
+    BP_ZKEY_NSECTIONS, BP_K_ZKEY_SECTION,
 } from "./babyplonk.js";
 import {BABY_PLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey.js";
 import {
@@ -49,6 +49,9 @@ import {
     getBPlonkMultiplicationConstraint
 } from "./babyplonk_equation.js";
 
+const LINEAR_COMBINATION_NULLABLE = 0;
+const LINEAR_COMBINATION_CONSTANT = 1;
+const LINEAR_COMBINATION_VARIABLE = 2;
 
 export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("Baby Plonk setup started");
@@ -72,12 +75,12 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
         throw new Error("r1cs curve does not match powers of tau ceremony curve");
     }
 
-    const G1 = curve.G1;
     const Fr = curve.Fr;
+    const G1 = curve.G1;
 
+    const sFr = curve.Fr.n8;
     const sG1 = curve.G1.F.n8 * 2;
     const sG2 = curve.G2.F.n8 * 2;
-    const sFr = curve.Fr.n8;
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -102,10 +105,10 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     const domainSize = 2 ** cirPower;
 
     if (logger) {
-        logger.info(`Selected curve: ${curve.name}`);
-        logger.info(`Circuit power:  ${cirPower}`);
-        logger.info(`Domain size:    ${domainSize}`);
-        logger.info(`Number of constraints: ${nConstraints}`);
+        logger.info(`> Selected curve: ${curve.name}`);
+        logger.info(`> Circuit power:  ${cirPower}`);
+        logger.info(`> Domain size:    ${domainSize}`);
+        logger.info(`> Number of constraints: ${nConstraints}`);
     }
 
     const pTauPoints = new BigBuffer(domainSize * sG1);
@@ -119,30 +122,34 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     if (logger) logger.info("Writing the zkey file");
     const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, BP_ZKEY_NSECTIONS, 1 << 22, 1 << 24);
 
-    if (logger) logger.info(`Writing Section ${HEADER_ZKEY_SECTION}: Zkey Header`);
+    if (logger) logger.info(`Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
     await writeZkeyHeader();
 
-    if (logger) logger.info(`Writing Section ${BP_ADDITIONS_ZKEY_SECTION}: Additions`);
+    if (logger) logger.info(`Writing Section ${BP_ADDITIONS_ZKEY_SECTION}. Additions`);
     await writeAdditions();
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_A_MAP_ZKEY_SECTION}: A Map`);
+    if (logger) logger.info(`Writing Section ${BP_A_MAP_ZKEY_SECTION}. A Map`);
     await writeWitnessMap(BP_A_MAP_ZKEY_SECTION, 0, "A map");
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_B_MAP_ZKEY_SECTION}: B Map`);
+    if (logger) logger.info(`Writing Section ${BP_B_MAP_ZKEY_SECTION}. B Map`);
     await writeWitnessMap(BP_B_MAP_ZKEY_SECTION, 1, "B map");
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_Q1_ZKEY_SECTION}. Q1 Map`);
+    if (logger) logger.info(`Writing Section ${BP_K_ZKEY_SECTION}. K`);
+    await writeKSection();
+    if (globalThis.gc) globalThis.gc();
+
+    if (logger) logger.info(`Writing Section ${BP_Q1_ZKEY_SECTION}. Q1`);
     await writeQMap(BP_Q1_ZKEY_SECTION, 2, "Q1");
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_Q2_ZKEY_SECTION}. Q2 Map`);
+    if (logger) logger.info(`Writing Section ${BP_Q2_ZKEY_SECTION}. Q2`);
     await writeQMap(BP_Q2_ZKEY_SECTION, 3, "Q2");
     if (globalThis.gc) globalThis.gc();
 
-    if (logger) logger.info(`Writing Section ${BP_SIGMA_ZKEY_SECTION}. Sigma1+Sigma2`);
+    if (logger) logger.info(`Writing Section ${BP_SIGMA_ZKEY_SECTION}. Sigma1 & Sigma2`);
     await writeSigma();
     if (globalThis.gc) globalThis.gc();
 
@@ -156,6 +163,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
 
     if (logger) logger.info(`Writing Section ${BP_HEADER_ZKEY_SECTION}. Baby Plonk Header`);
     await writeBabyPlonkHeader();
+    if (globalThis.gc) globalThis.gc();
 
     if (logger) logger.info("Writing the zkey finished");
 
@@ -184,112 +192,113 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
         return 0;
 
         function processR1csConstraint(lcA, lcB, lcC) {
+            normalize(lcA);
+            normalize(lcB);
+            normalize(lcC);
+
             const lctA = getLinearCombinationType(lcA);
             const lctB = getLinearCombinationType(lcB);
 
-            if ((lctA === "0") || (lctB === "0")) {
-                normalize(lcC);
+            if ((lctA === LINEAR_COMBINATION_NULLABLE)
+                || (lctB === LINEAR_COMBINATION_NULLABLE)) {
                 addConstraintSum(lcC);
-            } else if (lctA === "k") {
-                const lcCC = join(lcB, lcA[0], lcC);
+            } else if (lctA === LINEAR_COMBINATION_CONSTANT) {
+                const lcCC = join(lcB, lcC, lcA[0]);
                 addConstraintSum(lcCC);
-            } else if (lctB === "k") {
-                const lcCC = join(lcA, lcB[0], lcC);
+            } else if (lctB === LINEAR_COMBINATION_CONSTANT) {
+                const lcCC = join(lcA, lcC, lcB[0]);
                 addConstraintSum(lcCC);
             } else {
                 addConstraintMul(lcA, lcB, lcC);
             }
         }
 
-        function getLinearCombinationType(lc) {
+        function getLinearCombinationType(linCom) {
             let k = Fr.zero;
-            let n = 0;
-            const ss = Object.keys(lc);
-            for (let i = 0; i < ss.length; i++) {
-                if (lc[ss[i]] === 0n) {
-                    delete lc[ss[i]];
-                } else if (ss[i] === "0") {
-                    k = Fr.add(k, lc[ss[i]]);
+
+            const signalIds = Object.keys(linCom);
+            for (let i = 0; i < signalIds.length; i++) {
+                if (signalIds[i] === "0") {
+                    k = Fr.add(k, linCom[signalIds[i]]);
                 } else {
-                    n++;
+                    return LINEAR_COMBINATION_VARIABLE;
                 }
             }
-            if (n > 0) return n.toString();
-            if (Fr.eq(k, Fr.zero)) return "k";
-            return "0";
+
+            if (!Fr.eq(k, Fr.zero)) return LINEAR_COMBINATION_CONSTANT;
+
+            return LINEAR_COMBINATION_NULLABLE;
         }
 
-        function normalize(linearComb) {
-            const ss = Object.keys(linearComb);
-            for (let i = 0; i < ss.length; i++) {
-                if (linearComb[ss[i]] === 0n) delete linearComb[ss[i]];
+        function normalize(linCom) {
+            const signalIds = Object.keys(linCom);
+            for (let i = 0; i < signalIds.length; i++) {
+                if (linCom[signalIds[i]] === 0n) delete linCom[signalIds[i]];
             }
         }
 
-        function join(linearComb1, k, linearComb2) {
+        function join(linCom1, linCom2, k) {
             const res = {};
 
-            for (let s in linearComb1) {
-                const val = Fr.mul(k, linearComb1[s]);
-                res[s] = res[s] === undefined ? val : Fr.add(val, res[s]);
+            for (let s in linCom1) {
+                const val = Fr.mul(k, linCom1[s]);
+                res[s] = !(s in res) ? val : Fr.add(val, res[s]);
             }
 
-            for (let s in linearComb2) {
-                const val = Fr.mul(k, linearComb2[s]);
-                res[s] = res[s] === undefined ? val : Fr.add(val, res[s]);
+            for (let s in linCom2) {
+                const val = Fr.mul(k, linCom2[s]);
+                res[s] = !(s in res) ? val : Fr.add(val, res[s]);
             }
 
-            normalize(res);
-            return res;
+            return normalize(res);
         }
 
-        function reduceCoefs(linearComb, maxC) {
+        function reduceCoefs(linCom, maxC) {
             const res = {
                 k: Fr.zero,
-                s: [],
+                signals: [],
                 coefs: []
             };
             const cs = [];
 
-            for (let s in linearComb) {
-                if (s === "0") {
-                    res.k = Fr.add(res.k, linearComb[s]);
-                } else if (linearComb[s] !== 0n) {
-                    cs.push([Number(s), linearComb[s]]);
+            for (let signalId in linCom) {
+                if (signalId === "0") {
+                    res.k = Fr.add(res.k, linCom[signalId]);
+                } else if (linCom[signalId] !== 0n) {
+                    cs.push([Number(signalId), linCom[signalId]]);
                 }
             }
+
             while (cs.length > maxC) {
                 const c1 = cs.shift();
                 const c2 = cs.shift();
                 const so = nVars++;
 
                 const constraints = getBPlonkAdditionConstraint(c1[0], c2[0], so, c1[1], c2[1], Fr.one, Fr.zero, Fr);
-                // const constraints = [
-                //     [c1[0], c2[0], c1[1], c2[1], Fr.zero],
-                //     [Fr.zero, so, Fr.zero, Fr.zero, Fr.zero]
-                // ];
 
                 plonkConstraints.push(...constraints);
-
                 plonkAdditions.push([c1[0], c2[0], c1[1], c2[1]]);
 
                 cs.push([so, Fr.one]);
             }
+
             for (let i = 0; i < cs.length; i++) {
-                res.s[i] = cs[i][0];
+                res.signals[i] = cs[i][0];
                 res.coefs[i] = cs[i][1];
             }
+
             while (res.coefs.length < maxC) {
-                res.s.push(0);
+                res.signals.push(0);
                 res.coefs.push(Fr.zero);
             }
+
             return res;
         }
 
-        function addConstraintSum(lc) {
-            const C = reduceCoefs(lc, 3);
+        function addConstraintSum(linCom) {
+            const C = reduceCoefs(linCom, 3);
 
-            const constraints = getBPlonkAdditionConstraint(C.s[0], C.s[1], C.s[2], C.coefs[0], C.coefs[1], C.coefs[2], C.k, Fr);
+            const constraints = getBPlonkAdditionConstraint(C.signals[0], C.signals[1], C.signals[2], C.coefs[0], C.coefs[1], C.coefs[2], C.k, Fr);
             plonkConstraints.push(...constraints);
         }
 
@@ -298,24 +307,8 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
             const B = reduceCoefs(lcB, 1);
             const C = reduceCoefs(lcC, 1);
 
-            // let a = A.s[0];
-            // let b = B.s[0];
-            // let q1 = Fr.div(Fr.mul(A.coefs[0], B.k), C.coefs[0]);
-            // let q2 = Fr.div(Fr.mul(A.k, B.coefs[0]), C.coefs[0]);
-            // let qk = Fr.sub(Fr.mul(A.k, B.k), C.k);
-            //
-            // plonkConstraints.push([a, b, q1, q2, qk]);
-            //
-            // a = Fr.zero;
-            // b = C.s[0];
-            // q1 = Fr.div(Fr.mul(A.coefs[0], B.coefs[0]), C.coefs[0]);
-            // q2 = Fr.zero;
-            // qk = Fr.zero;
-            //
-            // plonkConstraints.push([a, b, q1, q2, qk]);
-
             const constraints = getBPlonkMultiplicationConstraint(
-                A.s[0], B.s[0], C.s[0],
+                A.signals[0], B.signals[0], C.signals[0],
                 Fr.mul(A.coefs[0], B.k),
                 Fr.mul(A.k, B.coefs[0]),
                 Fr.mul(A.coefs[0], B.coefs[0]),
@@ -333,26 +326,24 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
         await endWriteSection(fdZKey);
     }
 
-    //TODO check
     async function writeAdditions() {
         await startWriteSection(fdZKey, BP_ADDITIONS_ZKEY_SECTION);
+
         const buffOut = new Uint8Array((2 * 4 + 2 * sFr));
         const buffOutV = new DataView(buffOut.buffer);
+
         for (let i = 0; i < plonkAdditions.length; i++) {
             const addition = plonkAdditions[i];
-            let o = 0;
-            buffOutV.setUint32(o, addition[0], true);
-            o += 4;
-            buffOutV.setUint32(o, addition[1], true);
-            o += 4;
+
+            buffOutV.setUint32(offset, addition[0], true);
+            buffOutV.setUint32(offset + 4, addition[1], true);
 
             // The value is storen in  Montgomery. stored = v*R
             // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w
 
-            buffOut.set(addition[2], o);
-            o += sFr;
-            buffOut.set(addition[3], o);
-            o += sFr;
+            buffOut.set(addition[2], offset + 8);
+            buffOut.set(addition[3], offset + 8 + sFr);
+
             await fdZKey.write(buffOut);
             if ((logger) && (i % 1000000 === 0)) logger.debug(`writing Additions: ${i}/${plonkAdditions.length}`);
         }
@@ -361,15 +352,25 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
 
     async function writeWitnessMap(sectionNum, posConstraint, name) {
         await startWriteSection(fdZKey, sectionNum);
+        for (let i = 0; i < plonkConstraints.length; i++) {
+            if (logger && (i % 1000000 === 0)) {
+                logger.debug(`writing witness ${name}: ${i}/${plonkConstraints.length}`);
+            }
+
+            await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
+        }
+        await endWriteSection(fdZKey);
+    }
+
+    async function writeKSection() {
+        await startWriteSection(fdZKey, BP_K_ZKEY_SECTION);
 
         for (let i = 0; i < plonkConstraints.length; i++) {
-            await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
+            const constraint = plonkConstraints[i];
 
-            if ((logger) && (i % 1000000 === 0)) {
-                logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
-            }
+            await fdZKey.write(constraint[4]);
+            if ((logger) && (i % 1000000 === 0)) logger.debug(`writing Additions: ${i}/${plonkAdditions.length}`);
         }
-
         await endWriteSection(fdZKey);
     }
 
@@ -392,7 +393,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     }
 
     async function writeSigma() {
-        const sigma = new BigBuffer(sFr * domainSize * 3);
+        const sigma = new BigBuffer(sFr * domainSize * 2);
         const lastSeen = new BigArray(nVars);
         const firstPos = new BigArray(nVars);
 
