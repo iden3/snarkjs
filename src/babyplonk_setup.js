@@ -50,6 +50,7 @@ import {
     getBPlonkMultiplicationConstraint
 } from "./babyplonk_equation.js";
 import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
+import {Polynomial} from "./polynomial/polynomial.js";
 
 export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("Baby Plonk setup started");
@@ -118,7 +119,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
         logger.info(`> Additions:     ${plonkAdditions.length}`);
     }
 
-    const k1 = getK1();
+    const k1 = computeK1();
 
     const vk = {};
 
@@ -221,7 +222,8 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     async function writeAdditions(fdZKey) {
         await startWriteSection(fdZKey, BP_ADDITIONS_ZKEY_SECTION);
 
-        const buffOut = new Uint8Array((2 * 4 + 2 * sFr));
+        // Written values are 2 * 32 bit integers (2 * 4 bytes) + 2 field size values ( 2 * sFr bytes)
+        const buffOut = new Uint8Array(8 + 2 * sFr);
         const buffOutV = new DataView(buffOut.buffer);
 
         for (let i = 0; i < plonkAdditions.length; i++) {
@@ -267,6 +269,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     }
 
     async function writeQMap(fdZKey, sectionNum, posConstraint, name) {
+        // Compute Q from q evaluations
         let Q = new BigBuffer(settings.domainSize * sFr);
 
         for (let i = 0; i < plonkConstraints.length; i++) {
@@ -276,15 +279,18 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
             }
         }
 
+        // Write Q coefficients and evaluations
         await startWriteSection(fdZKey, sectionNum);
         await writeP4(fdZKey, Q);
         await endWriteSection(fdZKey);
 
+        // Prepare sigma values to be written in the baby plonk header
         Q = await Fr.batchFromMontgomery(Q);
         vk[name] = await curve.G1.multiExpAffine(pTauPoints, Q, logger, "multiexp " + name);
     }
 
     async function writeSigma(fdZKey) {
+        // Compute sigma
         const sigma = new BigBuffer(sFr * settings.domainSize * 2);
         const lastSeen = new BigArray(settings.nVars);
         const firstPos = new BigArray(settings.nVars);
@@ -317,6 +323,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
 
         if (globalThis.gc) globalThis.gc();
 
+        // Write sigma coefficients and evaluations
         await startWriteSection(fdZKey, BP_SIGMA_ZKEY_SECTION);
 
         for (let i = 0; i < 2; i++) {
@@ -324,6 +331,7 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
             await writeP4(fdZKey, S);
             if (globalThis.gc) globalThis.gc();
 
+            // Prepare sigma values to be written in the baby plonk header
             S = await Fr.batchFromMontgomery(S);
             vk["S" + (i + 1)] = await curve.G1.multiExpAffine(pTauPoints, S, logger, "multiexp S" + (i + 1));
             if (globalThis.gc) globalThis.gc();
@@ -417,15 +425,13 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
     }
 
     async function writeP4(fdZKey, buff) {
-        const q = await Fr.ifft(buff);
-        const q4 = new BigBuffer(settings.domainSize * sFr * 4);
-        q4.set(q, 0);
-        const Q4 = await Fr.fft(q4);
-        await fdZKey.write(q);
-        await fdZKey.write(Q4);
+        const [coefficients, evaluations4] = await Polynomial.to4T(buff, settings.domainSize, [], Fr);
+
+        await fdZKey.write(coefficients);
+        await fdZKey.write(evaluations4);
     }
 
-    function getK1() {
+    function computeK1() {
         let k1 = Fr.two;
         while (isIncluded(k1, [], settings.cirPower)) Fr.add(k1, Fr.one);
         return k1;
