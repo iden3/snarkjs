@@ -31,9 +31,10 @@ import {
 } from "./babyplonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
+import {mul2, mul3} from "./mul_z.js";
+import {Polynomial} from "./polynomial/polynomial";
 
 const {stringifyBigInts} = utils;
-const {keccak256} = jsSha3;
 
 export default async function babyPlonkProve(zkeyFileName, witnessFileName, logger) {
     if (logger) logger.info("Baby Plonk prover started");
@@ -228,7 +229,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             const offset = (idx - diff) * sFr;
             return buffInternalWitness.slice(offset, offset + sFr);
         } else {
-            return curve.Fr.zero;
+            return Fr.zero;
         }
     }
 
@@ -236,15 +237,15 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         // Generate random blinding scalars (b_1, ..., b8) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 8; i++) {
-            challenges.b[i] = curve.Fr.random();
+            challenges.b[i] = Fr.random();
         }
 
         // Build A, B evaluations buffer from zkey and witness files
         [evaluations.A, evaluations.B] = await buildABEvaluationsBuffer();
 
         // Compute polynomials a, b and extended evaluations
-        [polynomials.A, evaluations.A4] = await to4T(evaluations.A, [challenges.b[2], challenges.b[1]]);
-        [polynomials.B, evaluations.B4] = await to4T(evaluations.B, [challenges.b[4], challenges.b[3]]);
+        [polynomials.A, evaluations.A4] = await Polynomial.to4T(evaluations.A, sDomain, [challenges.b[2], challenges.b[1], Fr]);
+        [polynomials.B, evaluations.B4] = await Polynomial.to4T(evaluations.B, sDomain, [challenges.b[4], challenges.b[3]], Fr);
 
         // Compute polynomials a, b multi exponentiation and add it to the proof
         proof.addPolynomial("A", await expTau(polynomials.A, "Polynomial pol_a multi exponentiation"));
@@ -331,7 +332,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         }
 
         // Compute polynomial z and extended evaluations
-        [polynomials.Z, evaluations.Z4] = await to4T(numArr, [challenges.b[7], challenges.b[6], challenges.b[5]]);
+        [polynomials.Z, evaluations.Z4] = await Polynomial.to4T(numArr, sDomain, [challenges.b[7], challenges.b[6], challenges.b[5]], Fr);
 
         // Compute polynomial z multi exponentiation and add it to the proof
         proof.addPolynomial("Z", await expTau(polynomials.Z, "Polynomial pol_z multi exponentiation"));
@@ -354,27 +355,6 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
         if (logger) logger.debug("Reading Lagrange polynomials");
         const lagrangePols = await binFileUtils.readSection(fdZKey, zkeySections, BP_LAGRANGE_ZKEY_SECTION);
-
-        const Z1 = [
-            Fr.zero,
-            Fr.add(Fr.e(-1), Fr.w[2]),
-            Fr.e(-2),
-            Fr.sub(Fr.e(-1), Fr.w[2]),
-        ];
-
-        const Z2 = [
-            Fr.zero,
-            Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-            Fr.e(4),
-            Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-        ];
-
-        const Z3 = [
-            Fr.zero,
-            Fr.add(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-            Fr.e(-8),
-            Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-        ];
 
         const buffT = new BigBuffer(sDomain * 4);
         const buffTz = new BigBuffer(sDomain * 4);
@@ -563,101 +543,6 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         proof.addPolynomial("THigh", await expTau(polTHigh, "multiexp T High"));
 
         return 0;
-
-        function mul2(a, b, ap, bp, p) {
-            let r, rz;
-
-            const a_b = Fr.mul(a, b);
-            const a_bp = Fr.mul(a, bp);
-            const ap_b = Fr.mul(ap, b);
-            const ap_bp = Fr.mul(ap, bp);
-
-            r = a_b;
-
-            let a0 = Fr.add(a_bp, ap_b);
-
-            let a1 = ap_bp;
-
-            rz = a0;
-            if (p) {
-                rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-            }
-
-            return [r, rz];
-        }
-
-        function mul3(a, b, c, ap, bp, cp, p) {
-            let r, rz;
-
-            const a_b = Fr.mul(a, b);
-            const a_bp = Fr.mul(a, bp);
-            const ap_b = Fr.mul(ap, b);
-            const ap_bp = Fr.mul(ap, bp);
-
-            r = Fr.mul(a_b, c);
-
-            let a0 = Fr.mul(ap_b, c);
-            a0 = Fr.add(a0, Fr.mul(a_bp, c));
-            a0 = Fr.add(a0, Fr.mul(a_b, cp));
-
-            let a1 = Fr.mul(ap_bp, c);
-            a1 = Fr.add(a1, Fr.mul(a_bp, cp));
-            a1 = Fr.add(a1, Fr.mul(ap_b, cp));
-
-            rz = a0;
-            if (p) {
-                const a2 = Fr.mul(ap_bp, cp);
-                rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-                rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-            }
-
-            return [r, rz];
-        }
-
-        function mul4(a, b, c, d, ap, bp, cp, dp, p) {
-            let r, rz;
-
-
-            const a_b = Fr.mul(a, b);
-            const a_bp = Fr.mul(a, bp);
-            const ap_b = Fr.mul(ap, b);
-            const ap_bp = Fr.mul(ap, bp);
-
-            const c_d = Fr.mul(c, d);
-            const c_dp = Fr.mul(c, dp);
-            const cp_d = Fr.mul(cp, d);
-            const cp_dp = Fr.mul(cp, dp);
-
-            r = Fr.mul(a_b, c_d);
-
-            let a0 = Fr.mul(ap_b, c_d);
-            a0 = Fr.add(a0, Fr.mul(a_bp, c_d));
-            a0 = Fr.add(a0, Fr.mul(a_b, cp_d));
-            a0 = Fr.add(a0, Fr.mul(a_b, c_dp));
-
-            let a1 = Fr.mul(ap_bp, c_d);
-            a1 = Fr.add(a1, Fr.mul(ap_b, cp_d));
-            a1 = Fr.add(a1, Fr.mul(ap_b, c_dp));
-            a1 = Fr.add(a1, Fr.mul(a_bp, cp_d));
-            a1 = Fr.add(a1, Fr.mul(a_bp, c_dp));
-            a1 = Fr.add(a1, Fr.mul(a_b, cp_dp));
-
-            let a2 = Fr.mul(a_bp, cp_dp);
-            a2 = Fr.add(a2, Fr.mul(ap_b, cp_dp));
-            a2 = Fr.add(a2, Fr.mul(ap_bp, c_dp));
-            a2 = Fr.add(a2, Fr.mul(ap_bp, cp_d));
-
-            let a3 = Fr.mul(ap_bp, cp_dp);
-
-            rz = a0;
-            if (p) {
-                rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-                rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-                rz = Fr.add(rz, Fr.mul(Z3[p], a3));
-            }
-
-            return [r, rz];
-        }
     }
 
     async function round4() {
@@ -893,43 +778,12 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
     async function expTau(b, name) {
         const n = b.byteLength / sFr;
-        const PTauN = PTau.slice(0, n * curve.G1.F.n8 * 2);
-        const bm = await curve.Fr.batchFromMontgomery(b);
-        let res = await curve.G1.multiExpAffine(PTauN, bm, logger, name);
-        res = curve.G1.toAffine(res);
+        const PTauN = PTau.slice(0, n * sG1);
+        const bm = await Fr.batchFromMontgomery(b);
+        let res = await G1.multiExpAffine(PTauN, bm, logger, name);
+        res = G1.toAffine(res);
         return res;
     }
-
-
-    async function to4T(A, pz) {
-        pz = pz || [];
-        let a = await Fr.ifft(A);
-        const a4 = new BigBuffer(sFr * zkey.domainSize * 4);
-        a4.set(a, 0);
-
-        const a1 = new BigBuffer(sFr * (zkey.domainSize + pz.length));
-        a1.set(a, 0);
-        for (let i = 0; i < pz.length; i++) {
-            a1.set(
-                Fr.add(
-                    a1.slice((zkey.domainSize + i) * sFr, (zkey.domainSize + i + 1) * sFr),
-                    pz[i]
-                ),
-                (zkey.domainSize + i) * sFr
-            );
-            a1.set(
-                Fr.sub(
-                    a1.slice(i * sFr, (i + 1) * sFr),
-                    pz[i]
-                ),
-                i * sFr
-            );
-        }
-        const A4 = await Fr.fft(a4);
-        return [a1, A4];
-    }
-
-
 }
 
 
