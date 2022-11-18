@@ -227,14 +227,14 @@ export default async function babyPlonkSetup(r1csFilename, ptauFilename, zkeyFil
         for (let i = 0; i < plonkAdditions.length; i++) {
             const addition = plonkAdditions[i];
 
-            buffOutV.setUint32(pTauOffset, addition[0], true);
-            buffOutV.setUint32(pTauOffset + 4, addition[1], true);
+            buffOutV.setUint32(0, addition[0], true);
+            buffOutV.setUint32(4, addition[1], true);
 
             // The value is storen in  Montgomery. stored = v*R
             // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w
 
-            buffOut.set(addition[2], pTauOffset + 8);
-            buffOut.set(addition[3], pTauOffset + 8 + sFr);
+            buffOut.set(addition[2], 8);
+            buffOut.set(addition[3], 8 + sFr);
 
             await fdZKey.write(buffOut);
             if ((logger) && (i % 1000000 === 0)) logger.debug(`writing Additions: ${i}/${plonkAdditions.length}`);
