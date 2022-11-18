@@ -72,6 +72,12 @@ export class Polynomial {
         const a4 = new BigBuffer(domainSize * 4 * Fr.n8);
         a4.set(a, 0);
 
+        const A4 = await Fr.fft(a4);
+
+        if (blindingFactors.length === 0) {
+            return [a, A4];
+        }
+
         const a1 = new BigBuffer((domainSize + blindingFactors.length) * Fr.n8);
         a1.set(a, 0);
         for (let i = 0; i < blindingFactors.length; i++) {
@@ -90,7 +96,6 @@ export class Polynomial {
                 i * Fr.n8
             );
         }
-        const A4 = await Fr.fft(a4);
 
         return [a1, A4];
     }
@@ -243,7 +248,7 @@ export class Polynomial {
     split(numPols, degPols, blindingFactors) {
         if (numPols < 1) {
             throw new Error(`Polynomials can't be split in ${numPols} parts`);
-        } else if(1 === numPols) {
+        } else if (1 === numPols) {
             return [this];
         }
 
