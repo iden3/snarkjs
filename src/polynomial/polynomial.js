@@ -20,9 +20,8 @@
 import {BigBuffer} from "ffjavascript";
 
 export class Polynomial {
-    constructor(coefficients = new Uint8Array(0), domainSize, Fr, logger) {
+    constructor(coefficients = new Uint8Array(0), Fr, logger) {
         this.coeff = coefficients;
-        this.domainSize = domainSize;
         this.Fr = Fr;
         this.logger = logger;
     }
@@ -214,24 +213,24 @@ export class Polynomial {
         this.coeff = coefs;
     }
 
-    async divZh() {
-        const coefs = new BigBuffer(this.domainSize * 4 * this.Fr.n8);
+    async divZh(domainSize) {
+        const coefs = new BigBuffer(domainSize * 4 * this.Fr.n8);
 
         if (this.logger) this.logger.debug("dividing T/Z_H");
-        for (let i = 0; i < this.domainSize; i++) {
+        for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
             coefs.set(this.Fr.neg(this.coeff.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
-        for (let i = this.domainSize; i < this.domainSize * 4; i++) {
+        for (let i = domainSize; i < domainSize * 4; i++) {
             const i_n8 = i * this.Fr.n8;
 
             const a = this.Fr.sub(
-                coefs.slice((i - this.domainSize) * this.Fr.n8, (i - this.domainSize) * this.Fr.n8 + this.Fr.n8),
+                coefs.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
                 this.coeff.slice(i_n8, i_n8 + this.Fr.n8)
             );
             coefs.set(a, i_n8);
-            if (i > (this.domainSize * 3 - 4)) {
+            if (i > (domainSize * 3 - 4)) {
                 if (!this.Fr.isZero(a)) {
                     //throw new Error("range_check T Polynomial is not divisible");
                 }
