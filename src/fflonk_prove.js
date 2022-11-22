@@ -264,17 +264,17 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     }
 
     async function round1() {
-        // STEP 1. Generate random blinding scalars (b_1, ..., b8) ∈ F
+        // STEP 1.1 - Generate random blinding scalars (b_1, ..., b8) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 6; i++) {
             challenges.b[i] = Fr.random();
         }
 
-        // STEP 2. Compute wire polynomials a(X), b(X) and c(X)
+        // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
         // Build A, B evaluations buffer from zkey and witness files
         await buildABCEvaluationsBuffer();
 
-        // Compute wire polynomials a(X), b(X) and c(X)
+        // Compute wire polynomials coefficients a(X), b(X) and c(X)
         polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
         polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
         polynomials.C = Polynomial.fromBuffer(buffers.C, Fr, logger);
@@ -284,11 +284,12 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
         evaluations.C = Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
-        // Blind a(X), b(X) and c(X) polynomials coefficients
+        // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
         polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
         polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
         polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
+        // Check degrees
         if (polynomials.A.degree() >= settings.domainSize + 2) {
             throw new Error("A Polynomial is not well calculated");
         }
@@ -299,14 +300,27 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             throw new Error("C Polynomial is not well calculated");
         }
 
-        // 4. The first output of the prover is ([a]_1, [b]_1)
-        proof.addPolynomial("A", await multiExponentiation(polynomials.A, "A"));
-        proof.addPolynomial("B", await multiExponentiation(polynomials.B, "B"));
-        proof.addPolynomial("C", await multiExponentiation(polynomials.C, "C"));
+        // STEP 1.3 - Compute public input polynomial PI(X)
+        // TODO
+        polynomials.PI = new Polynomial(new Uint8Array(0), Fr, logger);
+
+        // STEP 1.4 - Compute quotient polynomial T0(X)
+        // TODO
+        polynomials.T0 = new Polynomial(new Uint8Array(0), Fr, logger);
+
+        // STEP 1.5 - Compute the FFT-style combination polynomial C1(X)
+        // TODO
+        polynomials.C1 = new Polynomial(new Uint8Array(0), Fr, logger);
+
+        // The first output of the prover is ([C1]_1)
+        proof.addPolynomial("C1", await multiExponentiation(polynomials.C1, "C1"));
     }
 
     async function round2() {
-        // 1. Compute the permutation challenge gamma ∈ F_p:
+        //TODO
+
+        // STEP 2.1 - Compute permutation challenge beta and gamma ∈ F
+        // Compute permutation challenge beta
         const transcript = new Keccak256Transcript(curve);
         for (let i = 0; i < zkey.nPublic; i++) {
             transcript.addScalar(evaluations.A.slice(i * sFr, (i + 1) * sFr));
@@ -324,7 +338,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         challenges.gamma = transcript.getChallenge();
         if (logger) logger.debug("Challenge.gamma: " + Fr.toString(challenges.gamma));
 
-        // 2. Compute permutation polynomial Z(X)
+        // STEP 2.2 - Compute permutation polynomial z(X)
         let numArr = new BigBuffer(sDomain);
         let denArr = new BigBuffer(sDomain);
 
@@ -395,19 +409,30 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             throw new Error("Copy constraints does not match");
         }
 
+        // Compute polynomial coefficients z(X)
         polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
+
+        // Compute extended evaluations of z(X) polynomial
         evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
-        // blind z(X) adding (b_8X^2+b_9X+b_10)Z_H(X), becomes F_{<n+3}[X]
-        polynomials.Z.blindCoefficients([challenges.b[8], challenges.b[8], challenges.b[9]]);
+        // Blind z(X) polynomial coefficients with blinding scalars b
+        polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
-        // TODO check degrees for polynomials.Z
-        //if (polynomials.Z.degree() >= DOMAIN_SIZE + 3) {
-        //    throw new Error("range_check: Z Polynomial is not well calculated");
-        //}
+        if (polynomials.Z.degree() >= settings.domainSize + 3) {
+            throw new Error("range_check: Z Polynomial is not well calculated");
+        }
 
-        // 3. The second output of the prover is ([z(x)]_1)
-        proof.addPolynomial("Z", await multiExponentiation(polynomials.Z, "Z"));
+        // STEP 2.3 - Compute quotient polynomial T1(X) and T2(X)
+        // TODO
+        polynomials.T1 = new Polynomial(new Uint8Array(0), Fr, logger);
+        polynomials.T2 = new Polynomial(new Uint8Array(0), Fr, logger);
+
+        // STEP 2.4 - Compute the FFT-style combination polynomial C2(X)
+        // TODO
+        polynomials.C2 = new Polynomial(new Uint8Array(0), Fr, logger);
+
+        // The second output of the prover is ([C2]_1)
+        proof.addPolynomial("C2", await multiExponentiation(polynomials.C2, "C2"));
     }
 
     async function round3() {
