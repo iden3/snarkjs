@@ -38,6 +38,7 @@ import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
 import * as plonk from "./src/plonk.js";
 import * as babyPlonkCmd from "./src/cmds/babyplonk_cmds.js";
+import * as fflonkCmd from "./src/cmds/fflonk_cmds.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
@@ -320,6 +321,26 @@ const commands = [
         alias: ["pkv"],
         options: "-verbose|v",
         action: babyPlonkVerify
+    },    {
+        cmd: "fflonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        description: "Creates an initial PLONK pkey ",
+        alias: ["pks"],
+        options: "-verbose|v",
+        action: fflonkSetup
+    },
+    {
+        cmd: "fflonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
+        description: "Generates a PLONK Proof from witness",
+        alias: ["pkp"],
+        options: "-verbose|v -protocol",
+        action: fflonkProve
+    },
+    {
+        cmd: "fflonk verify [verification_key.json] [public.json] [proof.json]",
+        description: "Verify a PLONK Proof",
+        alias: ["pkv"],
+        options: "-verbose|v",
+        action: fflonkVerify
     },
     {
         cmd: "file info [binary.file]",
@@ -1153,6 +1174,38 @@ async function babyPlonkVerify(params, options) {
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
     return await babyPlonkCmd.babyPlonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
+}
+
+async function fflonkSetup(params, options) {
+    const r1csFilename = params[0] || "circuit.r1cs";
+    const ptauFilename = params[1] || "powersoftau.ptau";
+    const zkeyFilename = params[2] || "circuit.zkey";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await fflonkCmd.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger);
+}
+
+
+async function fflonkProve(params, options) {
+    const pkeyFilename = params[0] || "circuit.pkey";
+    const witnessFilename = params[1] || "witness.wtns";
+    const proofFilename = params[2] || "proof.json";
+    const publicInputsFilename = params[3] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await fflonkCmd.fflonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
+}
+
+async function fflonkVerify(params, options) {
+    const vkeyFilename = params[0] || "circuit.vkey";
+    const publicInputsFilename = params[1] || "public.json";
+    const proofFilename = params[2] || "proof.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await fflonkCmd.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
 }
 
 async function fileInfo(params) {

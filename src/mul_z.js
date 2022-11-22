@@ -17,16 +17,37 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export function mul2(a, b, ap, bp, p, Fr) {
-    const Z1 = [
+function getZ1(Fr) {
+    return [
         Fr.zero,
         Fr.add(Fr.e(-1), Fr.w[2]),
         Fr.e(-2),
         Fr.sub(Fr.e(-1), Fr.w[2]),
     ];
+}
 
+function getZ2(Fr) {
+    return [
+        Fr.zero,
+        Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
+        Fr.e(4),
+        Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
+    ];
+}
+
+function getZ3(Fr) {
+    return [
+        Fr.zero,
+        Fr.add(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
+        Fr.e(-8),
+        Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
+    ];
+
+}
+
+export function mul2(a, b, ap, bp, p, Fr) {
+    const Z1 = getZ1(Fr);
     let r, rz;
-
 
     const a_b = Fr.mul(a, b);
     const a_bp = Fr.mul(a, bp);
@@ -48,20 +69,8 @@ export function mul2(a, b, ap, bp, p, Fr) {
 }
 
 export function mul3(a, b, c, ap, bp, cp, p, Fr) {
-    const Z1 = [
-        Fr.zero,
-        Fr.add(Fr.e(-1), Fr.w[2]),
-        Fr.e(-2),
-        Fr.sub(Fr.e(-1), Fr.w[2]),
-    ];
-
-    const Z2 = [
-        Fr.zero,
-        Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-        Fr.e(4),
-        Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-    ];
-
+    const Z1 = getZ1(Fr);
+    const Z2 = getZ2(Fr);
     let r, rz;
 
     const a_b = Fr.mul(a, b);
@@ -90,29 +99,11 @@ export function mul3(a, b, c, ap, bp, cp, p, Fr) {
 }
 
 export function mul4(a, b, c, d, ap, bp, cp, dp, p, Fr) {
-    const Z1 = [
-        Fr.zero,
-        Fr.add(Fr.e(-1), Fr.w[2]),
-        Fr.e(-2),
-        Fr.sub(Fr.e(-1), Fr.w[2]),
-    ];
-
-    const Z2 = [
-        Fr.zero,
-        Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-        Fr.e(4),
-        Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-    ];
-
-    const Z3 = [
-        Fr.zero,
-        Fr.add(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-        Fr.e(-8),
-        Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-    ];
+    const Z1 = getZ1(Fr);
+    const Z2 = getZ2(Fr);
+    const Z3 = getZ3(Fr);
 
     let r, rz;
-
 
     const a_b = Fr.mul(a, b);
     const a_bp = Fr.mul(a, bp);

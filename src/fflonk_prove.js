@@ -21,13 +21,19 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
 import {Scalar, utils, BigBuffer} from "ffjavascript";
-import {BABY_PLONK_PROTOCOL_ID} from "./zkey.js";
+import {FFLONK_PROTOCOL_ID} from "./zkey.js";
 import {
-    BP_A_MAP_ZKEY_SECTION,
-    BP_ADDITIONS_ZKEY_SECTION, BP_K_ZKEY_SECTION, BP_LAGRANGE_ZKEY_SECTION,
-    BP_PTAU_ZKEY_SECTION, BP_Q_ZKEY_SECTION,
-    BP_SIGMA_ZKEY_SECTION
-} from "./babyplonk.js";
+    FF_A_MAP_ZKEY_SECTION,
+    FF_ADDITIONS_ZKEY_SECTION,
+    FF_LAGRANGE_ZKEY_SECTION,
+    FF_PTAU_ZKEY_SECTION,
+    FF_QL_ZKEY_SECTION,
+    FF_QR_ZKEY_SECTION,
+    FF_QM_ZKEY_SECTION,
+    FF_QO_ZKEY_SECTION,
+    FF_QC_ZKEY_SECTION,
+    FF_SIGMA_ZKEY_SECTION, FF_C_MAP_ZKEY_SECTION, FF_B_MAP_ZKEY_SECTION
+} from "./fflonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
 import {mul2, mul3} from "./mul_z.js";
@@ -55,7 +61,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     } = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
     const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
 
-    if (zkey.protocolId !== BABY_PLONK_PROTOCOL_ID) {
+    if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not Baby Plonk");
     }
 
@@ -76,6 +82,10 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     const sG1 = curve.G1.F.n8 * 2;
     const sDomain = zkey.domainSize * sFr;
 
+    let settings = {
+        domainSize: zkey.domainSize,
+    };
+
     //Read witness data
     if (logger) logger.debug("Reading witness data");
     const buffWitness = await binFileUtils.readSection(fdWtns, wtnsSections, 2);
@@ -91,15 +101,15 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
     let proof = new Proof(curve, logger);
 
-    if (logger) logger.info(`Reading Section ${BP_ADDITIONS_ZKEY_SECTION}. Additions`);
+    if (logger) logger.info(`Reading Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
     await calculateAdditions();
 
-    if (logger) logger.info(`Reading Section ${BP_SIGMA_ZKEY_SECTION}. Sigma1+Sigma2`);
+    if (logger) logger.info(`Reading Section ${FF_SIGMA_ZKEY_SECTION}. Sigma1+Sigma2+Sigma3`);
     // Get sigma1 & sigma2 evaluations from zkey file
-    evaluations.sigma = new Evaluations(new BigBuffer(sDomain * 4 * 2), Fr, logger);
+    evaluations.sigma = new Evaluations(new BigBuffer(sDomain * 4 * 3), Fr, logger);
 
     //Read sigma1 evaluations into sigma first half
-    let offset = zkeySections[BP_SIGMA_ZKEY_SECTION][0].p + sDomain;
+    let offset = zkeySections[FF_SIGMA_ZKEY_SECTION][0].p + sDomain;
     await fdZKey.readToBuffer(evaluations.sigma.eval, 0, sDomain * 4, offset);
 
     //Read sigma2 evaluations into sigma second half
@@ -108,10 +118,10 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
     // Get polynomial S1, polynomial S2 will be read on round4, when it's necessary
     polynomials.S1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[BP_SIGMA_ZKEY_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[FF_SIGMA_ZKEY_SECTION][0].p);
 
-    if (logger) logger.info(`Reading Section ${BP_PTAU_ZKEY_SECTION}. Powers of Tau`);
-    const PTau = await binFileUtils.readSection(fdZKey, zkeySections, BP_PTAU_ZKEY_SECTION);
+    if (logger) logger.info(`Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
+    const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
 
     // Start baby plonk protocol
 
@@ -143,13 +153,13 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     }
 
     let _proof = proof.toObjectProof();
-    _proof.protocol = "baby_plonk";
+    _proof.protocol = "fflonk";
     _proof.curve = curve.name;
 
     return {proof: stringifyBigInts(_proof), publicSignals: stringifyBigInts(publicSignals)};
 
     async function calculateAdditions() {
-        const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, BP_ADDITIONS_ZKEY_SECTION);
+        const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_ADDITIONS_ZKEY_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
         // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
@@ -177,13 +187,14 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         }
     }
 
-    async function buildABEvaluationsBuffer() {
+    async function buildABCEvaluationsBuffer() {
         buffers.A = new BigBuffer(sDomain);
         buffers.B = new BigBuffer(sDomain);
+        buffers.C = new BigBuffer(sDomain);
 
-        const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, BP_A_MAP_ZKEY_SECTION);
-        const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, BP_B_MAP_ZKEY_SECTION);
-        const kBuff = await binFileUtils.readSection(fdZKey, zkeySections, BP_K_ZKEY_SECTION);
+        const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
+        const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_B_MAP_ZKEY_SECTION);
+        const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_C_MAP_ZKEY_SECTION);
 
         for (let i = 0; i < zkey.nConstraints; i++) {
             const offset1 = i * 4;
@@ -195,23 +206,43 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
             // Compute B value from signal id
             const signalIdB = readUInt32(bMapBuff, offset1);
-            let b = getWitness(signalIdB);
-
-            // When is an odd row it means the value we're taking is b'.
-            // We set b' as negative to fit the equation
-            if (i % 2 !== 0) {
-                b = Fr.neg(b);
-            }
-
-            // We add to b or b' the constant value saved in the setup process
-            const k = kBuff.slice(offset2, offset2 + sFr);
-            b = Fr.add(b, k);
-
             buffers.B.set(getWitness(signalIdB), offset2);
+
+            // Compute C value from signal id
+            const signalIdC = readUInt32(cMapBuff, offset1);
+            buffers.C.set(getWitness(signalIdC), offset2);
         }
 
         buffers.A = await Fr.batchToMontgomery(buffers.A);
         buffers.B = await Fr.batchToMontgomery(buffers.B);
+        buffers.C = await Fr.batchToMontgomery(buffers.C);
+    }
+
+    async function buildPIEvaluationsBuffer() {
+        buffers.PI = new BigBuffer(sDomain);
+
+        const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
+
+        for (let i = 0; i < zkey.nConstraints; i++) {
+            const offset1 = i * 4;
+            const offset2 = i * sFr;
+
+            // Compute A value from signal id
+            const signalIdA = readUInt32(aMapBuff, offset1);
+            buffers.A.set(getWitness(signalIdA), offset2);
+
+            // Compute B value from signal id
+            const signalIdB = readUInt32(bMapBuff, offset1);
+            buffers.B.set(getWitness(signalIdB), offset2);
+
+            // Compute C value from signal id
+            const signalIdC = readUInt32(cMapBuff, offset1);
+            buffers.C.set(getWitness(signalIdC), offset2);
+        }
+
+        buffers.A = await Fr.batchToMontgomery(buffers.A);
+        buffers.B = await Fr.batchToMontgomery(buffers.B);
+        buffers.C = await Fr.batchToMontgomery(buffers.C);
     }
 
     function readUInt32(b, o) {
@@ -233,33 +264,45 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     }
 
     async function round1() {
-        // 1. Generate random blinding scalars (b_1, ..., b8) ∈ F
+        // STEP 1. Generate random blinding scalars (b_1, ..., b8) ∈ F
         challenges.b = [];
-        for (let i = 1; i <= 8; i++) {
+        for (let i = 1; i <= 6; i++) {
             challenges.b[i] = Fr.random();
         }
 
-        // 2. Build A, B evaluations buffer from zkey and witness files
-        await buildABEvaluationsBuffer();
+        // STEP 2. Compute wire polynomials a(X), b(X) and c(X)
+        // Build A, B evaluations buffer from zkey and witness files
+        await buildABCEvaluationsBuffer();
 
-        // 3. Compute wire polynomials a, b and their extended evaluations
+        // Compute wire polynomials a(X), b(X) and c(X)
         polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
         polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
+        polynomials.C = Polynomial.fromBuffer(buffers.C, Fr, logger);
 
+        // Compute extended evaluations of a(X), b(X) and c(X) polynomials
         evaluations.A = Evaluations.fromPolynomial(polynomials.A, Fr, logger);
         evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
+        evaluations.C = Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
+        // Blind a(X), b(X) and c(X) polynomials coefficients
         polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
         polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
+        polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
-        // TODO check degrees for polynomials.A & polynomials.B
-        //if (polynomials.A.degree() >= DOMAIN_SIZE + X) {
-        //    throw new Error("A Polynomial is not well calculated");
-        //}
+        if (polynomials.A.degree() >= settings.domainSize + 2) {
+            throw new Error("A Polynomial is not well calculated");
+        }
+        if (polynomials.B.degree() >= settings.domainSize + 2) {
+            throw new Error("B Polynomial is not well calculated");
+        }
+        if (polynomials.C.degree() >= settings.domainSize + 2) {
+            throw new Error("C Polynomial is not well calculated");
+        }
 
         // 4. The first output of the prover is ([a]_1, [b]_1)
         proof.addPolynomial("A", await multiExponentiation(polynomials.A, "A"));
         proof.addPolynomial("B", await multiExponentiation(polynomials.B, "B"));
+        proof.addPolynomial("C", await multiExponentiation(polynomials.C, "C"));
     }
 
     async function round2() {
@@ -270,6 +313,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         }
         transcript.addPolCommitment(proof.getPolynomial("A"));
         transcript.addPolCommitment(proof.getPolynomial("B"));
+        transcript.addPolCommitment(proof.getPolynomial("C"));
 
         challenges.beta = transcript.getChallenge();
         if (logger) logger.debug("Challenge.beta: " + Fr.toString(challenges.beta));
@@ -292,16 +336,22 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         for (let i = 0; i < zkey.domainSize; i++) {
             const i_sFr = i * sFr;
             const i_sDomain = (zkey.domainSize + i) * sFr;
+            const i_sDomain2 = (zkey.domainSize * 2 + i) * sFr;
+            const betaw = Fr.mul(challenges.beta, w);
 
             let num1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
-            num1 = Fr.add(num1, Fr.mul(challenges.beta, w));
+            num1 = Fr.add(num1, betaw);
             num1 = Fr.add(num1, challenges.gamma);
 
             let num2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
-            num2 = Fr.add(num2, Fr.mul(zkey.k1, Fr.mul(challenges.beta, w)));
+            num2 = Fr.add(num2, Fr.mul(zkey.k1, betaw));
             num2 = Fr.add(num2, challenges.gamma);
 
-            const num = Fr.mul(num1, num2);
+            let num3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
+            num3 = Fr.add(num3, Fr.mul(zkey.k2, betaw));
+            num3 = Fr.add(num3, challenges.gamma);
+
+            const num = Fr.mul(num1, Fr.mul(num2, num3));
 
             let den1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
             den1 = Fr.add(den1, Fr.mul(evaluations.sigma.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
@@ -311,7 +361,11 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             den2 = Fr.add(den2, Fr.mul(evaluations.sigma.slice(i_sDomain * 4, i_sDomain * 4 + sFr), challenges.beta));
             den2 = Fr.add(den2, challenges.gamma);
 
-            const den = Fr.mul(den1, den2);
+            let den3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
+            den3 = Fr.add(den3, Fr.mul(evaluations.sigma.slice(i_sDomain2 * 4, i_sDomain2 * 4 + sFr), challenges.beta));
+            den3 = Fr.add(den3, challenges.gamma);
+
+            const den = Fr.mul(den1, Fr.mul(den2, den3));
 
             numArr.set(
                 Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num),
@@ -345,7 +399,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
         // blind z(X) adding (b_8X^2+b_9X+b_10)Z_H(X), becomes F_{<n+3}[X]
-        polynomials.Z.blindCoefficients([challenges.b[5], challenges.b[6], challenges.b[7]]);
+        polynomials.Z.blindCoefficients([challenges.b[8], challenges.b[8], challenges.b[9]]);
 
         // TODO check degrees for polynomials.Z
         //if (polynomials.Z.degree() >= DOMAIN_SIZE + 3) {
@@ -364,16 +418,28 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
 
         // 2. Compute the quotient polynomial q(X) ∈ F[X]
-        if (logger) logger.debug("Reading Q1");
-        evaluations.Q1 = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Q1, 0, sDomain * 4, zkeySections[BP_Q_ZKEY_SECTION][0].p + sDomain);
+        if (logger) logger.debug("Reading QL");
+        evaluations.Ql = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+        await fdZKey.readToBuffer(evaluations.Ql, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
 
-        if (logger) logger.debug("Reading Q2");
-        evaluations.Q2 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Q2, 0, sDomain * 4, zkeySections[BP_Q2_ZKEY_SECTION][0].p + sDomain);
+        if (logger) logger.debug("Reading QR");
+        evaluations.Qr = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+        await fdZKey.readToBuffer(evaluations.Qr, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
+
+        if (logger) logger.debug("Reading QM");
+        evaluations.Qm = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+        await fdZKey.readToBuffer(evaluations.Qm, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
+
+        if (logger) logger.debug("Reading QO");
+        evaluations.Qo = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+        await fdZKey.readToBuffer(evaluations.Qo, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
+
+        if (logger) logger.debug("Reading QC");
+        evaluations.Qc = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+        await fdZKey.readToBuffer(evaluations.Qc, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
 
         if (logger) logger.debug("Reading Lagrange polynomials");
-        const lagrange1 = await binFileUtils.readSection(fdZKey, zkeySections, BP_LAGRANGE_ZKEY_SECTION);
+        const lagrange1 = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
         evaluations.lagrange1 = new Evaluations(lagrange1, Fr, logger);
 
         const buffT = new BigBuffer(sDomain * 4);
@@ -584,13 +650,13 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
         // Get polynomials q1. q2 and sigma2 from zkey file
         polynomials.Q1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.Q1.coef, 0, sDomain, zkeySections[BP_Q_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.Q1.coef, 0, sDomain, zkeySections[FF_Q_ZKEY_SECTION][0].p);
 
         polynomials.Q2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.Q2.coef, 0, sDomain, zkeySections[BP_Q2_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.Q2.coef, 0, sDomain, zkeySections[FF_Q2_ZKEY_SECTION][0].p);
 
         polynomials.S2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[BP_SIGMA_ZKEY_SECTION][0].p + 5 * sDomain);
+        await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA_ZKEY_SECTION][0].p + 5 * sDomain);
 
         // precompute evaluation.a * evaluation.b to use inside the loop
         const coefAB = Fr.mul(proof.getEvaluation("a"), proof.getEvaluation("b"));

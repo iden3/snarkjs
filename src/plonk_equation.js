@@ -17,19 +17,19 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Baby Plonk (BP) export constants
+// We export to zkey the signals and values of the a, b, c, ql, qr, qm, qo and qc
 
-// Baby Plonk constants
-export const BP_T_POL_DEG_MIN = 3;
+// a, b and c are signals id (32-bit integers)
+// ql, qr, qm, qo and qc are field values
 
-// ZKEY constants
-export const BP_ZKEY_NSECTIONS = 11;
+export function getFFlonkConstantConstraint(signal1, Fr) {
+    return [signal1, 0, 0, Fr.one, Fr.zero, Fr.zero, Fr.zero, Fr.zero];
+}
 
-export const BP_HEADER_ZKEY_SECTION = 2;
-export const BP_ADDITIONS_ZKEY_SECTION = 3;
-export const BP_A_MAP_ZKEY_SECTION = 4;
-export const BP_K_ZKEY_SECTION = 5;
-export const BP_Q_ZKEY_SECTION = 6;
-export const BP_SIGMA_ZKEY_SECTION = 7;
-export const BP_LAGRANGE_ZKEY_SECTION = 8;
-export const BP_PTAU_ZKEY_SECTION = 9;
+export function getFFlonkAdditionConstraint(signal1, signal2, signalOut, ql, qr, qo, qc, Fr) {
+    return [signal1, signal2, signalOut, ql, qr, Fr.zero, qo, qc];
+}
+
+export function getFFlonkMultiplicationConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc) {
+    return [signal1, signal2, signalOut, ql, qr, qm, qo, qc];
+}

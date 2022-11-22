@@ -35,6 +35,10 @@ export class Evaluations {
         return new Evaluations(evaluations, Fr, logger);
     }
 
+    get(i) {
+        return this.eval.slice(i, i + this.Fr.n8);
+    }
+
     get length() {
         let length = this.eval.byteLength / this.Fr.n8;
         if (length !== Math.floor(this.eval.byteLength / this.Fr.n8)) {

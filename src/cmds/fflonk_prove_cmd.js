@@ -1,6 +1,4 @@
 /*
-    Copyright 2022 iden3 association.
-
     This file is part of snarkjs.
 
     snarkjs is a free software: you can redistribute it and/or
@@ -17,19 +15,17 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Baby Plonk (BP) export constants
+import bfj from "bfj";
+import {utils} from "ffjavascript";
+import fflonkProve from "../fflonk_prove.js";
 
-// Baby Plonk constants
-export const BP_T_POL_DEG_MIN = 3;
+const {stringifyBigInts} = utils;
 
-// ZKEY constants
-export const BP_ZKEY_NSECTIONS = 11;
+export async function fflonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
+    const {proof, publicSignals} = await fflonkProve(pkeyFilename, witnessFilename, logger);
 
-export const BP_HEADER_ZKEY_SECTION = 2;
-export const BP_ADDITIONS_ZKEY_SECTION = 3;
-export const BP_A_MAP_ZKEY_SECTION = 4;
-export const BP_K_ZKEY_SECTION = 5;
-export const BP_Q_ZKEY_SECTION = 6;
-export const BP_SIGMA_ZKEY_SECTION = 7;
-export const BP_LAGRANGE_ZKEY_SECTION = 8;
-export const BP_PTAU_ZKEY_SECTION = 9;
+    await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
+    await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
+
+    return 0;
+}

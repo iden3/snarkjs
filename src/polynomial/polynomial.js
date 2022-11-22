@@ -21,7 +21,7 @@ import {BigBuffer} from "ffjavascript";
 
 export class Polynomial {
     constructor(coefficients = new Uint8Array(0), Fr, logger) {
-        this.coeff = coefficients;
+        this.coef = coefficients;
         this.Fr = Fr;
         this.logger = logger;
     }
@@ -36,7 +36,7 @@ export class Polynomial {
         blindingFactors = blindingFactors || [];
 
         const blindedCoefficients = new BigBuffer((this.length + blindingFactors.length) * this.Fr.n8);
-        blindedCoefficients.set(this.coeff, 0);
+        blindedCoefficients.set(this.coef, 0);
         for (let i = 0; i < blindingFactors.length; i++) {
             blindedCoefficients.set(
                 this.Fr.add(
@@ -53,7 +53,7 @@ export class Polynomial {
                 i * this.Fr.n8
             );
         }
-        this.coeff = blindedCoefficients;
+        this.coef = blindedCoefficients;
     }
 
     getCoef(index) {
@@ -62,7 +62,7 @@ export class Polynomial {
         }
 
         const i_n8 = index * this.Fr.n8;
-        return this.coeff.slice(i_n8, i_n8 + this.Fr.n8);
+        return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
     }
 
     static async to4T(buffer, domainSize, blindingFactors, Fr) {
@@ -101,8 +101,8 @@ export class Polynomial {
     }
 
     get length() {
-        let length = this.coeff.byteLength / this.Fr.n8;
-        if (length !== Math.floor(this.coeff.byteLength / this.Fr.n8)) {
+        let length = this.coef.byteLength / this.Fr.n8;
+        if (length !== Math.floor(this.coef.byteLength / this.Fr.n8)) {
             throw new Error("Polynomial coefficients buffer has incorrect size");
         }
         if (0 === length) {
@@ -116,7 +116,7 @@ export class Polynomial {
     degree() {
         for (let i = this.length - 1; i > 0; i--) {
             const i_n8 = i * this.Fr.n8;
-            if (!this.Fr.eq(this.Fr.zero, this.coeff.slice(i_n8, i_n8 + this.Fr.n8))) {
+            if (!this.Fr.eq(this.Fr.zero, this.coef.slice(i_n8, i_n8 + this.Fr.n8))) {
                 return i;
             }
         }
@@ -129,7 +129,7 @@ export class Polynomial {
 
         for (let i = this.length; i > 0; i--) {
             let i_n8 = (i - 1) * this.Fr.n8;
-            const currentCoefficient = this.coeff.slice(i_n8, i_n8 + this.Fr.n8);
+            const currentCoefficient = this.coef.slice(i_n8, i_n8 + this.Fr.n8);
             res = this.Fr.add(currentCoefficient, this.Fr.mul(res, point));
         }
 
@@ -137,40 +137,62 @@ export class Polynomial {
     }
 
     add(polynomial, blindingValue) {
-        // Due to performance reasons currently we only accept to add polynomials with equal or smaller size
-        if ((polynomial.degree() + 1) > this.length) {
-            throw new Error("Add a greater size polynomial is not allowed");
+        let other = false;
+
+        if (polynomial.length > this.length) {
+            other = true;
         }
 
-        const thisDegree = this.degree();
-        const polyDegree = polynomial.degree();
-        for (let i = 0; i < this.length; i++) {
+        const thisLength = this.length;
+        const polyLength = polynomial.length;
+        for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
             const i_n8 = i * this.Fr.n8;
 
-            const a = i <= thisDegree ? this.coeff.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i <= polyDegree ? polynomial.coeff.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            const a = i < thisLength ? this.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            let b = i < polyLength ? polynomial.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+
             if (blindingValue !== undefined) {
                 b = this.Fr.mul(b, blindingValue);
             }
-            this.coeff.set(this.Fr.add(a, b), i_n8);
+            if (other) {
+                polynomial.coef.set(this.Fr.add(a, b), i_n8);
+            } else {
+                this.coef.set(this.Fr.add(a, b), i_n8);
+            }
+        }
+        if (other) {
+            delete this.coef;
+            this.coef = polynomial.coef;
         }
     }
 
     sub(polynomial, blindingValue) {
-        // Due to performance reasons currently we only accept to add polynomials with equal or smaller size
+        let other = false;
+
         if (polynomial.length > this.length) {
-            throw new Error("Add a greater size polynomial is not allowed");
+            other = true;
         }
 
-        for (let i = 0; i < this.length; i++) {
+        const thisLength = this.length;
+        const polyLength = polynomial.length;
+        for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
             const i_n8 = i * this.Fr.n8;
 
-            const a = i < this.degree() ? this.coeff.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i < polynomial.degree() ? polynomial.coeff.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            const a = i < thisLength ? this.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+            let b = i < polyLength ? polynomial.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
+
             if (blindingValue !== undefined) {
                 b = this.Fr.mul(b, blindingValue);
             }
-            this.coeff.set(this.Fr.sub(a, b), i_n8);
+            if (other) {
+                polynomial.coef.set(this.Fr.sub(a, b), i_n8);
+            } else {
+                this.coef.set(this.Fr.sub(a, b), i_n8);
+            }
+        }
+        if (other) {
+            delete this.coef;
+            this.coef = polynomial.coef;
         }
     }
 
@@ -178,18 +200,18 @@ export class Polynomial {
         for (let i = 0; i < this.length; i++) {
             const i_n8 = i * this.Fr.n8;
 
-            this.coeff.set(this.Fr.mul(this.coeff.slice(i_n8, i_n8 + this.Fr.n8), value), i_n8);
+            this.coef.set(this.Fr.mul(this.coef.slice(i_n8, i_n8 + this.Fr.n8), value), i_n8);
         }
     }
 
     addScalar(value) {
-        const currentValue = 0 === this.length ? this.Fr.zero : this.coeff.slice(0, this.Fr.n8);
-        this.coeff.set(this.Fr.add(currentValue, value), 0);
+        const currentValue = 0 === this.length ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+        this.coef.set(this.Fr.add(currentValue, value), 0);
     }
 
     subScalar(value) {
-        const currentValue = 0 === this.length ? this.Fr.zero : this.coeff.slice(0, this.Fr.n8);
-        this.coeff.set(this.Fr.sub(currentValue, value), 0);
+        const currentValue = 0 === this.length ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+        this.coef.set(this.Fr.sub(currentValue, value), 0);
     }
 
     // Divide polynomial by X - value
@@ -197,25 +219,25 @@ export class Polynomial {
         const coefs = new BigBuffer(this.length * this.Fr.n8);
 
         coefs.set(this.Fr.zero, (this.length - 1) * this.Fr.n8);
-        coefs.set(this.coeff.slice((this.length - 1) * this.Fr.n8, this.length * this.Fr.n8), (this.length - 2) * this.Fr.n8);
+        coefs.set(this.coef.slice((this.length - 1) * this.Fr.n8, this.length * this.Fr.n8), (this.length - 2) * this.Fr.n8);
         for (let i = this.length - 3; i >= 0; i--) {
             let i_n8 = i * this.Fr.n8;
             coefs.set(
                 this.Fr.add(
-                    this.coeff.slice(i_n8 + this.Fr.n8, i_n8 + 2 * this.Fr.n8),
+                    this.coef.slice(i_n8 + this.Fr.n8, i_n8 + 2 * this.Fr.n8),
                     this.Fr.mul(value, coefs.slice(i_n8 + this.Fr.n8, i_n8 + 2 * this.Fr.n8))
                 ),
                 i * this.Fr.n8
             );
         }
         if (!this.Fr.eq(
-            this.coeff.slice(0, this.Fr.n8),
+            this.coef.slice(0, this.Fr.n8),
             this.Fr.mul(this.Fr.neg(value), coefs.slice(0, this.Fr.n8))
         )) {
             // throw new Error("Polynomial does not divide");
         }
 
-        this.coeff = coefs;
+        this.coef = coefs;
     }
 
     async divZh(domainSize) {
@@ -224,7 +246,7 @@ export class Polynomial {
         if (this.logger) this.logger.debug("dividing T/Z_H");
         for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
-            coefs.set(this.Fr.neg(this.coeff.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
+            coefs.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
         for (let i = domainSize; i < domainSize * 4; i++) {
@@ -232,7 +254,7 @@ export class Polynomial {
 
             const a = this.Fr.sub(
                 coefs.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
-                this.coeff.slice(i_n8, i_n8 + this.Fr.n8)
+                this.coef.slice(i_n8, i_n8 + this.Fr.n8)
             );
             coefs.set(a, i_n8);
             if (i > (domainSize * 3 - 4)) {
@@ -272,22 +294,22 @@ export class Polynomial {
         numPols = Math.min(numPols, numRealPols);
         for (let i = 0; i < numPols; i++) {
             const isLast = (numPols - 1) === i;
-            const byteLength = isLast ? this.coeff.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+            const byteLength = isLast ? this.coef.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
 
             res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
             const fr = i * chunkByteLength;
-            const to = isLast ? this.coeff.byteLength : (i + 1) * chunkByteLength;
-            res[i].coeff.set(this.coeff.slice(fr, to), 0);
+            const to = isLast ? this.coef.byteLength : (i + 1) * chunkByteLength;
+            res[i].coef.set(this.coef.slice(fr, to), 0);
 
             // Add a blinding factor as higher degree
             if (!isLast) {
-                res[i].coeff.set(blindingFactors[i], chunkByteLength);
+                res[i].coef.set(blindingFactors[i], chunkByteLength);
             }
 
             // Sub blinding factor to the lowest degree
             if (0 !== i) {
-                const lowestDegree = this.Fr.sub(res[i].coeff.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-                res[i].coeff.set(lowestDegree, 0);
+                const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+                res[i].coef.set(lowestDegree, 0);
             }
 
             if (isLast) {
@@ -336,7 +358,7 @@ export class Polynomial {
     //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
     //
     //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-    //     if (this.coeff.byteLength / chunkByteLength <= numFilledPols - 1) {
+    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
     //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
     //     }
     //
@@ -348,17 +370,17 @@ export class Polynomial {
     //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
     //         const fr = i * chunkByteLength;
     //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-    //         res[i].coeff.set(this.coeff.slice(fr, to), 0);
+    //         res[i].coef.set(this.coef.slice(fr, to), 0);
     //
     //         // Add a blinding factor as higher degree
     //         if (!isLast) {
-    //             res[i].coeff.set(blindingFactors[i], chunkByteLength);
+    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
     //         }
     //
     //         // Sub blinding factor to the lowest degree
     //         if (0 !== i) {
-    //             const lowestDegree = this.Fr.sub(res[i].coeff.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-    //             res[i].coeff.set(lowestDegree, 0);
+    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+    //             res[i].coef.set(lowestDegree, 0);
     //         }
     //     }
     //
@@ -377,9 +399,9 @@ export class Polynomial {
     //
     //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
     //     for (let i = 0; i < pols.length; i++) {
-    //         const byteLength = pols[i].coeff.byteLength;
+    //         const byteLength = pols[i].coef.byteLength;
     //         if (0 === i) {
-    //             res.coeff.set(pols[i].coeff, 0);
+    //             res.coef.set(pols[i].coef, 0);
     //         } else {
     //
     //         }
@@ -390,10 +412,10 @@ export class Polynomial {
 
     truncate() {
         const deg = this.degree();
-        if (deg + 1 < this.coeff.byteLength / this.Fr.n8) {
+        if (deg + 1 < this.coef.byteLength / this.Fr.n8) {
             const newCoefs = new BigBuffer((deg + 1) * this.Fr.n8);
-            newCoefs.set(this.coeff.slice(0, (deg + 1) * this.Fr.n8), 0);
-            this.coeff = newCoefs;
+            newCoefs.set(this.coef.slice(0, (deg + 1) * this.Fr.n8), 0);
+            this.coef = newCoefs;
         }
     }
 }

@@ -22,7 +22,7 @@ const LINEAR_COMBINATION_CONSTANT = 1;
 const LINEAR_COMBINATION_VARIABLE = 2;
 
 export class r1csConstraintProcessor {
-    constructor(Fr, logger, fnGetConstantConstraint, fnGetAdditionConstraint, fnGetMultiplicationConstraint) {
+    constructor(Fr, fnGetConstantConstraint, fnGetAdditionConstraint, fnGetMultiplicationConstraint, logger) {
         this.Fr = Fr;
         this.logger = logger;
         this.fnGetAdditionConstraint = fnGetAdditionConstraint;
@@ -160,7 +160,7 @@ export class r1csConstraintProcessor {
             this.Fr.mul(A.coefs[0], B.k),
             this.Fr.mul(A.k, B.coefs[0]),
             this.Fr.mul(A.coefs[0], B.coefs[0]),
-            C.coefs[2],
+            this.Fr.neg(C.coefs[0]),
             this.Fr.sub(this.Fr.mul(A.k, B.k), C.k),
             this.Fr);
 
