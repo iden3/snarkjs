@@ -42,7 +42,6 @@ import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
-import {BP_Q_ZKEY_SECTION} from "./babyplonk.js";
 import {MulZ} from "./mul_z.js";
 
 const {stringifyBigInts} = utils;
@@ -371,11 +370,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const e4 = Fr.mul(c, qo);
                 const e4z = Fr.mul(cp, qo);
 
-                const value = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
-                const valuez = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
+                const identityT0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
+                const identityT0z = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
-                buffers.T0.set(value, i_sFr);
-                buffers.T0z.set(valuez, i_sFr);
+                buffers.T0.set(identityT0, i_sFr);
+                buffers.T0z.set(identityT0z, i_sFr);
 
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
@@ -538,7 +537,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeT1() {
-
             buffers.T1 = new BigBuffer(sDomain * 4);
             buffers.T1z = new BigBuffer(sDomain * 4);
 
@@ -553,12 +551,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
 
                 // (z(X)-1) · L_1(X)
+                // Check offset is ok
                 const offset = (zkey.domainSize + i) * sFr;
-                let e = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.get(offset));
-                let ez = Fr.mul(zp, evaluations.lagrange1.get(offset));
+                let identityT1 = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.get(offset));
+                let identityT1z = Fr.mul(zp, evaluations.lagrange1.get(offset));
 
-                buffers.T1.set(e, i_sFr);
-                buffers.T1z.set(ez, i_sFr);
+                buffers.T1.set(identityT1, i_sFr);
+                buffers.T1z.set(identityT1z, i_sFr);
 
                 // Compute next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
@@ -578,7 +577,85 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeT2() {
-            polynomials.T2 = new Polynomial(new BigBuffer(0), Fr, logger);
+            buffers.T2 = new BigBuffer(sDomain * 4);
+            buffers.T2z = new BigBuffer(sDomain * 4);
+
+            let omega = Fr.one;
+            for (let i = 0; i < zkey.domainSize * 4; i++) {
+                if ((i % 5000 === 0) && (logger)) logger.debug(`Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
+
+                const i_sFr = i * sFr;
+                const i_sFrw = ((i + zkey.domainSize * 4 + 4) % (zkey.domainSize * 4)) * sFr;
+
+                const omega2 = Fr.square(omega);
+                const omegaW = Fr.mul(omega, Fr.w[zkey.power]);
+                const omegaW2 = Fr.square(omegaW);
+
+                const a = evaluations.A.get(i_sFr);
+                const b = evaluations.B.get(i_sFr);
+                const c = evaluations.C.get(i_sFr);
+                const z = evaluations.Z.get(i_sFr);
+                const zW = evaluations.Z.get(i_sFrw);
+
+                const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
+                const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
+                const cp = Fr.add(Fr.mul(challenges.b[5], omega), challenges.b[6]);
+                const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
+                const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omegaW2), Fr.mul(challenges.b[8], omegaW)), challenges.b[9]);
+
+                const s1 = evaluations.S1.get(i_sFr);
+                const s2 = evaluations.S2.get(i_sFr);
+                const s3 = evaluations.S3.get(i_sFr);
+
+                // (a(X) + beta·X + gamma)(b(X) + beta·k1·X + gamma)z(X)
+                const betaX = Fr.mul(challenges.beta, omega);
+                let idB11 = Fr.add(a, betaX);
+                idB11 = Fr.add(idB11, challenges.gamma);
+
+                let idB12 = Fr.add(b, Fr.mul(betaX, zkey.k1));
+                idB12 = Fr.add(idB12, challenges.gamma);
+
+                let idB13 = Fr.add(c, Fr.mul(betaX, zkey.k2));
+                idB13 = Fr.add(idB13, challenges.gamma);
+
+                const [identityB1, identityB1z] = MulZ.mul4(idB11, idB12, idB13, z, ap, bp, cp, zp, i % 4);
+
+                // IDENTITY B2) (a(X) + beta·sigma1(X) + gamma) (b(X) + beta·sigma2(X) + gamma) z(Xω)
+                let idB21 = a;
+                idB21 = Fr.add(idB21, Fr.mul(challenges.beta, s1));
+                idB21 = Fr.add(idB21, challenges.gamma);
+
+                let idB22 = b;
+                idB22 = Fr.add(idB22, Fr.mul(challenges.beta, s2));
+                idB22 = Fr.add(idB22, challenges.gamma);
+
+                let idB23 = c;
+                idB23 = Fr.add(idB23, Fr.mul(challenges.beta, s3));
+                idB23 = Fr.add(idB23, challenges.gamma);
+
+                const [identityB2, identityB2z] = MulZ.mul4(idB21, idB22, idB23, zW, ap, bp, cp, zWp, i % 4);
+
+                let identityT2 = Fr.sub(identityB1, identityB2);
+                let identityT2z = Fr.sub(identityB1z, identityB2z);
+
+                buffers.T2.set(identityT2, i_sFr);
+                buffers.T2z.set(identityT2z, i_sFr);
+
+                // Compute next omega
+                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+            }
+
+            if (logger) logger.debug("Computing T2 ifft");
+            polynomials.T2 = await Polynomial.fromBuffer(buffers.T2, Fr, logger);
+            polynomials.T2 = await polynomials.T2.divZh(settings.domainSize);
+
+            if (logger) logger.debug("Computing T2z ifft");
+            polynomials.T2z = await Polynomial.fromBuffer(buffers.T2z, Fr, logger);
+
+            polynomials.T2.add(polynomials.T2z);
+
+            // Is this correct? Check it doesn't remove the T2 coefficients
+            delete polynomials.T2z;
         }
 
         async function computeC2() {
