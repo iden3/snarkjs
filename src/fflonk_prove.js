@@ -43,6 +43,7 @@ import {Proof} from "./proof.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
 import {BP_Q_ZKEY_SECTION} from "./babyplonk.js";
+import {MulZ} from "./mul_z.js";
 
 const {stringifyBigInts} = utils;
 
@@ -297,12 +298,96 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         // TODO
         async function computeT0() {
-            polynomials.T0 = new Polynomial(new Uint8Array(0), Fr, logger);
+            // Read QL evaluations from zkey file
+            if (logger) logger.debug("Reading QL");
+            evaluations.QL = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+            await fdZKey.readToBuffer(evaluations.QL, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
 
-            // Compute public input polynomial PI(X)
-            // TODO
-            polynomials.PI = new Polynomial(new Uint8Array(0), Fr, logger);
-            await polynomials.T0.divZh(settings.domainSize);
+            if (logger) logger.debug("Reading QR");
+            evaluations.QR = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+            await fdZKey.readToBuffer(evaluations.QR, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
+
+            if (logger) logger.debug("Reading QM");
+            evaluations.QM = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+            await fdZKey.readToBuffer(evaluations.QM, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
+
+            if (logger) logger.debug("Reading QO");
+            evaluations.QO = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+            await fdZKey.readToBuffer(evaluations.QO, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
+
+            if (logger) logger.debug("Reading QC");
+            evaluations.QC = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+            await fdZKey.readToBuffer(evaluations.QC, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
+
+            const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
+
+            const buffT0 = new BigBuffer(sDomain * 4);
+            const buffT0z = new BigBuffer(sDomain * 4);
+
+            let omega = Fr.one;
+            for (let i = 0; i < settings.domainSize; i++) {
+                if ((i % 5000 === 0) && (logger)) logger.debug(`Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
+
+                const i_sFr = i * sFr;
+
+                const a = evaluations.A.get(i_sFr);
+                const b = evaluations.B.get(i_sFr);
+                const c = evaluations.C.get(i_sFr);
+                const ql = evaluations.QL.get(i_sFr);
+                const qr = evaluations.QR.get(i_sFr);
+                const qm = evaluations.QM.get(i_sFr);
+                const qo = evaluations.QO.get(i_sFr);
+                const qc = evaluations.QC.get(i_sFr);
+
+                const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
+                const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
+                const cp = Fr.add(Fr.mul(challenges.b[5], omega), challenges.b[6]);
+
+                let pi = Fr.zero;
+                for (let j = 0; j < zkey.nPublic; j++) {
+                    pi = Fr.sub(pi, Fr.mul(
+                        lagrangePolynomials.slice((j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr, (j * 5 * zkey.domainSize + zkey.domainSize + i + 1) * sFr),
+                        buffers.A.slice(j * sFr, (j + 1) * sFr)
+                    ));
+                }
+
+                // e1 -> q_L(X)·a(X)
+                const e1 = Fr.mul(a, ql);
+                const e1z = Fr.mul(ap, ql);
+
+                // e2 -> q_R(X)·b(X)
+                const e2 = Fr.mul(b, qr);
+                const e2z = Fr.mul(bp, qr);
+
+                // e3 -> q_M(X)·a(X)·b(X)
+                let [e3, e3z] = MulZ.mul2(a, b, ap, bp, i % 4);
+                e3 = Fr.mul(e3, qm);
+                e3z = Fr.mul(e3z, qm);
+
+                // e4 -> q_O(X)·c(X)
+                const e4 = Fr.mul(c, qo);
+                const e4z = Fr.mul(cp, qo);
+
+                const value = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
+                const valuez = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
+
+                buffT0.set(value, i_sFr);
+                buffT0z.set(valuez, i_sFr);
+
+                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+            }
+
+            if (logger) logger.debug("Computing T0 ifft");
+            polynomials.T0 = await Polynomial.fromBuffer(buffT0, Fr, logger);
+            polynomials.T0 = await polynomials.T0.divZh(settings.domainSize);
+
+            if (logger) logger.debug("Computing T0z ifft");
+            polynomials.T0z = await Polynomial.fromBuffer(buffT0z, Fr, logger);
+
+            polynomials.T0.add(polynomials.T0z);
+
+            // Is this correct? Check it doesn't remove the T0 coefficients
+            delete polynomials.T0z;
         }
 
         // TODO
