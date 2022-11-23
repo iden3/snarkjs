@@ -40,7 +40,9 @@ import {
     FF_QM_ZKEY_SECTION,
     FF_QO_ZKEY_SECTION,
     FF_QC_ZKEY_SECTION,
-    FF_SIGMA_ZKEY_SECTION,
+    FF_SIGMA1_ZKEY_SECTION,
+    FF_SIGMA2_ZKEY_SECTION,
+    FF_SIGMA3_ZKEY_SECTION,
     FF_LAGRANGE_ZKEY_SECTION,
     FF_PTAU_ZKEY_SECTION,
     FF_T_POL_DEG_MIN,
@@ -204,7 +206,7 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await writeQMap(fdZKey, FF_QC_ZKEY_SECTION, 7, "QC");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`Writing Section ${FF_SIGMA_ZKEY_SECTION}. Sigma`);
+        if (logger) logger.info(`Writing Sections ${FF_SIGMA1_ZKEY_SECTION},${FF_SIGMA2_ZKEY_SECTION},${FF_SIGMA3_ZKEY_SECTION}. Sigma1, Sigma2 & Sigma 3`);
         await writeSigma(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
@@ -326,9 +328,9 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
         if (globalThis.gc) globalThis.gc();
 
         // Write sigma coefficients and evaluations
-        await startWriteSection(fdZKey, FF_SIGMA_ZKEY_SECTION);
-
         for (let i = 0; i < 3; i++) {
+            const sectionId = 0 === i ? FF_SIGMA1_ZKEY_SECTION : 1 === i ? FF_SIGMA2_ZKEY_SECTION : FF_SIGMA3_ZKEY_SECTION;
+            await startWriteSection(fdZKey, sectionId);
             let S = sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1));
             await writeP4(fdZKey, S);
             if (globalThis.gc) globalThis.gc();
@@ -337,9 +339,10 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
             S = await Fr.batchFromMontgomery(S);
             vk["S" + (i + 1)] = await curve.G1.multiExpAffine(pTauPoints, S, logger, "multiexp S" + (i + 1));
             if (globalThis.gc) globalThis.gc();
+            await endWriteSection(fdZKey);
         }
 
-        await endWriteSection(fdZKey);
+        return 0;
 
         function buildSigma(s, p) {
             if (typeof lastSeen[s] === "undefined") {

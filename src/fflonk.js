@@ -21,7 +21,7 @@
 export const FF_T_POL_DEG_MIN = 3;
 
 // ZKEY constants
-export const FF_ZKEY_NSECTIONS = 14;
+export const FF_ZKEY_NSECTIONS = 16;
 
 export const FF_HEADER_ZKEY_SECTION = 2;
 export const FF_ADDITIONS_ZKEY_SECTION = 3;
@@ -33,6 +33,8 @@ export const FF_QR_ZKEY_SECTION = 8;
 export const FF_QM_ZKEY_SECTION = 9;
 export const FF_QO_ZKEY_SECTION = 10;
 export const FF_QC_ZKEY_SECTION = 11;
-export const FF_SIGMA_ZKEY_SECTION = 12;
-export const FF_LAGRANGE_ZKEY_SECTION = 13;
-export const FF_PTAU_ZKEY_SECTION = 14;
+export const FF_SIGMA1_ZKEY_SECTION = 12;
+export const FF_SIGMA2_ZKEY_SECTION = 13;
+export const FF_SIGMA3_ZKEY_SECTION = 14;
+export const FF_LAGRANGE_ZKEY_SECTION = 15;
+export const FF_PTAU_ZKEY_SECTION = 16;

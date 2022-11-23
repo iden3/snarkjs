@@ -30,7 +30,7 @@
 
 ### Sections
 
-Currently, there are 14 defined sections:
+Currently, there are 16 defined sections:
 
 - 0x00000001 : Header section
 - 0x00000002 : FFLONK header section
@@ -43,9 +43,11 @@ Currently, there are 14 defined sections:
 - 0x00000009 : QM section
 - 0x0000000A : QO section
 - 0x0000000B : QC section
-- 0x0000000C : Sigma section
-- 0x0000000D : Lagrange polynomials section
-- 0x0000000E : Powers of tau section
+- 0x0000000C : Sigma 1 section
+- 0x0000000D : Sigma 2 section
+- 0x0000000E : Sigma 3 section
+- 0x0000000F : Lagrange polynomials section
+- 0x00000010 : Powers of tau section
 
 ### FFLONK ZKEY FILE FORMAT
 
@@ -163,8 +165,6 @@ Currently, there are 14 defined sections:
      ┃ fs bytes    ┃ Section size
      ┣━━━━━━━━━━━━━┫                        
      ┃ 4 bytes     ┃ Signal A_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ 4 bytes     ┃ Signal A_2
      ┗━━━━━━━━━━━━━┛
            ...        ...      
      ┏━━━━━━━━━━━━━┓
@@ -182,8 +182,6 @@ Currently, there are 14 defined sections:
      ┃ fs bytes    ┃ Section size
      ┣━━━━━━━━━━━━━┫                        
      ┃ 4 bytes     ┃ Signal B_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ 4 bytes     ┃ Signal B_2
      ┗━━━━━━━━━━━━━┛
            ...        ...      
      ┏━━━━━━━━━━━━━┓
@@ -201,8 +199,6 @@ Currently, there are 14 defined sections:
      ┃ fs bytes    ┃ Section size
      ┣━━━━━━━━━━━━━┫                        
      ┃ 4 bytes     ┃ Signal C_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ 4 bytes     ┃ Signal C_2
      ┗━━━━━━━━━━━━━┛
            ...        ...      
      ┏━━━━━━━━━━━━━┓
@@ -218,23 +214,19 @@ Currently, there are 14 defined sections:
      ┃ 07 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                        
-     ┃ fs bytes    ┃ QL coefficient_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QL coefficient_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QL coefficient_{Domain size}
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QL evaluation_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QL evaluation_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QL evaluation_{4 * Domain size}
-     ┗━━━━━━━━━━━━━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ QL coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QL coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QL coefficient_{Domain size}         ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ QL evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QL evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QL evaluation_{4 * Domain size}      ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 ### SECTION 8. QR SECTION
@@ -244,23 +236,19 @@ Currently, there are 14 defined sections:
      ┃ 08 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                        
-     ┃ fs bytes    ┃ QR coefficient_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QR coefficient_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QR coefficient_{Domain size}
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QR evaluation_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QR evaluation_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QR evaluation_{4 * Domain size}
-     ┗━━━━━━━━━━━━━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ QR coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QR coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QR coefficient_{Domain size}         ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ QR evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QR evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QR evaluation_{4 * Domain size}      ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
@@ -271,23 +259,19 @@ Currently, there are 14 defined sections:
      ┃ 09 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                        
-     ┃ fs bytes    ┃ QM coefficient_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QM coefficient_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QM coefficient_{Domain size}
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QM evaluation_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QM evaluation_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QM evaluation_{4 * Domain size}
-     ┗━━━━━━━━━━━━━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ QM coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QM coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QM coefficient_{Domain size}         ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ QM evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QM evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QM evaluation_{4 * Domain size}      ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
@@ -298,23 +282,19 @@ Currently, there are 14 defined sections:
      ┃ 0A 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                        
-     ┃ fs bytes    ┃ QO coefficient_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QO coefficient_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QO coefficient_{Domain size}
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QO evaluation_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QO evaluation_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QO evaluation_{4 * Domain size}
-     ┗━━━━━━━━━━━━━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ QO coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QO coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QO coefficient_{Domain size}         ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ QO evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QO evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QO evaluation_{4 * Domain size}      ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
@@ -325,27 +305,23 @@ Currently, there are 14 defined sections:
      ┃ 0B 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                        
-     ┃ fs bytes    ┃ QC coefficient_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QC coefficient_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QC coefficient_{Domain size}
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QC evaluation_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ fs bytes    ┃ QC evaluation_2
-     ┗━━━━━━━━━━━━━┛  
-           ...        ...      
-     ┏━━━━━━━━━━━━━┓
-     ┃ fs bytes    ┃ QC evaluation_{4 * Domain size}
-     ┗━━━━━━━━━━━━━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ QC coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QC coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QC coefficient_{Domain size}         ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ QC evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  QC evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ QC evaluation_{4 * Domain size}      ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
-### SECTION 12. SIGMA SECTION
+### SECTION 12. SIGMA 1 SECTION
 
 ````
      ┏━━━━━━━━━━━━━┓
@@ -354,115 +330,115 @@ Currently, there are 14 defined sections:
      ┃ fs bytes    ┃ Section size
      ┣━━━━━━━━━━━━━┫                                     ━┓
      ┃ fs bytes    ┃ Sigma 1 coefficient_1                ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 1 coefficient_2                ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 1 coefficients
-           ...        ...                                 ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 1 coefficients
      ┏━━━━━━━━━━━━━┓                                      ┃
      ┃ fs bytes    ┃ Sigma 1 coefficient_{Domain size}    ┃
      ┣━━━━━━━━━━━━━┫                                     ━┫
      ┃ fs bytes    ┃ Sigma 1 evaluation_1                 ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 1 evaluation_2                 ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 1 evaluations
-           ...        ...                                 ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 1 evaluations
      ┏━━━━━━━━━━━━━┓                                      ┃
      ┃ fs bytes    ┃ Sigma 1 evaluation_{4 * Domain size} ┃
-     ┣━━━━━━━━━━━━━┫                                     ━┫
-     ┃ fs bytes    ┃ Sigma 2 coefficient_1                ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 2 coefficient_2                ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 2 coefficients
-           ...        ...                                 ┃
-     ┏━━━━━━━━━━━━━┓                                      ┃
-     ┃ fs bytes    ┃ Sigma 2 coefficient_{Domain size}    ┃
-     ┣━━━━━━━━━━━━━┫                                     ━┫
-     ┃ fs bytes    ┃ Sigma 2 evaluation_1                 ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 2 evaluation_2                 ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 2 evaluations
-           ...        ...                                 ┃
-     ┏━━━━━━━━━━━━━┓                                      ┃
-     ┃ fs bytes    ┃ Sigma 2 evaluation_{4 * Domain size} ┃
-     ┣━━━━━━━━━━━━━┫                                     ━┫
-     ┃ fs bytes    ┃ Sigma 3 coefficient_1                ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 3 coefficient_2                ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 3 coefficients
-           ...        ...                                 ┃
-     ┏━━━━━━━━━━━━━┓                                      ┃
-     ┃ fs bytes    ┃ Sigma 3 coefficient_{Domain size}    ┃
-     ┣━━━━━━━━━━━━━┫                                     ━┫
-     ┃ fs bytes    ┃ Sigma 3 evaluation_1                 ┃
-     ┣━━━━━━━━━━━━━┫                                      ┃
-     ┃ fs bytes    ┃ Sigma 3 evaluation_2                 ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃  Sigma 3 evaluations
-           ...        ...                                 ┃
-     ┏━━━━━━━━━━━━━┓                                      ┃
-     ┃ fs bytes    ┃ Sigma 3 evaluation_{4 * Domain size} ┃
      ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
-### SECTION 13. LAGRANGE POLYNOMIALS SECTION
+### SECTION 13. SIGMA 2 SECTION
 
 ````
      ┏━━━━━━━━━━━━━┓
      ┃ 0D 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
-     ┣━━━━━━━━━━━━━┫                                                 ━┓
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_1                ┃
-     ┣━━━━━━━━━━━━━┫                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_2                ┃
-     ┗━━━━━━━━━━━━━┛                                                  ┃  Lagrange polynomial 1 coefficients
-           ...        ...                                             ┃
-     ┏━━━━━━━━━━━━━┓                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_{Domain size}    ┃
-     ┣━━━━━━━━━━━━━┫                                                 ━┫
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_1                 ┃
-     ┣━━━━━━━━━━━━━┫                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_2                 ┃
-     ┗━━━━━━━━━━━━━┛                                                  ┃  Lagrange polynomial 1 evaluations
-           ...        ...                                             ┃
-     ┏━━━━━━━━━━━━━┓                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_{4 * Domain size} ┃
-     ┗━━━━━━━━━━━━━┛                                                 ━┛
-           ...        ...                                                ...
-     ┏━━━━━━━━━━━━━┓                                                 ━┓
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_1                ┃
-     ┣━━━━━━━━━━━━━┫                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_2                ┃
-     ┗━━━━━━━━━━━━━┛                                                  ┃  Lagrange polynomial {N public variables}
-           ...        ...                                             ┃  coefficients
-     ┏━━━━━━━━━━━━━┓                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial coefficient_{Domain size}    ┃
-     ┣━━━━━━━━━━━━━┫                                                 ━┫
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_1                 ┃
-     ┣━━━━━━━━━━━━━┫                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_2                 ┃
-     ┗━━━━━━━━━━━━━┛                                                  ┃  Lagrange polynomial {N public variables}
-           ...        ...                                             ┃  evaluations
-     ┏━━━━━━━━━━━━━┓                                                  ┃
-     ┃ fs bytes    ┃ Lagrange polynomial evaluation_{4 * Domain size} ┃
-     ┗━━━━━━━━━━━━━┛                                                 ━┛
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ Sigma 2 coefficient_1                ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 2 coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ Sigma 2 coefficient_{Domain size}    ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ Sigma 2 evaluation_1                 ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 2 evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ Sigma 2 evaluation_{4 * Domain size} ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
 ````
 
 
-### SECTION 14. POWERS OF TAU SECTION
+### SECTION 14. SIGMA 3 SECTION
 
 ````
      ┏━━━━━━━━━━━━━┓
      ┃ 0E 00 00 00 ┃ Section Id
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ Section size
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ Sigma 3 coefficient_1                ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 3 coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ Sigma 3 coefficient_{Domain size}    ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ Sigma 3 evaluation_1                 ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  Sigma 3 evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ Sigma 3 evaluation_{4 * Domain size} ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
+````
+
+
+### SECTION 15. LAGRANGE POLYNOMIALS SECTION
+
+````
+     ┏━━━━━━━━━━━━━┓
+     ┃ 0F 00 00 00 ┃ Section Id
+     ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ Section size
+     ┣━━━━━━━━━━━━━┫                                                   ━┓
+     ┃ fs bytes    ┃ Lagrange polynomial 1 coefficient_1                ┃
+     ┗━━━━━━━━━━━━━┛                                                    ┃  Lagrange polynomial 1 coefficients
+           ...        ...                                               ┃
+     ┏━━━━━━━━━━━━━┓                                                    ┃
+     ┃ fs bytes    ┃ Lagrange polynomial 1 coefficient_{Domain size}    ┃
+     ┣━━━━━━━━━━━━━┫                                                   ━┫
+     ┃ fs bytes    ┃ Lagrange polynomial 1 evaluation_1                 ┃
+     ┗━━━━━━━━━━━━━┛                                                    ┃  Lagrange polynomial 1 evaluations
+           ...        ...                                               ┃
+     ┏━━━━━━━━━━━━━┓                                                    ┃
+     ┃ fs bytes    ┃ Lagrange polynomial 1 evaluation_{4 * Domain size} ┃
+     ┗━━━━━━━━━━━━━┛                                                   ━┛
+           ...        ...                                                  ...
+     ┏━━━━━━━━━━━━━┓                                                   ━┓
+     ┃ fs bytes    ┃ Lagrange polynomial N coefficient_1                ┃
+     ┗━━━━━━━━━━━━━┛                                                    ┃  Lagrange polynomial {N public variables}
+           ...        ...                                               ┃  coefficients
+     ┏━━━━━━━━━━━━━┓                                                    ┃
+     ┃ fs bytes    ┃ Lagrange polynomial N coefficient_{Domain size}    ┃
+     ┣━━━━━━━━━━━━━┫                                                   ━┫
+     ┃ fs bytes    ┃ Lagrange polynomial N evaluation_1                 ┃
+     ┗━━━━━━━━━━━━━┛                                                    ┃  Lagrange polynomial {N public variables}
+           ...        ...                                               ┃  evaluations
+     ┏━━━━━━━━━━━━━┓                                                    ┃
+     ┃ fs bytes    ┃ Lagrange polynomial N evaluation_{4 * Domain size} ┃
+     ┗━━━━━━━━━━━━━┛                                                   ━┛
+````
+
+
+### SECTION 16. POWERS OF TAU SECTION
+
+````
+     ┏━━━━━━━━━━━━━┓
+     ┃ 10 00 00 00 ┃ Section Id
+     ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ Section size
      ┣━━━━━━━━━━━━━┫
      ┃ G1 fs bytes ┃ Powers of Tau_1
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ Powers of Tau_2
      ┗━━━━━━━━━━━━━┛  
            ...        ...      
      ┏━━━━━━━━━━━━━┓
-     ┃ G1 fs bytes ┃ Powers of Tau_{Domain size + 5}
+     ┃ G1 fs bytes ┃ Powers of Tau_{A^(Domain size + ?)} ??????
      ┗━━━━━━━━━━━━━┛
 ````
