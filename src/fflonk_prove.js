@@ -391,27 +391,27 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC1() {
-            polynomials.A4 = Polynomial.computePolynomialXExp(buffers.A, 4, Fr, logger);
-            polynomials.B4 = Polynomial.computePolynomialXExp(buffers.B, 4, Fr, logger);
-            polynomials.C4 = Polynomial.computePolynomialXExp(buffers.C, 4, Fr, logger);
-            polynomials.T04 = Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
+            polynomials.A_4 = Polynomial.computePolynomialXExp(buffers.A, 4, Fr, logger);
+            polynomials.B_4 = Polynomial.computePolynomialXExp(buffers.B, 4, Fr, logger);
+            polynomials.C_4 = Polynomial.computePolynomialXExp(buffers.C, 4, Fr, logger);
+            polynomials.T0_4 = Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
 
             // Compute degree of the new polynomial C1
             // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
-            const length = Math.max(polynomials.A4.length,
-                polynomials.B4.length + 1,
-                polynomials.C4.length + 2,
-                polynomials.T04.length + 3);
+            const length = Math.max(polynomials.A_4.length,
+                polynomials.B_4.length + 1,
+                polynomials.C_4.length + 2,
+                polynomials.T0_4.length + 3);
             polynomials.C1 = new Polynomial(new BigBuffer(length * sFr, Fr, logger));
 
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
 
-                let val = polynomials.A4.getCoef(i);
+                let val = polynomials.A_4.getCoef(i);
                 // Following polynomials are multiplied (so shifted) by x^n
-                if (i > 0) val = Fr.add(val, polynomials.B4.getCoef(i - 1));
-                if (i > 1) val = Fr.add(val, polynomials.C4.getCoef(i - 2));
-                if (i > 2) val = Fr.add(val, polynomials.T04.getCoef(i - 3));
+                if (i > 0) val = Fr.add(val, polynomials.B_4.getCoef(i - 1));
+                if (i > 1) val = Fr.add(val, polynomials.C_4.getCoef(i - 2));
+                if (i > 2) val = Fr.add(val, polynomials.T0_4.getCoef(i - 3));
 
                 polynomials.C1.coef.set(val, i_sFr);
             }
@@ -451,7 +451,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         await computeT2();
 
         // STEP 2.4 - Compute the FFT-style combination polynomial C2(X)
-        // TODO
         await computeC2();
 
         // The second output of the prover is ([C2]_1)
@@ -553,7 +552,27 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC2() {
-            polynomials.C2 = new Polynomial(new BigBuffer(0), Fr, logger);
+            polynomials.Z_3 = Polynomial.computePolynomialXExp(buffers.Z, 3, Fr, logger);
+            polynomials.T1_3 = Polynomial.computePolynomialXExp(buffers.T1, 3, Fr, logger);
+            polynomials.T2_3 = Polynomial.computePolynomialXExp(buffers.T2, 3, Fr, logger);
+
+            // Compute degree of the new polynomial C1
+            // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
+            const length = Math.max(polynomials.Z_3.length,
+                polynomials.T1_3.length + 1,
+                polynomials.T2_3.length + 2);
+            polynomials.C2 = new Polynomial(new BigBuffer(length * sFr, Fr, logger));
+
+            for (let i = 0; i < length; i++) {
+                const i_sFr = i * sFr;
+
+                let val = polynomials.Z_3.getCoef(i);
+                // Following polynomials are multiplied (so shifted) by x^n
+                if (i > 0) val = Fr.add(val, polynomials.T1_3.getCoef(i - 1));
+                if (i > 1) val = Fr.add(val, polynomials.T2_3.getCoef(i - 2));
+
+                polynomials.C2.coef.set(val, i_sFr);
+            }
         }
     }
 
