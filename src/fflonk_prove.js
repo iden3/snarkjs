@@ -745,8 +745,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         challenges.alpha = transcript.getChallenge();
         if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
 
-        // TODO
-
         // STEP 4.2 - Compute F(X)
         // TODO
         await computeF();
@@ -761,7 +759,50 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeF() {
-            polynomials.F = new Polynomial(new BigBuffer(0), Fr, logger);
+            buffers.F = new BigBuffer(sDomain * 4);
+
+            challenges.h2w3 = Fr.zero; //TODO
+            challenges.h2w3_2 = Fr.zero; //TODO
+            challenges.h3w3 = Fr.zero; //TODO
+            challenges.h3w3_2 = Fr.zero; //TODO
+            challenges.h1w4 = Fr.zero; //TODO
+            challenges.h1w4_2 = Fr.zero; //TODO
+            challenges.h1w4_3 = Fr.zero; //TODO
+
+            // TODO compute r1
+            // TODO compute r2
+            
+            let omega = Fr.one;
+            for (let i = 0; i < zkey.domainSize * 4; i++) {
+                if ((i % 5000 === 0) && (logger)) logger.debug(`Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
+
+                const i_sFr = i * sFr;
+
+                let e1 = Fr.sub(omega, challenges.h2);
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h2w3));
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h2w3_2));
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h3));
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h3w3));
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h3w3_2));
+                e1 = Fr.mul(e1, Fr.sub(omega, challenges.h2)); // TODO C1(X) - r1(X)
+
+                let e2 = Fr.mul(challenges.alpha,Fr.sub(omega, challenges.h1));
+                e2 = Fr.mul(e2, Fr.sub(omega, challenges.h1w4));
+                e2 = Fr.mul(e2, Fr.sub(omega, challenges.h1w4_2));
+                e2 = Fr.mul(e2, Fr.sub(omega, challenges.h1w4_3));
+                e2 = Fr.mul(e2, Fr.sub(omega, challenges.h2)); // TODO C2(X) - r2(X)
+                
+                let e = Fr.add(e1, e2);
+                
+                buffers.F.set(e, i_sFr);
+
+                // Compute next omega
+                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+            }
+
+            if (logger) logger.debug("Computing F ifft");
+            polynomials.F = await Polynomial.fromBuffer(buffers.F, Fr, logger);
+            polynomials.F = await polynomials.F.divZt(settings.domainSize);
         }
 
         async function computeW1() {
