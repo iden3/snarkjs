@@ -397,7 +397,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T0_4 = Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
 
             // Compute degree of the new polynomial C1
-            // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
+            // Will be the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
             const length = Math.max(polynomials.A_4.length,
                 polynomials.B_4.length + 1,
                 polynomials.C_4.length + 2,
@@ -408,7 +408,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const i_sFr = i * sFr;
 
                 let val = polynomials.A_4.getCoef(i);
-                // Following polynomials are multiplied (so shifted) by x^n
+                // Following polynomials are multiplied (so shifted) by (each) x^n
                 if (i > 0) val = Fr.add(val, polynomials.B_4.getCoef(i - 1));
                 if (i > 1) val = Fr.add(val, polynomials.C_4.getCoef(i - 2));
                 if (i > 2) val = Fr.add(val, polynomials.T0_4.getCoef(i - 3));
@@ -557,7 +557,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2_3 = Polynomial.computePolynomialXExp(buffers.T2, 3, Fr, logger);
 
             // Compute degree of the new polynomial C1
-            // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
+            // Will be the maximum(deg(Z_3), deg(T1_3)+1, deg(T2_3)+2)
             const length = Math.max(polynomials.Z_3.length,
                 polynomials.T1_3.length + 1,
                 polynomials.T2_3.length + 2);
@@ -567,7 +567,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const i_sFr = i * sFr;
 
                 let val = polynomials.Z_3.getCoef(i);
-                // Following polynomials are multiplied (so shifted) by x^n
+                // Following polynomials are multiplied (so shifted) by (each) x^n
                 if (i > 0) val = Fr.add(val, polynomials.T1_3.getCoef(i - 1));
                 if (i > 1) val = Fr.add(val, polynomials.T2_3.getCoef(i - 2));
 
