@@ -23,22 +23,26 @@ import * as wtnsUtils from "./wtns_utils.js";
 import {Scalar, utils, BigBuffer} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey.js";
 import {
-    FF_A_MAP_ZKEY_SECTION,
     FF_ADDITIONS_ZKEY_SECTION,
-    FF_LAGRANGE_ZKEY_SECTION,
-    FF_PTAU_ZKEY_SECTION,
+    FF_A_MAP_ZKEY_SECTION,
+    FF_B_MAP_ZKEY_SECTION,
+    FF_C_MAP_ZKEY_SECTION,
     FF_QL_ZKEY_SECTION,
     FF_QR_ZKEY_SECTION,
     FF_QM_ZKEY_SECTION,
     FF_QO_ZKEY_SECTION,
     FF_QC_ZKEY_SECTION,
-    FF_SIGMA_ZKEY_SECTION, FF_C_MAP_ZKEY_SECTION, FF_B_MAP_ZKEY_SECTION
+    FF_SIGMA1_ZKEY_SECTION,
+    FF_SIGMA2_ZKEY_SECTION,
+    FF_SIGMA3_ZKEY_SECTION,
+    FF_LAGRANGE_ZKEY_SECTION,
+    FF_PTAU_ZKEY_SECTION,
 } from "./fflonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
-import {mul2, mul3} from "./mul_z.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
+import {BP_Q_ZKEY_SECTION} from "./babyplonk.js";
 
 const {stringifyBigInts} = utils;
 
@@ -104,21 +108,28 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     if (logger) logger.info(`Reading Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
     await calculateAdditions();
 
-    if (logger) logger.info(`Reading Section ${FF_SIGMA_ZKEY_SECTION}. Sigma1+Sigma2+Sigma3`);
-    // Get sigma1 & sigma2 evaluations from zkey file
-    evaluations.sigma = new Evaluations(new BigBuffer(sDomain * 4 * 3), Fr, logger);
-
-    //Read sigma1 evaluations into sigma first half
-    let offset = zkeySections[FF_SIGMA_ZKEY_SECTION][0].p + sDomain;
-    await fdZKey.readToBuffer(evaluations.sigma.eval, 0, sDomain * 4, offset);
-
-    //Read sigma2 evaluations into sigma second half
-    offset += sDomain * 5;
-    await fdZKey.readToBuffer(evaluations.sigma, sDomain * 4, sDomain * 4, offset);
-
-    // Get polynomial S1, polynomial S2 will be read on round4, when it's necessary
+    if (logger) logger.info(`Reading Section ${FF_SIGMA1_ZKEY_SECTION}. Sigma1`);
+    evaluations.S1 = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+    await fdZKey.readToBuffer(evaluations.S1, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
+    // Get polynomial S1
     polynomials.S1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[FF_SIGMA_ZKEY_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p);
+
+    // TODO can S2 be loaded later?
+    if (logger) logger.info(`Reading Section ${FF_SIGMA2_ZKEY_SECTION}. Sigma2`);
+    evaluations.S2 = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+    await fdZKey.readToBuffer(evaluations.S2, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
+    // Get polynomial S2
+    polynomials.S2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+    await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p);
+
+    // TODO can S3 be loaded later?
+    if (logger) logger.info(`Reading Section ${FF_SIGMA3_ZKEY_SECTION}. Sigma3`);
+    evaluations.S3 = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
+    await fdZKey.readToBuffer(evaluations.S3, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
+    // Get polynomial S3
+    polynomials.S3 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+    await fdZKey.readToBuffer(polynomials.S3.coef, 0, sDomain, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p);
 
     if (logger) logger.info(`Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
