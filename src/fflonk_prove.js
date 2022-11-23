@@ -391,10 +391,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC1() {
-            polynomials.A4 = computePolynomial4(buffers.A);
-            polynomials.B4 = computePolynomial4(buffers.B);
-            polynomials.C4 = computePolynomial4(buffers.C);
-            polynomials.T04 = computePolynomial4(buffers.T0);
+            polynomials.A4 = Polynomial.computePolynomialXExp(buffers.A, 4, Fr, logger);
+            polynomials.B4 = Polynomial.computePolynomialXExp(buffers.B, 4, Fr, logger);
+            polynomials.C4 = Polynomial.computePolynomialXExp(buffers.C, 4, Fr, logger);
+            polynomials.T04 = Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
 
             // Compute degree of the new polynomial C1
             // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
@@ -414,18 +414,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 if (i > 2) val = Fr.add(val, polynomials.T04.getCoef(i - 3));
 
                 polynomials.C1.coef.set(val, i_sFr);
-            }
-
-            function computePolynomial4(buffer) {
-                const buffer4 = new BigBuffer(buffer.byteLength);
-
-                for (let i = 0; i < buffer.byteLength / sFr; i++) {
-                    const i_sFr = i * sFr;
-
-                    const val4 = buffer.slice(i_sFr, i_sFr + sFr);
-                    buffer4.set(Fr.square(Fr.square(val4)), i_sFr);
-                }
-                return Polynomial.fromBuffer(buffer4, Fr, logger);
             }
         }
     }

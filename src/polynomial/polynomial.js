@@ -59,7 +59,7 @@ export class Polynomial {
     getCoef(index) {
         const i_n8 = index * this.Fr.n8;
 
-        if(i_n8 + this.Fr.n8 > this.coef.length) return this.Fr.zero;
+        if (i_n8 + this.Fr.n8 > this.coef.length) return this.Fr.zero;
 
         return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
     }
@@ -280,6 +280,35 @@ export class Polynomial {
         coefs.set(this.coef, this.Fr.n8);
 
         this.coef = coefs;
+    }
+
+    // Compute a new polynomial f(x^n) from f(x)
+    static computePolynomialXExp(buffer, n, Fr, logger) {
+        if (n < 1) {
+            throw new Error("Calc a new polynomial to a zero or negative number is not allowed");
+        } else if (1 === n) {
+            return this.fromBuffer(buffer, Fr, logger);
+        }
+
+        const buffer4 = new BigBuffer(buffer.byteLength);
+
+        for (let i = 0; i < buffer.byteLength / Fr.n8; i++) {
+            const i_sFr = i * Fr.n8;
+
+            const val = buffer.slice(i_sFr, i_sFr + Fr.n8);
+            const val2 = Fr.square(val);
+
+            let val4 = Fr.one;
+            for (let j = 0; j < Math.floor(n / 2); j++) {
+                val4 = Fr.mul(val4, Fr.square(val2));
+            }
+            if (n % 2 !== 0) {
+                val4 = Fr.mul(val4, val);
+            }
+
+            buffer4.set(val4, i_sFr);
+        }
+        return Polynomial.fromBuffer(buffer4, Fr, logger);
     }
 
     split(numPols, degPols, blindingFactors) {
