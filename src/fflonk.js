@@ -20,6 +20,9 @@
 // FFlonk constants
 export const FF_T_POL_DEG_MIN = 3;
 
+// FFlonk A
+export const A = 12;
+
 // ZKEY constants
 export const FF_ZKEY_NSECTIONS = 16;
 

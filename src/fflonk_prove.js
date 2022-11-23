@@ -36,7 +36,7 @@ import {
     FF_SIGMA2_ZKEY_SECTION,
     FF_SIGMA3_ZKEY_SECTION,
     FF_LAGRANGE_ZKEY_SECTION,
-    FF_PTAU_ZKEY_SECTION,
+    FF_PTAU_ZKEY_SECTION, A,
 } from "./fflonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
@@ -45,6 +45,7 @@ import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
 
 const {stringifyBigInts} = utils;
+
 
 export default async function fflonkProve(zkeyFileName, witnessFileName, logger) {
     if (logger) logger.info("Fflonk prover started");
@@ -687,7 +688,20 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 3.1 - Compute evaluation challenge xi ∈ S (!!)
         const transcript = new Keccak256Transcript(curve);
         transcript.addPolCommitment(proof.getPolynomial("C2"));
-        challenges.xi = transcript.getChallenge();
+        challenges.xiSeed = transcript.getChallenge();
+        challenges.xiSeed2 = Fr.square(challenges.xiSeed);
+
+        // h_1^4 = xi;
+        challenges.h1 = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
+
+        // h_2^3 = xi;
+        challenges.h2 = Fr.square(challenges.xiSeed2);
+
+        // h_3^2 = xiω;
+        challenges.h3 = Fr.mul(challenges.h2, challenges.xiSeed2);
+        challenges.xi = Fr.square(challenges.h3);
+        challenges.h3 = Fr.mul(challenges.h3, Fr.w[zkey.power]);
+
         if (logger) logger.debug("Challenge.xi: " + Fr.toString(challenges.xi));
 
         // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
@@ -730,6 +744,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         transcript.addScalar(proof.getEvaluation("t2w"));
         challenges.alpha = transcript.getChallenge();
         if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
+
+        // TODO
 
         // STEP 4.2 - Compute F(X)
         // TODO
