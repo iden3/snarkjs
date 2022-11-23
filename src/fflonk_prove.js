@@ -42,8 +42,8 @@ import {Evaluations} from "./polynomial/evaluations.js";
 
 const {stringifyBigInts} = utils;
 
-export default async function babyPlonkProve(zkeyFileName, witnessFileName, logger) {
-    if (logger) logger.info("Baby Plonk prover started");
+export default async function fflonkProve(zkeyFileName, witnessFileName, logger) {
+    if (logger) logger.info("Fflonk prover started");
 
     // Read witness file
     if (logger) logger.info("Reading witness file");
@@ -62,7 +62,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
-        throw new Error("zkey file is not Baby Plonk");
+        throw new Error("zkey file is not fflonk");
     }
 
     if (!Scalar.eq(zkey.r, wtns.q)) {
@@ -123,7 +123,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     if (logger) logger.info(`Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
 
-    // Start baby plonk protocol
+    // Start fflonk protocol
 
     // ROUND 1. Compute polynomials A(X) and B(X)
     await round1();
@@ -187,64 +187,6 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         }
     }
 
-    async function buildABCEvaluationsBuffer() {
-        buffers.A = new BigBuffer(sDomain);
-        buffers.B = new BigBuffer(sDomain);
-        buffers.C = new BigBuffer(sDomain);
-
-        const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
-        const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_B_MAP_ZKEY_SECTION);
-        const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_C_MAP_ZKEY_SECTION);
-
-        for (let i = 0; i < zkey.nConstraints; i++) {
-            const offset1 = i * 4;
-            const offset2 = i * sFr;
-
-            // Compute A value from signal id
-            const signalIdA = readUInt32(aMapBuff, offset1);
-            buffers.A.set(getWitness(signalIdA), offset2);
-
-            // Compute B value from signal id
-            const signalIdB = readUInt32(bMapBuff, offset1);
-            buffers.B.set(getWitness(signalIdB), offset2);
-
-            // Compute C value from signal id
-            const signalIdC = readUInt32(cMapBuff, offset1);
-            buffers.C.set(getWitness(signalIdC), offset2);
-        }
-
-        buffers.A = await Fr.batchToMontgomery(buffers.A);
-        buffers.B = await Fr.batchToMontgomery(buffers.B);
-        buffers.C = await Fr.batchToMontgomery(buffers.C);
-    }
-
-    async function buildPIEvaluationsBuffer() {
-        buffers.PI = new BigBuffer(sDomain);
-
-        const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
-
-        for (let i = 0; i < zkey.nConstraints; i++) {
-            const offset1 = i * 4;
-            const offset2 = i * sFr;
-
-            // Compute A value from signal id
-            const signalIdA = readUInt32(aMapBuff, offset1);
-            buffers.A.set(getWitness(signalIdA), offset2);
-
-            // Compute B value from signal id
-            const signalIdB = readUInt32(bMapBuff, offset1);
-            buffers.B.set(getWitness(signalIdB), offset2);
-
-            // Compute C value from signal id
-            const signalIdC = readUInt32(cMapBuff, offset1);
-            buffers.C.set(getWitness(signalIdC), offset2);
-        }
-
-        buffers.A = await Fr.batchToMontgomery(buffers.A);
-        buffers.B = await Fr.batchToMontgomery(buffers.B);
-        buffers.C = await Fr.batchToMontgomery(buffers.C);
-    }
-
     function readUInt32(b, o) {
         const buff = b.slice(o, o + 4);
         const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
@@ -264,56 +206,98 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
     }
 
     async function round1() {
-        // STEP 1.1 - Generate random blinding scalars (b_1, ..., b8) ∈ F
+        // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
         challenges.b = [];
-        for (let i = 1; i <= 6; i++) {
+        for (let i = 1; i <= 9; i++) {
             challenges.b[i] = Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
-        // Build A, B evaluations buffer from zkey and witness files
-        await buildABCEvaluationsBuffer();
+        await computeWirePolynomials();
 
-        // Compute wire polynomials coefficients a(X), b(X) and c(X)
-        polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
-        polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
-        polynomials.C = Polynomial.fromBuffer(buffers.C, Fr, logger);
+        // STEP 1.3 - Compute quotient polynomial T0(X)
+        await computeT0();
 
-        // Compute extended evaluations of a(X), b(X) and c(X) polynomials
-        evaluations.A = Evaluations.fromPolynomial(polynomials.A, Fr, logger);
-        evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
-        evaluations.C = Evaluations.fromPolynomial(polynomials.C, Fr, logger);
-
-        // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-        polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
-        polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
-        polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
-
-        // Check degrees
-        if (polynomials.A.degree() >= settings.domainSize + 2) {
-            throw new Error("A Polynomial is not well calculated");
-        }
-        if (polynomials.B.degree() >= settings.domainSize + 2) {
-            throw new Error("B Polynomial is not well calculated");
-        }
-        if (polynomials.C.degree() >= settings.domainSize + 2) {
-            throw new Error("C Polynomial is not well calculated");
-        }
-
-        // STEP 1.3 - Compute public input polynomial PI(X)
-        // TODO
-        polynomials.PI = new Polynomial(new Uint8Array(0), Fr, logger);
-
-        // STEP 1.4 - Compute quotient polynomial T0(X)
-        // TODO
-        polynomials.T0 = new Polynomial(new Uint8Array(0), Fr, logger);
-
-        // STEP 1.5 - Compute the FFT-style combination polynomial C1(X)
-        // TODO
-        polynomials.C1 = new Polynomial(new Uint8Array(0), Fr, logger);
+        // STEP 1.4 - Compute the FFT-style combination polynomial C1(X)
+        await computeC1();
 
         // The first output of the prover is ([C1]_1)
         proof.addPolynomial("C1", await multiExponentiation(polynomials.C1, "C1"));
+
+        return 0;
+
+        async function computeWirePolynomials() {
+            // Build A, B and C evaluations buffer from zkey and witness files
+            buffers.A = new BigBuffer(sDomain);
+            buffers.B = new BigBuffer(sDomain);
+            buffers.C = new BigBuffer(sDomain);
+
+            const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
+            const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_B_MAP_ZKEY_SECTION);
+            const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_C_MAP_ZKEY_SECTION);
+
+            for (let i = 0; i < zkey.nConstraints; i++) {
+                const offset1 = i * 4;
+                const offset2 = i * sFr;
+
+                // Compute A value from a signal id
+                const signalIdA = readUInt32(aMapBuff, offset1);
+                buffers.A.set(getWitness(signalIdA), offset2);
+
+                // Compute B value from a signal id
+                const signalIdB = readUInt32(bMapBuff, offset1);
+                buffers.B.set(getWitness(signalIdB), offset2);
+
+                // Compute C value from a signal id
+                const signalIdC = readUInt32(cMapBuff, offset1);
+                buffers.C.set(getWitness(signalIdC), offset2);
+            }
+
+            buffers.A = await Fr.batchToMontgomery(buffers.A);
+            buffers.B = await Fr.batchToMontgomery(buffers.B);
+            buffers.C = await Fr.batchToMontgomery(buffers.C);
+
+            // Compute wire polynomials coefficients a(X), b(X) and c(X)
+            polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
+            polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
+            polynomials.C = Polynomial.fromBuffer(buffers.C, Fr, logger);
+
+            // Compute extended evaluations of a(X), b(X) and c(X) polynomials
+            evaluations.A = Evaluations.fromPolynomial(polynomials.A, Fr, logger);
+            evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
+            evaluations.C = Evaluations.fromPolynomial(polynomials.C, Fr, logger);
+
+            // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
+            polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
+            polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
+            polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
+
+            // Check degrees
+            if (polynomials.A.degree() >= settings.domainSize + 2) {
+                throw new Error("A Polynomial is not well calculated");
+            }
+            if (polynomials.B.degree() >= settings.domainSize + 2) {
+                throw new Error("B Polynomial is not well calculated");
+            }
+            if (polynomials.C.degree() >= settings.domainSize + 2) {
+                throw new Error("C Polynomial is not well calculated");
+            }
+        }
+
+        // TODO
+        async function computeT0() {
+            polynomials.T0 = new Polynomial(new Uint8Array(0), Fr, logger);
+
+            // Compute public input polynomial PI(X)
+            // TODO
+            polynomials.PI = new Polynomial(new Uint8Array(0), Fr, logger);
+            await polynomials.T0.divZh(settings.domainSize);
+        }
+
+        // TODO
+        async function computeC1() {
+            polynomials.C1 = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
     }
 
     async function round2() {
@@ -328,6 +312,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         transcript.addPolCommitment(proof.getPolynomial("A"));
         transcript.addPolCommitment(proof.getPolynomial("B"));
         transcript.addPolCommitment(proof.getPolynomial("C"));
+        transcript.addPolCommitment(proof.getPolynomial("C1"));
 
         challenges.beta = transcript.getChallenge();
         if (logger) logger.debug("Challenge.beta: " + Fr.toString(challenges.beta));
@@ -338,472 +323,217 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         challenges.gamma = transcript.getChallenge();
         if (logger) logger.debug("Challenge.gamma: " + Fr.toString(challenges.gamma));
 
+
         // STEP 2.2 - Compute permutation polynomial z(X)
-        let numArr = new BigBuffer(sDomain);
-        let denArr = new BigBuffer(sDomain);
-
-        numArr.set(Fr.one, 0);
-        denArr.set(Fr.one, 0);
-
-        // Set initial omega
-        let w = Fr.one;
-        for (let i = 0; i < zkey.domainSize; i++) {
-            const i_sFr = i * sFr;
-            const i_sDomain = (zkey.domainSize + i) * sFr;
-            const i_sDomain2 = (zkey.domainSize * 2 + i) * sFr;
-            const betaw = Fr.mul(challenges.beta, w);
-
-            let num1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
-            num1 = Fr.add(num1, betaw);
-            num1 = Fr.add(num1, challenges.gamma);
-
-            let num2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
-            num2 = Fr.add(num2, Fr.mul(zkey.k1, betaw));
-            num2 = Fr.add(num2, challenges.gamma);
-
-            let num3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
-            num3 = Fr.add(num3, Fr.mul(zkey.k2, betaw));
-            num3 = Fr.add(num3, challenges.gamma);
-
-            const num = Fr.mul(num1, Fr.mul(num2, num3));
-
-            let den1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
-            den1 = Fr.add(den1, Fr.mul(evaluations.sigma.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
-            den1 = Fr.add(den1, challenges.gamma);
-
-            let den2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
-            den2 = Fr.add(den2, Fr.mul(evaluations.sigma.slice(i_sDomain * 4, i_sDomain * 4 + sFr), challenges.beta));
-            den2 = Fr.add(den2, challenges.gamma);
-
-            let den3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
-            den3 = Fr.add(den3, Fr.mul(evaluations.sigma.slice(i_sDomain2 * 4, i_sDomain2 * 4 + sFr), challenges.beta));
-            den3 = Fr.add(den3, challenges.gamma);
-
-            const den = Fr.mul(den1, Fr.mul(den2, den3));
-
-            numArr.set(
-                Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num),
-                ((i + 1) % zkey.domainSize) * sFr
-            );
-
-            denArr.set(
-                Fr.mul(denArr.slice(i_sFr, i_sFr + sFr), den),
-                ((i + 1) % zkey.domainSize) * sFr
-            );
-
-            w = Fr.mul(w, Fr.w[zkey.power]);
-        }
-
-        denArr = await Fr.batchInverse(denArr);
-
-        // TODO: Do it in assembly and in parallel
-        for (let i = 0; i < zkey.domainSize; i++) {
-            const i_sFr = i * sFr;
-
-            const z = Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), denArr.slice(i_sFr, i_sFr + sFr));
-            numArr.set(z, i_sFr);
-        }
-        buffers.Z = numArr;
-
-        if (!Fr.eq(numArr.slice(0, sFr), Fr.one)) {
-            throw new Error("Copy constraints does not match");
-        }
-
-        // Compute polynomial coefficients z(X)
-        polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
-
-        // Compute extended evaluations of z(X) polynomial
-        evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
-
-        // Blind z(X) polynomial coefficients with blinding scalars b
-        polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
-
-        if (polynomials.Z.degree() >= settings.domainSize + 3) {
-            throw new Error("range_check: Z Polynomial is not well calculated");
-        }
+        await computeZ();
 
         // STEP 2.3 - Compute quotient polynomial T1(X) and T2(X)
         // TODO
-        polynomials.T1 = new Polynomial(new Uint8Array(0), Fr, logger);
-        polynomials.T2 = new Polynomial(new Uint8Array(0), Fr, logger);
+        await computeT1();
+        await computeT2();
 
         // STEP 2.4 - Compute the FFT-style combination polynomial C2(X)
         // TODO
-        polynomials.C2 = new Polynomial(new Uint8Array(0), Fr, logger);
+        await computeC2();
 
         // The second output of the prover is ([C2]_1)
         proof.addPolynomial("C2", await multiExponentiation(polynomials.C2, "C2"));
+
+        return 0;
+
+        async function computeZ() {
+            let numArr = new BigBuffer(sDomain);
+            let denArr = new BigBuffer(sDomain);
+
+            numArr.set(Fr.one, 0);
+            denArr.set(Fr.one, 0);
+
+            // Set initial omega
+            let w = Fr.one;
+            for (let i = 0; i < zkey.domainSize; i++) {
+                const i_sFr = i * sFr;
+                const i_sDomain = (zkey.domainSize + i) * sFr;
+                const i_sDomain2 = (zkey.domainSize * 2 + i) * sFr;
+                const betaw = Fr.mul(challenges.beta, w);
+
+                let num1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
+                num1 = Fr.add(num1, betaw);
+                num1 = Fr.add(num1, challenges.gamma);
+
+                let num2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
+                num2 = Fr.add(num2, Fr.mul(zkey.k1, betaw));
+                num2 = Fr.add(num2, challenges.gamma);
+
+                let num3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
+                num3 = Fr.add(num3, Fr.mul(zkey.k2, betaw));
+                num3 = Fr.add(num3, challenges.gamma);
+
+                const num = Fr.mul(num1, Fr.mul(num2, num3));
+
+                let den1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
+                den1 = Fr.add(den1, Fr.mul(evaluations.sigma.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
+                den1 = Fr.add(den1, challenges.gamma);
+
+                let den2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
+                den2 = Fr.add(den2, Fr.mul(evaluations.sigma.slice(i_sDomain * 4, i_sDomain * 4 + sFr), challenges.beta));
+                den2 = Fr.add(den2, challenges.gamma);
+
+                let den3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
+                den3 = Fr.add(den3, Fr.mul(evaluations.sigma.slice(i_sDomain2 * 4, i_sDomain2 * 4 + sFr), challenges.beta));
+                den3 = Fr.add(den3, challenges.gamma);
+
+                const den = Fr.mul(den1, Fr.mul(den2, den3));
+
+                numArr.set(
+                    Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num),
+                    ((i + 1) % zkey.domainSize) * sFr
+                );
+
+                denArr.set(
+                    Fr.mul(denArr.slice(i_sFr, i_sFr + sFr), den),
+                    ((i + 1) % zkey.domainSize) * sFr
+                );
+
+                w = Fr.mul(w, Fr.w[zkey.power]);
+            }
+
+            denArr = await Fr.batchInverse(denArr);
+
+            // TODO: Do it in assembly and in parallel
+            for (let i = 0; i < zkey.domainSize; i++) {
+                const i_sFr = i * sFr;
+
+                const z = Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), denArr.slice(i_sFr, i_sFr + sFr));
+                numArr.set(z, i_sFr);
+            }
+            buffers.Z = numArr;
+
+            if (!Fr.eq(numArr.slice(0, sFr), Fr.one)) {
+                throw new Error("Copy constraints does not match");
+            }
+
+            // Compute polynomial coefficients z(X)
+            polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
+
+            // Compute extended evaluations of z(X) polynomial
+            evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
+
+            // Blind z(X) polynomial coefficients with blinding scalars b
+            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+
+            if (polynomials.Z.degree() >= settings.domainSize + 3) {
+                throw new Error("range_check: Z Polynomial is not well calculated");
+            }
+        }
+
+        async function computeT1() {
+            polynomials.T1 = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
+
+        async function computeT2() {
+            polynomials.T2 = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
+
+        async function computeC2() {
+            polynomials.C2 = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
     }
 
     async function round3() {
-        // 1. Compute the quotient challenge alpha
+        // STEP 3.1 - Compute evaluation challenge xi ∈ S (!!)
         const transcript = new Keccak256Transcript(curve);
-        transcript.addPolCommitment(proof.getPolynomial("Z"));
-        challenges.alpha = transcript.getChallenge();
-        if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
-
-        // 2. Compute the quotient polynomial q(X) ∈ F[X]
-        if (logger) logger.debug("Reading QL");
-        evaluations.Ql = new Evaluations(BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Ql, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
-
-        if (logger) logger.debug("Reading QR");
-        evaluations.Qr = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Qr, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
-
-        if (logger) logger.debug("Reading QM");
-        evaluations.Qm = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Qm, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
-
-        if (logger) logger.debug("Reading QO");
-        evaluations.Qo = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Qo, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
-
-        if (logger) logger.debug("Reading QC");
-        evaluations.Qc = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-        await fdZKey.readToBuffer(evaluations.Qc, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
-
-        if (logger) logger.debug("Reading Lagrange polynomials");
-        const lagrange1 = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
-        evaluations.lagrange1 = new Evaluations(lagrange1, Fr, logger);
-
-        const buffT = new BigBuffer(sDomain * 4);
-        const buffTz = new BigBuffer(sDomain * 4);
-
-        const alphaSquared = Fr.square(challenges.alpha);
-
-        // Set initial omega
-        let omega = Fr.one;
-        for (let i = 0; i < zkey.domainSize * 4; i++) {
-            if ((i % 5000 === 0) && (logger)) logger.debug(`calculating t ${i}/${zkey.domainSize * 4}`);
-
-            const i_sFr = i * sFr;
-            const i_sFrw = ((i + zkey.domainSize * 4 + 4) % (zkey.domainSize * 4)) * sFr;
-            const i_sDomain = (zkey.domainSize * 4 + i) * sFr;
-
-            const omega2 = Fr.square(omega);
-            const omegaW = Fr.mul(omega, Fr.w[zkey.power]);
-            const omegaW2 = Fr.square(omegaW);
-
-            const a = evaluations.A.get(i_sFr);
-            const b = evaluations.B.get(i_sFr);
-            const q1 = evaluations.Q1.get(i_sFr);
-            const q2 = evaluations.Q2.get(i_sFr);
-            const z = evaluations.Z.get(i_sFr);
-
-            const aW = evaluations.A.get(i_sFrw);
-            const bW = evaluations.B.get(i_sFrw);
-            const q1W = evaluations.Q1.get(i_sFrw);
-            const q2W = evaluations.Q2.get(i_sFrw);
-            const zW = evaluations.Z.get(i_sFrw);
-
-
-            const s1 = evaluations.sigma.get(i_sFr);
-            const s2 = evaluations.sigma.get(i_sDomain);
-
-            const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
-            const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
-
-            const zp = Fr.add(Fr.add(Fr.mul(challenges.b[5], omega2), Fr.mul(challenges.b[6], omega)), challenges.b[7]);
-            const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[5], omegaW2), Fr.mul(challenges.b[6], omegaW)), challenges.b[7]);
-
-            let pl = Fr.zero;
-            for (let j = 0; j < zkey.nPublic; j++) {
-                const offset = (j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr;
-
-                const lPol = evaluations.lagrange1.get(offset);
-                const aVal = evaluations.A.get(j * sFr);
-
-                pl = Fr.sub(pl, Fr.mul(lPol, aVal));
-            }
-
-            // GATE CONSTRAINT
-            // IDENTITY A) q_1·a + q_2·b + q_1'·a·b + q_2'·a·a' + b' = 0
-            let identityA = Fr.zero;
-            let identityAz = Fr.zero;
-            if (i % 2 === 0) {
-                const idA0 = Fr.mul(a, q1);
-                const idA0z = Fr.mul(ap, q1);
-
-                const idA1 = Fr.mul(b, q2);
-                const idA1z = Fr.mul(bp, q2);
-
-                let [idA2, idA2z] = mul2(a, b, ap, bp, i % 4);
-                idA2 = Fr.mul(idA2, q1W);
-                idA2z = Fr.mul(idA2z, q1W);
-
-                let [idA3, idA3z] = mul2(a, aW, ap, bp, i % 4);
-                idA3 = Fr.mul(idA3, q2W);
-                idA3z = Fr.mul(idA3z, q2W);
-
-                identityA = Fr.add(idA0, Fr.add(idA1, Fr.add(idA2, Fr.add(idA3, bW))));
-                identityAz = Fr.add(idA0z, Fr.add(idA1z, Fr.add(idA2z, idA3z))); //TODO check if we have to add something like bWz
-            }
-
-            // PERMUTATION CONSTRAINT
-            // IDENTITY B = B1 - B2
-
-            // IDENTITY B1) (a(X) + beta·X + gamma)(b(X) + beta·k1·X + gamma)z(X)
-            const betaX = Fr.mul(challenges.beta, omega);
-            let idB11 = Fr.add(a, betaX);
-            idB11 = Fr.add(idB11, challenges.gamma);
-
-            let idB12 = Fr.add(b, Fr.mul(betaX, zkey.k1));
-            idB12 = Fr.add(idB12, challenges.gamma);
-
-            const [identityB1, identityB1z] = mul3(idB11, idB12, z, ap, bp, zp, i % 4);
-
-            // IDENTITY B2) (a(X) + beta·sigma1(X) + gamma) (b(X) + beta·sigma2(X) + gamma) z(Xω)
-            let idB21 = a;
-            idB21 = Fr.add(idB21, Fr.mul(challenges.beta, s1));
-            idB21 = Fr.add(idB21, challenges.gamma);
-
-            let idB22 = b;
-            idB22 = Fr.add(idB22, Fr.mul(challenges.beta, s2));
-            idB22 = Fr.add(idB22, challenges.gamma);
-
-            const [identityB2, identityB2z] = mul3(idB21, idB22, zW, ap, bp, zWp, i % 4);
-
-            let identityB = Fr.sub(identityB1, identityB2);
-            let identityBz = Fr.sub(identityB1z, identityB2z);
-
-            // IDENTITY C) (z(X)-1) · L_1(X)
-            const offset = (zkey.domainSize + i) * sFr;
-            let identityC = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.slice(offset, offset + sFr));
-            let identityCz = Fr.mul(zp, evaluations.lagrange1.slice(offset, offset + sFr));
-
-            // Apply alpha random factor
-            identityB = Fr.mul(identityB, challenges.alpha);
-            identityC = Fr.mul(identityC, alphaSquared);
-
-            identityBz = Fr.mul(identityBz, challenges.alpha);
-            identityCz = Fr.mul(identityCz, alphaSquared);
-
-            let identities = identityA;
-            identities = Fr.add(identities, identityB);
-            identities = Fr.add(identities, identityC);
-
-            let identitiesZ = identityAz;
-            identitiesZ = Fr.add(identitiesZ, identityBz);
-            identitiesZ = Fr.add(identitiesZ, identityCz);
-
-            // Set T & Tz values
-            buffT.set(identities, i * sFr);
-            buffTz.set(identitiesZ, i * sFr);
-
-            // Compute next omega
-            omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
-        }
-
-        delete evaluations.Q1;
-        delete evaluations.Q2;
-        delete evaluations.lagrange1;
-
-        if (logger) logger.debug("ifft T");
-        polynomials.T = await Polynomial.fromBuffer(buffT, Fr, logger);
-        polynomials.T = await polynomials.T.divZh();
-
-        if (logger) logger.debug("ifft Tz");
-        const polTz = await Polynomial.fromBuffer(buffTz, Fr, logger);
-
-        polynomials.T.add(polTz);
-
-        //TODO
-        //const expectedDegree = 1 === C ? 2 * DOMAIN_SIZE + 5 : C * (DOMAIN_SIZE + 2) + 3;
-        //if (polynomials.T.degree() > expectedDegree) {
-        //    throw new Error("range_check Q Polynomial is not well calculated");
-        //}
-
-        // 3. Split t(X) into 2 polynomials
-        // of degree lower than n+3 and another polynomial q'_c(X) of degree at most n+4
-        polynomials.splitT = polynomials.T.split(2, zkey.domainSize, challenges.b[8]);
-
-        // 4. The third output of the prover is ([q_1(x)]_1, ..., [q_{c-1}(x)]_1, [q_c(x)]_1)
-        proof.addPolynomial("TL", await multiExponentiation(polynomials.splitT[0], "TL"));
-        proof.addPolynomial("TH", await multiExponentiation(polynomials.splitT[1], "TH"));
-    }
-
-    async function round4() {
-        // 1. Compute evaluation challenge xi ∈ F_p
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addPolCommitment(proof.getPolynomial("TL"));
-        transcript.addPolCommitment(proof.getPolynomial("TH"));
+        transcript.addPolCommitment(proof.getPolynomial("C2"));
         challenges.xi = transcript.getChallenge();
         if (logger) logger.debug("Challenge.xi: " + Fr.toString(challenges.xi));
 
-        // 2. Compute the opening evaluations
+        // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
+        proof.addEvaluation("ql", polynomials.QL.evaluate(challenges.xi));
+        proof.addEvaluation("qr", polynomials.QR.evaluate(challenges.xi));
+        proof.addEvaluation("qm", polynomials.QM.evaluate(challenges.xi));
+        proof.addEvaluation("qo", polynomials.QO.evaluate(challenges.xi));
+        proof.addEvaluation("qc", polynomials.QC.evaluate(challenges.xi));
+        proof.addEvaluation("s1", polynomials.S1.evaluate(challenges.xi));
+        proof.addEvaluation("s2", polynomials.S2.evaluate(challenges.xi));
+        proof.addEvaluation("s3", polynomials.S3.evaluate(challenges.xi));
         proof.addEvaluation("a", polynomials.A.evaluate(challenges.xi));
         proof.addEvaluation("b", polynomials.B.evaluate(challenges.xi));
-        proof.addEvaluation("s1", polynomials.S1.evaluate(challenges.xi));
-        // TODO Can we remove it?
-        proof.addEvaluation("t", polynomials.T.evaluate(challenges.xi));
+        proof.addEvaluation("c", polynomials.C.evaluate(challenges.xi));
+        proof.addEvaluation("z", polynomials.Z.evaluate(challenges.xi));
 
         const xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        proof.addEvaluation("aw", polynomials.A.evaluate(xiw));
-        proof.addEvaluation("bw", polynomials.B.evaluate(xiw));
         proof.addEvaluation("zw", polynomials.Z.evaluate(xiw));
+        proof.addEvaluation("t1w", polynomials.T1.evaluate(xiw));
+        proof.addEvaluation("t2w", polynomials.T2.evaluate(xiw));
+    }
+
+    async function round4() {
+        // STEP 4.1 - Compute challenge alpha ∈ F
+        const transcript = new Keccak256Transcript(curve);
+        transcript.addScalar(proof.getEvaluation("ql"));
+        transcript.addScalar(proof.getEvaluation("qr"));
+        transcript.addScalar(proof.getEvaluation("qm"));
+        transcript.addScalar(proof.getEvaluation("qo"));
+        transcript.addScalar(proof.getEvaluation("qc"));
+        transcript.addScalar(proof.getEvaluation("s1"));
+        transcript.addScalar(proof.getEvaluation("s2"));
+        transcript.addScalar(proof.getEvaluation("s3"));
+        transcript.addScalar(proof.getEvaluation("a"));
+        transcript.addScalar(proof.getEvaluation("b"));
+        transcript.addScalar(proof.getEvaluation("c"));
+        transcript.addScalar(proof.getEvaluation("z"));
+        transcript.addScalar(proof.getEvaluation("zw"));
+        transcript.addScalar(proof.getEvaluation("t1w"));
+        transcript.addScalar(proof.getEvaluation("t2w"));
+        challenges.alpha = transcript.getChallenge();
+        if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
+
+        // STEP 4.2 - Compute F(X)
+        // TODO
+        await computeF();
+
+        // STEP 4.3 - Compute W1(X)
+        // TODO
+        await computeW1();
+
+        // The fourth output of the prover is ([W1]_1)
+        proof.addPolynomial("W1", await multiExponentiation(polynomials.W1, "W1"));
+
+        return 0;
+
+        async function computeF() {
+            polynomials.F = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
+
+        async function computeW1() {
+            polynomials.W = new Polynomial(new Uint8Array(0), Fr, logger);
+        }
     }
 
     async function round5() {
-        // 1. Compute opening challenges v, vp ∈ F_p
+        // STEP 5.1 - Compute random evaluation point y ∈ F
         const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(proof.getEvaluation("a"));
-        transcript.addScalar(proof.getEvaluation("b"));
-        transcript.addScalar(proof.getEvaluation("s1"));
-        transcript.addScalar(proof.getEvaluation("aw"));
-        transcript.addScalar(proof.getEvaluation("bw"));
-        transcript.addScalar(proof.getEvaluation("zw"));
+        transcript.addPolCommitment(proof.getPolynomial("W1"));
+        challenges.y = transcript.getChallenge();
+        if (logger) logger.debug("Challenge.y: " + Fr.toString(challenges.y));
 
-        challenges.v = [];
-        challenges.v[0] = transcript.getChallenge();
-        if (logger) logger.debug("Challenge.v: " + Fr.toString(challenges.v[0]));
-        for (let i = 1; i <= 3; i++) challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[0]);
+        // STEP 5.2 - Compute L(X)
+        await computeL();
 
-        transcript.reset();
-        transcript.appendScalar(challenges.v[0]);
-        challenges.vp = [];
-        challenges.vp[0] = transcript.getChallenge();
-        for (let i = 1; i <= 1; i++) challenges.vp[i] = Fr.mul(challenges.vp[i - 1], challenges.vp[0]);
+        // STEP 5.3 - Compute W'(X)
+        await computeW2();
 
-        // 2. Compute the linearisation polynomial r(x) ∈ F_{<n+5}[X]
+        // The fifth output of the prover is ([W2]_1)
+        proof.addPolynomial("W2", await multiExponentiation(polynomials.W2, "W2"));
 
-        // Compute xi^n
-        challenges.xiN = challenges.xi;
-        for (let i = 0; i < zkey.power; i++) {
-            challenges.xiN = Fr.square(challenges.xiN);
+        return 0;
+
+        async function computeL() {
+            polynomials.L = new Polynomial(new Uint8Array(0), Fr, logger);
         }
 
-        // Get polynomials q1. q2 and sigma2 from zkey file
-        polynomials.Q1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.Q1.coef, 0, sDomain, zkeySections[FF_Q_ZKEY_SECTION][0].p);
-
-        polynomials.Q2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.Q2.coef, 0, sDomain, zkeySections[FF_Q2_ZKEY_SECTION][0].p);
-
-        polynomials.S2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA_ZKEY_SECTION][0].p + 5 * sDomain);
-
-        // precompute evaluation.a * evaluation.b to use inside the loop
-        const coefAB = Fr.mul(proof.getEvaluation("a"), proof.getEvaluation("b"));
-
-        // precompute evaluation.a * evaluation.a' to use inside the loop
-        const coefAAw = Fr.mul(proof.getEvaluation("a"), proof.getEvaluation("aw"));
-
-        // precompute constant coefficient of z(x) to use inside the loop
-        // (evaluations.a + beta·xi + gamma)·(evaluations.b + beta·xi·k1 + gamma)·alpha + L_1(xi)·alpha^2
-        const betaxi = Fr.mul(challenges.beta, challenges.xi);
-
-        let part10 = proof.getEvaluation("a");
-        part10 = Fr.add(part10, betaxi);
-        part10 = Fr.add(part10, challenges.gamma);
-
-        let part11 = proof.getEvaluation("b");
-        part11 = Fr.add(part11, Fr.mul(betaxi, zkey.k1));
-        part11 = Fr.add(part11, challenges.gamma);
-
-        const part1 = Fr.mul(Fr.mul(part10, part11), challenges.alpha);
-
-        const evalL1 = Fr.div(
-            Fr.sub(challenges.xiN, Fr.one),
-            Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(zkey.domainSize))
-        );
-
-        const part2 = Fr.mul(evalL1, Fr.square(challenges.alpha));
-
-        const coefZ = Fr.add(part1, part2);
-
-        // precompute constant coefficient S2 to use inside the loop
-        let coefS2 = proof.getEvaluation("a");
-        coefS2 = Fr.add(coefS2, Fr.mul(challenges.beta, proof.getEvaluation("s1")));
-        coefS2 = Fr.add(coefS2, challenges.gamma);
-
-        coefS2 = Fr.mul(coefS2, challenges.beta);
-        coefS2 = Fr.mul(coefS2, proof.evaluations.zw);
-        coefS2 = Fr.mul(coefS2, challenges.alpha);
-
-        let coefficientsR = new BigBuffer((zkey.domainSize + 3) * sFr);
-
-        for (let i = 0; i < zkey.domainSize + 3; i++) {
-            const i_sFr = i * sFr;
-            const i_sFrw = ((i + zkey.domainSize + 4) % (zkey.domainSize)) * sFr;
-
-            let coefficient = Fr.mul(coefZ, polynomials.Z.getCoef(i_sFr));
-
-            if (i < zkey.domainSize) {
-                if (i % 2 === 0) {
-                    coefficient = Fr.add(coefficient, Fr.mul(proof.getEvaluation("a"), polynomials.Q1.getCoef(i_sFr)));
-                    coefficient = Fr.add(coefficient, Fr.mul(proof.getEvaluation("b"), polynomials.Q2.getCoef(i_sFr)));
-                    coefficient = Fr.add(coefficient, Fr.mul(coefAB, polynomials.Q1.getCoef(i_sFrw)));
-                    coefficient = Fr.add(coefficient, Fr.mul(coefAAw, polynomials.Q2.getCoef(i_sFrw)));
-                }
-
-                coefficient = Fr.sub(coefficient, Fr.mul(coefS2, polynomials.S2.getCoef(i_sFr)));
-            }
-            coefficientsR.set(coefficient, i_sFr);
+        async function computeW2() {
+            polynomials.W2 = new Polynomial(new Uint8Array(0), Fr, logger);
         }
-
-        polynomials.R = new Polynomial(coefficientsR, Fr, logger);
-
-        // TODO check degree
-        //if (polynomials.R.degree() >= DOMAIN_SIZE + 5) {
-        //    throw new Error("range_check R Polynomial is not well calculated");
-        //}
-
-        const eval_r = polynomials.R.evaluate(challenges.xi);
-
-        // TODO Compute xi^{n+2} to add to the split polynomial
-        let xinAdd2 = Fr.mul(Fr.mul(Fr.mul(challenges.xiN, challenges.xi), challenges.xi), challenges.xi);
-        polynomials.splitT[1].mulScalar(xinAdd2);
-
-        // 3.1 Compute the opening proof polynomials W_xi(X) ∈ F_{<n+4}[X]
-        //TODO set to correct size value
-        polynomials.Wxi = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-        polynomials.Wxi.add(polynomials.splitT[0]);
-        polynomials.Wxi.add(polynomials.splitT[1]);
-        // TODO S'ha d'afegir R????
-        polynomials.Wxi.add(polynomials.R, challenges.v[0]);
-        polynomials.Wxi.add(polynomials.A, challenges.v[1]);
-        polynomials.Wxi.add(polynomials.B, challenges.v[2]);
-        polynomials.Wxi.add(polynomials.S1, challenges.v[3]);
-
-        const evaluation_t = polynomials.T.evaluate(challenges.xi);
-
-        polynomials.Wxi.subScalar(evaluation_t);
-        polynomials.Wxi.subScalar(Fr.mul(eval_r, challenges.v[0],));
-        polynomials.Wxi.subScalar(Fr.mul(proof.getEvaluation("a"), challenges.v[1]));
-        polynomials.Wxi.subScalar(Fr.mul(proof.getEvaluation("b"), challenges.v[2]));
-        polynomials.Wxi.subScalar(Fr.mul(proof.getEvaluation("s1", challenges.v[3])));
-
-        polynomials.Wxi.divByXValue(challenges.xi);
-
-        //TODO
-        //const expectedDegree = 1 === C ? 2 * DOMAIN_SIZE + 5 : DOMAIN_SIZE + 5;
-        //if (polynomials.Wxi.degree() > expectedDegree) {
-        //    throw new Error("range_check Wxi Polynomial is not well calculated");
-        //}
-
-        // 3.2 Compute the opening proof polynomials W_xiω(X) ∈ F_{<n+2}[X]
-        polynomials.Wxiw = new Polynomial(polynomials.Z.coef.slice(), Fr, logger);
-        polynomials.Wxiw.add(polynomials.A, challenges.vp[0]);
-        polynomials.Wxiw.add(polynomials.B, challenges.vp[1]);
-
-        polynomials.Wxiw.subScalar(proof.getEvaluation("zw"));
-        polynomials.Wxiw.subScalar(Fr.mul(proof.getEvaluation("aw"), challenges.vp[0]));
-        polynomials.Wxiw.subScalar(Fr.mul(proof.getEvaluation("bw"), challenges.vp[1],));
-
-        polynomials.Wxiw.divByXValue(Fr.mul(challenges.xi, Fr.w[zkey.cirPower]));
-
-        // Cal??????
-        proof.addEvaluation("r", eval_r);
-
-        //TODO
-        //if (polynomials.Wxiw.degree() >= DOMAIN_SIZE + 2) {
-        //    throw new Error("range_check Wxiw Polynomial is not well calculated");
-        //}
-
-        // 4. The fifth output of the prover is ([W_xi(x)]_1, [W_xiω(x)]_1)
-        proof.addPolynomial("Wxi", await multiExponentiation(polynomials.Wxi, "Wxi"));
-        proof.addPolynomial("Wxiw", await multiExponentiation(polynomials.Wxiw, "Wxiw"));
     }
 
     async function multiExponentiation(polynomial, name) {
