@@ -320,6 +320,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             await fdZKey.readToBuffer(evaluations.QC, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
 
             const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
+            evaluations.lagrange1 = new Evaluations(lagrangePolynomials, Fr, logger);
 
             buffers.T0 = new BigBuffer(sDomain * 4);
             buffers.T0z = new BigBuffer(sDomain * 4);
@@ -345,10 +346,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 let pi = Fr.zero;
                 for (let j = 0; j < zkey.nPublic; j++) {
-                    pi = Fr.sub(pi, Fr.mul(
-                        lagrangePolynomials.slice((j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr, (j * 5 * zkey.domainSize + zkey.domainSize + i + 1) * sFr),
-                        buffers.A.slice(j * sFr, (j + 1) * sFr)
-                    ));
+                    const offset = (j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr;
+
+                    const lPol = evaluations.lagrange1.get(offset);
+                    const aVal = evaluations.A.get(j * sFr);
+
+                    pi = Fr.sub(pi, Fr.mul(lPol, aVal));
                 }
 
                 // e1 -> q_L(X)·a(X)
@@ -446,7 +449,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         await computeZ();
 
         // STEP 2.3 - Compute quotient polynomial T1(X) and T2(X)
-        // TODO
         await computeT1();
         await computeT2();
 
@@ -536,7 +538,43 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeT1() {
-            polynomials.T1 = new Polynomial(new BigBuffer(0), Fr, logger);
+
+            buffers.T1 = new BigBuffer(sDomain * 4);
+            buffers.T1z = new BigBuffer(sDomain * 4);
+
+            let omega = Fr.one;
+            for (let i = 0; i < zkey.domainSize * 4; i++) {
+                if ((i % 5000 === 0) && (logger)) logger.debug(`Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
+
+                const i_sFr = i * sFr;
+                const omega2 = Fr.square(omega);
+
+                const z = evaluations.Z.get(i_sFr);
+                const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
+
+                // (z(X)-1) · L_1(X)
+                const offset = (zkey.domainSize + i) * sFr;
+                let e = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.get(offset));
+                let ez = Fr.mul(zp, evaluations.lagrange1.get(offset));
+
+                buffers.T1.set(e, i_sFr);
+                buffers.T1z.set(ez, i_sFr);
+
+                // Compute next omega
+                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+            }
+
+            if (logger) logger.debug("Computing T1 ifft");
+            polynomials.T1 = await Polynomial.fromBuffer(buffers.T1, Fr, logger);
+            polynomials.T1 = await polynomials.T1.divZh(settings.domainSize);
+
+            if (logger) logger.debug("Computing T1z ifft");
+            polynomials.T1z = await Polynomial.fromBuffer(buffers.T1z, Fr, logger);
+
+            polynomials.T1.add(polynomials.T1z);
+
+            // Is this correct? Check it doesn't remove the T1 coefficients
+            delete polynomials.T1z;
         }
 
         async function computeT2() {
