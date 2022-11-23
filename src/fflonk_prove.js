@@ -469,8 +469,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             let w = Fr.one;
             for (let i = 0; i < zkey.domainSize; i++) {
                 const i_sFr = i * sFr;
-                const i_sDomain = (zkey.domainSize + i) * sFr;
-                const i_sDomain2 = (zkey.domainSize * 2 + i) * sFr;
                 const betaw = Fr.mul(challenges.beta, w);
 
                 let num1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
@@ -488,28 +486,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const num = Fr.mul(num1, Fr.mul(num2, num3));
 
                 let den1 = evaluations.A.slice(i_sFr, i_sFr + sFr);
-                den1 = Fr.add(den1, Fr.mul(evaluations.sigma.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
+                den1 = Fr.add(den1, Fr.mul(evaluations.S1.eval.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
                 den1 = Fr.add(den1, challenges.gamma);
 
                 let den2 = evaluations.B.slice(i_sFr, i_sFr + sFr);
-                den2 = Fr.add(den2, Fr.mul(evaluations.sigma.slice(i_sDomain * 4, i_sDomain * 4 + sFr), challenges.beta));
+                den2 = Fr.add(den2, Fr.mul(evaluations.S2.eval.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
                 den2 = Fr.add(den2, challenges.gamma);
 
                 let den3 = evaluations.C.slice(i_sFr, i_sFr + sFr);
-                den3 = Fr.add(den3, Fr.mul(evaluations.sigma.slice(i_sDomain2 * 4, i_sDomain2 * 4 + sFr), challenges.beta));
+                den3 = Fr.add(den3, Fr.mul(evaluations.S3.eval.slice(i_sFr * 4, i_sFr * 4 + sFr), challenges.beta));
                 den3 = Fr.add(den3, challenges.gamma);
 
                 const den = Fr.mul(den1, Fr.mul(den2, den3));
 
-                numArr.set(
-                    Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num),
-                    ((i + 1) % zkey.domainSize) * sFr
-                );
+                numArr.set(Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num), ((i + 1) % zkey.domainSize) * sFr);
 
-                denArr.set(
-                    Fr.mul(denArr.slice(i_sFr, i_sFr + sFr), den),
-                    ((i + 1) % zkey.domainSize) * sFr
-                );
+                denArr.set(Fr.mul(denArr.slice(i_sFr, i_sFr + sFr), den), ((i + 1) % zkey.domainSize) * sFr);
 
                 w = Fr.mul(w, Fr.w[zkey.power]);
             }
