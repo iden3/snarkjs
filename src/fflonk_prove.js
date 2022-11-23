@@ -240,6 +240,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         async function computeWirePolynomials() {
             // Build A, B and C evaluations buffer from zkey and witness files
+            // TODO check, this buffer can be nConstraints * sFr in size ??
             buffers.A = new BigBuffer(sDomain);
             buffers.B = new BigBuffer(sDomain);
             buffers.C = new BigBuffer(sDomain);
@@ -296,7 +297,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
         }
 
-        // TODO
         async function computeT0() {
             // Read QL evaluations from zkey file
             if (logger) logger.debug("Reading QL");
@@ -321,8 +321,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
 
-            const buffT0 = new BigBuffer(sDomain * 4);
-            const buffT0z = new BigBuffer(sDomain * 4);
+            buffers.T0 = new BigBuffer(sDomain * 4);
+            buffers.T0z = new BigBuffer(sDomain * 4);
 
             let omega = Fr.one;
             for (let i = 0; i < settings.domainSize; i++) {
@@ -371,18 +371,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const value = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
                 const valuez = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
-                buffT0.set(value, i_sFr);
-                buffT0z.set(valuez, i_sFr);
+                buffers.T0.set(value, i_sFr);
+                buffers.T0z.set(valuez, i_sFr);
 
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
             if (logger) logger.debug("Computing T0 ifft");
-            polynomials.T0 = await Polynomial.fromBuffer(buffT0, Fr, logger);
+            polynomials.T0 = await Polynomial.fromBuffer(buffers.T0, Fr, logger);
             polynomials.T0 = await polynomials.T0.divZh(settings.domainSize);
 
             if (logger) logger.debug("Computing T0z ifft");
-            polynomials.T0z = await Polynomial.fromBuffer(buffT0z, Fr, logger);
+            polynomials.T0z = await Polynomial.fromBuffer(buffers.T0z, Fr, logger);
 
             polynomials.T0.add(polynomials.T0z);
 
@@ -390,9 +390,43 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             delete polynomials.T0z;
         }
 
-        // TODO
         async function computeC1() {
-            polynomials.C1 = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.A4 = computePolynomial4(buffers.A);
+            polynomials.B4 = computePolynomial4(buffers.B);
+            polynomials.C4 = computePolynomial4(buffers.C);
+            polynomials.T04 = computePolynomial4(buffers.T0);
+
+            // Compute degree of the new polynomial C1
+            // Will be the maximum(deg(A), deg(B)+1, deg(C)+2, deg(D)+3)
+            const length = Math.max(polynomials.A4.length,
+                polynomials.B4.length + 1,
+                polynomials.C4.length + 2,
+                polynomials.T04.length + 3);
+            polynomials.C1 = new Polynomial(new BigBuffer(length * sFr, Fr, logger));
+
+            for (let i = 0; i < length; i++) {
+                const i_sFr = i * sFr;
+
+                let val = polynomials.A4.getCoef(i);
+                // Following polynomials are multiplied (so shifted) by x^n
+                if (i > 0) val = Fr.add(val, polynomials.B4.getCoef(i - 1));
+                if (i > 1) val = Fr.add(val, polynomials.C4.getCoef(i - 2));
+                if (i > 2) val = Fr.add(val, polynomials.T04.getCoef(i - 3));
+
+                polynomials.C1.coef.set(val, i_sFr);
+            }
+
+            function computePolynomial4(buffer) {
+                const buffer4 = new BigBuffer(buffer.byteLength);
+
+                for (let i = 0; i < buffer.byteLength / sFr; i++) {
+                    const i_sFr = i * sFr;
+
+                    const val4 = buffer.slice(i_sFr, i_sFr + sFr);
+                    buffer4.set(Fr.square(Fr.square(val4)), i_sFr);
+                }
+                return Polynomial.fromBuffer(buffer4, Fr, logger);
+            }
         }
     }
 
@@ -523,15 +557,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeT1() {
-            polynomials.T1 = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.T1 = new Polynomial(new BigBuffer(0), Fr, logger);
         }
 
         async function computeT2() {
-            polynomials.T2 = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.T2 = new Polynomial(new BigBuffer(0), Fr, logger);
         }
 
         async function computeC2() {
-            polynomials.C2 = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.C2 = new Polynomial(new BigBuffer(0), Fr, logger);
         }
     }
 
@@ -597,11 +631,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeF() {
-            polynomials.F = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.F = new Polynomial(new BigBuffer(0), Fr, logger);
         }
 
         async function computeW1() {
-            polynomials.W = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.W = new Polynomial(new BigBuffer(0), Fr, logger);
         }
     }
 
@@ -624,11 +658,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeL() {
-            polynomials.L = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.L = new Polynomial(new BigBuffer(0), Fr, logger);
         }
 
         async function computeW2() {
-            polynomials.W2 = new Polynomial(new Uint8Array(0), Fr, logger);
+            polynomials.W2 = new Polynomial(new BigBuffer(0), Fr, logger);
         }
     }
 

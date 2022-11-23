@@ -57,12 +57,19 @@ export class Polynomial {
     }
 
     getCoef(index) {
+        const i_n8 = index * this.Fr.n8;
+
+        if(i_n8 + this.Fr.n8 > this.coef.length) return this.Fr.zero;
+
+        return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
+    }
+
+    setCoef(index, value) {
         if (index > this.degree()) {
-            return this.Fr.zero;
+            throw new Error("Coef index is not available");
         }
 
-        const i_n8 = index * this.Fr.n8;
-        return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
+        this.coef.set(value, index * this.Fr.n8);
     }
 
     static async to4T(buffer, domainSize, blindingFactors, Fr) {
@@ -265,6 +272,14 @@ export class Polynomial {
         }
 
         return new Polynomial(coefs, this.Fr);
+    }
+
+    byX() {
+        const coefs = new BigBuffer(this.coef.length + this.Fr.n8);
+        coefs.set(this.Fr.zero, 0);
+        coefs.set(this.coef, this.Fr.n8);
+
+        this.coef = coefs;
     }
 
     split(numPols, degPols, blindingFactors) {

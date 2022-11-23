@@ -1,7 +1,7 @@
 import assert from "assert";
 import {getCurveFromName} from "../src/curves.js";
 import {Polynomial} from "../src/polynomial/polynomial.js";
-import {getRandomArray, getRandomBuffer, getRandomValue} from "./test.utils.js";
+import {getRandomBuffer, getRandomValue} from "./test.utils.js";
 
 function radomPolynomial(maxDegree, Fr) {
     const degree = getRandomValue(maxDegree);
@@ -94,7 +94,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should get the correct length", async () => {
-        const length = getRandomValue();
+        const length = getRandomValue(30);
 
         const buffer = new Uint8Array(length * sFr);
         for (let i = 0; i < length; i++) {
@@ -195,6 +195,29 @@ describe("snarkjs: Polynomial tests", function () {
         }
     });
 
+    it("should multiply by X", async () => {
+        const length = getRandomValue(30);
+
+        const buffer = new Uint8Array(length * sFr);
+        for (let i = 0; i < length; i++) {
+            buffer[i] = curve.Fr.e(i);
+        }
+
+        const polynomial = new Polynomial(buffer, curve.Fr);
+        const clone = Uint8Array.from(polynomial.coef);
+
+        assert.equal(length, polynomial.length);
+
+        polynomial.byX();
+
+        assert.equal(length + 1, polynomial.length);
+
+        assert.deepEqual(polynomial.getCoef(0), curve.Fr.zero);
+        for (let i = 1; i < polynomial.length; i++) {
+            const i_sFr = (i - 1) * curve.Fr.n8;
+            assert.deepEqual(polynomial.getCoef(i), clone.slice(i_sFr, i_sFr + curve.Fr.n8));
+        }
+    });
 
     it("should split a polynomial", async () => {
         const Fr = curve.Fr;
@@ -219,8 +242,6 @@ describe("snarkjs: Polynomial tests", function () {
                 assert(pols[i].degree() === degPols + 1);
             }
         }
-
-
     });
 
     it("should truncate a polynomial", async () => {
