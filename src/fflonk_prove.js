@@ -137,19 +137,19 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     // Start fflonk protocol
 
-    // ROUND 1. Compute polynomials A(X) and B(X)
+    // ROUND 1. Compute C1(X) polynomial
     await round1();
 
-    // ROUND 2. Compute permutation polynomial Z(X)
+    // ROUND 2. Compute C2(X) polynomial
     await round2();
 
-    // ROUND 3. Compute quotient polynomial t(X)
+    // ROUND 3. Compute opening evaluations
     await round3();
 
-    // ROUND 4. Compute evaluations
+    // ROUND 4. Compute W(X) polynomial
     await round4();
 
-    // ROUND 5. Compute linearisation polynomial r(X)
+    // ROUND 5. Compute W'(X) polynomial
     await round5();
 
     await fdZKey.close();
@@ -168,7 +168,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     _proof.protocol = "fflonk";
     _proof.curve = curve.name;
 
-    return {proof: stringifyBigInts(_proof), publicSignals: stringifyBigInts(publicSignals)};
+    return {
+        proof: stringifyBigInts(_proof),
+        publicSignals: stringifyBigInts(publicSignals)
+    };
 
     async function calculateAdditions() {
         const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_ADDITIONS_ZKEY_SECTION);
@@ -227,7 +230,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
         await computeWirePolynomials();
 
-        // STEP 1.3 - Compute quotient polynomial T0(X)
+        // STEP 1.3 - Compute the quotient polynomial T0(X)
         await computeT0();
 
         // STEP 1.4 - Compute the FFT-style combination polynomial C1(X)
@@ -331,7 +334,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.T0 = new BigBuffer(sDomain * 4);
             buffers.T0z = new BigBuffer(sDomain * 4);
 
-            if(logger) logger.debug("Computing T0");
+            if (logger) logger.debug("Computing T0");
             // Initial omega
             let omega = Fr.one;
             for (let i = 0; i < settings.domainSize; i++) {
@@ -495,7 +498,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             numArr.set(Fr.one, 0);
             denArr.set(Fr.one, 0);
 
-            if(logger) logger.debug("Computing Z");
+            if (logger) logger.debug("Computing Z");
             // Set initial omega
             let w = Fr.one;
             for (let i = 0; i < zkey.domainSize; i++) {
@@ -584,7 +587,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.T1 = new BigBuffer(sDomain * 4);
             buffers.T1z = new BigBuffer(sDomain * 4);
 
-            if(logger) logger.debug("Computing T1");
+            if (logger) logger.debug("Computing T1");
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
@@ -598,7 +601,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 // T1(X) := (z(X) - 1) · L_1(X)
                 // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                
+
                 // TODO Check offset is ok
                 const offset = (zkey.domainSize + i) * sFr;
                 let t1 = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.get(offset));
@@ -633,7 +636,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.T2 = new BigBuffer(sDomain * 4);
             buffers.T2z = new BigBuffer(sDomain * 4);
 
-            if(logger) logger.debug("Computing T1");
+            if (logger) logger.debug("Computing T1");
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
