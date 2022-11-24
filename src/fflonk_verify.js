@@ -17,26 +17,20 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Scalar} from "ffjavascript";
 import * as curves from "./curves.js";
 import {utils} from "ffjavascript";
 
 const {unstringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
 import {Proof} from "./proof.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
-//import {BP_ADDITIONS_ZKEY_SECTION} from "./fflonk.js";
-
-const {keccak256} = jsSha3;
-
 
 export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
-    const curve = await curves.getCurveFromName(vk.curve);
+    _vk_verifier = unstringifyBigInts(_vk_verifier);
+    const curve = await curves.getCurveFromName(_vk_verifier.curve);
+
+    const vk = fromObjectVk(curve, _vk_verifier);
 
     const Fr = curve.Fr;
-    const G1 = curve.G1;
-
-    const vk = fromObjectVk(curve, unstringifyBigInts(_vk_verifier));
 
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(unstringifyBigInts(_proof));
@@ -69,6 +63,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     // STEP 5 - Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
     challenges.zh = Fr.sub(challenges.xiN, Fr.one);
+    challenges.invzh = Fr.inv(challenges.zh);
 
     // STEP 6 - Compute the lagrange polynomial evaluation L_1(xi)
     if (logger) logger.info("Computing Lagrange evaluations");
@@ -84,16 +79,16 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     // STEP 9 - Compute polynomial r2 ∈ F_{<6}[X]
     if (logger) logger.info("Computing r2");
-    const r2 = computeR2(proof, challenges, lagrange1[1], curve);
+    const r2 = computeR2(proof, challenges, lagrange1[1], vk, curve);
 
     if (logger) logger.info("Computing F");
-    const F = computeF(curve, proof, challenges, vk);
+    const F = computeF(curve, proof, challenges);
 
     if (logger) logger.info("Computing E");
-    const E = computeE(curve, proof, challenges, vk);
+    const E = computeE(curve, proof, challenges, vk, r1, r2);
 
     if (logger) logger.info("Computing J");
-    const J = computeJ(curve, proof, challenges, vk, r1, r2);
+    const J = computeJ(curve, proof, challenges);
 
     const res = await isValidPairing(curve, proof, challenges, vk, F, E, J);
 
@@ -110,21 +105,19 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 }
 
 function fromObjectVk(curve, vk) {
-    const G1 = curve.G1;
-    const G2 = curve.G2;
-    const Fr = curve.Fr;
     const res = vk;
-    res.Qm = G1.fromObject(vk.Qm);
-    res.Ql = G1.fromObject(vk.Ql);
-    res.Qr = G1.fromObject(vk.Qr);
-    res.Qo = G1.fromObject(vk.Qo);
-    res.Qc = G1.fromObject(vk.Qc);
-    res.S1 = G1.fromObject(vk.S1);
-    res.S2 = G1.fromObject(vk.S2);
-    res.S3 = G1.fromObject(vk.S3);
-    res.k1 = Fr.fromObject(vk.k1);
-    res.k2 = Fr.fromObject(vk.k2);
-    res.X_2 = G2.fromObject(vk.X_2);
+    res.k1 = curve.Fr.fromObject(vk.k1);
+    res.k2 = curve.Fr.fromObject(vk.k2);
+    res.QL = curve.G1.fromObject(vk.QL);
+    res.QR = curve.G1.fromObject(vk.QR);
+    res.QM = curve.G1.fromObject(vk.QM);
+    res.QO = curve.G1.fromObject(vk.QO);
+    res.QC = curve.G1.fromObject(vk.QC);
+    res.S1 = curve.G1.fromObject(vk.S1);
+    res.S2 = curve.G1.fromObject(vk.S2);
+    res.S3 = curve.G1.fromObject(vk.S3);
+    res.X_2 = curve.G2.fromObject(vk.X_2);
+    res.w = curve.Fr.fromObject(vk.w);
 
     return res;
 }
@@ -157,7 +150,28 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
 
     transcript.reset();
     transcript.addPolCommitment(proof.polynomials.C2);
-    challenges.xi = transcript.getChallenge();
+    challenges.xiSeed = transcript.getChallenge();
+    challenges.xiSeed2 = Fr.square(challenges.xiSeed);
+    challenges.h1 = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
+    challenges.h2 = Fr.square(challenges.xiSeed2);
+    challenges.h3 = Fr.mul(challenges.h2, challenges.xiSeed2);
+    challenges.xi = Fr.square(challenges.h3);
+    // TODO can I get w from vkey wright?
+    challenges.h3 = Fr.mul(challenges.h3, vk.w);
+    let w3 = Fr.w[vk.power + settings.stepOmega3]; // TODO check and define settings.stepOmega3 NOTE: copy from the prover
+    let w3_2 = Fr.mul(w3, w3);
+    let w4 = Fr.w[vk.power + settings.stepOmega4]; // TODO check and define settings.stepOmega4 NOTE: copy from the prover
+    let w4_2 = Fr.mul(w4, w4);
+    let w4_3 = Fr.mul(w4_2, w4);
+
+    challenges.h1w4 = Fr.mul(challenges.h1, w4);
+    challenges.h1w4_2 = Fr.mul(challenges.h1, w4_2);
+    challenges.h1w4_3 = Fr.mul(challenges.h1, w4_3);
+    challenges.h2w3 = Fr.mul(challenges.h2, w3);
+    challenges.h2w3_2 = Fr.mul(challenges.h2, w3_2);
+    challenges.h3w3 = Fr.mul(challenges.h3, w3);
+    challenges.h3w3_2 = Fr.mul(challenges.h3, w3_2);
+
     challenges.xiN = challenges.xi;
     vk.domainSize = 1;
     for (let i = 0; i < vk.power; i++) {
@@ -227,71 +241,89 @@ function calculatePI(curve, publicSignals, lagrange1) {
 
 function computeR1(proof, challenges, pi, lagrange1, curve) {
     const Fr = curve.Fr;
-    let r1;
+
+    // T0(xi) = [ qL·a + qR·b + qM·a·b + qO·c + qC + PI(xi) ] / Z_H(xi)
+    let T0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
+    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
+    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
+    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
+    T0 = Fr.add(T0, proof.evaluations.qc);
+    T0 = Fr.add(T0, pi);
+    T0 = Fr.mul(T0, challenges.invzh);
+
+    // TODO computes r1(y)
+    const r1 = Fr.zero;
+
     return r1;
 }
 
-function computeR2(proof, challenges, lagrange1, curve) {
+function computeR2(proof, challenges, lagrange1, vk, curve) {
     const Fr = curve.Fr;
-    let r2;
+
+    // T1(xi) = [ L_1(xi)(z-1)] / Z_H(xi)
+    let T1 = Fr.sub(proof.evaluations.z, Fr.one);
+    T1 = Fr.mul(T1, lagrange1);
+    T1 = Fr.mul(T1, challenges.invzh);
+
+    // T2(xi) = [  (a + beta·xi + gamma)(b + beta·xi·k1 + gamma)(c + beta·xi·k2 + gamma)z
+    //           - (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)zω  ] / Z_H(xi)
+    const betaxi = Fr.mul(challenges.beta, challenges.xi);
+    const T211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
+    const T212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
+    const T213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
+    const T21 = Fr.mul(T211, Fr.mul(T212, Fr.mul(T213, proof.evaluations.z)));
+
+    const T221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
+    const T222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
+    const T223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
+    const T22 = Fr.mul(T221, Fr.mul(T222, Fr.mul(T223, proof.evaluations.zw)));
+
+    const T2 = Fr.sub(T21, T22);
+    T2 = Fr.mul(T2, challenges.invzh);
+
+    // TODO computes r2(y)
+    const r2 = Fr.zero;
+
     return r2;
 }
 
-function computeF(curve, proof, challenges, vk, D) {
+function computeF(curve, proof, challenges) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let res = proof.T1;
+    let num = Fr.sub(challenges.y, challenges.h1);
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4));
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4_2));
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4_3));
 
-    res = G1.add(res, G1.timesFr(proof.T2, challenges.xin));
-    res = G1.add(res, G1.timesFr(proof.T3, Fr.square(challenges.xin)));
-    res = G1.add(res, D);
-    res = G1.add(res, G1.timesFr(proof.A, challenges.v[2]));
-    res = G1.add(res, G1.timesFr(proof.B, challenges.v[3]));
-    res = G1.add(res, G1.timesFr(proof.C, challenges.v[4]));
-    res = G1.add(res, G1.timesFr(vk.S1, challenges.v[5]));
-    res = G1.add(res, G1.timesFr(vk.S2, challenges.v[6]));
+    challenges.temp = num;
 
-    return res;
+    let den = Fr.sub(challenges.y, challenges.h2);
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3_2));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3_2));
+
+    challenges.quotient = Fr.mul(challenges.alpha, Fr.mul(num, Fr.inv(den)));
+
+    return G1.add(proof.polynomials.C1, G1.timesFr(proof.polynomials.C2, challenges.quotient));
 }
 
 
-function computeE(curve, proof, challenges, vk, t) {
+function computeE(curve, proof, challenges, vk, r1, r2) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let s = t;
+    let E1 = Fr.add(r1, Fr.mul(challenges.quotient, r2));
 
-    s = Fr.add(s, Fr.mul(challenges.v[1], proof.eval_r));
-    s = Fr.add(s, Fr.mul(challenges.v[2], proof.eval_a));
-    s = Fr.add(s, Fr.mul(challenges.v[3], proof.eval_b));
-    s = Fr.add(s, Fr.mul(challenges.v[4], proof.eval_c));
-    s = Fr.add(s, Fr.mul(challenges.v[5], proof.eval_s1));
-    s = Fr.add(s, Fr.mul(challenges.v[6], proof.eval_s2));
-    s = Fr.add(s, Fr.mul(challenges.u, proof.eval_zw));
-
-    const res = G1.timesFr(G1.one, s);
-
-    return res;
+    return G1.timesFr(G1.one, E1);
 }
 
-function computeJ(curve, proof, challenges, vk, t) {
+function computeJ(curve, proof, challenges) {
     const G1 = curve.G1;
-    const Fr = curve.Fr;
 
-    let s = t;
-
-    s = Fr.add(s, Fr.mul(challenges.v[1], proof.eval_r));
-    s = Fr.add(s, Fr.mul(challenges.v[2], proof.eval_a));
-    s = Fr.add(s, Fr.mul(challenges.v[3], proof.eval_b));
-    s = Fr.add(s, Fr.mul(challenges.v[4], proof.eval_c));
-    s = Fr.add(s, Fr.mul(challenges.v[5], proof.eval_s1));
-    s = Fr.add(s, Fr.mul(challenges.v[6], proof.eval_s2));
-    s = Fr.add(s, Fr.mul(challenges.u, proof.eval_zw));
-
-    const res = G1.timesFr(G1.one, s);
-
-    return res;
+    return G1.timesFr(proof.polynomials.W1, challenges.temp);
 }
 
 async function isValidPairing(curve, proof, challenges, vk, F, E, J) {

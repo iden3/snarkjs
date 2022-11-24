@@ -606,7 +606,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 // T1(X) := (z(X) - 1) · L_1(X)
                 // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-
                 // TODO Check offset is ok
                 const offset = (zkey.domainSize + i) * sFr;
                 let t1 = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.get(offset));
