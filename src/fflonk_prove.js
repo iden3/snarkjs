@@ -396,7 +396,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
-            // Compute the coefficients of the polynomial T0(X) from buffers.T1
+            // Compute the coefficients of the polynomial T0(X) from buffers.T0
             if (logger) logger.debug("Computing T0 ifft");
             polynomials.T0 = await Polynomial.fromBuffer(buffers.T0, Fr, logger);
 
