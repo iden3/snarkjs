@@ -285,7 +285,7 @@ export class Polynomial {
     // Compute a new polynomial f(x^n) from f(x)
     static computePolynomialXExp(buffer, n, Fr, logger) {
         if (n < 1) {
-            throw new Error("Calc a new polynomial to a zero or negative number is not allowed");
+            throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
             return this.fromBuffer(buffer, Fr, logger);
         }
