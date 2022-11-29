@@ -85,7 +85,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Initializations
     const Fr = curve.Fr;
-    const G1 = curve.G1;
 
     const sFr = curve.Fr.n8;
     const sG1 = curve.G1.F.n8 * 2;
@@ -125,8 +124,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     const [k1, k2] = computeK1K2();
-
-    const vk = {};
 
     const pTauPoints = new BigBuffer(settings.domainSize * sG1);
     const pTauOffset = pTauSections[12][0].p + ((2 ** (settings.cirPower)) - 1) * sG1;
