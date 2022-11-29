@@ -127,9 +127,12 @@ async function exportFFlonkVk(zkey) {
         k1: curve.Fr.toObject(zkey.k1),
         k2: curve.Fr.toObject(zkey.k2),
 
+        w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+        w3: curve.Fr.toObject(zkey.w3),
+        w4: curve.Fr.toObject(zkey.w4),
+
         X_2: curve.G2.toObject(zkey.X_2),
 
-        w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
 
     return stringifyBigInts(vKey);

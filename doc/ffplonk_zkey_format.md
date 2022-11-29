@@ -107,6 +107,10 @@ Currently, there are 16 defined sections:
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ k2
      ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ w3
+     ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ w4
+     ┣━━━━━━━━━━━━━┫
      ┃ G2 fs bytes ┃ X2
      ┗━━━━━━━━━━━━━┛
 ````

@@ -19,15 +19,9 @@
 
 import {readR1csFd} from "r1csfile";
 import * as utils from "./powersoftau_utils.js";
-import {
-    readBinFile,
-    createBinFile,
-    writeBigInt,
-    startWriteSection,
-    endWriteSection,
-} from "@iden3/binfileutils";
+import {createBinFile, endWriteSection, readBinFile, startWriteSection, writeBigInt,} from "@iden3/binfileutils";
 import {log2} from "./misc.js";
-import {Scalar, BigBuffer} from "ffjavascript";
+import {BigBuffer, Scalar} from "ffjavascript";
 import BigArray from "./bigarray.js";
 import {
     FF_HEADER_ZKEY_SECTION,
@@ -124,6 +118,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     const [k1, k2] = computeK1K2();
+
+    // Compute omega 3 and omega 4 to be used in the prover and the verifier
+    // omega3^3 = 1
+    const w3 = computeW3();
+    // omega4^4 = 1
+    const w4 = computeW4();
 
     const pTauPoints = new BigBuffer(settings.domainSize * sG1);
     const pTauOffset = pTauSections[12][0].p + ((2 ** (settings.cirPower)) - 1) * sG1;
@@ -407,6 +407,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.write(k1);
         await fdZKey.write(k2);
 
+        await fdZKey.write(w3);
+        await fdZKey.write(w4);
+
         let bX_2;
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
         await fdZKey.write(bX_2);
@@ -440,6 +443,18 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
             return false;
         }
+    }
+
+    function computeW3() {
+        let generator = Fr.e(31624);
+        // Exponent is the order of r - 1
+        let exponent = Scalar.div(3648040478639879203707734290876212514758060733402672390616367364429301415936n, Scalar.e(3));
+
+        return Fr.exp(generator, exponent);
+    }
+
+    function computeW4() {
+        return Fr.w[2];
     }
 }
 
