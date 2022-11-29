@@ -108,16 +108,10 @@ function fromObjectVk(curve, vk) {
     const res = vk;
     res.k1 = curve.Fr.fromObject(vk.k1);
     res.k2 = curve.Fr.fromObject(vk.k2);
-    res.QL = curve.G1.fromObject(vk.QL);
-    res.QR = curve.G1.fromObject(vk.QR);
-    res.QM = curve.G1.fromObject(vk.QM);
-    res.QO = curve.G1.fromObject(vk.QO);
-    res.QC = curve.G1.fromObject(vk.QC);
-    res.S1 = curve.G1.fromObject(vk.S1);
-    res.S2 = curve.G1.fromObject(vk.S2);
-    res.S3 = curve.G1.fromObject(vk.S3);
-    res.X_2 = curve.G2.fromObject(vk.X_2);
     res.w = curve.Fr.fromObject(vk.w);
+    res.w3 = curve.Fr.fromObject(vk.w3);
+    res.w4 = curve.Fr.fromObject(vk.w4);
+    res.X_2 = curve.G2.fromObject(vk.X_2);
 
     return res;
 }
@@ -156,11 +150,11 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     challenges.h2 = Fr.square(challenges.xiSeed2);
     challenges.h3 = Fr.mul(challenges.h2, challenges.xiSeed2);
     challenges.xi = Fr.square(challenges.h3);
-    // TODO can I get w from vkey wright?
+
     challenges.h3 = Fr.mul(challenges.h3, vk.w);
-    let w3 = Fr.w[vk.power + settings.stepOmega3]; // TODO check and define settings.stepOmega3 NOTE: copy from the prover
+    let w3 = vk.w3;
     let w3_2 = Fr.mul(w3, w3);
-    let w4 = Fr.w[vk.power + settings.stepOmega4]; // TODO check and define settings.stepOmega4 NOTE: copy from the prover
+    let w4 = vk.w4;
     let w4_2 = Fr.mul(w4, w4);
     let w4_3 = Fr.mul(w4_2, w4);
 

@@ -89,8 +89,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     let settings = {
         domainSize: zkey.domainSize,
-        stepOmega3: 3, //TODO,
-        stepOmega4: 4 // TODO
     };
 
     //Read witness data
@@ -843,9 +841,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             buffers.F = new BigBuffer(sDomain * 4);
 
-            let w3 = Fr.w[zkey.power + settings.stepOmega3]; // TODO check and define settings.stepOmega3
+            let w3 = zkey.w3;
             let w3_2 = Fr.mul(w3, w3);
-            let w4 = Fr.w[zkey.power + settings.stepOmega4]; // TODO check and define settings.stepOmega4
+            let w4 = zkey.w4;
             let w4_2 = Fr.mul(w4, w4);
             let w4_3 = Fr.mul(w4_2, w4);
 
