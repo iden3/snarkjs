@@ -119,10 +119,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     const [k1, k2] = computeK1K2();
 
-    // Compute omega 3 and omega 4 to be used in the prover and the verifier
-    // omega3^3 = 1
+    // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
+    // w3^3 = 1 and  w4^4 = 1
     const w3 = computeW3();
-    // omega4^4 = 1
     const w4 = computeW4();
 
     const pTauPoints = new BigBuffer(settings.domainSize * sG1);
