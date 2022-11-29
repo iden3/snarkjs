@@ -57,7 +57,7 @@ import {
 import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 
-export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("FFlonk setup started");
 
     if (globalThis.gc) globalThis.gc();
@@ -285,10 +285,6 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await startWriteSection(fdZKey, sectionNum);
         await writeP4(fdZKey, Q);
         await endWriteSection(fdZKey);
-
-        // Prepare Q values to be written in the FFlonk header
-        Q = await Fr.batchFromMontgomery(Q);
-        vk[name] = await curve.G1.multiExpAffine(pTauPoints, Q, logger, "multiexp " + name);
     }
 
     async function writeSigma(fdZKey) {
@@ -330,16 +326,13 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
         // Write sigma coefficients and evaluations
         for (let i = 0; i < 3; i++) {
             const sectionId = 0 === i ? FF_SIGMA1_ZKEY_SECTION : 1 === i ? FF_SIGMA2_ZKEY_SECTION : FF_SIGMA3_ZKEY_SECTION;
+
             await startWriteSection(fdZKey, sectionId);
             let S = sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1));
             await writeP4(fdZKey, S);
-            if (globalThis.gc) globalThis.gc();
-
-            // Prepare sigma values to be written in the FFlonk header
-            S = await Fr.batchFromMontgomery(S);
-            vk["S" + (i + 1)] = await curve.G1.multiExpAffine(pTauPoints, S, logger, "multiexp S" + (i + 1));
-            if (globalThis.gc) globalThis.gc();
             await endWriteSection(fdZKey);
+
+            if (globalThis.gc) globalThis.gc();
         }
 
         return 0;
@@ -416,16 +409,6 @@ export default async function FFlonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);
-
-        await fdZKey.write(G1.toAffine(vk.QL));
-        await fdZKey.write(G1.toAffine(vk.QR));
-        await fdZKey.write(G1.toAffine(vk.QM));
-        await fdZKey.write(G1.toAffine(vk.QO));
-        await fdZKey.write(G1.toAffine(vk.QC));
-
-        await fdZKey.write(G1.toAffine(vk.S1));
-        await fdZKey.write(G1.toAffine(vk.S2));
-        await fdZKey.write(G1.toAffine(vk.S3));
 
         let bX_2;
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);

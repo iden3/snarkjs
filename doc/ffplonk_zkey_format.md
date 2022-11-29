@@ -107,22 +107,6 @@ Currently, there are 16 defined sections:
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ k2
      ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ QL
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ QR
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ QM
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ QO
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ QC
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ S1
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ S2
-     ┣━━━━━━━━━━━━━┫
-     ┃ G1 fs bytes ┃ S3
-     ┣━━━━━━━━━━━━━┫
      ┃ G2 fs bytes ┃ X2
      ┗━━━━━━━━━━━━━┛
 ````

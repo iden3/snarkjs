@@ -15,7 +15,6 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 import fflonkSetup from "../fflonk_setup.js";
 
 export async function fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger) {
