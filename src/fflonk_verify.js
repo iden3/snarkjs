@@ -334,7 +334,7 @@ async function isValidPairing(curve, proof, challenges, vk, F, E, J) {
 
     const A2 = curve.G2.one;
     const B1 = proof.polynomials.W2;
-    const B2 = curve.G2.one;
+    const B2 = vk.X_2;
 
     return await curve.pairingEq(A1, A2, B1, B2);
 
