@@ -87,7 +87,7 @@ describe("snarkjs: Polynomial tests", function () {
     it("should get the correct coefficient", async () => {
         const polynomial = radomPolynomial(30, curve.Fr);
 
-        for (let i = 0; i < polynomial.length; i++) {
+        for (let i = 0; i < polynomial.length(); i++) {
             const coef = polynomial.coef.slice(i * sFr, (i + 1) * sFr);
             assert.deepEqual(coef, polynomial.getCoef(i));
         }
@@ -102,7 +102,7 @@ describe("snarkjs: Polynomial tests", function () {
         }
 
         const polynomial = new Polynomial(buffer, curve.Fr);
-        assert.equal(length, polynomial.length);
+        assert.equal(length, polynomial.length());
     });
 
     it("should evaluate a polynomial", async () => {
@@ -117,15 +117,15 @@ describe("snarkjs: Polynomial tests", function () {
     it("should add a polynomial", async () => {
         const polynomial1 = radomPolynomial(30, curve.Fr);
         const polynomial2 = radomPolynomial(30, curve.Fr);
-        const l1 = polynomial1.length;
-        const l2 = polynomial2.length;
+        const l1 = polynomial1.length();
+        const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
         const clone2 = Uint8Array.from(polynomial2.coef);
 
         const blindingValue = curve.Fr.random();
         polynomial1.add(polynomial2, blindingValue);
 
-        for (let i = 0; i < polynomial1.length; i++) {
+        for (let i = 0; i < polynomial1.length(); i++) {
             const val1 = i < l1 ? clone1.slice(i * sFr, (i + 1) * sFr) : curve.Fr.zero;
             const val2 = i < l2 ? clone2.slice(i * sFr, (i + 1) * sFr) : curve.Fr.zero;
             const val2b = curve.Fr.mul(val2, blindingValue);
@@ -138,15 +138,15 @@ describe("snarkjs: Polynomial tests", function () {
     it("should sub a polynomial", async () => {
         const polynomial1 = radomPolynomial(30, curve.Fr);
         const polynomial2 = radomPolynomial(30, curve.Fr);
-        const l1 = polynomial1.length;
-        const l2 = polynomial2.length;
+        const l1 = polynomial1.length();
+        const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
         const clone2 = Uint8Array.from(polynomial2.coef);
 
         const blindingValue = curve.Fr.random();
         polynomial1.sub(polynomial2, blindingValue);
 
-        for (let i = 0; i < polynomial1.length; i++) {
+        for (let i = 0; i < polynomial1.length(); i++) {
             const val1 = i < l1 ? clone1.slice(i * sFr, (i + 1) * sFr) : curve.Fr.zero;
             const val2 = i < l2 ? clone2.slice(i * sFr, (i + 1) * sFr) : curve.Fr.zero;
             const val2b = curve.Fr.mul(val2, blindingValue);
@@ -163,7 +163,7 @@ describe("snarkjs: Polynomial tests", function () {
 
         polynomial1.mulScalar(scalar);
 
-        for (let i = 0; i < polynomial1.length; i++) {
+        for (let i = 0; i < polynomial1.length(); i++) {
             const val = curve.Fr.mul(clone1.slice(i * sFr, (i + 1) * sFr), scalar);
             assert.deepEqual(polynomial1.getCoef(i), val);
         }
@@ -177,7 +177,7 @@ describe("snarkjs: Polynomial tests", function () {
         polynomial1.addScalar(scalar);
 
         assert(polynomial1.getCoef(0), curve.Fr.add(clone1.slice(0, sFr), scalar));
-        for (let i = 1; i < polynomial1.length; i++) {
+        for (let i = 1; i < polynomial1.length(); i++) {
             assert.deepEqual(polynomial1.getCoef(i), clone1.slice(i * sFr, (i + 1) * sFr));
         }
     });
@@ -190,7 +190,7 @@ describe("snarkjs: Polynomial tests", function () {
         polynomial1.subScalar(scalar);
 
         assert(polynomial1.getCoef(0), curve.Fr.sub(clone1.slice(0, sFr), scalar));
-        for (let i = 1; i < polynomial1.length; i++) {
+        for (let i = 1; i < polynomial1.length(); i++) {
             assert.deepEqual(polynomial1.getCoef(i), clone1.slice(i * sFr, (i + 1) * sFr));
         }
     });
@@ -206,14 +206,14 @@ describe("snarkjs: Polynomial tests", function () {
         const polynomial = new Polynomial(buffer, curve.Fr);
         const clone = Uint8Array.from(polynomial.coef);
 
-        assert.equal(length, polynomial.length);
+        assert.equal(length, polynomial.length());
 
         polynomial.byX();
 
-        assert.equal(length + 1, polynomial.length);
+        assert.equal(length + 1, polynomial.length());
 
         assert.deepEqual(polynomial.getCoef(0), curve.Fr.zero);
-        for (let i = 1; i < polynomial.length; i++) {
+        for (let i = 1; i < polynomial.length(); i++) {
             const i_sFr = (i - 1) * curve.Fr.n8;
             assert.deepEqual(polynomial.getCoef(i), clone.slice(i_sFr, i_sFr + curve.Fr.n8));
         }
@@ -257,9 +257,9 @@ describe("snarkjs: Polynomial tests", function () {
         }
 
         const polynomial = new Polynomial(buffer, curve.Fr);
-        assert.equal(polynomial.length, random1 + random2);
+        assert.equal(polynomial.length(), random1 + random2);
 
         polynomial.truncate();
-        assert.equal(polynomial.length, random1);
+        assert.equal(polynomial.length(), random1);
     });
 });

@@ -18,6 +18,7 @@
 */
 
 import {BigBuffer} from "ffjavascript";
+import {Evaluations} from "./evaluations.js";
 
 export class Polynomial {
     constructor(coefficients = new Uint8Array(0), Fr, logger) {
@@ -35,15 +36,15 @@ export class Polynomial {
     blindCoefficients(blindingFactors) {
         blindingFactors = blindingFactors || [];
 
-        const blindedCoefficients = new BigBuffer((this.length + blindingFactors.length) * this.Fr.n8);
+        const blindedCoefficients = new BigBuffer((this.length() + blindingFactors.length) * this.Fr.n8);
         blindedCoefficients.set(this.coef, 0);
         for (let i = 0; i < blindingFactors.length; i++) {
             blindedCoefficients.set(
                 this.Fr.add(
-                    blindedCoefficients.slice((this.length + i) * this.Fr.n8, (this.length + i + 1) * this.Fr.n8),
+                    blindedCoefficients.slice((this.length() + i) * this.Fr.n8, (this.length() + i + 1) * this.Fr.n8),
                     blindingFactors[i]
                 ),
-                (this.length + i) * this.Fr.n8
+                (this.length() + i) * this.Fr.n8
             );
             blindedCoefficients.set(
                 this.Fr.sub(
@@ -107,7 +108,7 @@ export class Polynomial {
         return [a1, A4];
     }
 
-    get length() {
+    length() {
         let length = this.coef.byteLength / this.Fr.n8;
         if (length !== Math.floor(this.coef.byteLength / this.Fr.n8)) {
             throw new Error("Polynomial coefficients buffer has incorrect size");
@@ -121,7 +122,7 @@ export class Polynomial {
     }
 
     degree() {
-        for (let i = this.length - 1; i > 0; i--) {
+        for (let i = this.length() - 1; i > 0; i--) {
             const i_n8 = i * this.Fr.n8;
             if (!this.Fr.eq(this.Fr.zero, this.coef.slice(i_n8, i_n8 + this.Fr.n8))) {
                 return i;
@@ -134,7 +135,7 @@ export class Polynomial {
     evaluate(point) {
         let res = this.Fr.zero;
 
-        for (let i = this.length; i > 0; i--) {
+        for (let i = this.length(); i > 0; i--) {
             let i_n8 = (i - 1) * this.Fr.n8;
             const currentCoefficient = this.coef.slice(i_n8, i_n8 + this.Fr.n8);
             res = this.Fr.add(currentCoefficient, this.Fr.mul(res, point));
@@ -146,12 +147,12 @@ export class Polynomial {
     add(polynomial, blindingValue) {
         let other = false;
 
-        if (polynomial.length > this.length) {
+        if (polynomial.length() > this.length()) {
             other = true;
         }
 
-        const thisLength = this.length;
-        const polyLength = polynomial.length;
+        const thisLength = this.length();
+        const polyLength = polynomial.length();
         for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
             const i_n8 = i * this.Fr.n8;
 
@@ -176,12 +177,12 @@ export class Polynomial {
     sub(polynomial, blindingValue) {
         let other = false;
 
-        if (polynomial.length > this.length) {
+        if (polynomial.length() > this.length()) {
             other = true;
         }
 
-        const thisLength = this.length;
-        const polyLength = polynomial.length;
+        const thisLength = this.length();
+        const polyLength = polynomial.length();
         for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
             const i_n8 = i * this.Fr.n8;
 
@@ -204,7 +205,7 @@ export class Polynomial {
     }
 
     mulScalar(value) {
-        for (let i = 0; i < this.length; i++) {
+        for (let i = 0; i < this.length(); i++) {
             const i_n8 = i * this.Fr.n8;
 
             this.coef.set(this.Fr.mul(this.coef.slice(i_n8, i_n8 + this.Fr.n8), value), i_n8);
@@ -212,22 +213,22 @@ export class Polynomial {
     }
 
     addScalar(value) {
-        const currentValue = 0 === this.length ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+        const currentValue = 0 === this.length() ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
         this.coef.set(this.Fr.add(currentValue, value), 0);
     }
 
     subScalar(value) {
-        const currentValue = 0 === this.length ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+        const currentValue = 0 === this.length() ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
         this.coef.set(this.Fr.sub(currentValue, value), 0);
     }
 
     // Divide polynomial by X - value
     divByXValue(value) {
-        const coefs = new BigBuffer(this.length * this.Fr.n8);
+        const coefs = new BigBuffer(this.length() * this.Fr.n8);
 
-        coefs.set(this.Fr.zero, (this.length - 1) * this.Fr.n8);
-        coefs.set(this.coef.slice((this.length - 1) * this.Fr.n8, this.length * this.Fr.n8), (this.length - 2) * this.Fr.n8);
-        for (let i = this.length - 3; i >= 0; i--) {
+        coefs.set(this.Fr.zero, (this.length() - 1) * this.Fr.n8);
+        coefs.set(this.coef.slice((this.length() - 1) * this.Fr.n8, this.length() * this.Fr.n8), (this.length() - 2) * this.Fr.n8);
+        for (let i = this.length() - 3; i >= 0; i--) {
             let i_n8 = i * this.Fr.n8;
             coefs.set(
                 this.Fr.add(
@@ -247,8 +248,10 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    async divZh(domainSize) {
-        const coefs = new BigBuffer(domainSize * 4 * this.Fr.n8);
+    async divZh() {
+        const coefs = new BigBuffer(this.coef.byteLength);
+
+        let domainSize = this.coef.length / 4 / this.Fr.n8;
 
         if (this.logger) this.logger.debug("dividing T/Z_H");
         for (let i = 0; i < domainSize; i++) {
@@ -271,7 +274,7 @@ export class Polynomial {
             }
         }
 
-        return new Polynomial(coefs, this.Fr);
+        return new Polynomial(coefs, this.Fr, this.logger);
     }
 
     byX() {
@@ -283,14 +286,14 @@ export class Polynomial {
     }
 
     // Compute a new polynomial f(x^n) from f(x)
-    static computePolynomialXExp(buffer, n, Fr, logger) {
+    static async computePolynomialXExp(buffer, n, Fr, logger) {
         if (n < 1) {
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return this.fromBuffer(buffer, Fr, logger);
+            return await this.fromBuffer(buffer, Fr, logger);
         }
 
-        const buffer4 = new BigBuffer(buffer.byteLength);
+        const bufferDst = new BigBuffer(buffer.byteLength);
 
         for (let i = 0; i < buffer.byteLength / Fr.n8; i++) {
             const i_sFr = i * Fr.n8;
@@ -298,17 +301,17 @@ export class Polynomial {
             const val = buffer.slice(i_sFr, i_sFr + Fr.n8);
             const val2 = Fr.square(val);
 
-            let val4 = Fr.one;
+            let res = Fr.one;
             for (let j = 0; j < Math.floor(n / 2); j++) {
-                val4 = Fr.mul(val4, Fr.square(val2));
+                res = Fr.mul(res, Fr.square(val2));
             }
             if (n % 2 !== 0) {
-                val4 = Fr.mul(val4, val);
+                res = Fr.mul(res, val);
             }
 
-            buffer4.set(val4, i_sFr);
+            bufferDst.set(res, i_sFr);
         }
-        return Polynomial.fromBuffer(buffer4, Fr, logger);
+        return await Polynomial.fromBuffer(bufferDst, Fr, logger);
     }
 
     split(numPols, degPols, blindingFactors) {
