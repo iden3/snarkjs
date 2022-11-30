@@ -30,9 +30,9 @@ import {
 } from "./babyplonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
-import {mul2, mul3} from "./mul_z.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
+import {MulZ} from "./mul_z.js";
 
 const {stringifyBigInts} = utils;
 
@@ -437,11 +437,11 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
                 const idA1 = Fr.mul(b, q2);
                 const idA1z = Fr.mul(bp, q2);
 
-                let [idA2, idA2z] = mul2(a, b, ap, bp, i % 4);
+                let [idA2, idA2z] = MulZ.mul2(a, b, ap, bp, i % 4);
                 idA2 = Fr.mul(idA2, q1W);
                 idA2z = Fr.mul(idA2z, q1W);
 
-                let [idA3, idA3z] = mul2(a, aW, ap, bp, i % 4);
+                let [idA3, idA3z] = MulZ.mul2(a, aW, ap, bp, i % 4);
                 idA3 = Fr.mul(idA3, q2W);
                 idA3z = Fr.mul(idA3z, q2W);
 
@@ -460,7 +460,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             let idB12 = Fr.add(b, Fr.mul(betaX, zkey.k1));
             idB12 = Fr.add(idB12, challenges.gamma);
 
-            const [identityB1, identityB1z] = mul3(idB11, idB12, z, ap, bp, zp, i % 4);
+            const [identityB1, identityB1z] = MulZ.mul3(idB11, idB12, z, ap, bp, zp, i % 4);
 
             // IDENTITY B2) (a(X) + beta·sigma1(X) + gamma) (b(X) + beta·sigma2(X) + gamma) z(Xω)
             let idB21 = a;
@@ -471,7 +471,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             idB22 = Fr.add(idB22, Fr.mul(challenges.beta, s2));
             idB22 = Fr.add(idB22, challenges.gamma);
 
-            const [identityB2, identityB2z] = mul3(idB21, idB22, zW, ap, bp, zWp, i % 4);
+            const [identityB2, identityB2z] = MulZ.mul3(idB21, idB22, zW, ap, bp, zWp, i % 4);
 
             let identityB = Fr.sub(identityB1, identityB2);
             let identityBz = Fr.sub(identityB1z, identityB2z);
