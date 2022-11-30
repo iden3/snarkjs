@@ -132,9 +132,9 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     for (let i = 0; i < publicSignals.length; i++) {
         transcript.addScalar(Fr.e(publicSignals[i]));
     }
-    transcript.addPolCommitment(proof.polynomials.A);
-    transcript.addPolCommitment(proof.polynomials.B);
-    transcript.addPolCommitment(proof.polynomials.C);
+    // transcript.addPolCommitment(proof.polynomials.A);
+    // transcript.addPolCommitment(proof.polynomials.B);
+    // transcript.addPolCommitment(proof.polynomials.C);
     transcript.addPolCommitment(proof.polynomials.C1);
     challenges.beta = transcript.getChallenge();
 
@@ -160,9 +160,9 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     // Compute h3 = xi_seeder^6
     challenges.h3w3[0] = Fr.mul(challenges.h2w3[0], challenges.xiSeed2);
 
-    challenges.xi = Fr.square(challenges.h3);
+    challenges.xi = Fr.square(challenges.h3w3[0]);
 
-    challenges.h3 = Fr.mul(challenges.h3, vk.w3);
+    challenges.h3w3[0] = Fr.mul(challenges.h3w3[0], vk.w3);
     let w3_2 = Fr.mul(vk.w3, vk.w3);
     let w4_2 = Fr.mul(vk.w4, vk.w4);
     let w4_3 = Fr.mul(w4_2, vk.w4);
@@ -291,10 +291,15 @@ function computeR2(proof, challenges, lagrange1, vk, curve) {
     T2 = Fr.mul(T2, challenges.invzh);
 
     let r2 = Fr.zero;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
         r2 = Fr.add(proof.evaluations.z);
         r2 = Fr.add(r2, Fr.mul(challenges.h2w3[i], T1));
         r2 = Fr.add(r2, Fr.mul(Fr.square(challenges.h2w3[i]), T2));
+    }
+    for (let i = 0; i < 3; i++) {
+        r2 = Fr.add(proof.evaluations.z);
+        r2 = Fr.add(r2, Fr.mul(challenges.h3w3[i], T1));
+        r2 = Fr.add(r2, Fr.mul(Fr.square(challenges.h3w3[i]), T2));
     }
 
     return r2;

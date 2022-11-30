@@ -223,9 +223,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
         await computeWirePolynomials();
 
-        proof.addPolynomial("A", await multiExponentiation(polynomials.A, "A"));
-        proof.addPolynomial("B", await multiExponentiation(polynomials.B, "B"));
-        proof.addPolynomial("C", await multiExponentiation(polynomials.C, "C"));
+        // proof.addPolynomial("A", await multiExponentiation(polynomials.A, "A"));
+        // proof.addPolynomial("B", await multiExponentiation(polynomials.B, "B"));
+        // proof.addPolynomial("C", await multiExponentiation(polynomials.C, "C"));
 
         // STEP 1.3 - Compute the quotient polynomial T0(X)
         await computeT0();
@@ -452,9 +452,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         for (let i = 0; i < zkey.nPublic; i++) {
             transcript.addScalar(evaluations.A.get(i * sFr));
         }
-        transcript.addPolCommitment(proof.getPolynomial("A"));
-        transcript.addPolCommitment(proof.getPolynomial("B"));
-        transcript.addPolCommitment(proof.getPolynomial("C"));
+        // transcript.addPolCommitment(proof.getPolynomial("A"));
+        // transcript.addPolCommitment(proof.getPolynomial("B"));
+        // transcript.addPolCommitment(proof.getPolynomial("C"));
         transcript.addPolCommitment(proof.getPolynomial("C1"));
 
         challenges.beta = transcript.getChallenge();

@@ -38,7 +38,7 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */) 
     } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
         res = await exportFFlonkVk(zkey);
     } else {
-        throw new Error("zkey file is not groth16");
+        throw new Error("zkey file protocol unrecognized");
     }
 
     await fd.close();
