@@ -342,8 +342,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             let v;
             if (p < settings.domainSize) {
                 v = w;
-            } else {
+            } else if (p < 2 * settings.domainSize) {
                 v = Fr.mul(w, k1);
+            } else {
+                v = Fr.mul(w, k2);
             }
 
             lastSeen[s] = v;
@@ -370,9 +372,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writePtau(fdZKey) {
         await startWriteSection(fdZKey, FF_PTAU_ZKEY_SECTION);
 
-        //TODO check size of Buffer!!
-        const buffOut = new BigBuffer((settings.domainSize + 6) * sG1);
-        await fdPTau.readToBuffer(buffOut, 0, (settings.domainSize + 6) * sG1, pTauSections[2][0].p);
+        //TODO check size of Buffer to write!!
+        const buffOut = new BigBuffer((settings.domainSize + 8) * sG1);
+        await fdPTau.readToBuffer(buffOut, 0, (settings.domainSize + 8) * sG1, pTauSections[2][0].p);
 
         if (logger) {
             logger.debug("writing ptau");
