@@ -18,7 +18,6 @@
 */
 
 import {BigBuffer} from "ffjavascript";
-import {Evaluations} from "./evaluations.js";
 
 export class Polynomial {
     constructor(coefficients = new Uint8Array(0), Fr, logger) {
