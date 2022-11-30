@@ -32,28 +32,28 @@ export class Proof {
 
     addPolynomial(key, polynomial) {
         if (key in this.polynomials) {
-            this.logger.warning(`proof: polynomial.${key} already exist in proof`);
+            this.logger.warn(`proof: polynomial.${key} already exist in proof`);
         }
         this.polynomials[key] = polynomial;
     }
 
     getPolynomial(key) {
-        if (key in this.polynomials) {
-            this.logger.warning(`proof: polynomial ${key} does not exist in proof`);
+        if (!(key in this.polynomials)) {
+            this.logger.warn(`proof: polynomial ${key} does not exist in proof`);
         }
         return this.polynomials[key];
     }
 
     addEvaluation(key, evaluation) {
         if (key in this.evaluations) {
-            this.logger.warning(`proof: evaluations.${key} already exist in proof`);
+            this.logger.warn(`proof: evaluations.${key} already exist in proof`);
         }
         this.evaluations[key] = evaluation;
     }
 
     getEvaluation(key) {
         if (!(key in this.evaluations)) {
-            this.logger.warning(`proof: evaluation ${key} does not exist in proof`);
+            this.logger.warn(`proof: evaluation ${key} does not exist in proof`);
         }
         return this.evaluations[key];
     }
