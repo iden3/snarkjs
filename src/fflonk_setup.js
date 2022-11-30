@@ -65,12 +65,13 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Get curve defined in PTau
     if (logger) logger.info("Getting curve from PTau settings");
-    const {curve, power} = await utils.readPTauHeader(fdPTau, pTauSections);
+    const {curve, curvePower} = await utils.readPTauHeader(fdPTau, pTauSections);
 
     // Read r1cs file
     if (logger) logger.info("Reading r1cs file");
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
+    await fdR1cs.close();
 
     // Potential error checks
     if (r1cs.prime !== curve.r) {
@@ -100,14 +101,15 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // As the t polynomial is n+5 whe need at least a power of 4
     //TODO review if 3 is ok and then extract the value to a constant
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
-    if (settings.cirPower > power) {
-        throw new Error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${power}`);
+    if (settings.cirPower > curvePower) {
+        throw new Error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${curvePower}`);
     }
 
     settings.domainSize = 2 ** settings.cirPower;
 
     if (logger) {
-        logger.info("  SETUP SETTINGS");
+        logger.info("----------------------------");
+        logger.info("  FFLONK SETUP SETTINGS");
         logger.info(`> Curve:         ${curve.name}`);
         logger.info(`> Circuit power: ${settings.cirPower}`);
         logger.info(`> Domain size:   ${settings.domainSize}`);
@@ -115,8 +117,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         logger.info(`> Public vars:   ${settings.nPublic}`);
         logger.info(`> Constraints:   ${plonkConstraints.length}`);
         logger.info(`> Additions:     ${plonkAdditions.length}`);
+        logger.info("----------------------------");
     }
 
+    // Compute k1 and k2 to be used in the permutation checks
     const [k1, k2] = computeK1K2();
 
     // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
@@ -124,14 +128,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     const w3 = computeW3();
     const w4 = computeW4();
 
-    const pTauPoints = new BigBuffer(settings.domainSize * sG1);
-    const pTauOffset = pTauSections[12][0].p + ((2 ** (settings.cirPower)) - 1) * sG1;
-    await fdPTau.readToBuffer(pTauPoints, 0, settings.domainSize * sG1, pTauOffset);
-
-    // Write zkey file
+    // Write output zkey file
     await writeZkeyFile();
 
-    await fdR1cs.close();
     await fdPTau.close();
 
     if (logger) logger.info("FFlonk setup finished");
@@ -448,8 +447,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     function computeW3() {
         let generator = Fr.e(31624);
-        // Exponent is the order of r - 1
-        let exponent = Scalar.div(3648040478639879203707734290876212514758060733402672390616367364429301415936n, Scalar.e(3));
+
+        // Exponent is order(r - 1) / 3
+        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
 
         return Fr.exp(generator, exponent);
     }
