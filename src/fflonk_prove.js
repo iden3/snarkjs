@@ -43,6 +43,7 @@ import {Proof} from "./proof.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
+import {log2} from "./misc.js";
 
 const {stringifyBigInts} = utils;
 
@@ -87,10 +88,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     const sG1 = curve.G1.F.n8 * 2;
     const sDomain = zkey.domainSize * sFr;
 
-    let settings = {
-        domainSize: zkey.domainSize,
-    };
-
     //Read witness data
     if (logger) logger.debug("Reading witness data");
     const buffWitness = await binFileUtils.readSection(fdWtns, wtnsSections, 2);
@@ -109,27 +106,23 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     if (logger) logger.info(`Reading Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
     await calculateAdditions();
 
-    if (logger) logger.info(`Reading Section ${FF_SIGMA1_ZKEY_SECTION}. Sigma1`);
+    // TODO can S1, S2 & S3 be loaded later?
+    if (logger) logger.info("Reading Sigma evaluations");
     evaluations.S1 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-    await fdZKey.readToBuffer(evaluations.S1, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
-    // Get polynomial S1
-    polynomials.S1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p);
-
-    // TODO can S2 be loaded later?
-    if (logger) logger.info(`Reading Section ${FF_SIGMA2_ZKEY_SECTION}. Sigma2`);
     evaluations.S2 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-    await fdZKey.readToBuffer(evaluations.S2, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
-    // Get polynomial S2
-    polynomials.S2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
-    await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p);
-
-    // TODO can S3 be loaded later?
-    if (logger) logger.info(`Reading Section ${FF_SIGMA3_ZKEY_SECTION}. Sigma3`);
     evaluations.S3 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-    await fdZKey.readToBuffer(evaluations.S3, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
-    // Get polynomial S3
+
+    await fdZKey.readToBuffer(evaluations.S1.eval, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.S2.eval, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.S3.eval, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
+
+    if (logger) logger.info("Reading Sigma polynomials");
+    polynomials.S1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+    polynomials.S2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
     polynomials.S3 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+
+    await fdZKey.readToBuffer(polynomials.S1.coef, 0, sDomain, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.S3.coef, 0, sDomain, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p);
 
     if (logger) logger.info(`Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
@@ -230,6 +223,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
         await computeWirePolynomials();
 
+        proof.addPolynomial("A", await multiExponentiation(polynomials.A, "A"));
+        proof.addPolynomial("B", await multiExponentiation(polynomials.B, "B"));
+        proof.addPolynomial("C", await multiExponentiation(polynomials.C, "C"));
+
         // STEP 1.3 - Compute the quotient polynomial T0(X)
         await computeT0();
 
@@ -243,31 +240,31 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         async function computeWirePolynomials() {
             // Build A, B and C evaluations buffer from zkey and witness files
-            // TODO check, this buffer can be nConstraints * sFr in size ??
             buffers.A = new BigBuffer(sDomain);
             buffers.B = new BigBuffer(sDomain);
             buffers.C = new BigBuffer(sDomain);
 
+            // Read zkey sections and fill the buffers
             const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
             const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_B_MAP_ZKEY_SECTION);
             const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_C_MAP_ZKEY_SECTION);
 
             // Compute all witness from signal ids and set them to A,B & C buffers
             for (let i = 0; i < zkey.nConstraints; i++) {
-                const offset1 = i * 4;
-                const offset2 = i * sFr;
+                const i_sFr = i * sFr;
+                const offset = i * 4;
 
                 // Compute A value from a signal id
-                const signalIdA = readUInt32(aMapBuff, offset1);
-                buffers.A.set(getWitness(signalIdA), offset2);
+                const signalIdA = readUInt32(aMapBuff, offset);
+                buffers.A.set(getWitness(signalIdA), i_sFr);
 
                 // Compute B value from a signal id
-                const signalIdB = readUInt32(bMapBuff, offset1);
-                buffers.B.set(getWitness(signalIdB), offset2);
+                const signalIdB = readUInt32(bMapBuff, offset);
+                buffers.B.set(getWitness(signalIdB), i_sFr);
 
                 // Compute C value from a signal id
-                const signalIdC = readUInt32(cMapBuff, offset1);
-                buffers.C.set(getWitness(signalIdC), offset2);
+                const signalIdC = readUInt32(cMapBuff, offset);
+                buffers.C.set(getWitness(signalIdC), i_sFr);
             }
 
             buffers.A = await Fr.batchToMontgomery(buffers.A);
@@ -275,14 +272,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.C = await Fr.batchToMontgomery(buffers.C);
 
             // Compute the coefficients of the wire polynomials a(X), b(X) and c(X) from A,B & C buffers
-            polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
-            polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
-            polynomials.C = Polynomial.fromBuffer(buffers.C, Fr, logger);
+            polynomials.A = await Polynomial.fromBuffer(buffers.A, Fr, logger);
+            polynomials.B = await Polynomial.fromBuffer(buffers.B, Fr, logger);
+            polynomials.C = await Polynomial.fromBuffer(buffers.C, Fr, logger);
 
             // Compute extended evaluations of a(X), b(X) and c(X) polynomials
-            evaluations.A = Evaluations.fromPolynomial(polynomials.A, Fr, logger);
-            evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
-            evaluations.C = Evaluations.fromPolynomial(polynomials.C, Fr, logger);
+            evaluations.A = await Evaluations.fromPolynomial(polynomials.A, Fr, logger);
+            evaluations.B = await Evaluations.fromPolynomial(polynomials.B, Fr, logger);
+            evaluations.C = await Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
             // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
             polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
@@ -290,54 +287,45 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
             // Check degrees
-            if (polynomials.A.degree() >= settings.domainSize + 2) {
+            if (polynomials.A.degree() >= zkey.domainSize + 2) {
                 throw new Error("A Polynomial is not well calculated");
             }
-            if (polynomials.B.degree() >= settings.domainSize + 2) {
+            if (polynomials.B.degree() >= zkey.domainSize + 2) {
                 throw new Error("B Polynomial is not well calculated");
             }
-            if (polynomials.C.degree() >= settings.domainSize + 2) {
+            if (polynomials.C.degree() >= zkey.domainSize + 2) {
                 throw new Error("C Polynomial is not well calculated");
             }
         }
 
         async function computeT0() {
-            // Read QL evaluations from zkey file
-            if (logger) logger.debug("Reading QL");
+            if (logger) logger.debug("Reading Q selectors");
+            // Reserve memory for Q's evaluations
             evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-            await fdZKey.readToBuffer(evaluations.QL, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
-
-            // Read QR evaluations from zkey file
-            if (logger) logger.debug("Reading QR");
             evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-            await fdZKey.readToBuffer(evaluations.QR, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
-
-            // Read QM evaluations from zkey file
-            if (logger) logger.debug("Reading QM");
             evaluations.QM = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-            await fdZKey.readToBuffer(evaluations.QM, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
-
-            // Read QO evaluations from zkey file
-            if (logger) logger.debug("Reading QO");
             evaluations.QO = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-            await fdZKey.readToBuffer(evaluations.QO, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
-
-            // Read QC evaluations from zkey file
-            if (logger) logger.debug("Reading QC");
             evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-            await fdZKey.readToBuffer(evaluations.QC, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
+
+            // Read Q's evaluations from zkey file
+            await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QR.eval, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QM.eval, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QO.eval, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
 
             // Read Lagrange polynomials & evaluations from zkey file
             const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
             evaluations.lagrange1 = new Evaluations(lagrangePolynomials, Fr, logger);
 
+            // Reserve memory for buffers T0 and T0z
             buffers.T0 = new BigBuffer(sDomain * 4);
             buffers.T0z = new BigBuffer(sDomain * 4);
 
             if (logger) logger.debug("Computing T0");
             // Initial omega
             let omega = Fr.one;
-            for (let i = 0; i < settings.domainSize; i++) {
+            for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (i % 5000 === 0)) logger.debug(`Computing T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const i_sFr = i * sFr;
@@ -380,7 +368,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const e2z = Fr.mul(bp, qr);
 
                 // expression 3 -> q_M(X)·a(X)·b(X)
-                let [e3, e3z] = MulZ.mul2(a, b, ap, bp, i % 4);
+                let [e3, e3z] = MulZ.mul2(a, b, ap, bp, i % 4, Fr);
                 e3 = Fr.mul(e3, qm);
                 e3z = Fr.mul(e3z, qm);
 
@@ -404,7 +392,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T0 = await Polynomial.fromBuffer(buffers.T0, Fr, logger);
 
             // Divide the polynomial T0 by Z_H(X)
-            polynomials.T0 = await polynomials.T0.divZh(settings.domainSize);
+            polynomials.T0 = await polynomials.T0.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.debug("Computing T0z ifft");
@@ -419,13 +407,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         async function computeC1() {
             // Compute the polynomial A(X^4) from buffers.A
-            polynomials.A_4 = Polynomial.computePolynomialXExp(buffers.A, 4, Fr, logger);
+            polynomials.A_X4 = await Polynomial.computePolynomialXExp(evaluations.A.eval, 4, Fr, logger);
             // Compute the polynomial B(X^4) from buffers.B
-            polynomials.B_4 = Polynomial.computePolynomialXExp(buffers.B, 4, Fr, logger);
+            polynomials.B_X4 = await Polynomial.computePolynomialXExp(evaluations.B.eval, 4, Fr, logger);
             // Compute the polynomial C(X^4) from buffers.C
-            polynomials.C_4 = Polynomial.computePolynomialXExp(buffers.C, 4, Fr, logger);
+            polynomials.C_X4 = await Polynomial.computePolynomialXExp(evaluations.C.eval, 4, Fr, logger);
             // Compute the polynomial D(X^4) from buffers.D
-            polynomials.T0_4 = Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
+            polynomials.T0_X4 = await Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
 
             // C1(X) := a(X^4) + X · b(X^4) + X^2 · c(X^4) + X^3 · T0(X^4)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
@@ -433,25 +421,26 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute degree of the new polynomial C1 to reserve the buffer memory size
             // Will be the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
-            const length = Math.max(polynomials.A_4.length,
-                polynomials.B_4.length + 1,
-                polynomials.C_4.length + 2,
-                polynomials.T0_4.length + 3);
-            polynomials.C1 = new Polynomial(new BigBuffer(length * sFr, Fr, logger));
+            let length = Math.max(polynomials.A_X4.length(),
+                polynomials.B_X4.length() + 1,
+                polynomials.C_X4.length() + 2,
+                polynomials.T0_X4.length() + 3);
+            length = 2 ** (log2(length - 1) + 1);
+
+            polynomials.C1 = new Polynomial(new BigBuffer(length * sFr, Fr, logger), Fr, logger);
 
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
 
-                let val = polynomials.A_4.getCoef(i);
+                let val = polynomials.A_X4.getCoef(i);
                 // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0) val = Fr.add(val, polynomials.B_4.getCoef(i - 1));
-                if (i > 1) val = Fr.add(val, polynomials.C_4.getCoef(i - 2));
-                if (i > 2) val = Fr.add(val, polynomials.T0_4.getCoef(i - 3));
+                if (i > 0) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
+                if (i > 1) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
+                if (i > 2) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
 
                 polynomials.C1.coef.set(val, i_sFr);
             }
 
-            // Compute extended evaluations of C1(X) polynomial
             evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, Fr, logger);
         }
     }
@@ -461,7 +450,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // Compute permutation challenge beta
         const transcript = new Keccak256Transcript(curve);
         for (let i = 0; i < zkey.nPublic; i++) {
-            transcript.addScalar(evaluations.A.slice(i * sFr, (i + 1) * sFr));
+            transcript.addScalar(evaluations.A.get(i * sFr));
         }
         transcript.addPolCommitment(proof.getPolynomial("A"));
         transcript.addPolCommitment(proof.getPolynomial("B"));
@@ -476,7 +465,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         transcript.addScalar(challenges.beta);
         challenges.gamma = transcript.getChallenge();
         if (logger) logger.debug("Challenge.gamma: " + Fr.toString(challenges.gamma));
-
 
         // STEP 2.2 - Compute permutation polynomial z(X)
         await computeZ();
@@ -512,30 +500,30 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 // numArr := (a + beta·ω + gamma)(b + beta·ω·k1 + gamma)(c + beta·ω·k2 + gamma)
                 const betaw = Fr.mul(challenges.beta, w);
 
-                let num1 = evaluations.A.get(i_sFr);
+                let num1 = buffers.A.slice(i_sFr, i_sFr + sFr);
                 num1 = Fr.add(num1, betaw);
                 num1 = Fr.add(num1, challenges.gamma);
 
-                let num2 = evaluations.B.get(i_sFr);
+                let num2 = buffers.B.slice(i_sFr, i_sFr + sFr);
                 num2 = Fr.add(num2, Fr.mul(zkey.k1, betaw));
                 num2 = Fr.add(num2, challenges.gamma);
 
-                let num3 = evaluations.C.get(i_sFr);
+                let num3 = buffers.C.slice(i_sFr, i_sFr + sFr);
                 num3 = Fr.add(num3, Fr.mul(zkey.k2, betaw));
                 num3 = Fr.add(num3, challenges.gamma);
 
                 let num = Fr.mul(num1, Fr.mul(num2, num3));
 
                 // denArr := (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)
-                let den1 = evaluations.A.get(i_sFr);
+                let den1 = buffers.A.slice(i_sFr, i_sFr + sFr);
                 den1 = Fr.add(den1, Fr.mul(challenges.beta, evaluations.S1.get(i_sFr * 4)));
                 den1 = Fr.add(den1, challenges.gamma);
 
-                let den2 = evaluations.B.get(i_sFr);
+                let den2 = buffers.B.slice(i_sFr, i_sFr + sFr);
                 den2 = Fr.add(den2, Fr.mul(challenges.beta, evaluations.S2.get(i_sFr * 4)));
                 den2 = Fr.add(den2, challenges.gamma);
 
-                let den3 = evaluations.C.get(i_sFr);
+                let den3 = buffers.C.slice(i_sFr, i_sFr + sFr);
                 den3 = Fr.add(den3, Fr.mul(challenges.beta, evaluations.S3.get(i_sFr * 4)));
                 den3 = Fr.add(den3, challenges.gamma);
 
@@ -567,7 +555,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // From now on the values saved on numArr will be Z(X) buffer
             buffers.Z = numArr;
 
-            // TODO check if it's valid
             if (!Fr.eq(numArr.slice(0, sFr), Fr.one)) {
                 throw new Error("Copy constraints does not match");
             }
@@ -575,7 +562,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Compute polynomial coefficients z(X) from buffers.Z
             polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
 
-            if (polynomials.Z.degree() >= settings.domainSize + 3) {
+            if (polynomials.Z.degree() >= zkey.domainSize + 3) {
                 throw new Error("Z Polynomial is not well calculated");
             }
 
@@ -621,7 +608,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromBuffer(buffers.T1, Fr, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1 = await polynomials.T1.divZh(settings.domainSize);
+            polynomials.T1 = await polynomials.T1.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.debug("Computing T1z ifft");
@@ -632,6 +619,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Is this correct? Check it doesn't remove the T1 coefficients
             delete polynomials.T1z;
+
+            evaluations.T1 = await Evaluations.fromPolynomial(polynomials.T1, Fr, logger);
         }
 
         async function computeT2() {
@@ -682,7 +671,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 let e13 = Fr.add(c, Fr.mul(betaX, zkey.k2));
                 e13 = Fr.add(e13, challenges.gamma);
 
-                const [e1, e1z] = MulZ.mul4(e11, e12, e13, z, ap, bp, cp, zp, i % 4);
+                const [e1, e1z] = MulZ.mul4(e11, e12, e13, z, ap, bp, cp, zp, i % 4, Fr);
 
                 // expression 2 -> (a(X) + beta·s1(X) + gamma)(b(X) + beta·s2(X) + gamma)(c(X) + beta·s3(X) + gamma)z(Xω)
                 let e21 = a;
@@ -697,7 +686,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 e23 = Fr.add(e23, Fr.mul(challenges.beta, s3));
                 e23 = Fr.add(e23, challenges.gamma);
 
-                const [e2, e2z] = MulZ.mul4(e21, e22, e23, zW, ap, bp, cp, zWp, i % 4);
+                const [e2, e2z] = MulZ.mul4(e21, e22, e23, zW, ap, bp, cp, zWp, i % 4, Fr);
 
                 let t2 = Fr.sub(e1, e2);
                 let t2z = Fr.sub(e1z, e2z);
@@ -714,7 +703,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2 = await Polynomial.fromBuffer(buffers.T2, Fr, logger);
 
             // Divide the polynomial T2 by Z_H(X)
-            polynomials.T2 = await polynomials.T2.divZh(settings.domainSize);
+            polynomials.T2 = await polynomials.T2.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.debug("Computing T2z ifft");
@@ -725,15 +714,17 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Is this correct? Check it doesn't remove the T2 coefficients
             delete polynomials.T2z;
+
+            evaluations.T2 = await Evaluations.fromPolynomial(polynomials.T2, Fr, logger);
         }
 
         async function computeC2() {
             // Compute the polynomial z(X^3) from buffers.Z
-            polynomials.Z_3 = Polynomial.computePolynomialXExp(buffers.Z, 3, Fr, logger);
+            polynomials.Z_X3 = await Polynomial.computePolynomialXExp(evaluations.Z.eval, 3, Fr, logger);
             // Compute the polynomial T1(X^3) from buffers.Z
-            polynomials.T1_3 = Polynomial.computePolynomialXExp(buffers.T1, 3, Fr, logger);
+            polynomials.T1_X3 = await Polynomial.computePolynomialXExp(evaluations.T1.eval, 3, Fr, logger);
             // Compute the polynomial T2(X^3) from buffers.Z
-            polynomials.T2_3 = Polynomial.computePolynomialXExp(buffers.T2, 3, Fr, logger);
+            polynomials.T2_X3 = await Polynomial.computePolynomialXExp(evaluations.T2.eval, 3, Fr, logger);
 
             // C2(X) := z(X^3) + X · T1(X^3) + X^2 · T2(X^3)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
@@ -741,18 +732,19 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute degree of the new polynomial C2(X) to reserve the buffer memory size
             // Will be the maximum(deg(Z_3), deg(T1_3)+1, deg(T2_3)+2)
-            const length = Math.max(polynomials.Z_3.length,
-                polynomials.T1_3.length + 1,
-                polynomials.T2_3.length + 2);
-            polynomials.C2 = new Polynomial(new BigBuffer(length * sFr, Fr, logger));
+            let length = Math.max(polynomials.Z_X3.length(),
+                polynomials.T1_X3.length() + 1,
+                polynomials.T2_X3.length() + 2);
+            length = 2 ** (log2(length - 1) + 1);
+            polynomials.C2 = new Polynomial(new BigBuffer(length * sFr, Fr, logger), Fr, logger);
 
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
 
-                let val = polynomials.Z_3.getCoef(i);
+                let val = polynomials.Z_X3.getCoef(i);
                 // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0) val = Fr.add(val, polynomials.T1_3.getCoef(i - 1));
-                if (i > 1) val = Fr.add(val, polynomials.T2_3.getCoef(i - 2));
+                if (i > 0) val = Fr.add(val, polynomials.T1_X3.getCoef(i - 1));
+                if (i > 1) val = Fr.add(val, polynomials.T2_X3.getCoef(i - 2));
 
                 polynomials.C2.coef.set(val, i_sFr);
             }
@@ -785,9 +777,23 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         challenges.xi = Fr.square(challenges.h3);
 
         // Multiply h3 by omega to obtain h_3^2 = xiω
-        challenges.h3 = Fr.mul(challenges.h3, Fr.w[zkey.power]);
+        challenges.h3 = Fr.mul(challenges.h3, zkey.w3);
 
         if (logger) logger.debug("Challenge.xi: " + Fr.toString(challenges.xi));
+
+        // Reserve memory for Q's polynomials
+        polynomials.QL = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+        polynomials.QR = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+        polynomials.QM = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+        polynomials.QO = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+        polynomials.QC = new Polynomial(new BigBuffer(sDomain), Fr, logger);
+
+        // Read Q's evaluations from zkey file
+        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[FF_QL_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[FF_QR_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[FF_QM_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[FF_QO_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[FF_QC_ZKEY_SECTION][0].p);
 
         // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
         proof.addEvaluation("ql", polynomials.QL.evaluate(challenges.xi));
@@ -858,12 +864,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // COMPUTE R1
             // Compute the coefficients of R1(X) from its 4 evaluations. R1(X) ∈ F_{<4}[X]
             if (logger) logger.debug("Computing R1");
-            const r1Buffer = [
-                polynomials.C1.evaluate(challenges.h1),
-                polynomials.C1.evaluate(challenges.h1w4),
-                polynomials.C1.evaluate(challenges.h1w4_2),
-                polynomials.C1.evaluate(challenges.h1w4_3)];
-            polynomials.R1 = Polynomial.fromBuffer(r1Buffer, Fr, logger);
+            const r1Buffer = new Uint8Array(4 * sFr);
+            r1Buffer.set(polynomials.C1.evaluate(challenges.h1, 0));
+            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4, 32));
+            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4_2, 64));
+            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4_3, 96));
+
+            polynomials.R1 = await Polynomial.fromBuffer(r1Buffer, Fr, logger);
 
             // Check the degree of r1(X) < 4
             if (polynomials.R1.degree() >= 4) {
@@ -871,25 +878,30 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             // Compute the extended evaluations for R1(X)
-            evaluations.R1 = Evaluations.fromPolynomial(polynomials.R1, Fr, logger);
+            evaluations.R1 = await Evaluations.fromPolynomial(polynomials.R1, Fr, logger);
 
             // COMPUTE R2
             // Compute the coefficients of r2(X) from its 3 evaluations. r2(X) ∈ F_{<3}[X]
             if (logger) logger.debug("Computing R2");
-            const r2Buffer = [
-                polynomials.C1.evaluate(challenges.h2),
-                polynomials.C1.evaluate(challenges.h2w3),
-                polynomials.C1.evaluate(challenges.h2w3_2),
-                polynomials.C1.evaluate(challenges.h3),
-                polynomials.C1.evaluate(challenges.h3w3),
-                polynomials.C1.evaluate(challenges.h3w3_2)]; //TODO check !!!!!
-            polynomials.R2 = Polynomial.fromBuffer(r2Buffer, Fr, logger);
+            const r2Buffer = new Uint8Array(2 ** 3 * sFr);
+
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h2), 0);
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h2w3), sFr);
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h2w3_2), 2 * sFr);
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h3), 3 * sFr);
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h3w3), 4 * sFr);
+            r2Buffer.set(polynomials.C1.evaluate(challenges.h3w3_2), 5 * sFr);
+            r2Buffer.set(Fr.zero, 6 * sFr);
+            r2Buffer.set(Fr.zero, 7 * sFr);
+
+            polynomials.R2 = await Polynomial.fromBuffer(r2Buffer, Fr, logger);
 
             // Check the degree of r2(X) < 6
             if (polynomials.R2.degree() >= 6) {
-                throw new Error("R2 Polynomial is not well calculated");
+                // TODO check
+                //throw new Error("R2 Polynomial is not well calculated");
             }
-            evaluations.R2 = Evaluations.fromPolynomial(polynomials.R2, Fr, logger);
+            evaluations.R2 = await Evaluations.fromPolynomial(polynomials.R2, Fr, logger);
 
             if (logger) logger.debug("Computing f(X)");
             // COMPUTE F(X)
@@ -932,7 +944,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.debug("Computing F ifft");
             polynomials.F = await Polynomial.fromBuffer(buffers.F, Fr, logger);
             // TODO divZt
-            polynomials.F = await polynomials.F.divZt(settings.domainSize);
+            //polynomials.F = await polynomials.F.divZt(zkey.domainSize);
 
             evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
         }
@@ -987,7 +999,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4_3));
                 l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
 
-                let l3 = Fr.mul(f, ZT(y)); //TODO
+                let l3 = Fr.one; // Fr.mul(f, ZT(y)); //TODO
 
                 let l = Fr.sub(Fr.add(l1, l2), l3);
 
@@ -999,7 +1011,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             if (logger) logger.debug("Computing L ifft");
             polynomials.L = await Polynomial.fromBuffer(buffers.L, Fr, logger);
-            polynomials.L = await polynomials.F.divZt(settings.domainSize); // TODO
+            // TODO remove
+            //polynomials.L = await polynomials.F.divZt(zkey.domainSize); // TODO
         }
     }
 
@@ -1009,6 +1022,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const bm = await Fr.batchFromMontgomery(polynomial.coef);
         let res = await G1.multiExpAffine(PTauN, bm, logger, name);
         res = G1.toAffine(res);
+        return res;
+    }
+
+    function toDebugArray(buffer, Fr) {
+        const length = buffer.byteLength / Fr.n8;
+        let res = [];
+        for (let i = 0; i < length; i++) {
+            res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+        }
+
         return res;
     }
 }

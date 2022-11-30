@@ -146,25 +146,34 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     transcript.addPolCommitment(proof.polynomials.C2);
     challenges.xiSeed = transcript.getChallenge();
     challenges.xiSeed2 = Fr.square(challenges.xiSeed);
-    challenges.h1 = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
-    challenges.h2 = Fr.square(challenges.xiSeed2);
-    challenges.h3 = Fr.mul(challenges.h2, challenges.xiSeed2);
+
+    challenges.h1w4 = [];
+    challenges.h2w3 = [];
+    challenges.h3w3 = [];
+
+    // Compute h1 = xi_seeder^3
+    challenges.h1w4[0] = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
+
+    // Compute h2 = xi_seeder^4
+    challenges.h2w3[0] = Fr.square(challenges.xiSeed2);
+
+    // Compute h3 = xi_seeder^6
+    challenges.h3w3[0] = Fr.mul(challenges.h2w3[0], challenges.xiSeed2);
+
     challenges.xi = Fr.square(challenges.h3);
 
-    challenges.h3 = Fr.mul(challenges.h3, vk.w);
-    let w3 = vk.w3;
-    let w3_2 = Fr.mul(w3, w3);
-    let w4 = vk.w4;
-    let w4_2 = Fr.mul(w4, w4);
-    let w4_3 = Fr.mul(w4_2, w4);
+    challenges.h3 = Fr.mul(challenges.h3, vk.w3);
+    let w3_2 = Fr.mul(vk.w3, vk.w3);
+    let w4_2 = Fr.mul(vk.w4, vk.w4);
+    let w4_3 = Fr.mul(w4_2, vk.w4);
 
-    challenges.h1w4 = Fr.mul(challenges.h1, w4);
-    challenges.h1w4_2 = Fr.mul(challenges.h1, w4_2);
-    challenges.h1w4_3 = Fr.mul(challenges.h1, w4_3);
-    challenges.h2w3 = Fr.mul(challenges.h2, w3);
-    challenges.h2w3_2 = Fr.mul(challenges.h2, w3_2);
-    challenges.h3w3 = Fr.mul(challenges.h3, w3);
-    challenges.h3w3_2 = Fr.mul(challenges.h3, w3_2);
+    challenges.h1w4[1] = Fr.mul(challenges.h1w4[0], vk.w4);
+    challenges.h1w4[2] = Fr.mul(challenges.h1w4[0], w4_2);
+    challenges.h1w4[3] = Fr.mul(challenges.h1w4[0], w4_3);
+    challenges.h2w3[1] = Fr.mul(challenges.h2w3[0], vk.w3);
+    challenges.h2w3[2] = Fr.mul(challenges.h2w3[0], w3_2);
+    challenges.h3w3[1] = Fr.mul(challenges.h3w3[0], vk.w3);
+    challenges.h3w3[2] = Fr.mul(challenges.h3w3[0], w3_2);
 
     challenges.xiN = challenges.xi;
     vk.domainSize = 1;
@@ -222,7 +231,7 @@ function computeLagrange1Evaluation(curve, challenges, vk, logger) {
     return lagrange1;
 }
 
-function calculatePI(curve, publicSignals, lagrange1) {
+    function calculatePI(curve, publicSignals, lagrange1) {
     const Fr = curve.Fr;
 
     let pi = Fr.zero;
@@ -245,8 +254,14 @@ function computeR1(proof, challenges, pi, lagrange1, curve) {
     T0 = Fr.add(T0, pi);
     T0 = Fr.mul(T0, challenges.invzh);
 
-    // TODO computes r1(y)
-    const r1 = Fr.zero;
+    let r1 = Fr.zero;
+    for (let i = 0; i < 4; i++) {
+        r1 = Fr.add(proof.evaluations.a);
+        r1 = Fr.add(r1, Fr.mul(challenges.h1w4[i], proof.evaluations.b));
+        const h1w4Squared = Fr.square(challenges.h1w4[i]);
+        r1 = Fr.add(r1, Fr.mul(h1w4Squared, proof.evaluations.c));
+        r1 = Fr.add(r1, Fr.mul(Fr.mul(h1w4Squared, challenges.h1w4[i]), T0));
+    }
 
     return r1;
 }
@@ -272,11 +287,15 @@ function computeR2(proof, challenges, lagrange1, vk, curve) {
     const T223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
     const T22 = Fr.mul(T221, Fr.mul(T222, Fr.mul(T223, proof.evaluations.zw)));
 
-    const T2 = Fr.sub(T21, T22);
+    let T2 = Fr.sub(T21, T22);
     T2 = Fr.mul(T2, challenges.invzh);
 
-    // TODO computes r2(y)
-    const r2 = Fr.zero;
+    let r2 = Fr.zero;
+    for (let i = 0; i < 4; i++) {
+        r2 = Fr.add(proof.evaluations.z);
+        r2 = Fr.add(r2, Fr.mul(challenges.h2w3[i], T1));
+        r2 = Fr.add(r2, Fr.mul(Fr.square(challenges.h2w3[i]), T2));
+    }
 
     return r2;
 }
@@ -285,19 +304,19 @@ function computeF(curve, proof, challenges) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let num = Fr.sub(challenges.y, challenges.h1);
-    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4));
-    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4_2));
-    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4_3));
+    let num = Fr.sub(challenges.y, challenges.h1w4[0]);
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4[1]));
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4[2]));
+    num = Fr.mul(num, Fr.sub(challenges.y, challenges.h1w4[3]));
 
     challenges.temp = num;
 
-    let den = Fr.sub(challenges.y, challenges.h2);
-    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3));
-    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3_2));
-    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3));
-    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3));
-    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3_2));
+    let den = Fr.sub(challenges.y, challenges.h2w3[0]);
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3[1]));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h2w3[2]));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3[0]));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3[1]));
+    den = Fr.mul(den, Fr.sub(challenges.y, challenges.h3w3[2]));
 
     challenges.quotient = Fr.mul(challenges.alpha, Fr.mul(num, Fr.inv(den)));
 
