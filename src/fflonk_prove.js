@@ -44,6 +44,7 @@ import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
 import {log2} from "./misc.js";
+import {Lagrange6, Lagrange4} from "./fflonk_utils.js";
 
 const {stringifyBigInts} = utils;
 
@@ -133,14 +134,34 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     // ROUND 1. Compute C1(X) polynomial
     await round1();
 
+    //delete polynomials.T0;
+
     // ROUND 2. Compute C2(X) polynomial
     await round2();
+
+    //delete buffers.A;
+    //delete buffers.B;
+    //delete buffers.C;
+    //delete evaluations.A;
+    //delete evaluations.B;
+    //delete evaluations.C;
+
 
     // ROUND 3. Compute opening evaluations
     await round3();
 
+    //delete polynomials.A;
+    //delete polynomials.B;
+    //delete polynomials.C;
+    //delete polynomials.Z;
+    //delete polynomials.T1;
+    //delete polynomials.T2;
+
     // ROUND 4. Compute W(X) polynomial
     await round4();
+
+    //delete polynomials.C1;
+    //delete polynomials.C2;
 
     // ROUND 5. Compute W'(X) polynomial
     await round5();
@@ -217,7 +238,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 9; i++) {
-            challenges.b[i] = Fr.random();
+            challenges.b[i] = Fr.zero;//Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
@@ -282,9 +303,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.C = await Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
             // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-            polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
-            polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
-            polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
+            //polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
+            //polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
+            //polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
             // Check degrees
             if (polynomials.A.degree() >= zkey.domainSize + 2) {
@@ -401,26 +422,27 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T0.add(polynomials.T0z);
 
-            // Is this correct? Check it doesn't remove the T0 coefficients
-            delete polynomials.T0z;
+            //delete buffers.T0;
+            //delete buffers.T0z;
+            //delete polynomials.T0z;
         }
 
         async function computeC1() {
             // Compute the polynomial A(X^4) from buffers.A
-            polynomials.A_X4 = await Polynomial.computePolynomialXExp(evaluations.A.eval, 4, Fr, logger);
+            polynomials.A_X4 = await Polynomial.expX(polynomials.A, 4);
             // Compute the polynomial B(X^4) from buffers.B
-            polynomials.B_X4 = await Polynomial.computePolynomialXExp(evaluations.B.eval, 4, Fr, logger);
+            polynomials.B_X4 = await Polynomial.expX(polynomials.B, 4);
             // Compute the polynomial C(X^4) from buffers.C
-            polynomials.C_X4 = await Polynomial.computePolynomialXExp(evaluations.C.eval, 4, Fr, logger);
+            polynomials.C_X4 = await Polynomial.expX(polynomials.C, 4);
             // Compute the polynomial D(X^4) from buffers.D
-            polynomials.T0_X4 = await Polynomial.computePolynomialXExp(buffers.T0, 4, Fr, logger);
+            polynomials.T0_X4 = await Polynomial.expX(polynomials.T0, 4);
 
             // C1(X) := a(X^4) + X · b(X^4) + X^2 · c(X^4) + X^3 · T0(X^4)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
             // the resulting polynomial will be degree deg(f(X)) + n
 
             // Compute degree of the new polynomial C1 to reserve the buffer memory size
-            // Will be the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
+            // Will be the next power of two to bound the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
             let length = Math.max(polynomials.A_X4.length(),
                 polynomials.B_X4.length() + 1,
                 polynomials.C_X4.length() + 2,
@@ -442,6 +464,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, Fr, logger);
+
+            //delete polynomials.A_X4;
+            //delete polynomials.B_X4;
+            //delete polynomials.C_X4;
+            //delete polynomials.T0_X4;
         }
     }
 
@@ -570,7 +597,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
             // Blind z(X) polynomial coefficients with blinding scalars b
-            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+            //polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+
+            //delete buffers.Z;
         }
 
         async function computeT1() {
@@ -618,16 +647,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1.add(polynomials.T1z);
 
             // Is this correct? Check it doesn't remove the T1 coefficients
-            delete polynomials.T1z;
-
-            evaluations.T1 = await Evaluations.fromPolynomial(polynomials.T1, Fr, logger);
+            //delete buffers.T1;
+            //delete buffers.T1z;
+            //delete polynomials.T1z;
         }
 
         async function computeT2() {
             buffers.T2 = new BigBuffer(sDomain * 4);
             buffers.T2z = new BigBuffer(sDomain * 4);
 
-            if (logger) logger.debug("Computing T1");
+            if (logger) logger.debug("Computing T2");
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
@@ -713,18 +742,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2.add(polynomials.T2z);
 
             // Is this correct? Check it doesn't remove the T2 coefficients
-            delete polynomials.T2z;
-
-            evaluations.T2 = await Evaluations.fromPolynomial(polynomials.T2, Fr, logger);
+            //delete buffers.T2;
+            //delete buffers.T2z;
+            //delete polynomials.T2z;
         }
 
         async function computeC2() {
-            // Compute the polynomial z(X^3) from buffers.Z
-            polynomials.Z_X3 = await Polynomial.computePolynomialXExp(evaluations.Z.eval, 3, Fr, logger);
-            // Compute the polynomial T1(X^3) from buffers.Z
-            polynomials.T1_X3 = await Polynomial.computePolynomialXExp(evaluations.T1.eval, 3, Fr, logger);
-            // Compute the polynomial T2(X^3) from buffers.Z
-            polynomials.T2_X3 = await Polynomial.computePolynomialXExp(evaluations.T2.eval, 3, Fr, logger);
+            // Compute the polynomial z(X^3) from polynomials.Z
+            polynomials.Z_X3 = await Polynomial.expX(polynomials.Z, 3);
+            // Compute the polynomial T1(X^3) from polynomials.T1
+            polynomials.T1_X3 = await Polynomial.expX(polynomials.T1, 3);
+            // Compute the polynomial T2(X^3) from polynomials.T2
+            polynomials.T2_X3 = await Polynomial.expX(polynomials.T2, 3);
 
             // C2(X) := z(X^3) + X · T1(X^3) + X^2 · T2(X^3)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
@@ -751,6 +780,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute extended evaluations of C2(X) polynomial
             evaluations.C2 = await Evaluations.fromPolynomial(polynomials.C2, Fr, logger);
+
+            //delete polynomials.Z_X3;
+            //delete polynomials.T1_X3;
+            //delete polynomials.T2_X3;
         }
     }
 
@@ -847,6 +880,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             buffers.F = new BigBuffer(sDomain * 4);
 
+            //TODO h1w4, h2w3 and h3w3 as a vector
             let w3 = zkey.w3;
             let w3_2 = Fr.mul(w3, w3);
             let w4 = zkey.w4;
@@ -872,36 +906,64 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             polynomials.R1 = await Polynomial.fromBuffer(r1Buffer, Fr, logger);
 
+            let y1 = polynomials.C1.evaluate(challenges.h1);
+            polynomials.R1 = Lagrange4(y1, challenges.h1, challenges.h1w4, challenges.h1w4_2, challenges.h1w4_3, Fr);
+            y1 = polynomials.C1.evaluate(challenges.h1w4);
+            polynomials.R1.add(Lagrange4(y1, challenges.h1w4, challenges.h1w4_2, challenges.h1w4_3, challenges.h1, Fr));
+            y1 = polynomials.C1.evaluate(challenges.h1w4_2);
+            polynomials.R1.add(Lagrange4(y1, challenges.h1w4_2, challenges.h1w4_3, challenges.h1, challenges.h1w4, Fr));
+            y1 = polynomials.C1.evaluate(challenges.h1w4_3);
+            polynomials.R1.add(Lagrange4(y1, challenges.h1w4_3, challenges.h1, challenges.h1w4, challenges.h1w4_2, Fr));
+
             // Check the degree of r1(X) < 4
             if (polynomials.R1.degree() >= 4) {
                 throw new Error("R1 Polynomial is not well calculated");
             }
 
             // Compute the extended evaluations for R1(X)
-            evaluations.R1 = await Evaluations.fromPolynomial(polynomials.R1, Fr, logger);
+//            evaluations.R1 = await Evaluations.fromPolynomial(polynomials.R1, Fr, logger);
 
             // COMPUTE R2
             // Compute the coefficients of r2(X) from its 3 evaluations. r2(X) ∈ F_{<3}[X]
             if (logger) logger.debug("Computing R2");
             const r2Buffer = new Uint8Array(2 ** 3 * sFr);
 
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h2), 0);
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h2w3), sFr);
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h2w3_2), 2 * sFr);
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h3), 3 * sFr);
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h3w3), 4 * sFr);
-            r2Buffer.set(polynomials.C1.evaluate(challenges.h3w3_2), 5 * sFr);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h2), 0);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h2w3), sFr);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h2w3_2), 2 * sFr);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h3), 3 * sFr);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h3w3), 4 * sFr);
+            r2Buffer.set(polynomials.C2.evaluate(challenges.h3w3_2), 5 * sFr);
             r2Buffer.set(Fr.zero, 6 * sFr);
             r2Buffer.set(Fr.zero, 7 * sFr);
 
             polynomials.R2 = await Polynomial.fromBuffer(r2Buffer, Fr, logger);
+
+            let y2 = polynomials.C2.evaluate(challenges.h2);
+            polynomials.R2 = Lagrange6(y2,
+                challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, Fr);
+            y2 = polynomials.C2.evaluate(challenges.h2w3);
+            polynomials.R2.add(Lagrange6(y2,
+                challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, Fr));
+            y2 = polynomials.C2.evaluate(challenges.h2w3_2);
+            polynomials.R2.add(Lagrange6(y2,
+                challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, Fr));
+            y2 = polynomials.C2.evaluate(challenges.h3);
+            polynomials.R2.add(Lagrange6(y2,
+                challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, Fr));
+            y2 = polynomials.C2.evaluate(challenges.h3w3);
+            polynomials.R2 .add(Lagrange6(y2,
+                challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, Fr));
+            y2 = polynomials.C2.evaluate(challenges.h3w3_2);
+            polynomials.R2.add(Lagrange6(y2,
+                challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, Fr));
 
             // Check the degree of r2(X) < 6
             if (polynomials.R2.degree() >= 6) {
                 // TODO check
                 //throw new Error("R2 Polynomial is not well calculated");
             }
-            evaluations.R2 = await Evaluations.fromPolynomial(polynomials.R2, Fr, logger);
+//            evaluations.R2 = await Evaluations.fromPolynomial(polynomials.R2, Fr, logger);
 
             if (logger) logger.debug("Computing f(X)");
             // COMPUTE F(X)
@@ -947,6 +1009,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             //polynomials.F = await polynomials.F.divZt(zkey.domainSize);
 
             evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
+
+            //delete buffers.F;
         }
     }
 

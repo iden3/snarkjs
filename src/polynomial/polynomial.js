@@ -285,32 +285,35 @@ export class Polynomial {
     }
 
     // Compute a new polynomial f(x^n) from f(x)
-    static async computePolynomialXExp(buffer, n, Fr, logger) {
+    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
+    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
+    static async expX(polynomial, n, truncate = false) {
+        const Fr = polynomial.Fr;
+
         if (n < 1) {
+            // n == 0 not allowed because it has no sens, but if it's necessary we have to return
+            // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await this.fromBuffer(buffer, Fr, logger);
+            return await Polynomial.fromBuffer(polynomial.coef, Fr, polynomial.logger);
         }
 
-        const bufferDst = new BigBuffer(buffer.byteLength);
+        // length is the length of non-constant coefficients
+        // if truncate === true, the highest zero coefficients (if exist) will be removed
+        const length = truncate ? polynomial.degree() : (polynomial.length() - 1);
+        const bufferDst = new BigBuffer((length * n + 1) * Fr.n8);
 
-        for (let i = 0; i < buffer.byteLength / Fr.n8; i++) {
+        // Copy constant coefficient as is because is not related to x
+        bufferDst.set(polynomial.coef.slice(0, Fr.n8), 0);
+
+        for (let i = 1; i <= length; i++) {
             const i_sFr = i * Fr.n8;
 
-            const val = buffer.slice(i_sFr, i_sFr + Fr.n8);
-            const val2 = Fr.square(val);
-
-            let res = Fr.one;
-            for (let j = 0; j < Math.floor(n / 2); j++) {
-                res = Fr.mul(res, Fr.square(val2));
-            }
-            if (n % 2 !== 0) {
-                res = Fr.mul(res, val);
-            }
-
-            bufferDst.set(res, i_sFr);
+            const coef = polynomial.coef.slice(i_sFr, i_sFr + Fr.n8);
+            bufferDst.set(coef, i_sFr * n);
         }
-        return await Polynomial.fromBuffer(bufferDst, Fr, logger);
+
+        return new Polynomial(bufferDst, Fr, polynomial.logger);
     }
 
     split(numPols, degPols, blindingFactors) {

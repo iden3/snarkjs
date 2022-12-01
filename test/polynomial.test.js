@@ -2,6 +2,7 @@ import assert from "assert";
 import {getCurveFromName} from "../src/curves.js";
 import {Polynomial} from "../src/polynomial/polynomial.js";
 import {getRandomBuffer, getRandomValue} from "./test.utils.js";
+import {BigBuffer} from "ffjavascript";
 
 function radomPolynomial(maxDegree, Fr) {
     const degree = getRandomValue(maxDegree);
@@ -216,6 +217,52 @@ describe("snarkjs: Polynomial tests", function () {
         for (let i = 1; i < polynomial.length(); i++) {
             const i_sFr = (i - 1) * curve.Fr.n8;
             assert.deepEqual(polynomial.getCoef(i), clone.slice(i_sFr, i_sFr + curve.Fr.n8));
+        }
+    });
+
+    it("should exp a polynomial", async () => {
+        // f(x)   = 3 + 7x + 11x^3
+        // f(x^3) = 3 + 7x^3 + 11x^9
+        const exponent = 3;
+        const buffer = new Uint8Array(curve.Fr.n8 * 8);
+        buffer.set(curve.Fr.e(3), 0);
+        buffer.set(curve.Fr.e(7), curve.Fr.n8 * 1);
+        buffer.set(curve.Fr.e(11), curve.Fr.n8 * 3);
+
+        const bufferClone = Uint8Array.from(buffer);
+
+        let pol = new Polynomial(buffer, curve.Fr);
+        let polExp = await Polynomial.expX(pol, exponent);
+
+        let bufferResult = new Uint8Array(curve.Fr.n8 * 22);
+        bufferResult.set(curve.Fr.e(3), 0);
+        bufferResult.set(curve.Fr.e(7), curve.Fr.n8 * 3);
+        bufferResult.set(curve.Fr.e(11), curve.Fr.n8 * 9);
+
+        assert.deepEqual(polExp.length(), 22);
+
+        for (let i = 0; i < polExp.length(); i++) {
+            const i_sFr = i * curve.Fr.n8;
+            const coef1 = polExp.coef.slice(i_sFr, i_sFr + curve.Fr.n8);
+            const coef2 = bufferResult.slice(i_sFr, i_sFr + curve.Fr.n8);
+            assert.deepEqual(coef1,coef2);
+        }
+
+        pol = new Polynomial(bufferClone, curve.Fr);
+        polExp = await Polynomial.expX(pol, exponent, true);
+
+        bufferResult = new Uint8Array(curve.Fr.n8 * 10);
+        bufferResult.set(curve.Fr.e(3), 0);
+        bufferResult.set(curve.Fr.e(7), curve.Fr.n8 * 3);
+        bufferResult.set(curve.Fr.e(11), curve.Fr.n8 * 9);
+
+        assert.deepEqual(polExp.length(), 10);
+
+        for (let i = 0; i < polExp.length(); i++) {
+            const i_sFr = i * curve.Fr.n8;
+            const coef1 = polExp.coef.slice(i_sFr, i_sFr + curve.Fr.n8);
+            const coef2 = bufferResult.slice(i_sFr, i_sFr + curve.Fr.n8);
+            assert.deepEqual(coef1,coef2);
         }
     });
 
