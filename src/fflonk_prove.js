@@ -797,20 +797,36 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         challenges.xiSeed = transcript.getChallenge();
         challenges.xiSeed2 = Fr.square(challenges.xiSeed);
 
+        let w3 = zkey.w3;
+        let w3_2 = Fr.mul(w3, w3);
+        let w4 = zkey.w4;
+        let w4_2 = Fr.mul(w4, w4);
+        let w4_3 = Fr.mul(w4_2, w4);
+
         // Compute h1 = xi_seeder^3
-        challenges.h1 = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
+        challenges.h1w4 = [];
+        challenges.h1w4[0] = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
+        challenges.h1w4[1] = Fr.mul(challenges.h1w4[0], w4);
+        challenges.h1w4[2] = Fr.mul(challenges.h1w4[0], w4_2);
+        challenges.h1w4[3] = Fr.mul(challenges.h1w4[0], w4_3);
 
         // Compute h2 = xi_seeder^4
-        challenges.h2 = Fr.square(challenges.xiSeed2);
+        challenges.h2w3 = [];
+        challenges.h2w3[0] = Fr.square(challenges.xiSeed2);
+        challenges.h2w3[1] = Fr.mul(challenges.h2w3[0], w3);
+        challenges.h2w3[2] = Fr.mul(challenges.h2w3[0], w3_2);
 
         // Compute h3 = xi_seeder^6
-        challenges.h3 = Fr.mul(challenges.h2, challenges.xiSeed2);
+        challenges.h3w3 = [];
+        challenges.h3w3[0] = Fr.mul(challenges.h2w3[0], challenges.xiSeed2);
 
         // Compute xi = xi_seeder^12
-        challenges.xi = Fr.square(challenges.h3);
+        challenges.xi = Fr.square(challenges.h3w3[0]);
 
         // Multiply h3 by omega to obtain h_3^2 = xiω
-        challenges.h3 = Fr.mul(challenges.h3, zkey.w3);
+        challenges.h3w3[0] = Fr.mul(challenges.h3w3[0], zkey.w3);
+        challenges.h3w3[1] = Fr.mul(challenges.h3w3[0], w3);
+        challenges.h3w3[2] = Fr.mul(challenges.h3w3[0], w3_2);
 
         if (logger) logger.debug("Challenge.xi: " + Fr.toString(challenges.xi));
 
@@ -880,90 +896,35 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             buffers.F = new BigBuffer(sDomain * 4);
 
-            //TODO h1w4, h2w3 and h3w3 as a vector
-            let w3 = zkey.w3;
-            let w3_2 = Fr.mul(w3, w3);
-            let w4 = zkey.w4;
-            let w4_2 = Fr.mul(w4, w4);
-            let w4_3 = Fr.mul(w4_2, w4);
-
-            challenges.h1w4 = Fr.mul(challenges.h1, w4);
-            challenges.h1w4_2 = Fr.mul(challenges.h1, w4_2);
-            challenges.h1w4_3 = Fr.mul(challenges.h1, w4_3);
-            challenges.h2w3 = Fr.mul(challenges.h2, w3);
-            challenges.h2w3_2 = Fr.mul(challenges.h2, w3_2);
-            challenges.h3w3 = Fr.mul(challenges.h3, w3);
-            challenges.h3w3_2 = Fr.mul(challenges.h3, w3_2);
-
             // COMPUTE R1
             // Compute the coefficients of R1(X) from its 4 evaluations. R1(X) ∈ F_{<4}[X]
             if (logger) logger.debug("Computing R1");
-            const r1Buffer = new Uint8Array(4 * sFr);
-            r1Buffer.set(polynomials.C1.evaluate(challenges.h1, 0));
-            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4, 32));
-            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4_2, 64));
-            r1Buffer.set(polynomials.C1.evaluate(challenges.h1w4_3, 96));
 
-            polynomials.R1 = await Polynomial.fromBuffer(r1Buffer, Fr, logger);
-
-            let y1 = polynomials.C1.evaluate(challenges.h1);
-            polynomials.R1 = Lagrange4(y1, challenges.h1, challenges.h1w4, challenges.h1w4_2, challenges.h1w4_3, Fr);
-            y1 = polynomials.C1.evaluate(challenges.h1w4);
-            polynomials.R1.add(Lagrange4(y1, challenges.h1w4, challenges.h1w4_2, challenges.h1w4_3, challenges.h1, Fr));
-            y1 = polynomials.C1.evaluate(challenges.h1w4_2);
-            polynomials.R1.add(Lagrange4(y1, challenges.h1w4_2, challenges.h1w4_3, challenges.h1, challenges.h1w4, Fr));
-            y1 = polynomials.C1.evaluate(challenges.h1w4_3);
-            polynomials.R1.add(Lagrange4(y1, challenges.h1w4_3, challenges.h1, challenges.h1w4, challenges.h1w4_2, Fr));
+            polynomials.R1 = Polynomial.lagrangeInterpolationFrom4Points(
+                [challenges.h1w4[0], challenges.h1w4[1], challenges.h1w4[2], challenges.h1w4[3]],
+                [polynomials.C1.evaluate(challenges.h1w4[0]), polynomials.C1.evaluate(challenges.h1w4[1]),
+                    polynomials.C1.evaluate(challenges.h1w4[2]), polynomials.C1.evaluate(challenges.h1w4[3])], Fr);
 
             // Check the degree of r1(X) < 4
-            if (polynomials.R1.degree() >= 4) {
+            if (polynomials.R1.degree() > 3) {
                 throw new Error("R1 Polynomial is not well calculated");
             }
-
-            // Compute the extended evaluations for R1(X)
-//            evaluations.R1 = await Evaluations.fromPolynomial(polynomials.R1, Fr, logger);
 
             // COMPUTE R2
             // Compute the coefficients of r2(X) from its 3 evaluations. r2(X) ∈ F_{<3}[X]
             if (logger) logger.debug("Computing R2");
-            const r2Buffer = new Uint8Array(2 ** 3 * sFr);
-
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h2), 0);
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h2w3), sFr);
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h2w3_2), 2 * sFr);
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h3), 3 * sFr);
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h3w3), 4 * sFr);
-            r2Buffer.set(polynomials.C2.evaluate(challenges.h3w3_2), 5 * sFr);
-            r2Buffer.set(Fr.zero, 6 * sFr);
-            r2Buffer.set(Fr.zero, 7 * sFr);
-
-            polynomials.R2 = await Polynomial.fromBuffer(r2Buffer, Fr, logger);
-
-            let y2 = polynomials.C2.evaluate(challenges.h2);
-            polynomials.R2 = Lagrange6(y2,
-                challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, Fr);
-            y2 = polynomials.C2.evaluate(challenges.h2w3);
-            polynomials.R2.add(Lagrange6(y2,
-                challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, Fr));
-            y2 = polynomials.C2.evaluate(challenges.h2w3_2);
-            polynomials.R2.add(Lagrange6(y2,
-                challenges.h2w3_2, challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, Fr));
-            y2 = polynomials.C2.evaluate(challenges.h3);
-            polynomials.R2.add(Lagrange6(y2,
-                challenges.h3, challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, Fr));
-            y2 = polynomials.C2.evaluate(challenges.h3w3);
-            polynomials.R2 .add(Lagrange6(y2,
-                challenges.h3w3, challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, Fr));
-            y2 = polynomials.C2.evaluate(challenges.h3w3_2);
-            polynomials.R2.add(Lagrange6(y2,
-                challenges.h3w3_2, challenges.h2, challenges.h2w3, challenges.h2w3_2, challenges.h3, challenges.h3w3, Fr));
+            polynomials.R2 = Polynomial.lagrangeInterpolationFrom6Points(
+                [challenges.h2w3[0], challenges.h2w3[1], challenges.h2w3[2],
+                    challenges.h3w3[0], challenges.h3w3[1], challenges.h3w3[2]],
+                [polynomials.C2.evaluate(challenges.h2w3[0]), polynomials.C2.evaluate(challenges.h2w3[1]),
+                    polynomials.C2.evaluate(challenges.h2w3[2]), polynomials.C2.evaluate(challenges.h3w3[0]),
+                    polynomials.C2.evaluate(challenges.h3w3[1]), polynomials.C2.evaluate(challenges.h3w3[2])], Fr);
 
             // Check the degree of r2(X) < 6
-            if (polynomials.R2.degree() >= 6) {
+            if (polynomials.R2.degree() > 5) {
                 // TODO check
-                //throw new Error("R2 Polynomial is not well calculated");
+                throw new Error("R2 Polynomial is not well calculated");
             }
-//            evaluations.R2 = await Evaluations.fromPolynomial(polynomials.R2, Fr, logger);
 
             if (logger) logger.debug("Computing f(X)");
             // COMPUTE F(X)
@@ -974,25 +935,25 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const i_sFr = i * sFr;
 
-                const c1 = evaluations.C1.get(i_sFr);
-                const c2 = evaluations.C2.get(i_sFr);
-                const r1 = evaluations.R1.get(i_sFr);
-                const r2 = evaluations.R2.get(i_sFr);
+                const c1 = polynomials.C1.evaluate(omega);
+                const c2 = polynomials.C2.evaluate(omega);
+                const r1 = polynomials.R1.evaluate(omega);
+                const r2 = polynomials.R2.evaluate(omega);
 
                 // f1 = (X - h2) (X - h2w3) (X - h2w3_2) (X - h3) (X - h3w3) (X - h3w3_2) (C1(X) - R1(X))
-                let f1 = Fr.sub(omega, challenges.h2);
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3_2));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3_2));
+                let f1 = Fr.sub(omega, challenges.h2w3[0]);
+                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3[1]));
+                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3[2]));
+                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[0]));
+                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[1]));
+                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[2]));
                 f1 = Fr.mul(f1, Fr.sub(c1, r1));
 
                 // f2 = alpha (X - h1) (X - h1w4) (X - h1w4_2) (X - h1w4_3) (C2(X) - R2(X))
-                let f2 = Fr.mul(challenges.alpha, Fr.sub(omega, challenges.h1));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4_2));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4_3));
+                let f2 = Fr.mul(challenges.alpha, Fr.sub(omega, challenges.h1w4[0]));
+                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[1]));
+                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[2]));
+                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[3]));
                 f2 = Fr.mul(f2, Fr.sub(c2, r2));
 
                 let f = Fr.add(f1, f2);
@@ -1045,22 +1006,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const i_sFr = i * sFr;
 
-                const c1 = evaluations.C1.get(i_sFr);
-                const c2 = evaluations.C2.get(i_sFr);
-                const f = evaluations.F.get(i_sFr);
+                const c1 = polynomials.C1.evaluate(omega);
+                const c2 = polynomials.C2.evaluate(omega);
+                const f = polynomials.F.evaluate(omega);
 
-                let l1 = Fr.sub(challenges.y, challenges.h2);
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3_2));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3_2));
+                let l1 = Fr.sub(challenges.y, challenges.h2w3[0]);
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3[1]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3[2]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[0]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[1]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[2]));
                 l1 = Fr.mul(l1, Fr.sub(c1, evalR1Y));
 
-                let l2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, challenges.h1));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4_2));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4_3));
+                let l2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, challenges.h1w4[0]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[1]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[2]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[3]));
                 l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
 
                 let l3 = Fr.one; // Fr.mul(f, ZT(y)); //TODO

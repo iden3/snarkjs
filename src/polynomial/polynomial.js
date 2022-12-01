@@ -467,4 +467,133 @@ export class Polynomial {
             this.coef = newCoefs;
         }
     }
+
+    static lagrangeInterpolationFrom4Points(xArr, yArr, Fr) {
+        if (xArr.length !== 4 || yArr.length !== 4) {
+            throw new Error("Lagrange Interpolation 4 needs 4 x's and 4 y's");
+        }
+
+        let pol = Lagrange4(yArr[0], xArr[0], xArr[1], xArr[2], xArr[3]);
+        pol.add(Lagrange4(yArr[1], xArr[1], xArr[2], xArr[3], xArr[0]));
+        pol.add(Lagrange4(yArr[2], xArr[2], xArr[3], xArr[0], xArr[1]));
+        pol.add(Lagrange4(yArr[3], xArr[3], xArr[0], xArr[1], xArr[2]));
+
+        return pol;
+
+        function Lagrange4(y, a, b, c, d) {
+            const a2 = Fr.square(a);
+
+            // x^2
+            let x2 = Fr.neg(Fr.add(b, Fr.add(c, d)));
+
+            // x^1
+            let x1 = Fr.mul(b, c);
+            x1 = Fr.add(x1, Fr.mul(b, d));
+            x1 = Fr.add(x1, Fr.mul(c, d));
+
+            // x^0
+            let x0 = Fr.neg(Fr.mul(b, Fr.mul(c, d)));
+
+            let den = Fr.mul(a2, a);
+            den = Fr.add(den, Fr.mul(x2, a2));
+            den = Fr.add(den, Fr.mul(x1, a));
+            den = Fr.add(den, x0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, y);
+
+            let buff = new Uint8Array(4 * Fr.n8);
+            buff.set(Fr.mul(den, x0), 0);
+            buff.set(Fr.mul(den, x1), 32);
+            buff.set(Fr.mul(den, x2), 64);
+            buff.set(den, 96);
+
+            return new Polynomial(buff, Fr);
+        }
+    }
+
+    static lagrangeInterpolationFrom6Points(xArr, yArr, Fr) {
+        if (xArr.length !== 6 || yArr.length !== 6) {
+            throw new Error("Lagrange Interpolation 6 needs 6 x's and 6 y's");
+        }
+
+        let pol = Lagrange6(yArr[0], xArr[0], xArr[1], xArr[2], xArr[3], xArr[4], xArr[5]);
+        pol.add(Lagrange6(yArr[1], xArr[1], xArr[2], xArr[3], xArr[4], xArr[5], xArr[0]));
+        pol.add(Lagrange6(yArr[2], xArr[2], xArr[3], xArr[4], xArr[5], xArr[0], xArr[1]));
+        pol.add(Lagrange6(yArr[3], xArr[3], xArr[4], xArr[5], xArr[0], xArr[1], xArr[2]));
+        pol.add(Lagrange6(yArr[4], xArr[4], xArr[5], xArr[0], xArr[1], xArr[2], xArr[3]));
+        pol.add(Lagrange6(yArr[5], xArr[5], xArr[0], xArr[1], xArr[2], xArr[3], xArr[4]));
+
+        return pol;
+
+        function Lagrange6(y, a, b, c, d, e, f) {
+            const a2 = Fr.square(a);
+            const a3 = Fr.mul(a2, a);
+            const a4 = Fr.square(a2);
+
+            const bc = Fr.mul(b, c);
+            const bd = Fr.mul(b, d);
+            const be = Fr.mul(b, e);
+            const bf = Fr.mul(b, f);
+            const cd = Fr.mul(c, d);
+            const ce = Fr.mul(c, e);
+            const cf = Fr.mul(c, f);
+            const de = Fr.mul(d, e);
+            const df = Fr.mul(d, f);
+            const ef = Fr.mul(e, f);
+
+            // x^4
+            let x4 = Fr.neg(Fr.add(f, Fr.add(e, Fr.add(d, Fr.add(c, b)))));
+
+            // x^3
+            let x3 = Fr.add(bf, cf);
+            x3 = Fr.add(x3, df);
+            x3 = Fr.add(x3, ef);
+            x3 = Fr.add(x3, be);
+            x3 = Fr.add(x3, ce);
+            x3 = Fr.add(x3, de);
+            x3 = Fr.add(x3, bd);
+            x3 = Fr.add(x3, cd);
+            x3 = Fr.add(x3, bc);
+
+            // x^2
+            let x2 = Fr.mul(b, cd);
+            x2 = Fr.add(x2, Fr.mul(b, ce));
+            x2 = Fr.add(x2, Fr.mul(b, cf));
+            x2 = Fr.add(x2, Fr.mul(b, de));
+            x2 = Fr.add(x2, Fr.mul(b, df));
+            x2 = Fr.add(x2, Fr.mul(b, ef));
+            x2 = Fr.add(x2, Fr.mul(c, de));
+            x2 = Fr.add(x2, Fr.mul(c, df));
+            x2 = Fr.add(x2, Fr.mul(c, ef));
+            x2 = Fr.add(x2, Fr.mul(d, ef));
+            x2 = Fr.neg(x2);
+
+            let x1 = Fr.mul(bc, de);
+            x1 = Fr.add(x1, Fr.mul(bc, df));
+            x1 = Fr.add(x1, Fr.mul(bc, ef));
+            x1 = Fr.add(x1, Fr.mul(bd, ef));
+            x1 = Fr.add(x1, Fr.mul(cd, ef));
+
+            let x0 = Fr.neg(Fr.mul(b, Fr.mul(cd, ef)));
+
+            let den = Fr.mul(a4, a);
+            den = Fr.add(den, Fr.mul(x4, a4));
+            den = Fr.add(den, Fr.mul(x3, a3));
+            den = Fr.add(den, Fr.mul(x2, a2));
+            den = Fr.add(den, Fr.mul(x1, a));
+            den = Fr.add(den, x0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, y);
+
+            let buff = new Uint8Array(6 * Fr.n8);
+            buff.set(Fr.mul(den, x0), 0);
+            buff.set(Fr.mul(den, x1), 32);
+            buff.set(Fr.mul(den, x2), 64);
+            buff.set(Fr.mul(den, x3), 96);
+            buff.set(Fr.mul(den, x4), 128);
+            buff.set(den, 160);
+
+            return new Polynomial(buff, Fr);
+        }
+    }
 }
