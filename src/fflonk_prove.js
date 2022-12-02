@@ -463,8 +463,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 polynomials.C1.coef.set(val, i_sFr);
             }
 
-            evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, Fr, logger);
-
             //delete polynomials.A_X4;
             //delete polynomials.B_X4;
             //delete polynomials.C_X4;
@@ -765,8 +763,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 polynomials.T1_X3.length() + 1,
                 polynomials.T2_X3.length() + 2);
             length = 2 ** (log2(length - 1) + 1);
-            polynomials.C2 = new Polynomial(new BigBuffer(length * sFr, Fr, logger), Fr, logger);
 
+            polynomials.C2 = new Polynomial(new BigBuffer(length * sFr, Fr, logger), Fr, logger);
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
 
@@ -777,9 +775,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 polynomials.C2.coef.set(val, i_sFr);
             }
-
-            // Compute extended evaluations of C2(X) polynomial
-            evaluations.C2 = await Evaluations.fromPolynomial(polynomials.C2, Fr, logger);
 
             //delete polynomials.Z_X3;
             //delete polynomials.T1_X3;
@@ -886,6 +881,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.debug("Challenge.alpha: " + Fr.toString(challenges.alpha));
 
         // STEP 4.2 - Compute F(X)
+        computeR1();
+        computeR2();
         await computeF();
 
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
@@ -893,13 +890,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         return 0;
 
-        async function computeF() {
-            buffers.F = new BigBuffer(sDomain * 4);
-
+        function computeR1() {
             // COMPUTE R1
-            // Compute the coefficients of R1(X) from its 4 evaluations. R1(X) ∈ F_{<4}[X]
+            // Compute the coefficients of R1(X) from 4 evaluations using lagrange interpolation. R1(X) ∈ F_{<4}[X]
+            // We decide to use Lagrange interpolations because the R1 degree is very small (deg(R1)===3),
+            // and we were not able to compute it using current ifft implementation
             if (logger) logger.debug("Computing R1");
-
             polynomials.R1 = Polynomial.lagrangeInterpolationFrom4Points(
                 [challenges.h1w4[0], challenges.h1w4[1], challenges.h1w4[2], challenges.h1w4[3]],
                 [polynomials.C1.evaluate(challenges.h1w4[0]), polynomials.C1.evaluate(challenges.h1w4[1]),
@@ -909,9 +905,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (polynomials.R1.degree() > 3) {
                 throw new Error("R1 Polynomial is not well calculated");
             }
+        }
 
+        function computeR2() {
             // COMPUTE R2
-            // Compute the coefficients of r2(X) from its 3 evaluations. r2(X) ∈ F_{<3}[X]
+            // Compute the coefficients of r2(X) from 6 evaluations using lagrange interpolation. r2(X) ∈ F_{<6}[X]
+            // We decide to use Lagrange interpolations because the R2.degree is very small (deg(R2)===5),
+            // and we were not able to compute it using current ifft implementation
             if (logger) logger.debug("Computing R2");
             polynomials.R2 = Polynomial.lagrangeInterpolationFrom6Points(
                 [challenges.h2w3[0], challenges.h2w3[1], challenges.h2w3[2],
@@ -925,13 +925,17 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 // TODO check
                 throw new Error("R2 Polynomial is not well calculated");
             }
+        }
+
+        async function computeF() {
+            buffers.F = new BigBuffer(sDomain * 4);
 
             if (logger) logger.debug("Computing f(X)");
             // COMPUTE F(X)
             // Set initial omega
             let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 4; i++) {
-                if (logger && (i % 5000 === 0)) logger.debug(`Computing F evaluation ${i}/${zkey.domainSize * 4}`);
+            for (let i = 0; i < zkey.domainSize; i++) {
+                if (logger && (i % 5000 === 0)) logger.debug(`Computing F evaluation ${i}/${zkey.domainSize}`);
 
                 const i_sFr = i * sFr;
 
@@ -961,7 +965,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 buffers.F.set(f, i_sFr);
 
                 // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+                omega = Fr.mul(omega, Fr.w[zkey.power]);
             }
 
             if (logger) logger.debug("Computing F ifft");
