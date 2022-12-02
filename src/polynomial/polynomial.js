@@ -483,16 +483,19 @@ export class Polynomial {
         function Lagrange4(y, a, b, c, d) {
             const a2 = Fr.square(a);
 
+            const bc = Fr.mul(b, c);
+            const bd = Fr.mul(b, d);
+            const cd = Fr.mul(c, d);
+
             // x^2
             let x2 = Fr.neg(Fr.add(b, Fr.add(c, d)));
 
             // x^1
-            let x1 = Fr.mul(b, c);
-            x1 = Fr.add(x1, Fr.mul(b, d));
-            x1 = Fr.add(x1, Fr.mul(c, d));
+            let x1 = Fr.add(bc, bd);
+            x1 = Fr.add(x1, cd);
 
             // x^0
-            let x0 = Fr.neg(Fr.mul(b, Fr.mul(c, d)));
+            let x0 = Fr.neg(Fr.mul(b, cd));
 
             let den = Fr.mul(a2, a);
             den = Fr.add(den, Fr.mul(x2, a2));
@@ -509,6 +512,7 @@ export class Polynomial {
 
             return new Polynomial(buff, Fr);
         }
+
     }
 
     static lagrangeInterpolationFrom6Points(xArr, yArr, Fr) {
