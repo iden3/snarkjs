@@ -44,7 +44,6 @@ import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
 import {log2} from "./misc.js";
-import {Lagrange6, Lagrange4} from "./fflonk_utils.js";
 
 const {stringifyBigInts} = utils;
 
@@ -885,6 +884,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         computeR2();
         await computeF();
 
+        await computeZt();
+
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
         proof.addPolynomial("W1", await multiExponentiation(polynomials.F, "W1"));
 
@@ -976,6 +977,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
 
             //delete buffers.F;
+        }
+
+        async function computeZt() {
+            polynomials.ZT = Polynomial.lagrangeInterpolationGeneric(
+                [challenges.h1w4[0], challenges.h1w4[1], challenges.h1w4[2], challenges.h1w4[3],
+                    challenges.h2w3[0], challenges.h2w3[1], challenges.h2w3[2],
+                    challenges.h3w3[0], challenges.h3w3[1], challenges.h3w3[2]],
+                [polynomials.C1.evaluate(challenges.h1w4[0]), polynomials.C1.evaluate(challenges.h1w4[1]),
+                    polynomials.C1.evaluate(challenges.h1w4[2]), polynomials.C1.evaluate(challenges.h1w4[3]),
+                    polynomials.C2.evaluate(challenges.h2w3[0]), polynomials.C2.evaluate(challenges.h2w3[1]),
+                    polynomials.C2.evaluate(challenges.h2w3[2]), polynomials.C2.evaluate(challenges.h3w3[0]),
+                    polynomials.C2.evaluate(challenges.h3w3[1]), polynomials.C2.evaluate(challenges.h3w3[2])], Fr);
         }
     }
 

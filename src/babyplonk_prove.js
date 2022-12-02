@@ -683,7 +683,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         polynomials.Wxi.subScalar(Fr.mul(proof.getEvaluation("b"), challenges.v[2]));
         polynomials.Wxi.subScalar(Fr.mul(proof.getEvaluation("s1", challenges.v[3])));
 
-        polynomials.Wxi.divByXValue(challenges.xi);
+        polynomials.Wxi.divByXSubValue(challenges.xi);
 
         //TODO
         //const expectedDegree = 1 === C ? 2 * DOMAIN_SIZE + 5 : DOMAIN_SIZE + 5;
@@ -700,7 +700,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         polynomials.Wxiw.subScalar(Fr.mul(proof.getEvaluation("aw"), challenges.vp[0]));
         polynomials.Wxiw.subScalar(Fr.mul(proof.getEvaluation("bw"), challenges.vp[1],));
 
-        polynomials.Wxiw.divByXValue(Fr.mul(challenges.xi, Fr.w[zkey.cirPower]));
+        polynomials.Wxiw.divByXSubValue(Fr.mul(challenges.xi, Fr.w[zkey.cirPower]));
 
         // Cal??????
         proof.addEvaluation("r", eval_r);

@@ -196,6 +196,22 @@ describe("snarkjs: Polynomial tests", function () {
         }
     });
 
+    it("should multiply by (X-value)", async () => {
+        const Fr = curve.Fr;
+
+        const buffer = new Uint8Array(Fr.n8 * 3);
+        buffer.set(curve.Fr.e(4), 0);
+        buffer.set(curve.Fr.e(-3), Fr.n8);
+        buffer.set(curve.Fr.e(7), Fr.n8 * 2);
+
+        const polynomial = new Polynomial(buffer, Fr);
+        polynomial.byXSubValue(Fr.e(6));
+
+        assert.equal(3, polynomial.degree());
+
+        assert.deepEqual(polynomial.getCoef(0), Fr.e(-24));
+    });
+
     it("should multiply by X", async () => {
         const length = getRandomValue(30);
 
@@ -245,7 +261,7 @@ describe("snarkjs: Polynomial tests", function () {
             const i_sFr = i * curve.Fr.n8;
             const coef1 = polExp.coef.slice(i_sFr, i_sFr + curve.Fr.n8);
             const coef2 = bufferResult.slice(i_sFr, i_sFr + curve.Fr.n8);
-            assert.deepEqual(coef1,coef2);
+            assert.deepEqual(coef1, coef2);
         }
 
         pol = new Polynomial(bufferClone, curve.Fr);
@@ -262,7 +278,7 @@ describe("snarkjs: Polynomial tests", function () {
             const i_sFr = i * curve.Fr.n8;
             const coef1 = polExp.coef.slice(i_sFr, i_sFr + curve.Fr.n8);
             const coef2 = bufferResult.slice(i_sFr, i_sFr + curve.Fr.n8);
-            assert.deepEqual(coef1,coef2);
+            assert.deepEqual(coef1, coef2);
         }
     });
 
@@ -308,5 +324,26 @@ describe("snarkjs: Polynomial tests", function () {
 
         polynomial.truncate();
         assert.equal(polynomial.length(), random1);
+    });
+
+    it("should interpolate a polynomial using Lagrange Interpolation", async () => {
+        const Fr = curve.Fr;
+
+        const buffer = new Uint8Array(Fr.n8 * 3);
+        buffer.set(Fr.div(Fr.e(14), Fr.e(2)), 0);
+        buffer.set(Fr.div(Fr.e(-11), Fr.e(2)), Fr.n8);
+        buffer.set(Fr.div(Fr.e(3), Fr.e(2)), Fr.n8 * 2);
+
+        const polynomial = new Polynomial(buffer, Fr);
+
+        let polynomial2 = Polynomial.lagrangeInterpolationGeneric([Fr.e(2), Fr.e(3), Fr.e(1)],
+            [Fr.e(2), Fr.e(4), Fr.e(3)], Fr);
+
+        assert.equal(polynomial.degree(), polynomial2.degree());
+        //assert.equal(polynomial.length(), polynomial2.length());
+
+        for (let i = 0; i < polynomial.length(); i++) {
+            assert.deepEqual(polynomial.getCoef(i), polynomial2.getCoef(i));
+        }
     });
 });
