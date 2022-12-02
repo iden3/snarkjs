@@ -473,12 +473,7 @@ export class Polynomial {
             throw new Error("Lagrange Interpolation 4 needs 4 x's and 4 y's");
         }
 
-        let pol = Lagrange4(yArr[0], xArr[0], xArr[1], xArr[2], xArr[3]);
-        pol.add(Lagrange4(yArr[1], xArr[1], xArr[2], xArr[3], xArr[0]));
-        pol.add(Lagrange4(yArr[2], xArr[2], xArr[3], xArr[0], xArr[1]));
-        pol.add(Lagrange4(yArr[3], xArr[3], xArr[0], xArr[1], xArr[2]));
-
-        return pol;
+        return Lagrange4Optimized(xArr, yArr);
 
         function Lagrange4(y, a, b, c, d) {
             const a2 = Fr.square(a);
@@ -511,6 +506,162 @@ export class Polynomial {
             buff.set(den, 96);
 
             return new Polynomial(buff, Fr);
+        }
+
+        function Lagrange4Optimized(xArr, yArr) {
+            // First step
+            const x0_2 = Fr.square(xArr[0]);
+            const x1_2 = Fr.square(xArr[1]);
+            const x2_2 = Fr.square(xArr[2]);
+            const x3_2 = Fr.square(xArr[3]);
+
+            const x01 = Fr.mul(xArr[0], xArr[1]);
+            const x02 = Fr.mul(xArr[0], xArr[2]);
+            const x03 = Fr.mul(xArr[0], xArr[3]);
+            const x12 = Fr.mul(xArr[1], xArr[2]);
+            const x13 = Fr.mul(xArr[1], xArr[3]);
+            const x23 = Fr.mul(xArr[2], xArr[3]);
+
+            let res = [];
+
+            // x^2
+            let coef2 = Fr.neg(Fr.add(xArr[1], Fr.add(xArr[2], xArr[3])));
+
+            // x^1
+            let coef1 = Fr.add(x12, x13);
+            coef1 = Fr.add(coef1, x23);
+
+            // x^0
+            let coef0 = Fr.neg(Fr.mul(xArr[1], x23));
+
+            let den = Fr.mul(x0_2, xArr[0]);
+            den = Fr.add(den, Fr.mul(coef2, x0_2));
+            den = Fr.add(den, Fr.mul(coef1, xArr[0]));
+            den = Fr.add(den, coef0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, yArr[0]);
+
+            res[0] = Fr.mul(den, coef0);
+            res[1] = Fr.mul(den, coef1);
+            res[2] = Fr.mul(den, coef2);
+            res[3] = den;
+
+            // x^2
+            coef2 = Fr.neg(Fr.add(xArr[2], Fr.add(xArr[3], xArr[0])));
+
+            // x^1
+            coef1 = Fr.add(x23, x02);
+            coef1 = Fr.add(coef1, x03);
+
+            // x^0
+            coef0 = Fr.neg(Fr.mul(xArr[2], x03));
+
+            den = Fr.mul(x1_2, xArr[1]);
+            den = Fr.add(den, Fr.mul(coef2, x1_2));
+            den = Fr.add(den, Fr.mul(coef1, xArr[1]));
+            den = Fr.add(den, coef0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, yArr[1]);
+
+            res[0] = Fr.add(res[0], Fr.mul(den, coef0));
+            res[1] = Fr.add(res[1], Fr.mul(den, coef1));
+            res[2] = Fr.add(res[2], Fr.mul(den, coef2));
+            res[3] = Fr.add(res[3], den);
+
+            // x^2
+            coef2 = Fr.neg(Fr.add(xArr[3], Fr.add(xArr[0], xArr[1])));
+
+            // x^1
+            coef1 = Fr.add(x03, x13);
+            coef1 = Fr.add(coef1, x01);
+
+            // x^0
+            coef0 = Fr.neg(Fr.mul(xArr[3], x01));
+
+            den = Fr.mul(x2_2, xArr[2]);
+            den = Fr.add(den, Fr.mul(coef2, x2_2));
+            den = Fr.add(den, Fr.mul(coef1, xArr[2]));
+            den = Fr.add(den, coef0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, yArr[2]);
+
+            res[0] = Fr.add(res[0], Fr.mul(den, coef0));
+            res[1] = Fr.add(res[1], Fr.mul(den, coef1));
+            res[2] = Fr.add(res[2], Fr.mul(den, coef2));
+            res[3] = Fr.add(res[3], den);
+
+            // x^2
+            coef2 = Fr.neg(Fr.add(xArr[0], Fr.add(xArr[1], xArr[2])));
+
+            // x^1
+            coef1 = Fr.add(x01, x02);
+            coef1 = Fr.add(coef1, x12);
+
+            // x^0
+            coef0 = Fr.neg(Fr.mul(xArr[0], x12));
+
+            den = Fr.mul(x3_2, xArr[3]);
+            den = Fr.add(den, Fr.mul(coef2, x3_2));
+            den = Fr.add(den, Fr.mul(coef1, xArr[3]));
+            den = Fr.add(den, coef0);
+            den = Fr.inv(den);
+            den = Fr.mul(den, yArr[3]);
+
+            res[0] = Fr.add(res[0], Fr.mul(den, coef0));
+            res[1] = Fr.add(res[1], Fr.mul(den, coef1));
+            res[2] = Fr.add(res[2], Fr.mul(den, coef2));
+            res[3] = Fr.add(res[3], den);
+
+            let buff = new Uint8Array(4 * Fr.n8);
+            buff.set(res[0], 0);
+            buff.set(res[1], 32);
+            buff.set(res[2], 64);
+            buff.set(res[3], 96);
+            //return new Polynomial(buff, Fr);
+
+            let tmp = [];
+            tmp[0] = temp(yArr[0], xArr[0], x0_2, xArr[1], xArr[2], xArr[3], x12, x13, x23);
+            tmp[1] = temp(yArr[1], xArr[1], x1_2, xArr[2], xArr[3], xArr[0], x23, x02, x03);
+            tmp[2] = temp(yArr[2], xArr[2], x2_2, xArr[3], xArr[0], xArr[1], x03, x13, x01);
+            tmp[3] = temp(yArr[3], xArr[3], x3_2, xArr[0], xArr[1], xArr[2], x01, x02, x12);
+
+            let buff2 = new Uint8Array(4 * Fr.n8);
+            for (let i = 0; i < 4; i++) {
+                if (i === 0) {
+                    buff2.set(tmp[i][0], 0);
+                    buff2.set(tmp[i][1], 32);
+                    buff2.set(tmp[i][2], 64);
+                    buff2.set(tmp[i][3], 96);
+                } else {
+                    buff2.set(Fr.add(buff2.slice(0, 32), tmp[i][0]), 0);
+                    buff2.set(Fr.add(buff2.slice(32, 64), tmp[i][1]), 32);
+                    buff2.set(Fr.add(buff2.slice(64, 96), tmp[i][2]), 64);
+                    buff2.set(Fr.add(buff2.slice(96, 128), tmp[i][3]), 96);
+                }
+            }
+
+            return new Polynomial(buff2, Fr);
+
+            function temp(y, a, a2, b, c, d, bc, bd, cd) {
+                // x^2
+                let coef2 = Fr.neg(Fr.add(b, Fr.add(c, d)));
+
+                // x^1
+                let coef1 = Fr.add(bc, bd);
+                coef1 = Fr.add(coef1, cd);
+
+                // x^0
+                let coef0 = Fr.neg(Fr.mul(b, cd));
+
+                let den = Fr.mul(a2, a);
+                den = Fr.add(den, Fr.mul(coef2, a2));
+                den = Fr.add(den, Fr.mul(coef1, a));
+                den = Fr.add(den, coef0);
+                den = Fr.inv(den);
+                den = Fr.mul(den, y);
+
+                return [Fr.mul(den, coef0), Fr.mul(den, coef1), Fr.mul(den, coef2), den];
+            }
         }
 
     }
