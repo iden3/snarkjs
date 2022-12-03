@@ -243,8 +243,8 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         await buildABEvaluationsBuffer();
 
         // 3. Compute wire polynomials a, b and their extended evaluations
-        polynomials.A = Polynomial.fromBuffer(buffers.A, Fr, logger);
-        polynomials.B = Polynomial.fromBuffer(buffers.B, Fr, logger);
+        polynomials.A = Polynomial.fromEvaluations(buffers.A, Fr, logger);
+        polynomials.B = Polynomial.fromEvaluations(buffers.B, Fr, logger);
 
         evaluations.A = Evaluations.fromPolynomial(polynomials.A, Fr, logger);
         evaluations.B = Evaluations.fromPolynomial(polynomials.B, Fr, logger);
@@ -341,7 +341,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             throw new Error("Copy constraints does not match");
         }
 
-        polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
+        polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, Fr, logger);
         evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
         // blind z(X) adding (b_8X^2+b_9X+b_10)Z_H(X), becomes F_{<n+3}[X]
@@ -509,11 +509,11 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
         delete evaluations.lagrange1;
 
         if (logger) logger.debug("ifft T");
-        polynomials.T = await Polynomial.fromBuffer(buffT, Fr, logger);
+        polynomials.T = await Polynomial.fromEvaluations(buffT, Fr, logger);
         polynomials.T = await polynomials.T.divZh();
 
         if (logger) logger.debug("ifft Tz");
-        const polTz = await Polynomial.fromBuffer(buffTz, Fr, logger);
+        const polTz = await Polynomial.fromEvaluations(buffTz, Fr, logger);
 
         polynomials.T.add(polTz);
 

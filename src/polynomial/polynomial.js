@@ -18,7 +18,6 @@
 */
 
 import {BigBuffer} from "ffjavascript";
-import {PLONK_PROTOCOL_ID} from "../zkey.js";
 
 export class Polynomial {
     constructor(coefficients = new Uint8Array(0), Fr, logger) {
@@ -27,10 +26,29 @@ export class Polynomial {
         this.logger = logger;
     }
 
-    static async fromBuffer(buffer, Fr, logger) {
+    static async fromEvaluations(buffer, Fr, logger) {
         let coefficients = await Fr.ifft(buffer);
 
         return new Polynomial(coefficients, Fr, logger);
+    }
+
+    static fromCoefficientsArray(array, Fr, logger) {
+        let buff = array.length > 2 << 14 ?
+            new BigBuffer(array.length * Fr.n8) : new Uint8Array(array.length * Fr.n8);
+        for (let i = 0; i < array.length; i++) buff.set(array[i], i * Fr.n8);
+
+        return new Polynomial(buff, Fr, logger);
+    }
+
+    isEqual(polynomial) {
+        const degree = this.degree();
+        if (degree !== polynomial.degree()) return false;
+
+        for (let i = 0; i < degree + 1; i++) {
+            if (!this.Fr.eq(this.getCoef(i), polynomial.getCoef(i))) return false;
+        }
+
+        return true;
     }
 
     blindCoefficients(blindingFactors) {
@@ -243,6 +261,27 @@ export class Polynomial {
         this.coef = pol.coef;
     }
 
+    // Euclidean division
+    divBy(polynomial) {
+        const Fr = this.Fr;
+        const degreeA = this.degree();
+        const degreeB = polynomial.degree();
+
+        let polQ = new Polynomial(new BigBuffer(this.length() * Fr.n8), Fr, this.logger);
+        let polR = new Polynomial(new BigBuffer(this.length() * Fr.n8), Fr, this.logger);
+
+        polR.coef.set(this.coef.slice(), 0);
+
+        for (let i = degreeA - degreeB; i >= 0; i--) {
+            polQ.setCoef(i, Fr.div(polR.getCoef(i + degreeB), polynomial.getCoef(degreeB)));
+            for (let j = 0; j <= degreeB; j++) {
+                polR.setCoef(i + j, Fr.sub(polR.getCoef(i + j), Fr.mul(polQ.getCoef(i), polynomial.getCoef(j))));
+            }
+        }
+
+        return [polQ, polR];
+    }
+
     // Divide polynomial by X - value
     divByXSubValue(value) {
         const coefs = new BigBuffer(this.length() * this.Fr.n8);
@@ -317,7 +356,7 @@ export class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromBuffer(polynomial.coef, Fr, polynomial.logger);
+            return await Polynomial.fromEvaluations(polynomial.coef, Fr, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients

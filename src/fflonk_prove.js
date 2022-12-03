@@ -292,9 +292,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.C = await Fr.batchToMontgomery(buffers.C);
 
             // Compute the coefficients of the wire polynomials a(X), b(X) and c(X) from A,B & C buffers
-            polynomials.A = await Polynomial.fromBuffer(buffers.A, Fr, logger);
-            polynomials.B = await Polynomial.fromBuffer(buffers.B, Fr, logger);
-            polynomials.C = await Polynomial.fromBuffer(buffers.C, Fr, logger);
+            polynomials.A = await Polynomial.fromEvaluations(buffers.A, Fr, logger);
+            polynomials.B = await Polynomial.fromEvaluations(buffers.B, Fr, logger);
+            polynomials.C = await Polynomial.fromEvaluations(buffers.C, Fr, logger);
 
             // Compute extended evaluations of a(X), b(X) and c(X) polynomials
             evaluations.A = await Evaluations.fromPolynomial(polynomials.A, Fr, logger);
@@ -409,14 +409,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute the coefficients of the polynomial T0(X) from buffers.T0
             if (logger) logger.debug("Computing T0 ifft");
-            polynomials.T0 = await Polynomial.fromBuffer(buffers.T0, Fr, logger);
+            polynomials.T0 = await Polynomial.fromEvaluations(buffers.T0, Fr, logger);
 
             // Divide the polynomial T0 by Z_H(X)
             polynomials.T0 = await polynomials.T0.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.debug("Computing T0z ifft");
-            polynomials.T0z = await Polynomial.fromBuffer(buffers.T0z, Fr, logger);
+            polynomials.T0z = await Polynomial.fromEvaluations(buffers.T0z, Fr, logger);
 
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T0.add(polynomials.T0z);
@@ -584,7 +584,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             // Compute polynomial coefficients z(X) from buffers.Z
-            polynomials.Z = await Polynomial.fromBuffer(buffers.Z, Fr, logger);
+            polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, Fr, logger);
 
             if (polynomials.Z.degree() >= zkey.domainSize + 3) {
                 throw new Error("Z Polynomial is not well calculated");
@@ -631,14 +631,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute the coefficients of the polynomial T1(X) from buffers.T1
             if (logger) logger.debug("Computing T1 ifft");
-            polynomials.T1 = await Polynomial.fromBuffer(buffers.T1, Fr, logger);
+            polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, Fr, logger);
 
             // Divide the polynomial T1 by Z_H(X)
             polynomials.T1 = await polynomials.T1.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.debug("Computing T1z ifft");
-            polynomials.T1z = await Polynomial.fromBuffer(buffers.T1z, Fr, logger);
+            polynomials.T1z = await Polynomial.fromEvaluations(buffers.T1z, Fr, logger);
 
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T1.add(polynomials.T1z);
@@ -726,14 +726,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute the coefficients of the polynomial T2(X) from buffers.T2
             if (logger) logger.debug("Computing T2 ifft");
-            polynomials.T2 = await Polynomial.fromBuffer(buffers.T2, Fr, logger);
+            polynomials.T2 = await Polynomial.fromEvaluations(buffers.T2, Fr, logger);
 
             // Divide the polynomial T2 by Z_H(X)
             polynomials.T2 = await polynomials.T2.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.debug("Computing T2z ifft");
-            polynomials.T2z = await Polynomial.fromBuffer(buffers.T2z, Fr, logger);
+            polynomials.T2z = await Polynomial.fromEvaluations(buffers.T2z, Fr, logger);
 
             // Add the polynomial T2z to T2 to get the final polynomial T2
             polynomials.T2.add(polynomials.T2z);
@@ -970,7 +970,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             if (logger) logger.debug("Computing F ifft");
-            polynomials.F = await Polynomial.fromBuffer(buffers.F, Fr, logger);
+            polynomials.F = await Polynomial.fromEvaluations(buffers.F, Fr, logger);
             // TODO divZt
             //polynomials.F = await polynomials.F.divZt(zkey.domainSize);
 
@@ -1052,7 +1052,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             if (logger) logger.debug("Computing L ifft");
-            polynomials.L = await Polynomial.fromBuffer(buffers.L, Fr, logger);
+            polynomials.L = await Polynomial.fromEvaluations(buffers.L, Fr, logger);
             // TODO remove
             //polynomials.L = await polynomials.F.divZt(zkey.domainSize); // TODO
         }
