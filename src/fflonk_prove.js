@@ -99,22 +99,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     let buffers = {};
     let polynomials = {};
     let evaluations = {};
-    const challenges = {};
+
+    let challenges = {};
+    let roots = {};
 
     let proof = new Proof(curve, logger);
 
     if (logger) logger.info(`Reading Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
     await calculateAdditions();
-
-    // TODO can S1, S2 & S3 be loaded later?
-    if (logger) logger.info("Reading Sigma evaluations");
-    evaluations.S1 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-    evaluations.S2 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-    evaluations.S3 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
-
-    await fdZKey.readToBuffer(evaluations.S1.eval, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.S2.eval, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.S3.eval, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
 
     if (logger) logger.info("Reading Sigma polynomials");
     polynomials.S1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
@@ -125,10 +117,19 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(polynomials.S2.coef, 0, sDomain, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.S3.coef, 0, sDomain, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p);
 
+    if (logger) logger.info("Reading Sigma evaluations");
+    evaluations.S1 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+    evaluations.S2 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+    evaluations.S3 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
+
+    await fdZKey.readToBuffer(evaluations.S1.eval, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.S2.eval, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.S3.eval, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
+
     if (logger) logger.info(`Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
 
-    // Start fflonk protocol
+    // START FFLONK PROVER PROTOCOL
 
     // ROUND 1. Compute C1(X) polynomial
     await round1();
@@ -788,39 +789,47 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // Obtain a xi_seeder from the transcript
         // To force h1^4 = xi, h2^3 = xi and h_3^2 = xiω
         // we compute xi = xi_seeder^12, h1 = xi_seeder^3, h2 = xi_seeder^4 and h3 = xi_seeder^6
-        challenges.xiSeed = transcript.getChallenge();
-        challenges.xiSeed2 = Fr.square(challenges.xiSeed);
+        const xiSeed = transcript.getChallenge();
+        const xiSeed2 = Fr.square(xiSeed);
 
-        let w3 = zkey.w3;
-        let w3_2 = Fr.mul(w3, w3);
-        let w4 = zkey.w4;
-        let w4_2 = Fr.mul(w4, w4);
-        let w4_3 = Fr.mul(w4_2, w4);
+        // Compute omega3 and omega4
+        roots.w3 = [];
+        roots.w3[0] = Fr.one;
+        roots.w3[1] = zkey.w3;
+        roots.w3[2] = Fr.square(zkey.w3);
+
+        roots.w4 = [];
+        roots.w4[0] = Fr.one;
+        roots.w4[1] = zkey.w4;
+        roots.w4[2] = Fr.square(zkey.w4);
+        roots.w4[3] = Fr.mul(roots.w4[2], zkey.w4);
 
         // Compute h1 = xi_seeder^3
-        challenges.h1w4 = [];
-        challenges.h1w4[0] = Fr.mul(challenges.xiSeed2, challenges.xiSeed);
-        challenges.h1w4[1] = Fr.mul(challenges.h1w4[0], w4);
-        challenges.h1w4[2] = Fr.mul(challenges.h1w4[0], w4_2);
-        challenges.h1w4[3] = Fr.mul(challenges.h1w4[0], w4_3);
+        roots.S1 = {};
+        roots.S1.h1w4 = [];
+        roots.S1.h1w4[0] = Fr.mul(xiSeed2, xiSeed);
+        roots.S1.h1w4[1] = Fr.mul(roots.S1.h1w4[0], roots.w4[1]);
+        roots.S1.h1w4[2] = Fr.mul(roots.S1.h1w4[0], roots.w4[2]);
+        roots.S1.h1w4[3] = Fr.mul(roots.S1.h1w4[0], roots.w4[3]);
 
         // Compute h2 = xi_seeder^4
-        challenges.h2w3 = [];
-        challenges.h2w3[0] = Fr.square(challenges.xiSeed2);
-        challenges.h2w3[1] = Fr.mul(challenges.h2w3[0], w3);
-        challenges.h2w3[2] = Fr.mul(challenges.h2w3[0], w3_2);
+        roots.S2 = {};
+        roots.S2.h2w3 = [];
+        roots.S2.h2w3[0] = Fr.square(xiSeed2);
+        roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], roots.w3[1]);
+        roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], roots.w3[2]);
 
         // Compute h3 = xi_seeder^6
-        challenges.h3w3 = [];
-        challenges.h3w3[0] = Fr.mul(challenges.h2w3[0], challenges.xiSeed2);
+        roots.S2.h3w3 = [];
+        roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], xiSeed2);
 
         // Compute xi = xi_seeder^12
-        challenges.xi = Fr.square(challenges.h3w3[0]);
+        challenges.xi = Fr.square(roots.S2.h3w3[0]);
 
         // Multiply h3 by omega to obtain h_3^2 = xiω
-        challenges.h3w3[0] = Fr.mul(challenges.h3w3[0], zkey.w3);
-        challenges.h3w3[1] = Fr.mul(challenges.h3w3[0], w3);
-        challenges.h3w3[2] = Fr.mul(challenges.h3w3[0], w3_2);
+        roots.S2.h3w3[0] = Fr.mul(roots.S2.h3w3[0], Fr.w[zkey.power + 1]);
+        roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], roots.w3[1]);
+        roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], roots.w3[2]);
 
         if (logger) logger.debug("Challenge.xi: " + Fr.toString(challenges.xi));
 
@@ -882,9 +891,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 4.2 - Compute F(X)
         computeR1();
         computeR2();
-        await computeF();
 
+        await computeF();
         await computeZt();
+
+        const polRemainder = polynomials.F.divBy(polynomials.ZT);
+
+        if (polRemainder.degree() > 0) {
+            console.log(`Degree is ${polRemainder.degree()} and must be 0`);
+            //throw new Error(`Degree is ${polRemainder.degree()} and must be 0`);
+        }
 
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
         proof.addPolynomial("W1", await multiExponentiation(polynomials.F, "W1"));
@@ -898,9 +914,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // and we were not able to compute it using current ifft implementation
             if (logger) logger.debug("Computing R1");
             polynomials.R1 = Polynomial.lagrangeInterpolationFrom4Points(
-                [challenges.h1w4[0], challenges.h1w4[1], challenges.h1w4[2], challenges.h1w4[3]],
-                [polynomials.C1.evaluate(challenges.h1w4[0]), polynomials.C1.evaluate(challenges.h1w4[1]),
-                    polynomials.C1.evaluate(challenges.h1w4[2]), polynomials.C1.evaluate(challenges.h1w4[3])], Fr);
+                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
+                [polynomials.C1.evaluate(roots.S1.h1w4[0]), polynomials.C1.evaluate(roots.S1.h1w4[1]),
+                    polynomials.C1.evaluate(roots.S1.h1w4[2]), polynomials.C1.evaluate(roots.S1.h1w4[3])], Fr);
 
             // Check the degree of r1(X) < 4
             if (polynomials.R1.degree() > 3) {
@@ -915,15 +931,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // and we were not able to compute it using current ifft implementation
             if (logger) logger.debug("Computing R2");
             polynomials.R2 = Polynomial.lagrangeInterpolationFrom6Points(
-                [challenges.h2w3[0], challenges.h2w3[1], challenges.h2w3[2],
-                    challenges.h3w3[0], challenges.h3w3[1], challenges.h3w3[2]],
-                [polynomials.C2.evaluate(challenges.h2w3[0]), polynomials.C2.evaluate(challenges.h2w3[1]),
-                    polynomials.C2.evaluate(challenges.h2w3[2]), polynomials.C2.evaluate(challenges.h3w3[0]),
-                    polynomials.C2.evaluate(challenges.h3w3[1]), polynomials.C2.evaluate(challenges.h3w3[2])], Fr);
+                [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
+                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
+                [polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
+                    polynomials.C2.evaluate(roots.S2.h2w3[2]), polynomials.C2.evaluate(roots.S2.h3w3[0]),
+                    polynomials.C2.evaluate(roots.S2.h3w3[1]), polynomials.C2.evaluate(roots.S2.h3w3[2])], Fr);
 
             // Check the degree of r2(X) < 6
             if (polynomials.R2.degree() > 5) {
-                // TODO check
                 throw new Error("R2 Polynomial is not well calculated");
             }
         }
@@ -946,19 +961,19 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const r2 = polynomials.R2.evaluate(omega);
 
                 // f1 = (X - h2) (X - h2w3) (X - h2w3_2) (X - h3) (X - h3w3) (X - h3w3_2) (C1(X) - R1(X))
-                let f1 = Fr.sub(omega, challenges.h2w3[0]);
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3[1]));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h2w3[2]));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[0]));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[1]));
-                f1 = Fr.mul(f1, Fr.sub(omega, challenges.h3w3[2]));
+                let f1 = Fr.sub(omega, roots.S2.h2w3[0]);
+                f1 = Fr.mul(f1, Fr.sub(omega, roots.S2.h2w3[1]));
+                f1 = Fr.mul(f1, Fr.sub(omega, roots.S2.h2w3[2]));
+                f1 = Fr.mul(f1, Fr.sub(omega, roots.S2.h3w3[0]));
+                f1 = Fr.mul(f1, Fr.sub(omega, roots.S2.h3w3[1]));
+                f1 = Fr.mul(f1, Fr.sub(omega, roots.S2.h3w3[2]));
                 f1 = Fr.mul(f1, Fr.sub(c1, r1));
 
                 // f2 = alpha (X - h1) (X - h1w4) (X - h1w4_2) (X - h1w4_3) (C2(X) - R2(X))
-                let f2 = Fr.mul(challenges.alpha, Fr.sub(omega, challenges.h1w4[0]));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[1]));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[2]));
-                f2 = Fr.mul(f2, Fr.sub(omega, challenges.h1w4[3]));
+                let f2 = Fr.mul(challenges.alpha, Fr.sub(omega, roots.S1.h1w4[0]));
+                f2 = Fr.mul(f2, Fr.sub(omega, roots.S1.h1w4[1]));
+                f2 = Fr.mul(f2, Fr.sub(omega, roots.S1.h1w4[2]));
+                f2 = Fr.mul(f2, Fr.sub(omega, roots.S1.h1w4[3]));
                 f2 = Fr.mul(f2, Fr.sub(c2, r2));
 
                 let f = Fr.add(f1, f2);
@@ -971,24 +986,20 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             if (logger) logger.debug("Computing F ifft");
             polynomials.F = await Polynomial.fromEvaluations(buffers.F, Fr, logger);
-            // TODO divZt
-            //polynomials.F = await polynomials.F.divZt(zkey.domainSize);
-
-            evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
 
             //delete buffers.F;
         }
 
         async function computeZt() {
             polynomials.ZT = Polynomial.lagrangeInterpolationGeneric(
-                [challenges.h1w4[0], challenges.h1w4[1], challenges.h1w4[2], challenges.h1w4[3],
-                    challenges.h2w3[0], challenges.h2w3[1], challenges.h2w3[2],
-                    challenges.h3w3[0], challenges.h3w3[1], challenges.h3w3[2]],
-                [polynomials.C1.evaluate(challenges.h1w4[0]), polynomials.C1.evaluate(challenges.h1w4[1]),
-                    polynomials.C1.evaluate(challenges.h1w4[2]), polynomials.C1.evaluate(challenges.h1w4[3]),
-                    polynomials.C2.evaluate(challenges.h2w3[0]), polynomials.C2.evaluate(challenges.h2w3[1]),
-                    polynomials.C2.evaluate(challenges.h2w3[2]), polynomials.C2.evaluate(challenges.h3w3[0]),
-                    polynomials.C2.evaluate(challenges.h3w3[1]), polynomials.C2.evaluate(challenges.h3w3[2])], Fr);
+                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
+                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
+                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
+                [polynomials.C1.evaluate(roots.S1.h1w4[0]), polynomials.C1.evaluate(roots.S1.h1w4[1]),
+                    polynomials.C1.evaluate(roots.S1.h1w4[2]), polynomials.C1.evaluate(roots.S1.h1w4[3]),
+                    polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
+                    polynomials.C2.evaluate(roots.S2.h2w3[2]), polynomials.C2.evaluate(roots.S2.h3w3[0]),
+                    polynomials.C2.evaluate(roots.S2.h3w3[1]), polynomials.C2.evaluate(roots.S2.h3w3[2])], Fr);
         }
     }
 
@@ -1002,6 +1013,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         // STEP 5.2 - Compute L(X)
         await computeL();
+        await computeZtS2();
+
+        let ZTS2Y = polynomials.ZTS2.evaluate(challenges.y);
+        ZTS2Y = Fr.inv(ZTS2Y);
+        polynomials.L.mulScalar(ZTS2Y);
+        polynomials.L.divByXSubValue(challenges.y);
 
         // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
         proof.addPolynomial("W2", await multiExponentiation(polynomials.L, "W2"));
@@ -1013,12 +1030,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             const evalR1Y = polynomials.R1.evaluate(challenges.y);
             const evalR2Y = polynomials.R2.evaluate(challenges.y);
+            const evalZTY = polynomials.ZT.evaluate(challenges.y);
 
             if (logger) logger.debug("Computing L(X)");
 
             // Set initial omega
             let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 4; i++) {
+            for (let i = 0; i < zkey.domainSize; i++) {
                 if (logger && (i % 5000 === 0)) logger.debug(`Computing L evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const i_sFr = i * sFr;
@@ -1027,35 +1045,48 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const c2 = polynomials.C2.evaluate(omega);
                 const f = polynomials.F.evaluate(omega);
 
-                let l1 = Fr.sub(challenges.y, challenges.h2w3[0]);
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3[1]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h2w3[2]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[0]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[1]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, challenges.h3w3[2]));
+                // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
+                let l1 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h2w3[1]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h2w3[2]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[0]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[1]));
+                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[2]));
                 l1 = Fr.mul(l1, Fr.sub(c1, evalR1Y));
 
-                let l2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, challenges.h1w4[0]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[1]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[2]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, challenges.h1w4[3]));
+                // l2 = alpha (y - h1) (y - h1w4) (y - h1w4_2) (y - h1w4_3) (C2(X) - R2(y))
+                let l2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, roots.S1.h1w4[0]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[1]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[2]));
+                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[3]));
                 l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
 
-                let l3 = Fr.one; // Fr.mul(f, ZT(y)); //TODO
+                // l3 = ZT(y) (f(X)/ZT(X))
+                let l3 = Fr.mul(evalZTY, f);
 
                 let l = Fr.sub(Fr.add(l1, l2), l3);
 
                 buffers.L.set(l, i_sFr);
 
                 // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+                omega = Fr.mul(omega, Fr.w[zkey.power]);
             }
 
             if (logger) logger.debug("Computing L ifft");
             polynomials.L = await Polynomial.fromEvaluations(buffers.L, Fr, logger);
-            // TODO remove
-            //polynomials.L = await polynomials.F.divZt(zkey.domainSize); // TODO
         }
+
+        async function computeZtS2() {
+            polynomials.ZTS2 = Polynomial.lagrangeInterpolationGeneric(
+                [
+                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
+                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
+                [
+                    polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
+                    polynomials.C2.evaluate(roots.S2.h2w3[2]), polynomials.C2.evaluate(roots.S2.h3w3[0]),
+                    polynomials.C2.evaluate(roots.S2.h3w3[1]), polynomials.C2.evaluate(roots.S2.h3w3[2])], Fr);
+        }
+
     }
 
     async function multiExponentiation(polynomial, name) {
