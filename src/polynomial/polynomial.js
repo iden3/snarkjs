@@ -897,4 +897,41 @@ export class Polynomial {
             return polynomial;
         }
     }
+
+    static zerofierPolynomial(xArr, Fr) {
+        let buff = (xArr.length + 1) > 2 << 14 ?
+            new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
+        let polynomial = new Polynomial(buff, Fr);
+
+        // Build a zerofier polynomial with the following form:
+        // zerofier(X) = (X-xArr[0])(X-xArr[1])...(X-xArr[n])
+        polynomial.setCoef(0, Fr.neg(xArr[0]));
+        polynomial.setCoef(1, Fr.one);
+
+        for (let i = 1; i < xArr.length; i++) {
+            polynomial.byXSubValue(xArr[i]);
+        }
+
+        return polynomial;
+    }
+
+    print() {
+        const Fr = this.Fr;
+        let res = "";
+        for (let i = this.degree(); i >= 0; i--) {
+            const coef = this.getCoef(i);
+            if (!Fr.eq(Fr.zero, coef)) {
+                if (Fr.isNegative(coef)) {
+                    res += " - ";
+                } else if (i !== this.degree()) {
+                    res += " + ";
+                }
+                res += Fr.toString(coef);
+                if (i > 0) {
+                    res += i > 1 ? "x^" + i : "x";
+                }
+            }
+        }
+        console.log(res);
+    }
 }

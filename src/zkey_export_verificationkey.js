@@ -49,9 +49,9 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */) 
 
 async function groth16Vk(zkey, fd, sections) {
     const curve = await getCurve(zkey.q);
-    const sG1 = curve.G1.F.n8*2;
+    const sG1 = curve.G1.F.n8 * 2;
 
-    const alphaBeta = await curve.pairing( zkey.vk_alpha_1 , zkey.vk_beta_2 );
+    const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
 
     let vKey = {
         protocol: zkey.protocol,
@@ -61,8 +61,8 @@ async function groth16Vk(zkey, fd, sections) {
         vk_alpha_1: curve.G1.toObject(zkey.vk_alpha_1),
 
         vk_beta_2: curve.G2.toObject(zkey.vk_beta_2),
-        vk_gamma_2:  curve.G2.toObject(zkey.vk_gamma_2),
-        vk_delta_2:  curve.G2.toObject(zkey.vk_delta_2),
+        vk_gamma_2: curve.G2.toObject(zkey.vk_gamma_2),
+        vk_delta_2: curve.G2.toObject(zkey.vk_delta_2),
 
         vk_alphabeta_12: curve.Gt.toObject(alphaBeta)
     };
@@ -71,7 +71,7 @@ async function groth16Vk(zkey, fd, sections) {
     ///////////
     await binFileUtils.startReadUniqueSection(fd, sections, 3);
     vKey.IC = [];
-    for (let i=0; i<= zkey.nPublic; i++) {
+    for (let i = 0; i <= zkey.nPublic; i++) {
         const buff = await fd.read(sG1);
         const P = curve.G1.toObject(buff);
         vKey.IC.push(P);
@@ -127,7 +127,8 @@ async function exportFFlonkVk(zkey) {
         k1: curve.Fr.toObject(zkey.k1),
         k2: curve.Fr.toObject(zkey.k2),
 
-        w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+        // w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+        wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
         w3: curve.Fr.toObject(zkey.w3),
         w4: curve.Fr.toObject(zkey.w4),
 

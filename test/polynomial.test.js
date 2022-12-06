@@ -231,9 +231,9 @@ describe("snarkjs: Polynomial tests", function () {
         const polQuotient = Polynomial.fromCoefficientsArray([Fr.e(-9), Fr.e(2)], Fr);
         const polRemainder = Polynomial.fromCoefficientsArray([Fr.e(2), Fr.e(27)], Fr);
 
-        const [polQ, polR] = polDividend.divBy(polDivisor);
+        const polR = polDividend.divBy(polDivisor);
 
-        assert(polQuotient.isEqual(polQ));
+        assert(polDividend.isEqual(polQuotient));
         assert(polRemainder.isEqual(polR));
     });
 

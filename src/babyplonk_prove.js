@@ -396,19 +396,19 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
 
             const a = evaluations.A.get(i_sFr);
             const b = evaluations.B.get(i_sFr);
-            const q1 = evaluations.Q1.get(i_sFr);
-            const q2 = evaluations.Q2.get(i_sFr);
-            const z = evaluations.Z.get(i_sFr);
+            const q1 = evaluations.Q1.getEvaluation(i_sFr);
+            const q2 = evaluations.Q2.getEvaluation(i_sFr);
+            const z = evaluations.Z.getEvaluation(i_sFr);
 
             const aW = evaluations.A.get(i_sFrw);
             const bW = evaluations.B.get(i_sFrw);
-            const q1W = evaluations.Q1.get(i_sFrw);
-            const q2W = evaluations.Q2.get(i_sFrw);
-            const zW = evaluations.Z.get(i_sFrw);
+            const q1W = evaluations.Q1.getEvaluation(i_sFrw);
+            const q2W = evaluations.Q2.getEvaluation(i_sFrw);
+            const zW = evaluations.Z.getEvaluation(i_sFrw);
 
 
-            const s1 = evaluations.sigma.get(i_sFr);
-            const s2 = evaluations.sigma.get(i_sDomain);
+            const s1 = evaluations.sigma.getEvaluation(i_sFr);
+            const s2 = evaluations.sigma.getEvaluation(i_sDomain);
 
             const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
             const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
@@ -420,7 +420,7 @@ export default async function babyPlonkProve(zkeyFileName, witnessFileName, logg
             for (let j = 0; j < zkey.nPublic; j++) {
                 const offset = (j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr;
 
-                const lPol = evaluations.lagrange1.get(offset);
+                const lPol = evaluations.lagrange1.getEvaluation(offset);
                 const aVal = evaluations.A.get(j * sFr);
 
                 pl = Fr.sub(pl, Fr.mul(lPol, aVal));

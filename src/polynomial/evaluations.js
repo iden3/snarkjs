@@ -35,7 +35,7 @@ export class Evaluations {
         return new Evaluations(evaluations, Fr, logger);
     }
 
-    get(i) {
+    getEvaluation(i) {
         return this.eval.slice(i, i + this.Fr.n8);
     }
 
