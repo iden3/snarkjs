@@ -354,4 +354,17 @@ describe("snarkjs: Polynomial tests", function () {
         assert.equal(polynomial.degree(), polynomial2.degree());
         assert(polynomial.isEqual(polynomial2));
     });
+
+    it("should compute a zerofier polynomial", async () => {
+        const Fr = curve.Fr;
+
+        const coefArray = [Fr.e(-6), Fr.e(11), Fr.e(-6), Fr.one];
+
+        const polynomial = Polynomial.zerofierPolynomial([Fr.one, Fr.two, Fr.e(3)], Fr);
+        const polynomial2 = Polynomial.fromCoefficientsArray(coefArray, Fr);
+
+        assert.equal(polynomial.degree(), polynomial2.degree());
+        assert(polynomial.isEqual(polynomial2));
+    });
+
 });
