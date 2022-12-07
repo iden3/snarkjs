@@ -318,33 +318,29 @@ export class Polynomial {
     }
 
     async divZh() {
-        const coefs = (this.coef.byteLength / this.Fr.n8) > 2 << 14 ?
-            new BigBuffer(this.coef.byteLength) : new Uint8Array(this.coef.byteLength);
-
         let domainSize = this.coef.length / 4 / this.Fr.n8;
 
-        if (this.logger) this.logger.debug("dividing T/Z_H");
         for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
-            coefs.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
+            this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
         for (let i = domainSize; i < domainSize * 4; i++) {
             const i_n8 = i * this.Fr.n8;
 
             const a = this.Fr.sub(
-                coefs.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
+                this.coef.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
                 this.coef.slice(i_n8, i_n8 + this.Fr.n8)
             );
-            coefs.set(a, i_n8);
+            this.coef.set(a, i_n8);
             if (i > (domainSize * 3 - 4)) {
                 if (!this.Fr.isZero(a)) {
-                    //throw new Error("range_check T Polynomial is not divisible");
+                    //throw new Error("Polynomial is not divisible");
                 }
             }
         }
 
-        return new Polynomial(coefs, this.Fr, this.logger);
+        return this;
     }
 
     byX() {

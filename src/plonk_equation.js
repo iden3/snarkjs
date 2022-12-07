@@ -26,10 +26,10 @@ export function getFFlonkConstantConstraint(signal1, Fr) {
     return [signal1, 0, 0, Fr.one, Fr.zero, Fr.zero, Fr.zero, Fr.zero];
 }
 
-export function getFFlonkAdditionConstraint(signal1, signal2, signalOut, ql, qr, qo, qc, Fr) {
-    return [signal1, signal2, signalOut, ql, qr, Fr.zero, qo, qc];
+export function getFFlonkAdditionConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc) {
+    return [signal1, signal2, signalOut, ql, qr, qm, qo, qc];
 }
 
-export function getFFlonkMultiplicationConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc) {
+export function getFFlonkMultiplicationConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc, Fr) {
     return [signal1, signal2, signalOut, ql, qr, qm, qo, qc];
 }

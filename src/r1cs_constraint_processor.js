@@ -113,9 +113,11 @@ export class r1csConstraintProcessor {
             const c2 = cs.shift();
             const so = settings.nVars++;
 
-            const constraints = this.fnGetAdditionConstraint(c1[0], c2[0], so, c1[1], c2[1], this.Fr.one, this.Fr.zero, this.Fr);
+            const constraints = this.fnGetAdditionConstraint(
+                c1[0], c2[0], so,
+                this.Fr.neg(c1[1]), this.Fr.neg(c2[1]), this.Fr.zero, this.Fr.one, this.Fr.zero);
 
-            constraintsArr.push(...constraints);
+            constraintsArr.push(constraints);
             additionsArr.push([c1[0], c2[0], c1[1], c2[1]]);
 
             cs.push([so, this.Fr.one]);
@@ -140,9 +142,11 @@ export class r1csConstraintProcessor {
 
         const C = this.reduceCoefs(settings, constraintsArr, additionsArr, linCom, 3);
 
-        const constraints = this.fnGetAdditionConstraint(C.signals[0], C.signals[1], C.signals[2], C.coefs[0], C.coefs[1], C.coefs[2], C.k, this.Fr);
+        const constraints = this.fnGetAdditionConstraint(
+            C.signals[0], C.signals[1], C.signals[2],
+            C.coefs[0], C.coefs[1], this.Fr.zero, C.coefs[2], C.k);
 
-        constraintsArr.push(...constraints);
+        constraintsArr.push(constraints);
 
         return [constraintsArr, additionsArr];
     }
@@ -161,10 +165,9 @@ export class r1csConstraintProcessor {
             this.Fr.mul(A.k, B.coefs[0]),
             this.Fr.mul(A.coefs[0], B.coefs[0]),
             this.Fr.neg(C.coefs[0]),
-            this.Fr.sub(this.Fr.mul(A.k, B.k), C.k),
-            this.Fr);
+            this.Fr.sub(this.Fr.mul(A.k, B.k), C.k));
 
-        constraintsArr.push(...constraints);
+        constraintsArr.push(constraints);
 
         return [constraintsArr, additionsArr];
     }

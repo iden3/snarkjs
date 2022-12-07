@@ -429,7 +429,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T0 = await Polynomial.fromEvaluations(buffers.T0, Fr, logger);
 
             // Divide the polynomial T0 by Z_H(X)
-            polynomials.T0 = await polynomials.T0.divZh(zkey.domainSize);
+            await polynomials.T0.divZh();
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.info("··· Computing T0z ifft");
@@ -832,15 +832,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], roots.w3[1]);
         roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], roots.w3[2]);
 
+        // Compute xi = xi_seeder^12
+        challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
+
         // Compute h3 = xi_seeder^6
         roots.S2.h3w3 = [];
-        roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], xiSeed2);
-
-        // Compute xi = xi_seeder^12
-        challenges.xi = Fr.square(roots.S2.h3w3[0]);
 
         // Multiply h3 by omega to obtain h_3^2 = xiω
-        roots.S2.h3w3[0] = Fr.mul(roots.S2.h3w3[0], Fr.w[zkey.power + 1]);
+        roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], getOmegaCubicRoot(zkey.power, Fr));
         roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], roots.w3[1]);
         roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], roots.w3[2]);
 
@@ -1116,6 +1115,17 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return res;
     }
 }
+
+
+
+
+export function getOmegaCubicRoot(power, Fr) {
+    // Hardcorded 3th-root of Fr.w[28]
+    const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
+
+    return Fr.exp(firstRoot, 2 ** (28 - power));
+}
+
 
 
 

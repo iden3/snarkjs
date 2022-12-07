@@ -152,7 +152,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
             const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...r1cs.constraints[i]);
 
-            plonkConstraints.push(constraints);
+            plonkConstraints.push(...constraints);
             plonkAdditions.push(...additions);
         }
         return 0;

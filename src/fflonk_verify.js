@@ -35,6 +35,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     const vk = fromObjectVk(curve, _vk_verifier);
 
+    // TODO is necessary top check wr^3 == w ?
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
@@ -82,12 +83,12 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     challenges.invzh = Fr.inv(challenges.zh);
 
     // STEP 6 - Compute the lagrange polynomial evaluation L_1(xi)
-    if (logger) logger.info("> Computing Lagrange evaluation L_1(xi)");
-    const lagrange1 = computeLagrange1Evaluation(curve, challenges, vk);
+    if (logger) logger.info("> Computing Lagrange evaluations");
+    const lagrangeEvals = computeLagrangeEvaluations(curve, challenges, vk);
 
     // STEP 7 - Compute public input evaluation PI(xi)
     if (logger) logger.info("> Computing polynomial identities PI(X)");
-    const pi = calculatePI(curve, publicSignals, lagrange1);
+    const pi = calculatePI(curve, publicSignals, lagrangeEvals);
 
     // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
@@ -95,7 +96,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     // STEP 9 - Compute polynomial r2 ∈ F_{<6}[X]
     if (logger) logger.info("> Computing r2(y)");
-    const r2 = computeR2(proof, challenges, roots, lagrange1, vk, curve, logger);
+    const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
 
     if (logger) logger.info("> Computing F");
     const F = computeF(curve, proof, challenges, roots);
@@ -130,6 +131,7 @@ function fromObjectVk(curve, vk) {
     res.wW = curve.Fr.fromObject(vk.wW);
     res.w3 = curve.Fr.fromObject(vk.w3);
     res.w4 = curve.Fr.fromObject(vk.w4);
+    res.wr = curve.Fr.fromObject(vk.wr);
     res.X_2 = curve.G2.fromObject(vk.X_2);
 
     return res;
@@ -183,14 +185,13 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], vk.w3);
     roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], w3_2);
 
+    // Compute xi = xi_seeder^12
+    challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
+
     // Compute h3 = xi_seeder^6
     roots.S2.h3w3 = [];
-    roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], xiSeed2);
-
-    challenges.xi = Fr.square(roots.S2.h3w3[0]);
-
     // Multiply h3 by omega to obtain h_3^2 = xiω
-    roots.S2.h3w3[0] = Fr.mul(roots.S2.h3w3[0], vk.wW);
+    roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], vk.wr);
     roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], vk.w3);
     roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3_2);
 
@@ -234,21 +235,28 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     return {challenges: challenges, roots: roots};
 }
 
-function computeLagrange1Evaluation(curve, challenges, vk) {
+function computeLagrangeEvaluations(curve, challenges, vk) {
     const Fr = curve.Fr;
 
-    // Lagrange 1 : ω (xi^n - 1) / n (xi - ω)
-    let den = Fr.mul(vk.domainSize, Fr.sub(challenges.xi, Fr.one));
-    return Fr.div(challenges.zh, den);
+    const L = [];
+
+    const n = Fr.e(vk.domainSize);
+    let w = Fr.one;
+    for (let i = 1; i <= Math.max(1, vk.nPublic); i++) {
+        L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
+        w = Fr.mul(w, Fr.w[vk.power]);
+    }
+
+    return L;
 }
 
-function calculatePI(curve, publicSignals, lagrange1) {
+function calculatePI(curve, publicSignals, lagrangeEvals) {
     const Fr = curve.Fr;
 
     let pi = Fr.zero;
     for (let i = 0; i < publicSignals.length; i++) {
         const w = Fr.e(publicSignals[i]);
-        pi = Fr.sub(pi, Fr.mul(w, lagrange1));
+        pi = Fr.sub(pi, Fr.mul(w, lagrangeEvals[i + 1]));
     }
     return pi;
 }
@@ -256,17 +264,23 @@ function calculatePI(curve, publicSignals, lagrange1) {
 function computeR1(proof, challenges, roots, pi, curve, logger) {
     const Fr = curve.Fr;
 
-    // T0(xi) = [ qL·a + qR·b + qM·a·b + qO·c + qC + PI(xi) ] / Z_H(xi)
+    // r1(y) = ∑_1^4 C_1(h_1 ω_4^{i-1}) L_i(y). To this end we need to compute
+    // Z1 = {C1(h_1}, C1(h_1 ω_4), C1(h_1 ω_4^2), C1(h_1 ω_4^3)}
+    // where C_1(h_1 ω_4^{i-1}) = eval.a + h_1 ω_4^i eval.b + (h_1 ω_4^i)^2 eval.c + (h_1 ω_4^i)^3 T0(xi),
+    // where T0(xi) = [ qL·a + qR·b + qM·a·b + qO·c + qC + PI(xi) ] / Z_H(xi)
+
+    // Compute T0(xi)
     if (logger) logger.info("··· Computing T0(xi)");
     let T0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
     T0 = Fr.add(T0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
-    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
     T0 = Fr.add(T0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
+    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
     T0 = Fr.add(T0, proof.evaluations.qc);
     T0 = Fr.add(T0, pi);
     T0 = Fr.mul(T0, challenges.invzh);
 
-    if (logger) logger.info("··· Computing r1(x)");
+    // Compute the 4 C1 values
+    if (logger) logger.info("··· Computing C1(h_1ω_4^i) values");
     let c1Values = [];
     for (let i = 0; i < 4; i++) {
         c1Values[i] = proof.evaluations.a;
@@ -276,6 +290,7 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
         c1Values[i] = Fr.add(c1Values[i], Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), T0));
     }
 
+    // Interpolate a polynomial with the points computed previously
     const R1 = Polynomial.lagrangeInterpolationFrom4Points(
         [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
         c1Values, Fr);
@@ -285,6 +300,7 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
         throw new Error("R1 Polynomial is not well calculated");
     }
 
+    // Evaluate the polynomial in challenges.y
     if (logger) logger.info("··· Computing evaluation r1(y)");
     return R1.evaluate(challenges.y);
 }
@@ -292,14 +308,21 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
 function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     const Fr = curve.Fr;
 
-    // T1(xi) = [ L_1(xi)(z-1)] / Z_H(xi)
+    // r2(y) = ∑_1^3 C_2(h_2 ω_3^{i-1}) L_i(y) + ∑_1^3 C_2(h_3 ω_3^{i-1}) L_{i+3}(y). To this end we need to compute
+    // Z2 = {[C2(h_2}, C2(h_2 ω_3), C2(h_2 ω_3^2)], [C2(h_3}, C2(h_3 ω_3), C2(h_3 ω_3^2)]}
+    // where C_2(h_2 ω_3^{i-1}) = eval.z + h_2 ω_2^i T1(xi) + (h_2 ω_3^i)^2 T2(xi),
+    // where C_2(h_3 ω_3^{i-1}) = eval.z + h_3 ω_2^i T1(xi) + (h_3 ω_3^i)^2 T2(xi),
+    // where T1(xi) = [ L_1(xi)(z-1)] / Z_H(xi)
+    // and T2(xi) = [  (a + beta·xi + gamma)(b + beta·xi·k1 + gamma)(c + beta·xi·k2 + gamma)z
+    //               - (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)zω  ] / Z_H(xi)
+
+    // Compute T1(xi)
     if (logger) logger.info("··· Computing T1(xi)");
     let T1 = Fr.sub(proof.evaluations.z, Fr.one);
     T1 = Fr.mul(T1, lagrange1);
     T1 = Fr.mul(T1, challenges.invzh);
 
-    // T2(xi) = [  (a + beta·xi + gamma)(b + beta·xi·k1 + gamma)(c + beta·xi·k2 + gamma)z
-    //           - (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)zω  ] / Z_H(xi)
+    // Compute T2(xi)
     if (logger) logger.info("··· Computing T2(xi)");
     const betaxi = Fr.mul(challenges.beta, challenges.xi);
     const T211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
@@ -315,16 +338,21 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     let T2 = Fr.sub(T21, T22);
     T2 = Fr.mul(T2, challenges.invzh);
 
+    // Compute the 6 C2 values
+    if (logger) logger.info("··· Computing C2(h_2ω_3^i) values");
     let c2Values = [];
     for (let i = 0; i < 3; i++) {
         c2Values[i] = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h2w3[i], T1));
         c2Values[i] = Fr.add(c2Values[i], Fr.mul(Fr.square(roots.S2.h2w3[i]), T2));
     }
+
+    if (logger) logger.info("··· Computing C2(h_3ω_3^i) values");
     for (let i = 0; i < 3; i++) {
-        c2Values[i + 3] = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h3w3[i], T1));
-        c2Values[i + 3] = Fr.add(c2Values[i + 3], Fr.mul(Fr.square(roots.S2.h3w3[i]), T2));
+        c2Values[i + 3] = Fr.add(proof.evaluations.zw, Fr.mul(roots.S2.h3w3[i], proof.evaluations.t1w));
+        c2Values[i + 3] = Fr.add(c2Values[i + 3], Fr.mul(Fr.square(roots.S2.h3w3[i]), proof.evaluations.t2w));
     }
 
+    // Interpolate a polynomial with the points computed previously
     if (logger) logger.info("··· Computing r2(xi)");
     const R2 = Polynomial.lagrangeInterpolationFrom6Points(
         [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
@@ -336,6 +364,7 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
         throw new Error("R2 Polynomial is not well calculated");
     }
 
+    // Evaluate the polynomial in challenges.y
     if (logger) logger.info("··· Computing evaluation r2(y)");
     return R2.evaluate(challenges.y);
 }
