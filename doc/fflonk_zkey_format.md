@@ -111,6 +111,8 @@ Currently, there are 16 defined sections:
      ┣━━━━━━━━━━━━━┫
      ┃ fs bytes    ┃ w4
      ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ wr
+     ┣━━━━━━━━━━━━━┫
      ┃ G2 fs bytes ┃ X2
      ┗━━━━━━━━━━━━━┛
 ````

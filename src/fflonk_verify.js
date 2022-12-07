@@ -58,7 +58,6 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
         logger.info("----------------------------");
     }
 
-    // TODO have we to check verifier processed input?? In theory we can trust, but...
     // STEP 1 - Validate that all polynomial commitments ∈ G_1
     if (logger) logger.info("> Checking commitments belong to G1");
     if (!commitmentsBelongToG1(curve, proof)) {

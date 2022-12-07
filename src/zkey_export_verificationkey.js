@@ -22,7 +22,6 @@ import * as zkeyUtils from "./zkey_utils.js";
 import {getCurveFromQ as getCurve} from "./curves.js";
 import {utils} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey.js";
-import {getOmegaCubicRoot} from "./fflonk_prove.js";
 
 const {stringifyBigInts} = utils;
 
@@ -132,7 +131,7 @@ async function exportFFlonkVk(zkey) {
         wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
         w3: curve.Fr.toObject(zkey.w3),
         w4: curve.Fr.toObject(zkey.w4),
-        wr: curve.Fr.toObject(getOmegaCubicRoot(zkey.power, curve.Fr)),
+        wr: curve.Fr.toObject(zkey.wr),
 
         X_2: curve.G2.toObject(zkey.X_2),
 

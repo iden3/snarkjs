@@ -51,6 +51,7 @@ import {
 import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 
+
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("FFLONK SETUP STARTED");
 
@@ -127,6 +128,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // w3^3 = 1 and  w4^4 = 1
     const w3 = computeW3();
     const w4 = computeW4();
+    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -401,6 +403,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         await fdZKey.write(w3);
         await fdZKey.write(w4);
+        await fdZKey.write(wr);
 
         let bX_2;
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
@@ -450,6 +453,14 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     function computeW4() {
         return Fr.w[2];
     }
+
+    function getOmegaCubicRoot(power, Fr) {
+        // Hardcorded 3th-root of Fr.w[28]
+        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
+
+        return Fr.exp(firstRoot, 2 ** (28 - power));
+    }
+
 }
 
 
