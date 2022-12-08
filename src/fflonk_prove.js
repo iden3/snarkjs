@@ -955,15 +955,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeF() {
-            // TODO CHANGE * 32 is an "overevaluation", will be more precise in the future
-            buffers.F = new BigBuffer(sDomain * 32);
+            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
+            buffers.F = new BigBuffer(sDomain * 16);
 
             if (logger) logger.info("> Computing F");
             // COMPUTE F(X)
             // Set initial omega
             let omega = Fr.one;
-            // TODO CHANGE * 32 is an "overevaluation", will be more precise in the future
-            for (let i = 0; i < zkey.domainSize * 32; i++) {
+            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
+            for (let i = 0; i < zkey.domainSize * 16; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing F evaluation ${i}/${zkey.domainSize}`);
 
                 const i_sFr = i * sFr;
@@ -994,14 +994,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 buffers.F.set(f, i_sFr);
 
                 // Compute next omega
-                // TODO CHANGE + 5 is an "overevaluation", will be more precise in the future
-                omega = Fr.mul(omega, Fr.w[zkey.power + 5]);
+                // TODO CHANGE + 4 is an "overevaluation", will be more precise in the future
+                omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
             }
 
             if (logger) logger.info("··· Computing F ifft");
             polynomials.F = await Polynomial.fromEvaluations(buffers.F, Fr, logger);
 
-            //delete buffers.F;
+            delete buffers.F;
         }
 
         async function computeZT() {
@@ -1027,7 +1027,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         let ZTS2Y = polynomials.ZTS2.evaluate(challenges.y);
         ZTS2Y = Fr.inv(ZTS2Y);
         polynomials.L.mulScalar(ZTS2Y);
-        polynomials.L.divByXSubValue(challenges.y);
+
+        const polDividend = Polynomial.fromCoefficientsArray([Fr.neg(challenges.y), Fr.one], Fr);
+        const polRemainder = polynomials.L.divBy(polDividend);
+
+        if (polRemainder.degree() > 0) {
+            throw new Error(`Degree of L(X)/(X-y) remainder is ${polRemainder.degree()} and should be 0`);
+        }
 
         // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
         proof.addPolynomial("W2", await multiExponentiation(polynomials.L, "W2"));
@@ -1035,8 +1041,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeL() {
-            // TODO CHANGE * 32 is an "overevaluation", will be more precise in the future
-            buffers.L = new BigBuffer(sDomain * 32);
+            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
+            buffers.L = new BigBuffer(sDomain * 16);
 
             const evalR1Y = polynomials.R1.evaluate(challenges.y);
             const evalR2Y = polynomials.R2.evaluate(challenges.y);
@@ -1046,8 +1052,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Set initial omega
             let omega = Fr.one;
-            // TODO CHANGE * 32 is an "overevaluation", will be more precise in the future
-            for (let i = 0; i < zkey.domainSize * 32; i++) {
+            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
+            for (let i = 0; i < zkey.domainSize * 16; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing L evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const i_sFr = i * sFr;
@@ -1055,6 +1061,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const c1 = polynomials.C1.evaluate(omega);
                 const c2 = polynomials.C2.evaluate(omega);
                 const f = polynomials.F.evaluate(omega);
+                const zt = polynomials.ZT.evaluate(omega);
 
                 // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
                 let l1 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
@@ -1073,19 +1080,21 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
 
                 // l3 = ZT(y) (f(X)/ZT(X))
-                let l3 = Fr.mul(evalZTY, f);
+                let l3 = Fr.div(Fr.mul(evalZTY, f), zt);
 
                 let l = Fr.sub(Fr.add(l1, l2), l3);
 
                 buffers.L.set(l, i_sFr);
 
                 // Compute next omega
-                // TODO CHANGE + 5 is an "overevaluation", will be more precise in the future
-                omega = Fr.mul(omega, Fr.w[zkey.power + 5]);
+                // TODO CHANGE + 4 is an "overevaluation", will be more precise in the future
+                omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
             }
 
             if (logger) logger.info("··· Computing L ifft");
             polynomials.L = await Polynomial.fromEvaluations(buffers.L, Fr, logger);
+
+            delete buffers.L;
         }
 
         async function computeZTS2() {
