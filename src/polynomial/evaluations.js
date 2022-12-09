@@ -20,7 +20,7 @@
 import {BigBuffer} from "ffjavascript";
 
 export class Evaluations {
-    constructor(evaluations = [], Fr, logger) {
+    constructor(evaluations, Fr, logger) {
         this.eval = evaluations;
         this.Fr = Fr;
         this.logger = logger;
