@@ -335,7 +335,7 @@ export class Polynomial {
             this.coef.set(a, i_n8);
             if (i > (domainSize * 3 - 4)) {
                 if (!this.Fr.isZero(a)) {
-                    //throw new Error("Polynomial is not divisible");
+                    throw new Error("Polynomial is not divisible");
                 }
             }
         }
@@ -373,12 +373,12 @@ export class Polynomial {
             new BigBuffer((length * n + 1) * Fr.n8) : new Uint8Array((length * n + 1) * Fr.n8);
 
         // Copy constant coefficient as is because is not related to x
-        bufferDst.set(polynomial.coef.slice(0, Fr.n8), 0);
+        bufferDst.set(polynomial.getCoef(0), 0);
 
         for (let i = 1; i <= length; i++) {
             const i_sFr = i * Fr.n8;
 
-            const coef = polynomial.coef.slice(i_sFr, i_sFr + Fr.n8);
+            const coef = polynomial.getCoef(i);
             bufferDst.set(coef, i_sFr * n);
         }
 

@@ -185,6 +185,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     logger.info("--ROUND 5");
     await round5();
 
+    debug();
+
     await fdZKey.close();
     await fdWtns.close();
 
@@ -200,6 +202,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     let _proof = proof.toObjectProof();
     _proof.protocol = "fflonk";
     _proof.curve = curve.name;
+
+    if (logger) logger.info("FFLONK PROVE FINISHED");
 
     return {
         proof: stringifyBigInts(_proof),
@@ -383,13 +387,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const bz = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
                 const cz = Fr.add(Fr.mul(challenges.b[5], omega), challenges.b[6]);
 
-                // Compute current public input TODO check
+                // Compute current public input
                 let pi = Fr.zero;
                 for (let j = 0; j < zkey.nPublic; j++) {
                     const offset = (j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr;
 
                     const lPol = evaluations.lagrange1.getEvaluation(offset);
-                    const aVal = evaluations.A.getEvaluation(j * sFr);
+                    const aVal = buffers.A.slice(j * sFr, (j + 1) * sFr);
 
                     pi = Fr.sub(pi, Fr.mul(lPol, aVal));
                 }
@@ -444,14 +448,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC1() {
-            // Compute the polynomial A(X^4) from buffers.A
-            polynomials.A_X4 = await Polynomial.expX(polynomials.A, 4);
-            // Compute the polynomial B(X^4) from buffers.B
-            polynomials.B_X4 = await Polynomial.expX(polynomials.B, 4);
-            // Compute the polynomial C(X^4) from buffers.C
-            polynomials.C_X4 = await Polynomial.expX(polynomials.C, 4);
-            // Compute the polynomial D(X^4) from buffers.D
-            polynomials.T0_X4 = await Polynomial.expX(polynomials.T0, 4);
+            // Compute the polynomial A(X^4) from polynomials.A
+            polynomials.A_X4 = await Polynomial.expX(polynomials.A, 4, true);
+            // Compute the polynomial B(X^4) from polynomials.B
+            polynomials.B_X4 = await Polynomial.expX(polynomials.B, 4, true);
+            // Compute the polynomial C(X^4) from polynomials.C
+            polynomials.C_X4 = await Polynomial.expX(polynomials.C, 4, true);
+            // Compute the polynomial D(X^4) from polynomials.T0
+            polynomials.T0_X4 = await Polynomial.expX(polynomials.T0, 4, true);
 
             // C1(X) := a(X^4) + X · b(X^4) + X^2 · c(X^4) + X^3 · T0(X^4)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
@@ -633,9 +637,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 // T1(X) := (z(X) - 1) · L_1(X)
                 // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                const offset = (zkey.domainSize + i) * sFr;
-                let t1 = Fr.mul(Fr.sub(z, Fr.one), evaluations.lagrange1.getEvaluation(offset));
-                let t1z = Fr.mul(zp, evaluations.lagrange1.getEvaluation(offset));
+                const lagrange1 = evaluations.lagrange1.getEvaluation((zkey.domainSize + i) * sFr);
+                let t1 = Fr.mul(Fr.sub(z, Fr.one), lagrange1);
+                let t1z = Fr.mul(zp, lagrange1);
 
                 buffers.T1.set(t1, i_sFr);
                 buffers.T1z.set(t1z, i_sFr);
@@ -649,7 +653,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, Fr, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1 = await polynomials.T1.divZh();
+            await polynomials.T1.divZh();
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.info("··· Computing T1z ifft");
@@ -743,7 +747,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2 = await Polynomial.fromEvaluations(buffers.T2, Fr, logger);
 
             // Divide the polynomial T2 by Z_H(X)
-            polynomials.T2 = await polynomials.T2.divZh();
+            await polynomials.T2.divZh();
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.info("··· Computing T2z ifft");
@@ -760,11 +764,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         async function computeC2() {
             // Compute the polynomial z(X^3) from polynomials.Z
-            polynomials.Z_X3 = await Polynomial.expX(polynomials.Z, 3);
+            polynomials.Z_X3 = await Polynomial.expX(polynomials.Z, 3, true);
             // Compute the polynomial T1(X^3) from polynomials.T1
-            polynomials.T1_X3 = await Polynomial.expX(polynomials.T1, 3);
+            polynomials.T1_X3 = await Polynomial.expX(polynomials.T1, 3, true);
             // Compute the polynomial T2(X^3) from polynomials.T2
-            polynomials.T2_X3 = await Polynomial.expX(polynomials.T2, 3);
+            polynomials.T2_X3 = await Polynomial.expX(polynomials.T2, 3, true);
 
             // C2(X) := z(X^3) + X · T1(X^3) + X^2 · T2(X^3)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
@@ -806,16 +810,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const xiSeed2 = Fr.square(xiSeed);
 
         // Compute omega3 and omega4
-        roots.w3 = [];
-        roots.w3[0] = Fr.one;
-        roots.w3[1] = zkey.w3;
-        roots.w3[2] = Fr.square(zkey.w3);
-
         roots.w4 = [];
         roots.w4[0] = Fr.one;
         roots.w4[1] = zkey.w4;
         roots.w4[2] = Fr.square(zkey.w4);
         roots.w4[3] = Fr.mul(roots.w4[2], zkey.w4);
+
+        roots.w3 = [];
+        roots.w3[0] = Fr.one;
+        roots.w3[1] = zkey.w3;
+        roots.w3[2] = Fr.square(zkey.w3);
 
         // Compute h1 = xi_seeder^3
         roots.S1 = {};
@@ -1061,7 +1065,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const c1 = polynomials.C1.evaluate(omega);
                 const c2 = polynomials.C2.evaluate(omega);
                 const f = polynomials.F.evaluate(omega);
-                const zt = polynomials.ZT.evaluate(omega);
 
                 // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
                 let l1 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
@@ -1080,7 +1083,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
 
                 // l3 = ZT(y) (f(X)/ZT(X))
-                let l3 = Fr.div(Fr.mul(evalZTY, f), zt);
+                // Recall f is already a f(X)/ZT(X)
+                let l3 = Fr.mul(evalZTY, f);
 
                 let l = Fr.sub(Fr.add(l1, l2), l3);
 
@@ -1094,7 +1098,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing L ifft");
             polynomials.L = await Polynomial.fromEvaluations(buffers.L, Fr, logger);
 
-            delete buffers.L;
+            //delete buffers.L;
         }
 
         async function computeZTS2() {
@@ -1102,7 +1106,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
                     roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], Fr);
         }
-
     }
 
     async function multiExponentiation(polynomial, name) {
@@ -1114,13 +1117,57 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return res;
     }
 
-    function toDebugArray(buffer, Fr) {
-        const length = buffer.byteLength / Fr.n8;
-        let res = [];
-        for (let i = 0; i < length; i++) {
-            res.push(Fr.toString(buffer.slice(i * Fr.n8, (i + 1) * Fr.n8)));
+    function debug() {
+        // Print all challenges
+        console.log("Beta:    " + Fr.toString(challenges.beta));
+        console.log("Gamma:   " + Fr.toString(challenges.gamma));
+        console.log("Xi:      " + Fr.toString(challenges.xi));
+        console.log("Alpha:   " + Fr.toString(challenges.alpha));
+        console.log("Y:       " + Fr.toString(challenges.y));
+        console.log("");
+
+        // Print all roots
+        console.log("Check if w4^4 = 1  ... " + Fr.eq(Fr.one, Fr.square(Fr.square(roots.w4[1]))));
+        console.log("Check if w3^3 = 1  ... " + Fr.eq(Fr.one, Fr.mul(roots.w3[1], Fr.square(roots.w3[1]))));
+        console.log("h1w4[0]: " + Fr.toString(roots.S1.h1w4[0]));
+        console.log("h1w4[1]: " + Fr.toString(roots.S1.h1w4[1]));
+        console.log("h1w4[2]: " + Fr.toString(roots.S1.h1w4[2]));
+        console.log("h1w4[3]: " + Fr.toString(roots.S1.h1w4[3]));
+        console.log("h2w3[0]: " + Fr.toString(roots.S2.h2w3[0]));
+        console.log("h2w3[1]: " + Fr.toString(roots.S2.h2w3[1]));
+        console.log("h2w3[2]: " + Fr.toString(roots.S2.h2w3[2]));
+        console.log("h3w3[0]: " + Fr.toString(roots.S2.h3w3[0]));
+        console.log("h3w3[1]: " + Fr.toString(roots.S2.h3w3[1]));
+        console.log("h3w3[2]: " + Fr.toString(roots.S2.h3w3[2]));
+        console.log("Check if h_1^4 = xi  ... " + Fr.eq(challenges.xi, Fr.square(Fr.square(roots.S1.h1w4[0]))));
+        console.log("Check if h_2^3 = xi  ... " + Fr.eq(challenges.xi, Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0])));
+        console.log("Check if h_3^3 = xiw ... " + Fr.eq(Fr.mul(challenges.xi, Fr.w[zkey.power]), Fr.mul(Fr.square(roots.S2.h3w3[0]), roots.S2.h3w3[0])));
+        console.log("");
+
+        console.log("r1: " + Fr.toString(polynomials.R1.evaluate(challenges.y)));
+        console.log("r2: " + Fr.toString(polynomials.R2.evaluate(challenges.y)));
+
+        for (let i = 0; i < 4; i++) {
+            let r1 = polynomials.R1.evaluate(roots.S1.h1w4[i]);
+            let c1 = polynomials.C1.evaluate(roots.S1.h1w4[i]);
+            console.log("Check if r1(h1w4[i]) = C1(h1w4[i])  ... " + Fr.eq(c1, r1));
+        }
+        for (let i = 0; i < 3; i++) {
+            let r2 = polynomials.R2.evaluate(roots.S2.h2w3[i]);
+            let c2 = polynomials.C2.evaluate(roots.S2.h2w3[i]);
+            console.log("Check if r2(h2w3[i]) = C2(h2w3[i])  ... " + Fr.eq(c2, r2));
+        }
+        for (let i = 0; i < 3; i++) {
+            let r2 = polynomials.R2.evaluate(roots.S2.h3w3[i]);
+            let c2 = polynomials.C2.evaluate(roots.S2.h3w3[i]);
+            console.log("Check if r2(h2w3[i]) = C2(h3w3[i])  ... " + Fr.eq(c2, r2));
         }
 
-        return res;
+        console.log(proof.getPolynomial("C1"));
+        console.log(proof.getPolynomial("C2"));
+        console.log(proof.getPolynomial("W1"));
+        console.log(proof.getPolynomial("W2"));
     }
+
+
 }

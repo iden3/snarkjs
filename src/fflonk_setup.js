@@ -242,10 +242,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
             buffOutV.setUint32(0, addition[0], true);
             buffOutV.setUint32(4, addition[1], true);
-
-            // The value is storen in  Montgomery. stored = v*R
-            // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w
-
             buffOut.set(addition[2], 8);
             buffOut.set(addition[3], 8 + sFr);
 
@@ -414,7 +410,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     async function writeP4(fdZKey, buff) {
         const [coefficients, evaluations4] = await Polynomial.to4T(buff, settings.domainSize, [], Fr);
-
         await fdZKey.write(coefficients);
         await fdZKey.write(evaluations4);
     }

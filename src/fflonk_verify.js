@@ -35,7 +35,8 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     const vk = fromObjectVk(curve, _vk_verifier);
 
-    // TODO is necessary top check wr^3 == w ?
+    // TODO ??? Compute wr^3 and check if it matches with w
+
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
@@ -118,7 +119,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     }
 
     if (logger) logger.info("FFLONK VERIFIER FINISHED");
-
+//debug(challenges, roots, vk, r1, r2, Fr);
     return res;
 
 }
@@ -127,7 +128,8 @@ function fromObjectVk(curve, vk) {
     const res = vk;
     res.k1 = curve.Fr.fromObject(vk.k1);
     res.k2 = curve.Fr.fromObject(vk.k2);
-    res.wW = curve.Fr.fromObject(vk.wW);
+    res.w = curve.Fr.fromObject(vk.w);
+    // res.wW = curve.Fr.fromObject(vk.wW);
     res.w3 = curve.Fr.fromObject(vk.w3);
     res.w4 = curve.Fr.fromObject(vk.w4);
     res.wr = curve.Fr.fromObject(vk.wr);
@@ -243,7 +245,7 @@ function computeLagrangeEvaluations(curve, challenges, vk) {
     let w = Fr.one;
     for (let i = 1; i <= Math.max(1, vk.nPublic); i++) {
         L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
-        w = Fr.mul(w, Fr.w[vk.power]);
+        w = Fr.mul(w, vk.w);
     }
 
     return L;
@@ -386,11 +388,10 @@ function computeF(curve, proof, challenges, roots) {
     den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h3w3[1]));
     den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h3w3[2]));
 
-    challenges.quotient = Fr.mul(challenges.alpha, Fr.mul(num, Fr.inv(den)));
+    challenges.quotient = Fr.mul(challenges.alpha, Fr.div(num, den));
 
     return G1.add(proof.polynomials.C1, G1.timesFr(proof.polynomials.C2, challenges.quotient));
 }
-
 
 function computeE(curve, proof, challenges, vk, r1, r2) {
     const G1 = curve.G1;
@@ -418,4 +419,32 @@ async function isValidPairing(curve, proof, challenges, vk, F, E, J) {
     const B2 = vk.X_2;
 
     return await curve.pairingEq(A1, A2, B1, B2);
+}
+
+function debug(challenges, roots, vk, r1, r2, Fr) {
+    // Print all challenges
+    console.log("Beta:    " + Fr.toString(challenges.beta));
+    console.log("Gamma:   " + Fr.toString(challenges.gamma));
+    console.log("Xi:      " + Fr.toString(challenges.xi));
+    console.log("Alpha:   " + Fr.toString(challenges.alpha));
+    console.log("Y:       " + Fr.toString(challenges.y));
+    console.log("");
+
+    // Print all roots
+    console.log("h1w4[0]: " + Fr.toString(roots.S1.h1w4[0]));
+    console.log("h1w4[1]: " + Fr.toString(roots.S1.h1w4[1]));
+    console.log("h1w4[2]: " + Fr.toString(roots.S1.h1w4[2]));
+    console.log("h1w4[3]: " + Fr.toString(roots.S1.h1w4[3]));
+    console.log("h2w3[0]: " + Fr.toString(roots.S2.h2w3[0]));
+    console.log("h2w3[1]: " + Fr.toString(roots.S2.h2w3[1]));
+    console.log("h2w3[2]: " + Fr.toString(roots.S2.h2w3[2]));
+    console.log("h3w3[0]: " + Fr.toString(roots.S2.h3w3[0]));
+    console.log("h3w3[1]: " + Fr.toString(roots.S2.h3w3[1]));
+    console.log("h3w3[2]: " + Fr.toString(roots.S2.h3w3[2]));
+    console.log("Check if h_1^4 = xi  ... " + Fr.eq(challenges.xi, Fr.square(Fr.square(roots.S1.h1w4[0]))));
+    console.log("Check if h_2^3 = xi  ... " + Fr.eq(challenges.xi, Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0])));
+    console.log("Check if h_3^3 = xiw ... " + Fr.eq(Fr.mul(challenges.xi, vk.w), Fr.mul(Fr.square(roots.S2.h3w3[0]), roots.S2.h3w3[0])));
+    console.log("");
+    console.log("r1: " + Fr.toString(r1));
+    console.log("r2: " + Fr.toString(r2));
 }
