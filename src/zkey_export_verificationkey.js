@@ -25,23 +25,28 @@ import {FFLONK_PROTOCOL_ID} from "./zkey.js";
 
 const {stringifyBigInts} = utils;
 
-export default async function zkeyExportVerificationKey(zkeyName, /* logger */) {
+export default async function zkeyExportVerificationKey(zkeyName, logger) {
+    if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections);
 
+    if (logger) logger.info("> Detected protocol: " + zkey.protocol);
+
     let res;
-    if (zkey.protocol == "groth16") {
+    if (zkey.protocol === "groth16") {
         res = await groth16Vk(zkey, fd, sections);
-    } else if (zkey.protocol == "plonk") {
+    } else if (zkey.protocol === "plonk") {
         res = await plonkVk(zkey);
     } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
-        res = await exportFFlonkVk(zkey);
+        res = await exportFFlonkVk(zkey, logger);
     } else {
         throw new Error("zkey file protocol unrecognized");
     }
 
     await fd.close();
+
+    if (logger) logger.info("EXPORT VERIFICATION KEY FINISHED");
 
     return res;
 }
@@ -115,7 +120,7 @@ async function plonkVk(zkey) {
     return vKey;
 }
 
-async function exportFFlonkVk(zkey) {
+async function exportFFlonkVk(zkey, logger) {
     const curve = await getCurve(zkey.q);
 
     let vKey = {
@@ -127,8 +132,8 @@ async function exportFFlonkVk(zkey) {
         k1: curve.Fr.toObject(zkey.k1),
         k2: curve.Fr.toObject(zkey.k2),
 
-        // w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
-        wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
+        w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+        //wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
         w3: curve.Fr.toObject(zkey.w3),
         w4: curve.Fr.toObject(zkey.w4),
         wr: curve.Fr.toObject(zkey.wr),

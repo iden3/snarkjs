@@ -580,7 +580,7 @@ async function zkeyExportVKey(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zKeyFileName);
+    const vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
 
     await bfj.write(vKeyFilename, stringifyBigInts(vKey), {space: 1});
 
