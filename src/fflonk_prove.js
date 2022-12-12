@@ -369,18 +369,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
-                const i_sFr = i * sFr;
-
                 // Get related evaluations to compute current T0 evaluation
-                const a = evaluations.A.getEvaluation(i_sFr);
-                const b = evaluations.B.getEvaluation(i_sFr);
-                const c = evaluations.C.getEvaluation(i_sFr);
+                const a = evaluations.A.getEvaluation(i);
+                const b = evaluations.B.getEvaluation(i);
+                const c = evaluations.C.getEvaluation(i);
 
-                const ql = evaluations.QL.getEvaluation(i_sFr);
-                const qr = evaluations.QR.getEvaluation(i_sFr);
-                const qm = evaluations.QM.getEvaluation(i_sFr);
-                const qo = evaluations.QO.getEvaluation(i_sFr);
-                const qc = evaluations.QC.getEvaluation(i_sFr);
+                const ql = evaluations.QL.getEvaluation(i);
+                const qr = evaluations.QR.getEvaluation(i);
+                const qm = evaluations.QM.getEvaluation(i);
+                const qo = evaluations.QO.getEvaluation(i);
+                const qc = evaluations.QC.getEvaluation(i);
 
                 // Compute blinding factors
                 const az = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
@@ -390,7 +388,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 // Compute current public input
                 let pi = Fr.zero;
                 for (let j = 0; j < zkey.nPublic; j++) {
-                    const offset = (j * 5 * zkey.domainSize + zkey.domainSize + i) * sFr;
+                    const offset = (j * 5 * zkey.domainSize) + zkey.domainSize + i;
 
                     const lPol = evaluations.lagrange1.getEvaluation(offset);
                     const aVal = buffers.A.slice(j * sFr, (j + 1) * sFr);
@@ -421,8 +419,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
                 const t0z = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
-                buffers.T0.set(t0, i_sFr);
-                buffers.T0z.set(t0z, i_sFr);
+                buffers.T0.set(t0, i * sFr);
+                buffers.T0z.set(t0z, i * sFr);
 
                 // Next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
@@ -559,15 +557,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 // denArr := (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)
                 let den1 = buffers.A.slice(i_sFr, i_sFr + sFr);
-                den1 = Fr.add(den1, Fr.mul(challenges.beta, evaluations.Sigma1.getEvaluation(i_sFr * 4)));
+                den1 = Fr.add(den1, Fr.mul(challenges.beta, evaluations.Sigma1.getEvaluation(i * 4)));
                 den1 = Fr.add(den1, challenges.gamma);
 
                 let den2 = buffers.B.slice(i_sFr, i_sFr + sFr);
-                den2 = Fr.add(den2, Fr.mul(challenges.beta, evaluations.Sigma2.getEvaluation(i_sFr * 4)));
+                den2 = Fr.add(den2, Fr.mul(challenges.beta, evaluations.Sigma2.getEvaluation(i * 4)));
                 den2 = Fr.add(den2, challenges.gamma);
 
                 let den3 = buffers.C.slice(i_sFr, i_sFr + sFr);
-                den3 = Fr.add(den3, Fr.mul(challenges.beta, evaluations.Sigma3.getEvaluation(i_sFr * 4)));
+                den3 = Fr.add(den3, Fr.mul(challenges.beta, evaluations.Sigma3.getEvaluation(i * 4)));
                 den3 = Fr.add(den3, challenges.gamma);
 
                 let den = Fr.mul(den1, Fr.mul(den2, den3));
@@ -629,20 +627,19 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing t1 evaluation ${i}/${zkey.domainSize * 4}`);
 
-                const i_sFr = i * sFr;
                 const omega2 = Fr.square(omega);
 
-                const z = evaluations.Z.getEvaluation(i_sFr);
+                const z = evaluations.Z.getEvaluation(i);
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
 
                 // T1(X) := (z(X) - 1) · L_1(X)
                 // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                const lagrange1 = evaluations.lagrange1.getEvaluation((zkey.domainSize + i) * sFr);
+                const lagrange1 = evaluations.lagrange1.getEvaluation(zkey.domainSize + i);
                 let t1 = Fr.mul(Fr.sub(z, Fr.one), lagrange1);
                 let t1z = Fr.mul(zp, lagrange1);
 
-                buffers.T1.set(t1, i_sFr);
-                buffers.T1z.set(t1z, i_sFr);
+                buffers.T1.set(t1, i * sFr);
+                buffers.T1z.set(t1z, i * sFr);
 
                 // Compute next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
@@ -679,18 +676,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing t2 evaluation ${i}/${zkey.domainSize * 4}`);
 
-                const i_sFr = i * sFr;
-                const i_sFrw = ((i + zkey.domainSize * 4 + 4) % (zkey.domainSize * 4)) * sFr;
-
                 const omega2 = Fr.square(omega);
                 const omegaW = Fr.mul(omega, Fr.w[zkey.power]);
                 const omegaW2 = Fr.square(omegaW);
 
-                const a = evaluations.A.getEvaluation(i_sFr);
-                const b = evaluations.B.getEvaluation(i_sFr);
-                const c = evaluations.C.getEvaluation(i_sFr);
-                const z = evaluations.Z.getEvaluation(i_sFr);
-                const zW = evaluations.Z.getEvaluation(i_sFrw);
+                const a = evaluations.A.getEvaluation(i);
+                const b = evaluations.B.getEvaluation(i);
+                const c = evaluations.C.getEvaluation(i);
+                const z = evaluations.Z.getEvaluation(i);
+                const zW = evaluations.Z.getEvaluation((zkey.domainSize * 4 + 4 + i) % (zkey.domainSize * 4));
 
                 const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
                 const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
@@ -698,9 +692,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
                 const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omegaW2), Fr.mul(challenges.b[8], omegaW)), challenges.b[9]);
 
-                const sigma1 = evaluations.Sigma1.getEvaluation(i_sFr);
-                const sigma2 = evaluations.Sigma2.getEvaluation(i_sFr);
-                const sigma3 = evaluations.Sigma3.getEvaluation(i_sFr);
+                const sigma1 = evaluations.Sigma1.getEvaluation(i);
+                const sigma2 = evaluations.Sigma2.getEvaluation(i);
+                const sigma3 = evaluations.Sigma3.getEvaluation(i);
 
                 // T2(X) := [ (a(X) + beta·X + gamma)(b(X) + beta·k1·X + gamma)(c(X) + beta·k2·X + gamma)z(X)
                 //           -(a(X) + beta·sigma1(X) + gamma)(b(X) + beta·sigma2(X) + gamma)(c(X) + beta·sigma3(X) + gamma)z(Xω)] · 1/Z_H(X)
@@ -735,8 +729,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 let t2 = Fr.sub(e1, e2);
                 let t2z = Fr.sub(e1z, e2z);
 
-                buffers.T2.set(t2, i_sFr);
-                buffers.T2z.set(t2z, i_sFr);
+                buffers.T2.set(t2, i * sFr);
+                buffers.T2z.set(t2z, i * sFr);
 
                 // Compute next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
@@ -1163,10 +1157,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             console.log("Check if r2(h2w3[i]) = C2(h3w3[i])  ... " + Fr.eq(c2, r2));
         }
 
-        console.log(proof.getPolynomial("C1"));
-        console.log(proof.getPolynomial("C2"));
-        console.log(proof.getPolynomial("W1"));
-        console.log(proof.getPolynomial("W2"));
+        // console.log(proof.getPolynomial("C1"));
+        // console.log(proof.getPolynomial("C2"));
+        // console.log(proof.getPolynomial("W1"));
+        // console.log(proof.getPolynomial("W2"));
     }
 
 

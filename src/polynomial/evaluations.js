@@ -35,14 +35,20 @@ export class Evaluations {
         return new Evaluations(evaluations, Fr, logger);
     }
 
-    getEvaluation(i) {
-        return this.eval.slice(i, i + this.Fr.n8);
+    getEvaluation(index) {
+        const i_n8 = index * this.Fr.n8;
+
+        if (i_n8 + this.Fr.n8 > this.eval.length) {
+            throw new Error("Evaluations.getEvaluation() out of bounds");
+        }
+
+        return this.eval.slice(i_n8, i_n8 + this.Fr.n8);
     }
 
     length() {
         let length = this.eval.byteLength / this.Fr.n8;
         if (length !== Math.floor(this.eval.byteLength / this.Fr.n8)) {
-            throw new Error("Polynomial coefficients buffer has incorrect size");
+            throw new Error("Polynomial evaluations buffer has incorrect size");
         }
         if (0 === length) {
             this.logger.warn("Polynomial has length zero");
