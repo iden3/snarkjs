@@ -112,7 +112,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     if (logger) {
         if (res) {
-            logger.info("Proof verified successfully");
+            logger.info("PROOF VERIFIED SUCCESSFULLY");
         } else {
             logger.warn("Invalid Proof");
         }
@@ -120,6 +120,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     if (logger) logger.info("FFLONK VERIFIER FINISHED");
 //debug(challenges, roots, vk, r1, r2, Fr);
+
     return res;
 
 }
@@ -179,22 +180,20 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     roots.S1.h1w4[2] = Fr.mul(roots.S1.h1w4[0], w4_2);
     roots.S1.h1w4[3] = Fr.mul(roots.S1.h1w4[0], w4_3);
 
-    // Compute h2 = xi_seeder^4
     roots.S2 = {};
     roots.S2.h2w3 = [];
     roots.S2.h2w3[0] = Fr.square(xiSeed2);
     roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], vk.w3);
     roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], w3_2);
 
-    // Compute xi = xi_seeder^12
-    challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
-
-    // Compute h3 = xi_seeder^6
     roots.S2.h3w3 = [];
-    // Multiply h3 by omega to obtain h_3^2 = xiω
+    // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
     roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], vk.wr);
     roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], vk.w3);
     roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3_2);
+
+    // Compute xi = xi_seeder^12
+    challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
 
     challenges.xiN = challenges.xi;
     vk.domainSize = 1;
@@ -418,7 +417,7 @@ async function isValidPairing(curve, proof, challenges, vk, F, E, J) {
     const B1 = proof.polynomials.W2;
     const B2 = vk.X_2;
 
-    return await curve.pairingEq(A1, A2, B1, B2);
+    return await curve.pairingEq(G1.neg(A1), A2, B1, B2);
 }
 
 function debug(challenges, roots, vk, r1, r2, Fr) {

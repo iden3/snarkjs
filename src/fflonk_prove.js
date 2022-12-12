@@ -185,8 +185,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     logger.info("--ROUND 5");
     await round5();
 
-    debug();
-
     await fdZKey.close();
     await fdWtns.close();
 
@@ -823,23 +821,20 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         roots.S1.h1w4[2] = Fr.mul(roots.S1.h1w4[0], roots.w4[2]);
         roots.S1.h1w4[3] = Fr.mul(roots.S1.h1w4[0], roots.w4[3]);
 
-        // Compute h2 = xi_seeder^4
         roots.S2 = {};
         roots.S2.h2w3 = [];
         roots.S2.h2w3[0] = Fr.square(xiSeed2);
         roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], roots.w3[1]);
         roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], roots.w3[2]);
 
-        // Compute xi = xi_seeder^12
-        challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
-
-        // Compute h3 = xi_seeder^6
         roots.S2.h3w3 = [];
-
-        // Multiply h3 by omega to obtain h_3^2 = xiω
+        // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
         roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], zkey.wr);
         roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], roots.w3[1]);
         roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], roots.w3[2]);
+
+        // Compute xi = xi_seeder^12
+        challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
 
         if (logger) logger.info("challenges.xi: " + Fr.toString(challenges.xi));
 
@@ -1110,58 +1105,4 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         res = G1.toAffine(res);
         return res;
     }
-
-    function debug() {
-        // Print all challenges
-        console.log("Beta:    " + Fr.toString(challenges.beta));
-        console.log("Gamma:   " + Fr.toString(challenges.gamma));
-        console.log("Xi:      " + Fr.toString(challenges.xi));
-        console.log("Alpha:   " + Fr.toString(challenges.alpha));
-        console.log("Y:       " + Fr.toString(challenges.y));
-        console.log("");
-
-        // Print all roots
-        console.log("Check if w4^4 = 1  ... " + Fr.eq(Fr.one, Fr.square(Fr.square(roots.w4[1]))));
-        console.log("Check if w3^3 = 1  ... " + Fr.eq(Fr.one, Fr.mul(roots.w3[1], Fr.square(roots.w3[1]))));
-        console.log("h1w4[0]: " + Fr.toString(roots.S1.h1w4[0]));
-        console.log("h1w4[1]: " + Fr.toString(roots.S1.h1w4[1]));
-        console.log("h1w4[2]: " + Fr.toString(roots.S1.h1w4[2]));
-        console.log("h1w4[3]: " + Fr.toString(roots.S1.h1w4[3]));
-        console.log("h2w3[0]: " + Fr.toString(roots.S2.h2w3[0]));
-        console.log("h2w3[1]: " + Fr.toString(roots.S2.h2w3[1]));
-        console.log("h2w3[2]: " + Fr.toString(roots.S2.h2w3[2]));
-        console.log("h3w3[0]: " + Fr.toString(roots.S2.h3w3[0]));
-        console.log("h3w3[1]: " + Fr.toString(roots.S2.h3w3[1]));
-        console.log("h3w3[2]: " + Fr.toString(roots.S2.h3w3[2]));
-        console.log("Check if h_1^4 = xi  ... " + Fr.eq(challenges.xi, Fr.square(Fr.square(roots.S1.h1w4[0]))));
-        console.log("Check if h_2^3 = xi  ... " + Fr.eq(challenges.xi, Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0])));
-        console.log("Check if h_3^3 = xiw ... " + Fr.eq(Fr.mul(challenges.xi, Fr.w[zkey.power]), Fr.mul(Fr.square(roots.S2.h3w3[0]), roots.S2.h3w3[0])));
-        console.log("");
-
-        console.log("r1: " + Fr.toString(polynomials.R1.evaluate(challenges.y)));
-        console.log("r2: " + Fr.toString(polynomials.R2.evaluate(challenges.y)));
-
-        for (let i = 0; i < 4; i++) {
-            let r1 = polynomials.R1.evaluate(roots.S1.h1w4[i]);
-            let c1 = polynomials.C1.evaluate(roots.S1.h1w4[i]);
-            console.log("Check if r1(h1w4[i]) = C1(h1w4[i])  ... " + Fr.eq(c1, r1));
-        }
-        for (let i = 0; i < 3; i++) {
-            let r2 = polynomials.R2.evaluate(roots.S2.h2w3[i]);
-            let c2 = polynomials.C2.evaluate(roots.S2.h2w3[i]);
-            console.log("Check if r2(h2w3[i]) = C2(h2w3[i])  ... " + Fr.eq(c2, r2));
-        }
-        for (let i = 0; i < 3; i++) {
-            let r2 = polynomials.R2.evaluate(roots.S2.h3w3[i]);
-            let c2 = polynomials.C2.evaluate(roots.S2.h3w3[i]);
-            console.log("Check if r2(h2w3[i]) = C2(h3w3[i])  ... " + Fr.eq(c2, r2));
-        }
-
-        // console.log(proof.getPolynomial("C1"));
-        // console.log(proof.getPolynomial("C2"));
-        // console.log(proof.getPolynomial("W1"));
-        // console.log(proof.getPolynomial("W2"));
-    }
-
-
 }
