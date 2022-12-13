@@ -311,7 +311,7 @@ export class Polynomial {
             this.coef.slice(0, this.Fr.n8),
             this.Fr.mul(this.Fr.neg(value), coefs.slice(0, this.Fr.n8))
         )) {
-            // throw new Error("Polynomial does not divide");
+            throw new Error("Polynomial does not divide");
         }
 
         this.coef = coefs;
