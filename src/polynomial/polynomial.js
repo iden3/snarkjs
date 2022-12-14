@@ -160,9 +160,9 @@ export class Polynomial {
     evaluate(point) {
         let res = this.Fr.zero;
 
-        for (let i = this.length(); i > 0; i--) {
-            let i_n8 = (i - 1) * this.Fr.n8;
-            const currentCoefficient = this.coef.slice(i_n8, i_n8 + this.Fr.n8);
+        for (let i = this.degree() + 1; i > 0; i--) {
+            let i_n8 = i * this.Fr.n8;
+            const currentCoefficient = this.coef.slice(i_n8 - this.Fr.n8, i_n8);
             res = this.Fr.add(currentCoefficient, this.Fr.mul(res, point));
         }
 

@@ -20,4 +20,5 @@
 export {fflonkSetupCmd} from "./fflonk_setup_cmd.js";
 export {fflonkProveCmd} from "./fflonk_prove_cmd.js";
 export {fflonkVerifyCmd} from "./fflonk_verify_cmd.js";
+export {fflonkExportSolidityVerifierCmd} from "./fflonk_export_solidity_verifier_cmd.js";
 export {fflonkExportCallDataCmd} from "./fflonk_export_calldata_cmd.js";

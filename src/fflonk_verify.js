@@ -92,11 +92,12 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
-    const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
-
+    // const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
+    const r1 = proof.evaluations.r1;
     // STEP 9 - Compute polynomial r2 ∈ F_{<6}[X]
     if (logger) logger.info("> Computing r2(y)");
-    const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
+    //const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
+    const r2 = proof.evaluations.r2;
 
     if (logger) logger.info("> Computing F");
     const F = computeF(curve, proof, challenges, roots);
@@ -119,7 +120,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     }
 
     if (logger) logger.info("FFLONK VERIFIER FINISHED");
-//debug(challenges, roots, vk, r1, r2, Fr);
+    debug(proof, challenges, roots, vk, r1, r2, F, E, J, curve);
 
     return res;
 
@@ -420,30 +421,41 @@ async function isValidPairing(curve, proof, challenges, vk, F, E, J) {
     return await curve.pairingEq(G1.neg(A1), A2, B1, B2);
 }
 
-function debug(challenges, roots, vk, r1, r2, Fr) {
+function debug(proof, challenges, roots, vk, r1, r2, F, E, J, curve) {
+    const Fr = curve.Fr;
+    const G1 = curve.G1;
+
     // Print all challenges
-    console.log("Beta:    " + Fr.toString(challenges.beta));
-    console.log("Gamma:   " + Fr.toString(challenges.gamma));
-    console.log("Xi:      " + Fr.toString(challenges.xi));
-    console.log("Alpha:   " + Fr.toString(challenges.alpha));
-    console.log("Y:       " + Fr.toString(challenges.y));
+    console.log("Beta:    0x" + Fr.toString(challenges.beta, 16));
+    console.log("Gamma:   0x" + Fr.toString(challenges.gamma, 16));
+    console.log("Xi:      0x" + Fr.toString(challenges.xi, 16));
+    console.log("Alpha:   0x" + Fr.toString(challenges.alpha, 16));
+    console.log("Y:       0x" + Fr.toString(challenges.y, 16));
+    console.log("tmp:       0x" + Fr.toString(challenges.temp, 16));
+    console.log("quo:       0x" + Fr.toString(challenges.quotient, 16));
     console.log("");
 
     // Print all roots
-    console.log("h1w4[0]: " + Fr.toString(roots.S1.h1w4[0]));
-    console.log("h1w4[1]: " + Fr.toString(roots.S1.h1w4[1]));
-    console.log("h1w4[2]: " + Fr.toString(roots.S1.h1w4[2]));
-    console.log("h1w4[3]: " + Fr.toString(roots.S1.h1w4[3]));
-    console.log("h2w3[0]: " + Fr.toString(roots.S2.h2w3[0]));
-    console.log("h2w3[1]: " + Fr.toString(roots.S2.h2w3[1]));
-    console.log("h2w3[2]: " + Fr.toString(roots.S2.h2w3[2]));
-    console.log("h3w3[0]: " + Fr.toString(roots.S2.h3w3[0]));
-    console.log("h3w3[1]: " + Fr.toString(roots.S2.h3w3[1]));
-    console.log("h3w3[2]: " + Fr.toString(roots.S2.h3w3[2]));
+    console.log("h1w4[0]: 0x" + Fr.toString(roots.S1.h1w4[0], 16));
+    console.log("h1w4[1]: 0x" + Fr.toString(roots.S1.h1w4[1], 16));
+    console.log("h1w4[2]: 0x" + Fr.toString(roots.S1.h1w4[2], 16));
+    console.log("h1w4[3]: 0x" + Fr.toString(roots.S1.h1w4[3], 16));
+    console.log("h2w3[0]: 0x" + Fr.toString(roots.S2.h2w3[0], 16));
+    console.log("h2w3[1]: 0x" + Fr.toString(roots.S2.h2w3[1], 16));
+    console.log("h2w3[2]: 0x" + Fr.toString(roots.S2.h2w3[2], 16));
+    console.log("h3w3[0]: 0x" + Fr.toString(roots.S2.h3w3[0], 16));
+    console.log("h3w3[1]: 0x" + Fr.toString(roots.S2.h3w3[1], 16));
+    console.log("h3w3[2]: 0x" + Fr.toString(roots.S2.h3w3[2], 16));
     console.log("Check if h_1^4 = xi  ... " + Fr.eq(challenges.xi, Fr.square(Fr.square(roots.S1.h1w4[0]))));
     console.log("Check if h_2^3 = xi  ... " + Fr.eq(challenges.xi, Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0])));
     console.log("Check if h_3^3 = xiw ... " + Fr.eq(Fr.mul(challenges.xi, vk.w), Fr.mul(Fr.square(roots.S2.h3w3[0]), roots.S2.h3w3[0])));
     console.log("");
-    console.log("r1: " + Fr.toString(r1));
-    console.log("r2: " + Fr.toString(r2));
+    console.log("r1: 0x" + Fr.toString(r1, 16));
+    console.log("r2: 0x" + Fr.toString(r2, 16));
+    console.log("");
+    console.log("F: " + G1.toString(G1.toAffine(F), 16));
+    console.log("E: " + G1.toString(G1.neg(G1.toAffine(E)), 16));
+    console.log("J: " + G1.toString(G1.neg(G1.toAffine(J)), 16));
+
+    console.log("F-E: " + G1.toString(G1.neg(G1.toAffine(G1.sub(F, E))), 16));
 }
