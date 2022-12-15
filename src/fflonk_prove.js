@@ -263,7 +263,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 9; i++) {
-            challenges.b[i] = Fr.zero;//Fr.random();
+            challenges.b[i] = Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
@@ -324,9 +324,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.C = await Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
             // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-            polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
-            polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
-            polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
+            polynomials.A.blindCoefficients([challenges.b[2], challenges.b[1]]);
+            polynomials.B.blindCoefficients([challenges.b[4], challenges.b[3]]);
+            polynomials.C.blindCoefficients([challenges.b[6], challenges.b[5]]);
 
             // Check degrees
             if (polynomials.A.degree() >= zkey.domainSize + 2) {
@@ -622,7 +622,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
             // Blind z(X) polynomial coefficients with blinding scalars b
-            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+            polynomials.Z.blindCoefficients([challenges.b[9], challenges.b[8], challenges.b[7]]);
 
             // Check degree
             if (polynomials.Z.degree() >= zkey.domainSize + 3) {
