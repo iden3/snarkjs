@@ -144,46 +144,45 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
 
     // START FFLONK PROVER PROTOCOL
-    // TODO CHECK DEGREES OF ALL POLYNOMIALS
+
     // ROUND 1. Compute C1(X) polynomial
     logger.info("--ROUND 1");
     await round1();
 
-    //delete polynomials.T0;
+    delete polynomials.T0;
 
     // ROUND 2. Compute C2(X) polynomial
     logger.info("--ROUND 2");
     await round2();
 
-    //delete buffers.A;
-    //delete buffers.B;
-    //delete buffers.C;
-    //delete evaluations.A;
-    //delete evaluations.B;
-    //delete evaluations.C;
-
+    delete buffers.A;
+    delete buffers.B;
+    delete buffers.C;
+    delete evaluations.A;
+    delete evaluations.B;
+    delete evaluations.C;
 
     // ROUND 3. Compute opening evaluations
     logger.info("--ROUND 3");
     await round3();
 
-    //delete polynomials.A;
-    //delete polynomials.B;
-    //delete polynomials.C;
-    //delete polynomials.Z;
-    //delete polynomials.T1;
-    //delete polynomials.T2;
+    delete polynomials.A;
+    delete polynomials.B;
+    delete polynomials.C;
+    delete polynomials.Z;
+    delete polynomials.T1;
+    delete polynomials.T2;
 
     // ROUND 4. Compute W(X) polynomial
     logger.info("--ROUND 4");
     await round4();
 
-    //delete polynomials.C1;
-    //delete polynomials.C2;
-
     // ROUND 5. Compute W'(X) polynomial
     logger.info("--ROUND 5");
     await round5();
+
+    delete polynomials.C1;
+    delete polynomials.C2;
 
     await fdZKey.close();
     await fdWtns.close();
@@ -259,7 +258,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 9; i++) {
-            challenges.b[i] = Fr.zero;//Fr.random();
+            challenges.b[i] = Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
@@ -320,9 +319,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.C = await Evaluations.fromPolynomial(polynomials.C, Fr, logger);
 
             // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-            //polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
-            //polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
-            //polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
+            polynomials.A.blindCoefficients([challenges.b[1], challenges.b[2]]);
+            polynomials.B.blindCoefficients([challenges.b[3], challenges.b[4]]);
+            polynomials.C.blindCoefficients([challenges.b[5], challenges.b[6]]);
 
             // Check degrees
             if (polynomials.A.degree() >= zkey.domainSize + 2) {
@@ -438,9 +437,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T0.add(polynomials.T0z);
 
-            //delete buffers.T0;
-            //delete buffers.T0z;
-            //delete polynomials.T0z;
+            // Check degree
+            if (polynomials.T0.degree() >= 2 * zkey.domainSize + 2) {
+                throw new Error("T0 Polynomial is not well calculated");
+            }
+
+            delete buffers.T0;
+            delete buffers.T0z;
+            delete polynomials.T0z;
         }
 
         async function computeC1() {
@@ -479,10 +483,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 polynomials.C1.coef.set(val, i_sFr);
             }
 
-            //delete polynomials.A_X4;
-            //delete polynomials.B_X4;
-            //delete polynomials.C_X4;
-            //delete polynomials.T0_X4;
+            // Check degree
+            if (polynomials.C1.degree() >= 8 * zkey.domainSize + 8) {
+                throw new Error("C1 Polynomial is not well calculated");
+            }
+
+            delete polynomials.A_X4;
+            delete polynomials.B_X4;
+            delete polynomials.C_X4;
+            delete polynomials.T0_X4;
         }
     }
 
@@ -601,17 +610,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Compute polynomial coefficients z(X) from buffers.Z
             polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, Fr, logger);
 
-            if (polynomials.Z.degree() >= zkey.domainSize + 3) {
-                throw new Error("Z Polynomial is not well calculated");
-            }
-
             // Compute extended evaluations of z(X) polynomial
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
             // Blind z(X) polynomial coefficients with blinding scalars b
-            //polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
+            polynomials.Z.blindCoefficients([challenges.b[7], challenges.b[8], challenges.b[9]]);
 
-            //delete buffers.Z;
+            // Check degree
+            if (polynomials.Z.degree() >= zkey.domainSize + 3) {
+                throw new Error("Z Polynomial is not well calculated");
+            }
+
+            delete buffers.Z;
         }
 
         async function computeT1() {
@@ -657,10 +667,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T1.add(polynomials.T1z);
 
-            // Is this correct? Check it doesn't remove the T1 coefficients
-            //delete buffers.T1;
-            //delete buffers.T1z;
-            //delete polynomials.T1z;
+            // Check degree
+            if (polynomials.T1.degree() >= zkey.domainSize + 2) {
+                throw new Error("T1 Polynomial is not well calculated");
+            }
+
+            delete buffers.T1;
+            delete buffers.T1z;
+            delete polynomials.T1z;
         }
 
         async function computeT2() {
@@ -748,10 +762,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Add the polynomial T2z to T2 to get the final polynomial T2
             polynomials.T2.add(polynomials.T2z);
 
-            // Is this correct? Check it doesn't remove the T2 coefficients
-            //delete buffers.T2;
-            //delete buffers.T2z;
-            //delete polynomials.T2z;
+            // Check degree
+            if (polynomials.T2.degree() >= 3 * zkey.domainSize + 6) {
+                throw new Error("T2 Polynomial is not well calculated");
+            }
+
+            delete buffers.T2;
+            delete buffers.T2z;
+            delete polynomials.T2z;
         }
 
         async function computeC2() {
@@ -785,9 +803,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 polynomials.C2.coef.set(val, i_sFr);
             }
 
-            //delete polynomials.Z_X3;
-            //delete polynomials.T1_X3;
-            //delete polynomials.T2_X3;
+            // Check degree
+            if (polynomials.C2.degree() >= 9 * zkey.domainSize + 18) {
+                throw new Error("C2 Polynomial is not well calculated");
+            }
+
+            delete polynomials.Z_X3;
+            delete polynomials.T1_X3;
+            delete polynomials.T2_X3;
         }
     }
 
@@ -795,6 +818,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 3.1 - Compute evaluation challenge xi ∈ S
         const transcript = new Keccak256Transcript(curve);
         transcript.addPolCommitment(proof.getPolynomial("C2"));
+
         // Obtain a xi_seeder from the transcript
         // To force h1^4 = xi, h2^3 = xi and h_3^2 = xiω
         // we compute xi = xi_seeder^12, h1 = xi_seeder^3, h2 = xi_seeder^4 and h3 = xi_seeder^6
@@ -902,9 +926,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         const polRemainder = polynomials.F.divBy(polynomials.ZT);
 
+        // Check degrees
         if (polRemainder.degree() > 0) {
             throw new Error(`Degree of f(X)/ZT(X) remainder is ${polRemainder.degree()} and should be 0`);
         }
+        if (polynomials.F.degree() >= 9 * zkey.domainSize + 12) {
+            throw new Error("Degree of f(X)/ZT(X) is not correct");
+        }
+
 
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
         proof.addPolynomial("W1", await multiExponentiation(polynomials.F, "W1"));
@@ -948,14 +977,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeF() {
-            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
             buffers.F = new BigBuffer(sDomain * 16);
 
             if (logger) logger.info("> Computing F");
             // COMPUTE F(X)
             // Set initial omega
             let omega = Fr.one;
-            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
             for (let i = 0; i < zkey.domainSize * 16; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing F evaluation ${i}/${zkey.domainSize}`);
 
@@ -987,12 +1014,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 buffers.F.set(f, i_sFr);
 
                 // Compute next omega
-                // TODO CHANGE + 4 is an "overevaluation", will be more precise in the future
                 omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
             }
 
             if (logger) logger.info("··· Computing F ifft");
             polynomials.F = await Polynomial.fromEvaluations(buffers.F, Fr, logger);
+
+            // Check degree
+            if (polynomials.F.degree() >= 9 * zkey.domainSize + 22) {
+                throw new Error("F Polynomial is not well calculated");
+            }
 
             delete buffers.F;
         }
@@ -1026,9 +1057,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const polDividend = Polynomial.fromCoefficientsArray([Fr.neg(challenges.y), Fr.one], Fr);
         const polRemainder = polynomials.L.divBy(polDividend);
 
+        // Check degrees
         if (polRemainder.degree() > 0) {
-            throw new Error(`Degree of L(X)/(X-y) remainder is ${polRemainder.degree()} and should be 0`);
+            throw new Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${polRemainder.degree()} and should be 0`);
         }
+        if (polynomials.L.degree() >= 9 * zkey.domainSize + 17) {
+            throw new Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
+        }
+
 
         // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
         proof.addPolynomial("W2", await multiExponentiation(polynomials.L, "W2"));
@@ -1036,7 +1072,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeL() {
-            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
             buffers.L = new BigBuffer(sDomain * 16);
 
             const evalR1Y = polynomials.R1.evaluate(challenges.y);
@@ -1047,7 +1082,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Set initial omega
             let omega = Fr.one;
-            // TODO CHANGE * 16 is an "overevaluation", will be more precise in the future
             for (let i = 0; i < zkey.domainSize * 16; i++) {
                 if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing L evaluation ${i}/${zkey.domainSize * 4}`);
 
@@ -1082,14 +1116,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 buffers.L.set(l, i_sFr);
 
                 // Compute next omega
-                // TODO CHANGE + 4 is an "overevaluation", will be more precise in the future
                 omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
             }
 
             if (logger) logger.info("··· Computing L ifft");
             polynomials.L = await Polynomial.fromEvaluations(buffers.L, Fr, logger);
 
-            //delete buffers.L;
+            // Check degree
+            if (polynomials.L.degree() >= 9 * zkey.domainSize + 18) {
+                throw new Error("L Polynomial is not well calculated");
+            }
+
+            delete buffers.L;
         }
 
         async function computeZTS2() {
