@@ -429,6 +429,6 @@ Currently, there are 16 defined sections:
      ┗━━━━━━━━━━━━━┛  
            ...        ...      
      ┏━━━━━━━━━━━━━┓
-     ┃ G1 fs bytes ┃ Powers of Tau_{A^(Domain size + ?)} ??????
+     ┃ G1 fs bytes ┃ Powers of Tau_{Domain size * 9 + 18}
      ┗━━━━━━━━━━━━━┛
 ````

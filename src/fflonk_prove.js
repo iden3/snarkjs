@@ -141,7 +141,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
 
     if (logger) logger.info(`> Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
-    const PTau = await binFileUtils.readSection(fdZKey, zkeySections, FF_PTAU_ZKEY_SECTION);
+    const PTau = new BigBuffer(zkey.domainSize * 16 * sG1);
+    // domainSize * 9 + 18 = SRS length in the zkey saved in setup process.
+    // it corresponds to the maximum SRS length needed, specifically to commit C2
+    // notice that the reserved buffers size is zkey.domainSize * 16 * sG1 because a power of two buffer size is needed
+    // the remaining buffer not filled from SRS are set to 0
+    await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[FF_PTAU_ZKEY_SECTION][0].p);
 
     // START FFLONK PROVER PROTOCOL
 

@@ -365,9 +365,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writePtau(fdZKey) {
         await startWriteSection(fdZKey, FF_PTAU_ZKEY_SECTION);
 
-        //TODO check size of Buffer to write!!
-        const buffOut = new BigBuffer((settings.domainSize * 16) * sG1);
-        await fdPTau.readToBuffer(buffOut, 0, (settings.domainSize * 16) * sG1, pTauSections[2][0].p);
+        // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
+        const buffOut = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
+        await fdPTau.readToBuffer(buffOut, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
 
         await fdZKey.write(buffOut);
         await endWriteSection(fdZKey);
