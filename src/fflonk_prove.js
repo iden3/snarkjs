@@ -263,7 +263,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
         challenges.b = [];
         for (let i = 1; i <= 9; i++) {
-            challenges.b[i] = Fr.random();
+            challenges.b[i] = Fr.zero;//Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
@@ -468,22 +468,25 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute degree of the new polynomial C1 to reserve the buffer memory size
             // Will be the next power of two to bound the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
-            let length = Math.max(polynomials.A_X4.length(),
-                polynomials.B_X4.length() + 1,
-                polynomials.C_X4.length() + 2,
-                polynomials.T0_X4.length() + 3);
+            const lengthA = polynomials.A_X4.length();
+            const lengthB = polynomials.B_X4.length();
+            const lengthC = polynomials.C_X4.length();
+            const lengthT0 = polynomials.T0_X4.length();
+            const length = Math.max(lengthA, lengthB + 1, lengthC + 2, lengthT0 + 3);
+
             const lengthBuffer = 2 ** (log2(length - 1) + 1);
 
             polynomials.C1 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
 
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
+                let val = Fr.zero;
 
-                let val = polynomials.A_X4.getCoef(i);
+                if (i < lengthA) val = polynomials.A_X4.getCoef(i);
                 // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
-                if (i > 1) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
-                if (i > 2) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
+                if (i > 0 && i < lengthB + 1) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
+                if (i > 1 && i < lengthC + 2) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
+                if (i > 2 && i < lengthT0 + 3) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
 
                 polynomials.C1.coef.set(val, i_sFr);
             }
@@ -791,19 +794,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute degree of the new polynomial C2(X) to reserve the buffer memory size
             // Will be the maximum(deg(Z_3), deg(T1_3)+1, deg(T2_3)+2)
-            let length = Math.max(polynomials.Z_X3.length(),
-                polynomials.T1_X3.length() + 1,
-                polynomials.T2_X3.length() + 2);
+            const lengthZ = polynomials.Z_X3.length();
+            const lengthT1 = polynomials.T1_X3.length();
+            const lengthT2 = polynomials.T2_X3.length();
+            const length = Math.max(lengthZ, lengthT1 + 1, lengthT2 + 2);
+
             const lengthBuffer = 2 ** (log2(length - 1) + 1);
 
             polynomials.C2 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
             for (let i = 0; i < length; i++) {
                 const i_sFr = i * sFr;
+                let val = Fr.zero;
 
-                let val = polynomials.Z_X3.getCoef(i);
+                if (i < lengthZ) val = polynomials.Z_X3.getCoef(i);
                 // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0) val = Fr.add(val, polynomials.T1_X3.getCoef(i - 1));
-                if (i > 1) val = Fr.add(val, polynomials.T2_X3.getCoef(i - 2));
+                if (i > 0 && i < lengthT1 + 1) val = Fr.add(val, polynomials.T1_X3.getCoef(i - 1));
+                if (i > 1 && i < lengthT2 + 2) val = Fr.add(val, polynomials.T2_X3.getCoef(i - 2));
 
                 polynomials.C2.coef.set(val, i_sFr);
             }
@@ -1050,7 +1056,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("challenges.y: " + Fr.toString(challenges.y));
         proof.addEvaluation("r1", polynomials.R1.evaluate(challenges.y));
         proof.addEvaluation("r2", polynomials.R2.evaluate(challenges.y));
-// TODO ADD a new challenge to send to verifier only to check if r1 and r2 are correct?????? Security reasons...
+        // TODO ADD a new challenge to send to verifier only to check if r1 and r2 are correct?????? Security reasons...
         // STEP 5.2 - Compute L(X)
         await computeL();
         await computeZTS2();
