@@ -285,7 +285,7 @@ contract PlonkVerifier {
                 // Compute challenge.alpha
                 mstore( add(pMem, pAlpha), mod(keccak256(add(pProof, pEval_ql), 480), q))
 
-                // Compute challenge.y TODO check if it's 64 or 32
+                // Compute challenge.y
                 mstore( add(pMem, pY), mod(keccak256(add(pProof, pW1), 64), q))
             }
 
