@@ -1054,9 +1054,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         challenges.y = transcript.getChallenge();
         if (logger) logger.info("challenges.y: " + Fr.toString(challenges.y));
-        proof.addEvaluation("r1", polynomials.R1.evaluate(challenges.y));
-        proof.addEvaluation("r2", polynomials.R2.evaluate(challenges.y));
-        // TODO ADD a new challenge to send to verifier only to check if r1 and r2 are correct?????? Security reasons...
+
         // STEP 5.2 - Compute L(X)
         await computeL();
         await computeZTS2();

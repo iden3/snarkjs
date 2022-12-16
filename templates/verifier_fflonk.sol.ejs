@@ -72,8 +72,6 @@ contract PlonkVerifier {
     uint16 constant pEval_zw  = 672;
     uint16 constant pEval_t1w = 704;
     uint16 constant pEval_t2w = 736;
-    uint16 constant pEval_r1  = 768;
-    uint16 constant pEval_r2  = 800;
 
     // Memory data
     // Challenges
@@ -106,20 +104,24 @@ contract PlonkVerifier {
     uint16 constant pPi     = 608;
     uint16 constant pTmp    = 640;
     uint16 constant pQuo    = 672;
+    uint16 constant pR1     = 704;
+    uint16 constant pR2     = 736;
 
-    uint16 constant pF      = 704; // 64 bytes
-    uint16 constant pE      = 768; // 64 bytes
-    uint16 constant pJ      = 832; // 64 bytes
-    uint16 constant pA      = 896; // 64 bytes
 
+    uint16 constant pF      = 768;  // 64 bytes
+    uint16 constant pE      = 832;  // 64 bytes
+    uint16 constant pJ      = 896;  // 64 bytes
+    uint16 constant pA      = 960; // 64 bytes
+
+    uint16 constant pZh     = 1024;
     // From this point we write all the variables that must compute the inverse using the Montgomery batch inversion
-    uint16 constant pZh     = 960;
-    uint16 constant pZhInv  = 992;
-    uint16 constant pDen    = 1024;
+    uint16 constant pZhInv  = 1056;
+    uint16 constant pDen    = 1088;
+    uint16 constant pRInv   = 1120; // Reserve 10 * 32 bytes to compute R1 and R2 inversions
     <% for (let i = 1; i <= Math.max(nPublic, 1); i++) { %>
-    uint16 constant pEval_l<%=i%> = <%= 1024 + 32 * i %>;
+    uint16 constant pEval_l<%=i%> = <%= 1408 + 32 * i %>;
     <% } %>
-    <% let pLastMem = 1024 + 32 + 32 * Math.max(nPublic,1) %>
+    <% let pLastMem = 1408 + 32 + 32 * Math.max(nPublic,1) %>
     uint16 constant lastMem = <%=pLastMem%>;
 
     function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
@@ -202,7 +204,7 @@ contract PlonkVerifier {
             }
 
             function checkInput(pProof) {
-                if iszero(eq(mload(pProof), 800 )) {
+                if iszero(eq(mload(pProof), 736 )) {
                     mstore(0, 0)
                     return(0,0x20)
                 }
@@ -222,13 +224,11 @@ contract PlonkVerifier {
                 checkField(mload(add(pProof, pEval_zw)))
                 checkField(mload(add(pProof, pEval_t1w)))
                 checkField(mload(add(pProof, pEval_t2w)))
-                checkField(mload(add(pProof, pEval_r1)))
-                checkField(mload(add(pProof, pEval_r2)))
 
                 // Points are checked in the point operations precompiled smart contracts
             }
 
-            function calculateChallenges(pProof, pMem, pPublic) {
+            function computeChallenges(pProof, pMem, pPublic) {
                 // Compute challenge.beta & challenge.gamma
                 let challenge
                 <%for (let i=0; i<nPublic;i++) {%>
@@ -266,13 +266,13 @@ contract PlonkVerifier {
                 mstore( add(pMem, pH3w3_1), mulmod(mload(add(pMem, pH3w3_0)), w3, q))
                 mstore( add(pMem, pH3w3_2), mulmod(mload(add(pMem, pH3w3_0)), w3_2, q))
 
-                mstore( add(pMem, pXi), mulmod(mulmod(mload(add(pMem, pH2w3_0)), mload(add(pMem, pH2w3_0)), q), mload(add(pMem, pH2w3_0)), q))
+                let xin := mulmod(mulmod(mload(add(pMem, pH2w3_0)), mload(add(pMem, pH2w3_0)), q), mload(add(pMem, pH2w3_0)), q)
+                mstore( add(pMem, pXi), xin)
 
                 // Compute beta*xi and store it in a local variable to use it later
                 mstore( add(pMem, pBetaXi), mulmod(mload(add(pMem, pBeta)), mload(add(pMem, pXi)), q))
 
                 // Compute xi^n
-                let xin
                 <%for ( let i = 0; i < power; i++) {%>
                     xin:= mulmod(xin, xin, q)
                 <%}%>
@@ -289,7 +289,7 @@ contract PlonkVerifier {
                 mstore( add(pMem, pY), mod(keccak256(add(pProof, pW1), 64), q))
             }
 
-            function preCalculateF(pMem) {
+            function precomputeF(pMem) {
                 let den
 
                 den := addmod(mload(add(pMem, pY)), mod(sub(q, mload(add(pMem, pH2w3_0))), q), q)
@@ -300,73 +300,64 @@ contract PlonkVerifier {
                 den := mulmod(den, addmod(mload(add(pMem, pY)), mod(sub(q, mload(add(pMem, pH3w3_2))), q), q), q)
 
                 mstore(add(pMem, pDen), den)
-
-                // TODO remove in the future when inverse will be done on calculateLagrange function
-                inverseArray(add(pMem, pDen), 1)
             }
 
-            function calculateLagrange(pMem) {
+            function calcLagrangeItem(pMem, i, n, pX, pRoot) -> result {
+                let idx := i
+                let max := add(n, 1)
+                result := 1
+                for { let j := 0 } lt(j, n) { j := add(j, 1) }
+                {
+                    idx := mod(add(idx, 1), max)
+
+                    result := mulmod(result, addmod(mload(add(pMem, pX)), mod(sub(q, mload(add(pMem, add(pRoot, mul(idx, 32))))), q), q), q)
+                }
+            }
+
+            function precomputeR1(pMem) {
+                for { let i := 0 } lt(i, 4) { i := add(i, 1) }
+                {
+                    mstore(add(pMem, add(pRInv, mul(i, 32))), calcLagrangeItem(pMem, i, 3, add(pH1w4_0, mul(i, 32)), pH1w4_0))
+                }
+            }
+
+            function precomputeR2(pMem) {
+                for { let i := 0 } lt(i, 6) { i := add(i, 1) }
+                {
+                    mstore(add(pMem, add(pRInv, add(128, mul(i, 32)))), calcLagrangeItem(pMem, i, 5, add(pH2w3_0, mul(i, 32)), pH2w3_0))
+                }
+            }
+
+            function precomputeLagrange(pMem) {
                 let w := 1
                 <% for (let i=1; i<=Math.max(nPublic, 1); i++) { %>
-                mstore(
-                    add(pMem, pEval_l<%=i%>),
-                    mulmod(
-                        n,
-                        mod(
-                            add(
-                                sub(
-                                    mload(add(pMem, pXi)),
-                                    w
-                                ),
-                                q
-                            ),
-                            q
-                        ),
-                        q
-                    )
-                )
+                mstore(add(pMem, pEval_l<%=i%>), mulmod(n, mod(add(sub(mload(add(pMem, pXi)), w), q), q), q))
                 <% if (i<Math.max(nPublic, 1)) { %>
                 w := mulmod(w, w1, q)
                 <% } %>
                 <% } %>
-
-                inverseArray(add(pMem, pZhInv), <%= Math.max(nPublic, 1) + 2 %> )
-
-                let zh := mload(add(pMem, pZh))
-                w := 1
-                <% for (let i=1; i<=Math.max(nPublic, 1); i++) { %>
-                <% if (i===1) { %>
-                mstore(
-                    add(pMem, pEval_l1 ),
-                    mulmod(
-                        mload(add(pMem, pEval_l1 )),
-                        zh,
-                        q
-                    )
-                )
-                <% } else { %>
-                mstore(
-                    add(pMem, pEval_l<%=i%>),
-                    mulmod(
-                        w,
-                        mulmod(
-                            mload(add(pMem, pEval_l<%=i%>)),
-                            zh,
-                            q
-                        ),
-                        q
-                    )
-                )
-                <% } %>
-                <% if (i<Math.max(nPublic, 1)) { %>
-                w := mulmod(w, w1, q)
-                <% } %>
-                <% } %>
-
-
             }
 
-            function calculatePi(pMem, pPub) {
+            function computeInversions(pMem) {
+                inverseArray(add(pMem, pZhInv), <%= Math.max(nPublic, 1) + 12 %>)
+            }
+
+            function computeLagrange(pMem) {
+                let zh := mload(add(pMem, pZh))
+                let w := 1
+                <% for (let i=1; i<=Math.max(nPublic, 1); i++) { %>
+                <% if (i===1) { %>
+                mstore(add(pMem, pEval_l1 ), mulmod(mload(add(pMem, pEval_l1 )), zh, q))
+                <% } else { %>
+                mstore(add(pMem, pEval_l<%=i%>), mulmod(w, mulmod(mload(add(pMem, pEval_l<%=i%>)), zh, q), q))
+                <% } %>
+                <% if (i<Math.max(nPublic, 1)) { %>
+                w := mulmod(w, w1, q)
+                <% } %>
+                <% } %>
+            }
+
+            function computePi(pMem, pPub) {
                 let pi := 0
 
                 <% for (let i=0; i<nPublic; i++) { %>
@@ -387,6 +378,90 @@ contract PlonkVerifier {
                 <% } %>
 
                 mstore(add(pMem, pPi), pi)
+            }
+
+            function computeR1(pProof, pMem) {
+                let t0
+
+                t0 := mulmod(mload(add(pProof, pEval_ql)), mload(add(pProof, pEval_a)), q)
+                t0 := addmod(t0, mulmod(mload(add(pProof, pEval_qr)), mload(add(pProof, pEval_b)), q) ,q)
+                t0 := addmod(t0, mulmod(mload(add(pProof, pEval_qm)),
+                mulmod(mload(add(pProof, pEval_a)), mload(add(pProof, pEval_b)), q)
+                , q) ,q)
+                t0 := addmod(t0, mulmod(mload(add(pProof, pEval_qo)), mload(add(pProof, pEval_c)), q) ,q)
+                t0 := addmod(t0, mload(add(pProof, pEval_qc)) ,q)
+                t0 := addmod(t0, mload(add(pMem, pPi)), q)
+                t0 := mulmod(t0, mload(add(pMem, pZhInv)), q)
+
+                let res
+                for { let i := 0 } lt(i, 4) { i := add(i, 1) }
+                {
+                    let c1Value := mload(add(pProof, pEval_a))
+                    let h1w4 := mload(add(pMem, add(pH1w4_0, mul(i, 32))))
+
+                    c1Value := addmod(c1Value, mulmod(h1w4, mload(add(pProof, pEval_b)), q), q)
+                    let square := mulmod(h1w4, h1w4, q)
+                    c1Value := addmod(c1Value, mulmod(square, mload(add(pProof, pEval_c)), q), q)
+                    c1Value := addmod(c1Value, mulmod(mulmod(square, h1w4, q), t0, q), q)
+
+                    let lagrange := calcLagrangeItem(pMem, i, 3, pY, pH1w4_0)
+                    lagrange := mulmod(lagrange, mload(add(pMem, add(pRInv, mul(i, 32)))), q)
+
+                    res := addmod(res, mulmod(c1Value, lagrange, q), q)
+                }
+
+                mstore(add(pMem, pR1), res)
+            }
+
+            function computeR2(pProof, pMem) {
+                let t2
+                t2 := addmod(mload(add(pProof, pEval_a)), addmod(mload(add(pMem, pBetaXi)), mload(add(pMem, pGamma)), q) ,q)
+                t2 := mulmod(t2,
+                            addmod(mload(add(pProof, pEval_b)),
+                            addmod(mulmod(mload(add(pMem, pBetaXi)), k1, q), mload(add(pMem, pGamma)), q) ,q), q)
+                t2 := mulmod(t2,
+                            addmod(mload(add(pProof, pEval_c)),
+                            addmod(mulmod(mload(add(pMem, pBetaXi)), k2, q), mload(add(pMem, pGamma)), q) ,q), q)
+                t2 := mulmod(t2, mload(add(pProof, pEval_z)), q)
+
+                let t1 //Let's use this variable as a temporal variable to save one local
+                t1 := addmod(mload(add(pProof, pEval_a)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s1)), q), mload(add(pMem, pGamma)), q) ,q)
+                t1 := mulmod(t1,
+                      addmod(mload(add(pProof, pEval_b)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s2)), q), mload(add(pMem, pGamma)), q) ,q), q)
+                t1 := mulmod(t1,
+                      addmod(mload(add(pProof, pEval_c)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s3)), q), mload(add(pMem, pGamma)), q) ,q), q)
+                t1 := mulmod(t1, mload(add(pProof, pEval_zw)), q)
+
+                t2:= addmod(t2, mod(sub(q, t1), q), q)
+                t2 := mulmod(t2, mload(add(pMem, pZhInv)), q)
+
+                // Compute T1(xi)
+                t1 := sub(mload(add(pProof, pEval_z)), 1)
+                t1 := mulmod(t1, mload(add(pMem, pEval_l1)) ,q)
+                t1 := mulmod(t1, mload(add(pMem, pZhInv)) ,q)
+
+                let res
+                for { let i := 0 } lt(i, 6) { i := add(i, 1) }
+                {
+                    let hw := mload(add(pMem, add(pH2w3_0, mul(i, 32))))
+
+                    let c2Value
+                    if lt(i, 3) {
+                        c2Value := addmod(mload(add(pProof, pEval_z)), mulmod(hw, t1, q), q)
+                        c2Value := addmod(c2Value, mulmod(mulmod(hw, hw, q), t2, q), q)
+                    }
+                    if gt(i, 2) {
+                        c2Value := addmod(mload(add(pProof, pEval_zw)), mulmod(hw, mload(add(pProof, pEval_t1w)), q), q)
+                        c2Value := addmod(c2Value, mulmod(mulmod(hw, hw, q), mload(add(pProof, pEval_t2w)), q), q)
+                    }
+
+                    let lagrange := calcLagrangeItem(pMem, i, 5, pY, pH2w3_0)
+                    lagrange := mulmod(lagrange, mload(add(pMem, add(pRInv,add(128, mul(i, 32))))), q)
+
+                    res := addmod(res, mulmod(c2Value, lagrange, q), q)
+                }
+
+                mstore(add(pMem, pR2), res)
             }
 
             function g1_set(pR, pP) {
@@ -474,7 +549,7 @@ contract PlonkVerifier {
                 }
             }
 
-            function calculateF(pProof, pMem) {
+            function computeF(pProof, pMem) {
                 let num
 
                 num := addmod(mload(add(pMem, pY)), mod(sub(q, mload(add(pMem, pH1w4_0))), q), q)
@@ -491,12 +566,12 @@ contract PlonkVerifier {
                 g1_acc(p, add(pProof, pC1))
             }
 
-            function calculateE(pProof, pMem) {
-                let e := addmod(mload(add(pProof, pEval_r1)), mulmod(mload(add(pMem, pQuo)), mload(add(pProof, pEval_r2)),q) , q)
+            function computeE(pProof, pMem) {
+                let e := addmod(mload(add(pMem, pR1)), mulmod(mload(add(pMem, pQuo)), mload(add(pMem, pR2)),q) , q)
                 g1_mulAccC(add(pMem, pE), G1x, G1y, e)
             }
 
-            function calculateJ(pProof, pMem) {
+            function computeJ(pProof, pMem) {
                 g1_mulAcc(add(pMem, pJ), add(pProof, pW1), mload(add(pMem, pTmp)))
             }
 
@@ -545,13 +620,23 @@ contract PlonkVerifier {
             mstore(0x40, add(pMem, lastMem))
 
             checkInput(proof)
-            calculateChallenges(proof, pMem, pubSignals)
-            preCalculateF(pMem)
-            //calculateLagrange(pMem)
-            //calculatePi(pMem, pubSignals)
-            calculateF(proof, pMem)
-            calculateE(proof, pMem)
-            calculateJ(proof, pMem)
+            computeChallenges(proof, pMem, pubSignals)
+
+            precomputeF(pMem)
+            precomputeR1(pMem)
+            precomputeR2(pMem)
+            precomputeLagrange(pMem)
+
+            computeInversions(pMem)
+
+            computeLagrange(pMem)
+            computePi(pMem, pubSignals)
+            computeR1(proof, pMem)
+            computeR2(proof, pMem)
+
+            computeF(proof, pMem)
+            computeE(proof, pMem)
+            computeJ(proof, pMem)
             let isValid := checkPairing(proof, pMem)
 
             mstore(0x40, sub(pMem, lastMem))

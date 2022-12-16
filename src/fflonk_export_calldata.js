@@ -47,7 +47,7 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
         inputs = inputs + p256(pub[i]);
     }
 
-    const proofBuff = new Uint8Array(G1.F.n8 * 2 * 4 + Fr.n8 * 17);
+    const proofBuff = new Uint8Array(G1.F.n8 * 2 * 4 + Fr.n8 * 15);
 
     G1.toRprUncompressed(proofBuff, 0, G1.e(proof.polynomials.C1));
     G1.toRprUncompressed(proofBuff, G1.F.n8 * 2, G1.e(proof.polynomials.C2));
@@ -68,8 +68,6 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
     Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 12, Fr.e(proof.evaluations.zw));
     Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 13, Fr.e(proof.evaluations.t1w));
     Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 14, Fr.e(proof.evaluations.t2w));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 15, Fr.e(proof.evaluations.r1));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 16, Fr.e(proof.evaluations.r2));
 
     const proofHex = Array.from(proofBuff).map(i2hex).join("");
 
