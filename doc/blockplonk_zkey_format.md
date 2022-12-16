@@ -1,4 +1,4 @@
-# zkey format for babyplonk
+# zkey format for blocklonk
 
 ````
 

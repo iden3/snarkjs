@@ -21,7 +21,6 @@ export const HEADER_ZKEY_SECTION = 1;
 
 export const GROTH16_PROTOCOL_ID = 1;
 export const PLONK_PROTOCOL_ID = 2;
-export const BABY_PLONK_PROTOCOL_ID = 3;
 export const FFLONK_PROTOCOL_ID = 10;
 
 export {default as newZKey} from "./zkey_new.js";
