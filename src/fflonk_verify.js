@@ -93,14 +93,12 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
     const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
-    //const r1 = proof.evaluations.r1;
     const r1ByLp = computeR1byLP(proof, challenges, roots, pi, curve, logger);
-
 
     // STEP 9 - Compute polynomial r2 ∈ F_{<6}[X]
     if (logger) logger.info("> Computing r2(y)");
     const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
-    //const r2 = proof.evaluations.r2;
+    const r2ByLp = computeR2byLP(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
 
     if (logger) logger.info("> Computing F");
     const F = computeF(curve, proof, challenges, roots);
@@ -340,28 +338,38 @@ function computeR1byLP(proof, challenges, roots, pi, curve, logger) {
     // Compute the 4 C1 values
     if (logger) logger.info("··· Computing C1(h_1ω_4^i) values");
 
-    const yNsub1 = Fr.sub(Fr.square(Fr.square(challenges.y)), Fr.one);
+    let c1Values = [];
+    for (let i = 0; i < 4; i++) {
+        c1Values[i] = proof.evaluations.a;
+        c1Values[i] = Fr.add(c1Values[i], Fr.mul(roots.S1.h1w4[i], proof.evaluations.b));
+        const h1w4Squared = Fr.square(roots.S1.h1w4[i]);
+        c1Values[i] = Fr.add(c1Values[i], Fr.mul(h1w4Squared, proof.evaluations.c));
+        c1Values[i] = Fr.add(c1Values[i], Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), t0));
+    }
 
     let res = Fr.zero;
     for (let i = 0; i < 4; i++) {
-        // Compute c1Value
-        const h1w4Squared = Fr.square(roots.S1.h1w4[i]);
-
-        let c1Val = proof.evaluations.a;
-        c1Val = Fr.add(c1Val, Fr.mul(roots.S1.h1w4[i], proof.evaluations.b));
-        c1Val = Fr.add(c1Val, Fr.mul(h1w4Squared, proof.evaluations.c));
-        c1Val = Fr.add(c1Val, Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), t0));
-
         // Compute L_i^{(S1)}(y)
-        const num = Fr.mul(roots.S1.h1w4[i], yNsub1);
-        const den = Fr.mul(Fr.e(3), Fr.sub(challenges.y, roots.S1.h1w4[i]));
-        const Ls1 = Fr.div(num, den);
-        //const Ls1 = Fr.div(Fr.mul(roots.S1.h1w4[i], yNsub1), Fr.mul(n, Fr.sub(challenges.y, roots.S1.h1w4[i])));
+        const lagrange_i = computeLiS1(i);
 
-        res = Fr.add(res, Fr.mul(c1Val, Ls1));
+        res = Fr.add(res, Fr.mul(c1Values[i], lagrange_i));
     }
 
     return res;
+
+    function computeLiS1(i) {
+        // Compute L_i^{(S1)}(y)
+        let idx = i;
+        let num = Fr.one;
+        let den = Fr.one;
+        for (let j = 0; j < 3; j++) {
+            idx = (idx + 1) % 4;
+
+            num = Fr.mul(num, Fr.sub(challenges.y, roots.S1.h1w4[idx]));
+            den = Fr.mul(den, Fr.sub(roots.S1.h1w4[i], roots.S1.h1w4[idx]));
+        }
+        return Fr.div(num, den);
+    }
 }
 
 function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
@@ -426,6 +434,82 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     // Evaluate the polynomial in challenges.y
     if (logger) logger.info("··· Computing evaluation r2(y)");
     return R2.evaluate(challenges.y);
+}
+
+function computeR2byLP(proof, challenges, roots, lagrange1, vk, curve, logger) {
+    const Fr = curve.Fr;
+
+    // r2(y) = ∑_1^3 C_2(h_2 ω_3^{i-1}) L_i(y) + ∑_1^3 C_2(h_3 ω_3^{i-1}) L_{i+3}(y). To this end we need to compute
+    // Z2 = {[C2(h_2}, C2(h_2 ω_3), C2(h_2 ω_3^2)], [C2(h_3}, C2(h_3 ω_3), C2(h_3 ω_3^2)]}
+    // where C_2(h_2 ω_3^{i-1}) = eval.z + h_2 ω_2^i T1(xi) + (h_2 ω_3^i)^2 T2(xi),
+    // where C_2(h_3 ω_3^{i-1}) = eval.z + h_3 ω_2^i T1(xi) + (h_3 ω_3^i)^2 T2(xi),
+    // where T1(xi) = [ L_1(xi)(z-1)] / Z_H(xi)
+    // and T2(xi) = [  (a + beta·xi + gamma)(b + beta·xi·k1 + gamma)(c + beta·xi·k2 + gamma)z
+    //               - (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)zω  ] / Z_H(xi)
+
+    // Compute T1(xi)
+    if (logger) logger.info("··· Computing T1(xi)");
+    let T1 = Fr.sub(proof.evaluations.z, Fr.one);
+    T1 = Fr.mul(T1, lagrange1);
+    T1 = Fr.mul(T1, challenges.invzh);
+
+    // Compute T2(xi)
+    if (logger) logger.info("··· Computing T2(xi)");
+    const betaxi = Fr.mul(challenges.beta, challenges.xi);
+    const T211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
+    const T212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
+    const T213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
+    const T21 = Fr.mul(T211, Fr.mul(T212, Fr.mul(T213, proof.evaluations.z)));
+
+    const T221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
+    const T222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
+    const T223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
+    const T22 = Fr.mul(T221, Fr.mul(T222, Fr.mul(T223, proof.evaluations.zw)));
+
+    let T2 = Fr.sub(T21, T22);
+    T2 = Fr.mul(T2, challenges.invzh);
+
+
+    // Compute the 6 C2 values
+    if (logger) logger.info("··· Computing C2(h_2ω_3^i) values");
+    let c2Values = [];
+    for (let i = 0; i < 3; i++) {
+        c2Values[i] = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h2w3[i], T1));
+        c2Values[i] = Fr.add(c2Values[i], Fr.mul(Fr.square(roots.S2.h2w3[i]), T2));
+    }
+
+    if (logger) logger.info("··· Computing C2(h_3ω_3^i) values");
+    for (let i = 0; i < 3; i++) {
+        c2Values[i + 3] = Fr.add(proof.evaluations.zw, Fr.mul(roots.S2.h3w3[i], proof.evaluations.t1w));
+        c2Values[i + 3] = Fr.add(c2Values[i + 3], Fr.mul(Fr.square(roots.S2.h3w3[i]), proof.evaluations.t2w));
+    }
+
+    let res = Fr.zero;
+    for (let i = 0; i < 6; i++) {
+        // Compute L_i^{(S1)}(y)
+        const lagrange_i = computeLiS2(i);
+
+        res = Fr.add(res, Fr.mul(c2Values[i], lagrange_i));
+    }
+
+    return res;
+
+    function computeLiS2(i) {
+        // Compute L_i^{(S1)}(y)
+        let idx = i;
+        let num = Fr.one;
+        let den = Fr.one;
+        for (let j = 0; j < 5; j++) {
+            idx = (idx + 1) % 6;
+
+            const root1 = i < 3 ? roots.S2.h2w3[i] : roots.S2.h3w3[i - 3];
+            const root2 = idx < 3 ? roots.S2.h2w3[idx] : roots.S2.h3w3[idx - 3];
+            num = Fr.mul(num, Fr.sub(challenges.y, root2));
+            den = Fr.mul(den, Fr.sub(root1, root2));
+        }
+        return Fr.div(num, den);
+    }
+
 }
 
 function computeF(curve, proof, challenges, roots) {
