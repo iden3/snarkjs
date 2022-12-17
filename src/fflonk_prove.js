@@ -155,6 +155,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await round1();
 
     delete polynomials.T0;
+    delete evaluations.QL;
+    delete evaluations.QR;
+    delete evaluations.QM;
+    delete evaluations.QO;
+    delete evaluations.QC;
 
     // ROUND 2. Compute C2(X) polynomial
     logger.info("--ROUND 2");
@@ -166,6 +171,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.A;
     delete evaluations.B;
     delete evaluations.C;
+    delete evaluations.Sigma1;
+    delete evaluations.Sigma2;
+    delete evaluations.Sigma3;
+    delete evaluations.lagrange1;
+    delete evaluations.Z;
 
     // ROUND 3. Compute opening evaluations
     logger.info("--ROUND 3");
@@ -177,6 +187,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.Z;
     delete polynomials.T1;
     delete polynomials.T2;
+    delete polynomials.Sigma1;
+    delete polynomials.Sigma2;
+    delete polynomials.Sigma3;
+    delete polynomials.QL;
+    delete polynomials.QR;
+    delete polynomials.QM;
+    delete polynomials.QC;
+    delete polynomials.QO;
 
     // ROUND 4. Compute W(X) polynomial
     logger.info("--ROUND 4");
@@ -188,7 +206,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     delete polynomials.C1;
     delete polynomials.C2;
-
+    delete polynomials.R1;
+    delete polynomials.R2;
+    delete polynomials.F;
+    delete polynomials.L;
+    delete polynomials.ZT;
+    delete polynomials.ZTS2;
+    
     await fdZKey.close();
     await fdWtns.close();
 
