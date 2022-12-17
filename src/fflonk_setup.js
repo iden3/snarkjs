@@ -61,12 +61,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (logger) logger.info("> Reading PTau file");
     const {fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
     if (!pTauSections[12]) {
-        throw new Error("Powers of tau is not prepared.");
+        throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
 
     // Get curve defined in PTau
     if (logger) logger.info("> Getting curve from PTau settings");
-    const {curve, curvePower} = await utils.readPTauHeader(fdPTau, pTauSections);
+    const {curve} = await utils.readPTauHeader(fdPTau, pTauSections);
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
@@ -100,13 +100,15 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (globalThis.gc) globalThis.gc();
 
     // As the t polynomial is n+5 whe need at least a power of 4
-    //TODO review if 3 is ok and then extract the value to a constant
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
-    if (settings.cirPower > curvePower) {
-        throw new Error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${curvePower}`);
-    }
-
     settings.domainSize = 2 ** settings.cirPower;
+
+    if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
+        throw new Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
+    }
+    if (pTauSections[3][0].size < sG2) {
+        throw new Error("Powers of Tau is not well prepared. Section 3 too small.");
+    }
 
     if (logger) {
         logger.info("----------------------------");

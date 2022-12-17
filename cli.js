@@ -46,7 +46,6 @@ import bfj from "bfj";
 
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
-import {FFLONK_PROTOCOL_ID} from "./src/zkey.js";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
