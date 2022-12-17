@@ -32,8 +32,10 @@ export async function fflonkFullProveCmd(zkeyFilename, witnessInputsFilename, wa
     // Compute the witness
     await wtns_calculate(input, wasmFilename, wtns);
 
+    // Compute the proof
     const {proof, publicSignals} = await fflonkProve(zkeyFilename, wtns, logger);
 
+    // Write the proof and the publig signals in each file
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
 
