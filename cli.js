@@ -304,22 +304,29 @@ const commands = [
     },
     {
         cmd: "fflonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
-        description: "BETA version. Creates an initial FFLONK pkey ",
-        alias: ["pks"],
+        description: "BETA version. Creates a FFLONK zkey from a circuit",
+        alias: ["ffs"],
         options: "-verbose|v",
         action: fflonkSetup
     },
     {
         cmd: "fflonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "BETA version. Generates a FFLONK Proof from witness",
-        alias: ["pkp"],
+        alias: ["ffp"],
         options: "-verbose|v -protocol",
         action: fflonkProve
     },
     {
+        cmd: "fflonk fullprove [witness.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
+        description: "BETA version. Generates a witness and the FFLONK Proof in the same command",
+        alias: ["fff"],
+        options: "-verbose|v -protocol",
+        action: fflonkFullProve
+    },
+    {
         cmd: "fflonk verify [verification_key.json] [public.json] [proof.json]",
         description: "BETA version. Verify a FFLONK Proof",
-        alias: ["pkv"],
+        alias: ["ffv"],
         options: "-verbose|v",
         action: fflonkVerify
     },
@@ -1141,7 +1148,7 @@ async function fflonkSetup(params, options) {
 
 
 async function fflonkProve(params, options) {
-    const zkeyFilename = params[0] || "circuit.pkey";
+    const zkeyFilename = params[0] || "circuit.zkey";
     const witnessFilename = params[1] || "witness.wtns";
     const proofFilename = params[2] || "proof.json";
     const publicInputsFilename = params[3] || "public.json";
@@ -1149,6 +1156,19 @@ async function fflonkProve(params, options) {
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
     return await fflonkCmd.fflonkProveCmd(zkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
+}
+
+async function fflonkFullProve(params, options) {
+
+    const witnessInputsFilename = params[0] || "witness.json";
+    const wasmFilename = params[1] || "circuit.wasm";
+    const zkeyFilename = params[2] || "circuit.zkey";
+    const proofFilename = params[3] || "proof.json";
+    const publicInputsFilename = params[4] || "public.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await fflonkCmd.fflonkFullProveCmd(zkeyFilename, witnessInputsFilename, wasmFilename, publicInputsFilename, proofFilename, logger);
 }
 
 async function fflonkVerify(params, options) {
