@@ -1141,14 +1141,14 @@ async function fflonkSetup(params, options) {
 
 
 async function fflonkProve(params, options) {
-    const pkeyFilename = params[0] || "circuit.pkey";
+    const zkeyFilename = params[0] || "circuit.pkey";
     const witnessFilename = params[1] || "witness.wtns";
     const proofFilename = params[2] || "proof.json";
     const publicInputsFilename = params[3] || "public.json";
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
+    return await fflonkCmd.fflonkProveCmd(zkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
 }
 
 async function fflonkVerify(params, options) {
@@ -1158,7 +1158,9 @@ async function fflonkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
+    const isValid = await fflonkCmd.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
+
+    return isValid ? 0 : 1;
 }
 
 async function fileInfo(params) {

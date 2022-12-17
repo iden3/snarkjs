@@ -151,7 +151,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     // START FFLONK PROVER PROTOCOL
 
     // ROUND 1. Compute C1(X) polynomial
-    logger.info("--ROUND 1");
+    if (logger) logger.info("> ROUND 1");
     await round1();
 
     delete polynomials.T0;
@@ -162,7 +162,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.QC;
 
     // ROUND 2. Compute C2(X) polynomial
-    logger.info("--ROUND 2");
+    if (logger) logger.info("> ROUND 2");
     await round2();
 
     delete buffers.A;
@@ -178,7 +178,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.Z;
 
     // ROUND 3. Compute opening evaluations
-    logger.info("--ROUND 3");
+    if (logger) logger.info("> ROUND 3");
     await round3();
 
     delete polynomials.A;
@@ -197,11 +197,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.QO;
 
     // ROUND 4. Compute W(X) polynomial
-    logger.info("--ROUND 4");
+    if (logger) logger.info("> ROUND 4");
     await round4();
 
     // ROUND 5. Compute W'(X) polynomial
-    logger.info("--ROUND 5");
+    if (logger) logger.info("> ROUND 5");
     await round5();
 
     delete polynomials.C1;
@@ -212,7 +212,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.L;
     delete polynomials.ZT;
     delete polynomials.ZTS2;
-    
+
     await fdZKey.close();
     await fdWtns.close();
 

@@ -23,7 +23,5 @@ export async function fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofF
     const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
 
-    const isValid = await fflonkVerify(vkey, publicInputs, proof, logger);
-
-    return isValid ? 0 : 1;
+    return await fflonkVerify(vkey, publicInputs, proof, logger);
 }

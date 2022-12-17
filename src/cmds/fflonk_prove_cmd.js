@@ -21,8 +21,8 @@ import fflonkProve from "../fflonk_prove.js";
 
 const {stringifyBigInts} = utils;
 
-export async function fflonkProveCmd(pkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
-    const {proof, publicSignals} = await fflonkProve(pkeyFilename, witnessFilename, logger);
+export async function fflonkProveCmd(zkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
+    const {proof, publicSignals} = await fflonkProve(zkeyFilename, witnessFilename, logger);
 
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
