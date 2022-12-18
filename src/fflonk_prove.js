@@ -20,23 +20,23 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import {Scalar, utils, BigBuffer} from "ffjavascript";
+import {BigBuffer, Scalar, utils} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey.js";
 import {
-    FF_ADDITIONS_ZKEY_SECTION,
     FF_A_MAP_ZKEY_SECTION,
+    FF_ADDITIONS_ZKEY_SECTION,
     FF_B_MAP_ZKEY_SECTION,
     FF_C_MAP_ZKEY_SECTION,
+    FF_LAGRANGE_ZKEY_SECTION,
+    FF_PTAU_ZKEY_SECTION,
+    FF_QC_ZKEY_SECTION,
     FF_QL_ZKEY_SECTION,
-    FF_QR_ZKEY_SECTION,
     FF_QM_ZKEY_SECTION,
     FF_QO_ZKEY_SECTION,
-    FF_QC_ZKEY_SECTION,
+    FF_QR_ZKEY_SECTION,
     FF_SIGMA1_ZKEY_SECTION,
     FF_SIGMA2_ZKEY_SECTION,
     FF_SIGMA3_ZKEY_SECTION,
-    FF_LAGRANGE_ZKEY_SECTION,
-    FF_PTAU_ZKEY_SECTION,
 } from "./fflonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
@@ -115,6 +115,24 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     let polynomials = {};
     let evaluations = {};
 
+    // To divide prime fields the Extended Euclidean Algorithm for computing modular inverses is needed.
+    // NOTE: This is the equivalent of compute 1/denominator and then multiply it by the numerator.
+    // The Extended Euclidean Algorithm is expensive in terms of computation.
+    // For the special case where we need to do many modular inverses, there's a simple mathematical trick
+    // that allows us to compute many inverses, called Montgomery batch inversion.
+    // More info: https://vitalik.ca/general/2018/07/21/starks_part_3.html
+    // Montgomery batch inversion reduces the n inverse computations to a single one
+    // To save this (single) inverse computation on-chain, will compute it in proving time and send it to the verifier.
+    // The verifier will have to check:
+    // 1) the denominator is correct multiplying by himself non-inverted -> a * 1/a == 1
+    // 2) compute the rest of the denominators using the Montgomery batch inversion
+    // The inversions are:
+    //   · denominator needed in step 8 and 9 of the verifier to multiply by 1/Z_H(xi)
+    //   · denominator needed in step 10 and 11 of the verifier
+    //   · denominator needed in the verifier when computing L_i^{S1}(X) and L_i^{S2}(X)
+    //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
+    let toInverse = {};
+
     let challenges = {};
     let roots = {};
 
@@ -151,7 +169,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[FF_PTAU_ZKEY_SECTION][0].p);
 
     // START FFLONK PROVER PROTOCOL
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
     // ROUND 1. Compute C1(X) polynomial
     if (logger) logger.info("> ROUND 1");
@@ -163,7 +181,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.QM;
     delete evaluations.QO;
     delete evaluations.QC;
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
     // ROUND 2. Compute C2(X) polynomial
     if (logger) logger.info("> ROUND 2");
@@ -180,7 +198,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.Sigma3;
     delete evaluations.lagrange1;
     delete evaluations.Z;
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
     // ROUND 3. Compute opening evaluations
     if (logger) logger.info("> ROUND 3");
@@ -201,12 +219,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.QM;
     delete polynomials.QC;
     delete polynomials.QO;
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
     // ROUND 4. Compute W(X) polynomial
     if (logger) logger.info("> ROUND 4");
     await round4();
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
     // ROUND 5. Compute W'(X) polynomial
     if (logger) logger.info("> ROUND 5");
@@ -220,8 +238,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.L;
     delete polynomials.ZT;
     delete polynomials.ZTS2;
-    if (globalThis.gc) {globalThis.gc();}
+    if (globalThis.gc) globalThis.gc();
 
+    proof.addEvaluation("inv", getMontgomeryBatchedInverse());
+
+    // Prepare proof
+    let _proof = proof.toObjectProof();
+    _proof.protocol = "fflonk";
+    _proof.curve = curve.name;
+
+    // Prepare public inputs
     let publicSignals = [];
 
     for (let i = 1; i <= zkey.nPublic; i++) {
@@ -230,10 +256,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const pub = buffWitness.slice(i_sFr, i_sFr + sFr);
         publicSignals.push(Scalar.fromRprLE(pub));
     }
-
-    let _proof = proof.toObjectProof();
-    _proof.protocol = "fflonk";
-    _proof.curve = curve.name;
 
     if (logger) logger.info("FFLONK PROVE FINISHED");
 
@@ -1123,6 +1145,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[0]));
             preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[1]));
             preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[2]));
+            toInverse["yBatch"] = preL1;
 
             let preL2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, roots.S1.h1w4[0]));
             preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[1]));
@@ -1175,6 +1198,69 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.ZTS2 = Polynomial.zerofierPolynomial(
                 [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
                     roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], Fr);
+        }
+    }
+
+    function getMontgomeryBatchedInverse() {
+        //   · denominator needed in step 8 and 9 of the verifier to multiply by 1/Z_H(xi)
+        let xiN = challenges.xi;
+        for (let i = 0; i < zkey.power; i++) {
+            xiN = Fr.square(xiN);
+        }
+        toInverse["zh"] = Fr.sub(xiN, Fr.one);
+
+        //   · denominator needed in step 10 and 11 of the verifier
+        //     toInverse.yBatch -> Computed in round5, computeL()
+
+        //   · denominator needed in the verifier when computing L_i^{S1}(X) and L_i^{S2}(X)
+        for (let i = 0; i < 4; i++) {
+            toInverse["LiS1_" + (i + 1)] = computeLiS1(i);
+        }
+
+        for (let i = 0; i < 6; i++) {
+            toInverse["LiS2_" + (i + 1)] = computeLiS2(i);
+        }
+
+        //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
+        const size = Math.max(1, zkey.nPublic);
+
+        let w = Fr.one;
+        for (let i = 0; i < size; i++) {
+            toInverse["Li_" + (i + 1)] = Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challenges.xi, w));
+
+            w = Fr.mul(w, zkey.w);
+        }
+
+        let mulAccumulator = Fr.one;
+        for (const element of Object.values(toInverse)) {
+            mulAccumulator = Fr.mul(mulAccumulator, element);
+        }
+        return Fr.inv(mulAccumulator);
+
+        function computeLiS1(i) {
+            // Compute L_i^{(S1)}(y)
+            let idx = i;
+            let den = Fr.one;
+            for (let j = 0; j < 3; j++) {
+                idx = (idx + 1) % 4;
+
+                den = Fr.mul(den, Fr.sub(roots.S1.h1w4[i], roots.S1.h1w4[idx]));
+            }
+            return den;
+        }
+
+        function computeLiS2(i) {
+            // Compute L_i^{(S1)}(y)
+            let idx = i;
+            let den = Fr.one;
+            for (let j = 0; j < 5; j++) {
+                idx = (idx + 1) % 6;
+
+                const root1 = i < 3 ? roots.S2.h2w3[i] : roots.S2.h3w3[i - 3];
+                const root2 = idx < 3 ? roots.S2.h2w3[idx] : roots.S2.h3w3[idx - 3];
+                den = Fr.mul(den, Fr.sub(root1, root2));
+            }
+            return den;
         }
     }
 
