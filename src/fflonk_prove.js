@@ -1117,6 +1117,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             const evalR2Y = polynomials.R2.evaluate(challenges.y);
             const evalZTY = polynomials.ZT.evaluate(challenges.y);
 
+            let preL1 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
+            preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h2w3[1]));
+            preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h2w3[2]));
+            preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[0]));
+            preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[1]));
+            preL1 = Fr.mul(preL1, Fr.sub(challenges.y, roots.S2.h3w3[2]));
+
+            let preL2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, roots.S1.h1w4[0]));
+            preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[1]));
+            preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[2]));
+            preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[3]));
+
             if (logger) logger.info("> Computing L");
 
             // Set initial omega
@@ -1131,20 +1143,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const f = polynomials.F.evaluate(omega);
 
                 // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
-                let l1 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h2w3[1]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h2w3[2]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[0]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[1]));
-                l1 = Fr.mul(l1, Fr.sub(challenges.y, roots.S2.h3w3[2]));
-                l1 = Fr.mul(l1, Fr.sub(c1, evalR1Y));
+                const l1 = Fr.mul(preL1, Fr.sub(c1, evalR1Y));
 
                 // l2 = alpha (y - h1) (y - h1w4) (y - h1w4_2) (y - h1w4_3) (C2(X) - R2(y))
-                let l2 = Fr.mul(challenges.alpha, Fr.sub(challenges.y, roots.S1.h1w4[0]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[1]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[2]));
-                l2 = Fr.mul(l2, Fr.sub(challenges.y, roots.S1.h1w4[3]));
-                l2 = Fr.mul(l2, Fr.sub(c2, evalR2Y));
+                const l2 = Fr.mul(preL2, Fr.sub(c2, evalR2Y));
 
                 // l3 = ZT(y) (f(X)/ZT(X))
                 // Recall f is already a f(X)/ZT(X)
