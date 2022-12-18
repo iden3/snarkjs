@@ -37,10 +37,10 @@ contract PlonkVerifier {
     uint256 constant w4_2 = 21888242871839275222246405745257275088548364400416034343698204186575808495616;
     uint256 constant w4_3 = 4407920970296243842541313971887945403937097133418418784715;
     uint256 constant wr   = 9222527969605388450625148037496647087331675164191659244434925070698893435503;
-    uint256 constant X2x1 = 21831381940315734285607113342023901060522397560371972897001948545212302161822;
-    uint256 constant X2x2 = 17231025384763736816414546592865244497437017442647097510447326538965263639101;
-    uint256 constant X2y1 = 2388026358213174446665280700919698872609886601280537296205114254867301080648;
-    uint256 constant X2y2 = 11507326595632554467052522095592665270651932854513688777769618397986436103170;
+    uint256 constant X2x1 = 18029695676650738226693292988307914797657423701064905010927197838374790804409;
+    uint256 constant X2x2 = 14583779054894525174450323658765874724019480979794335525732096752006891875705;
+    uint256 constant X2y1 = 2140229616977736810657479771656733941598412651537078903776637920509952744750;
+    uint256 constant X2y2 = 11474861747383700316476719153975578001603231366361248090558603872215261634898;
 
     uint256 constant q    = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     uint256 constant qf   = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
@@ -72,6 +72,7 @@ contract PlonkVerifier {
     uint16 constant pEval_zw  = 672;
     uint16 constant pEval_t1w = 704;
     uint16 constant pEval_t2w = 736;
+    uint16 constant pEval_inv = 768;
 
     // Memory data
     // Challenges
@@ -97,76 +98,43 @@ contract PlonkVerifier {
     uint16 constant pH3w3_1 = 480;
     uint16 constant pH3w3_2 = 512;
 
+    uint16 constant pBetaXi = 544;
 
-    uint16 constant pXin    = 544;
-    uint16 constant pBetaXi = 576;
+    uint16 constant pPi     = 576;
+    uint16 constant pTmp    = 608;
+    uint16 constant pQuo    = 640;
+    uint16 constant pR1     = 672;
+    uint16 constant pR2     = 704;
 
-    uint16 constant pPi     = 608;
-    uint16 constant pTmp    = 640;
-    uint16 constant pQuo    = 672;
-    uint16 constant pR1     = 704;
-    uint16 constant pR2     = 736;
+    uint16 constant pF      = 736;  // 64 bytes
+    uint16 constant pE      = 800;  // 64 bytes
+    uint16 constant pJ      = 864;  // 64 bytes
+    uint16 constant pA      = 928; // 64 bytes
 
-
-    uint16 constant pF      = 768;  // 64 bytes
-    uint16 constant pE      = 832;  // 64 bytes
-    uint16 constant pJ      = 896;  // 64 bytes
-    uint16 constant pA      = 960; // 64 bytes
-
-    uint16 constant pZh     = 1024;
+    uint16 constant pZh     = 992;
     // From this point we write all the variables that must compute the inverse using the Montgomery batch inversion
-    uint16 constant pZhInv  = 1056;
-    uint16 constant pDen    = 1088;
-    uint16 constant pRInv   = 1120; // Reserve 10 * 32 bytes to compute R1 and R2 inversions
+    uint16 constant pZhInv  = 1024;
+    uint16 constant pDen    = 1056;
+    uint16 constant pRInv   = 1088; // Reserve 10 * 32 bytes to compute R1 and R2 inversions
     
-    uint16 constant pEval_l1 = 1440;
+    uint16 constant pEval_l1 = 1408;
     
     
-    uint16 constant lastMem = 1472;
+    uint16 constant lastMem = 1440;
 
     function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
         assembly {
-            /////////
-            // Computes the inverse using the extended euclidean algorithm
-            /////////
-            function inverse(a, q) -> inv {
-                let t := 0
-                let newt := 1
-                let r := q
-                let newr := a
-                let quotient
-                let aux
-
-                for { } newr { } {
-                    quotient := sdiv(r, newr)
-                    aux := sub(t, mul(quotient, newt))
-                    t:= newt
-                    newt:= aux
-
-                    aux := sub(r,mul(quotient, newr))
-                    r := newr
-                    newr := aux
-                }
-
-                if gt(r, 1) { revert(0,0) }
-                if slt(t, 0) { t:= add(t, q) }
-
-                inv := t
-            }
-
             ///////
             // Computes the inverse of an array of values
             // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
             //////
-            function inverseArray(pVals, n) {
+            function inverseArray(pProof, pVals, n) {
 
                 let pAux := mload(0x40)     // Point to the next free position
                 let pIn := pVals
                 let lastPIn := add(pVals, mul(n, 32))  // Read n elemnts
                 let acc := mload(pIn)       // Read the first element
                 pIn := add(pIn, 32)         // Point to the second element
-                let inv
-
 
                 for { } lt(pIn, lastPIn) {
                     pAux := add(pAux, 32)
@@ -176,7 +144,15 @@ contract PlonkVerifier {
                     mstore(pAux, acc)
                     acc := mulmod(acc, mload(pIn), q)
                 }
-                acc := inverse(acc, q)
+
+                let inv := mload(add(pProof, pEval_inv))
+                // Check inv * 1/inv == 1
+                if iszero(eq(1, mulmod(acc, inv, q) )) {
+                    mstore(0, 0)
+                    return(0,0x20)
+                }
+
+                acc := inv
 
                 // At this point pAux pint to the next free position we substract 1 to point to the last used
                 pAux := sub(pAux, 32)
@@ -204,7 +180,7 @@ contract PlonkVerifier {
             }
 
             function checkInput(pProof) {
-                if iszero(eq(mload(pProof), 736 )) {
+                if iszero(eq(mload(pProof), 768 )) {
                     mstore(0, 0)
                     return(0,0x20)
                 }
@@ -224,6 +200,7 @@ contract PlonkVerifier {
                 checkField(mload(add(pProof, pEval_zw)))
                 checkField(mload(add(pProof, pEval_t1w)))
                 checkField(mload(add(pProof, pEval_t2w)))
+                checkField(mload(add(pProof, pEval_inv)))
 
                 // Points are checked in the point operations precompiled smart contracts
             }
@@ -232,10 +209,10 @@ contract PlonkVerifier {
                 // Compute challenge.beta & challenge.gamma
                 let challenge
                 
-                mstore( add(pMem, 1472 ), mload( add( pPublic, 32)))
+                mstore( add(pMem, 1440 ), mload( add( pPublic, 32)))
                 
-                mstore( add(pMem, 1504 ),  mload( add( pProof, pC1)))
-                mstore( add(pMem, 1536 ),  mload( add( pProof, add(pC1, 32))))
+                mstore( add(pMem, 1472 ),  mload( add( pProof, pC1)))
+                mstore( add(pMem, 1504 ),  mload( add( pProof, add(pC1, 32))))
 
                 challenge := mod(keccak256(add(pMem, lastMem), 96), q)
 
@@ -244,7 +221,7 @@ contract PlonkVerifier {
 
                 // Get xiSeed & xiSeed2
                 mstore( add(pMem, lastMem ),  mload( add( pProof, pC2)))
-                mstore( add(pMem, 1504 ),  mload( add( pProof, add(pC2, 32))))
+                mstore( add(pMem, 1472 ),  mload( add( pProof, add(pC2, 32))))
                 challenge := mod(keccak256(add(pMem, lastMem), 64), q)
 
                 mstore( add(pMem, pXiSeed), challenge)
@@ -284,7 +261,6 @@ contract PlonkVerifier {
                 
                     xin:= mulmod(xin, xin, q)
                 
-                mstore( add(pMem, pXin), xin)
 
                 xin:= mod(add(sub(xin, 1), q), q)
                 mstore( add(pMem, pZh), xin)
@@ -344,8 +320,8 @@ contract PlonkVerifier {
                 
             }
 
-            function computeInversions(pMem) {
-                inverseArray(add(pMem, pZhInv), 13)
+            function computeInversions(pProof, pMem) {
+                inverseArray(pProof, add(pMem, pZhInv), 13)
             }
 
             function computeLagrange(pMem) {
@@ -629,7 +605,7 @@ contract PlonkVerifier {
             precomputeR2(pMem)
             precomputeLagrange(pMem)
 
-            computeInversions(pMem)
+            computeInversions(proof, pMem)
 
             computeLagrange(pMem)
             computePi(pMem, pubSignals)
@@ -645,5 +621,6 @@ contract PlonkVerifier {
             mstore(0, isValid)
             return(0,0x20)
         }
+
     }
 }
