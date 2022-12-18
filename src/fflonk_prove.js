@@ -104,6 +104,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     //Read witness data
     if (logger) logger.info("> Reading witness file data");
     const buffWitness = await binFileUtils.readSection(fdWtns, wtnsSections, 2);
+    await fdWtns.close();
+
     // First element in plonk is not used and can be any value. (But always the same).
     // We set it to zero to go faster in the exponentiations.
     buffWitness.set(Fr.zero, 0);
@@ -149,6 +151,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[FF_PTAU_ZKEY_SECTION][0].p);
 
     // START FFLONK PROVER PROTOCOL
+    if (globalThis.gc) {globalThis.gc();}
 
     // ROUND 1. Compute C1(X) polynomial
     if (logger) logger.info("> ROUND 1");
@@ -160,6 +163,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.QM;
     delete evaluations.QO;
     delete evaluations.QC;
+    if (globalThis.gc) {globalThis.gc();}
 
     // ROUND 2. Compute C2(X) polynomial
     if (logger) logger.info("> ROUND 2");
@@ -176,11 +180,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.Sigma3;
     delete evaluations.lagrange1;
     delete evaluations.Z;
+    if (globalThis.gc) {globalThis.gc();}
 
     // ROUND 3. Compute opening evaluations
     if (logger) logger.info("> ROUND 3");
     await round3();
 
+    await fdZKey.close();
     delete polynomials.A;
     delete polynomials.B;
     delete polynomials.C;
@@ -195,10 +201,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.QM;
     delete polynomials.QC;
     delete polynomials.QO;
+    if (globalThis.gc) {globalThis.gc();}
 
     // ROUND 4. Compute W(X) polynomial
     if (logger) logger.info("> ROUND 4");
     await round4();
+    if (globalThis.gc) {globalThis.gc();}
 
     // ROUND 5. Compute W'(X) polynomial
     if (logger) logger.info("> ROUND 5");
@@ -212,9 +220,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.L;
     delete polynomials.ZT;
     delete polynomials.ZTS2;
-
-    await fdZKey.close();
-    await fdWtns.close();
+    if (globalThis.gc) {globalThis.gc();}
 
     let publicSignals = [];
 
