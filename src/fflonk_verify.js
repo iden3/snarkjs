@@ -280,23 +280,24 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
 
     // Compute T0(xi)
     if (logger) logger.info("··· Computing T0(xi)");
-    let T0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
-    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
-    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
-    T0 = Fr.add(T0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
-    T0 = Fr.add(T0, proof.evaluations.qc);
-    T0 = Fr.add(T0, pi);
-    T0 = Fr.mul(T0, challenges.invzh);
+    let t0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
+    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
+    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
+    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
+    t0 = Fr.add(t0, proof.evaluations.qc);
+    t0 = Fr.add(t0, pi);
+    t0 = Fr.mul(t0, challenges.invzh);
 
     // Compute the 4 C1 values
     if (logger) logger.info("··· Computing C1(h_1ω_4^i) values");
+
     let c1Values = [];
     for (let i = 0; i < 4; i++) {
         c1Values[i] = proof.evaluations.a;
         c1Values[i] = Fr.add(c1Values[i], Fr.mul(roots.S1.h1w4[i], proof.evaluations.b));
         const h1w4Squared = Fr.square(roots.S1.h1w4[i]);
         c1Values[i] = Fr.add(c1Values[i], Fr.mul(h1w4Squared, proof.evaluations.c));
-        c1Values[i] = Fr.add(c1Values[i], Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), T0));
+        c1Values[i] = Fr.add(c1Values[i], Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), t0));
     }
 
     // Interpolate a polynomial with the points computed previously
@@ -327,32 +328,32 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
 
     // Compute T1(xi)
     if (logger) logger.info("··· Computing T1(xi)");
-    let T1 = Fr.sub(proof.evaluations.z, Fr.one);
-    T1 = Fr.mul(T1, lagrange1);
-    T1 = Fr.mul(T1, challenges.invzh);
+    let t1 = Fr.sub(proof.evaluations.z, Fr.one);
+    t1 = Fr.mul(t1, lagrange1);
+    t1 = Fr.mul(t1, challenges.invzh);
 
     // Compute T2(xi)
     if (logger) logger.info("··· Computing T2(xi)");
     const betaxi = Fr.mul(challenges.beta, challenges.xi);
-    const T211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
-    const T212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
-    const T213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
-    const T21 = Fr.mul(T211, Fr.mul(T212, Fr.mul(T213, proof.evaluations.z)));
+    const t211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
+    const t212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
+    const t213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
+    const t21 = Fr.mul(t211, Fr.mul(t212, Fr.mul(t213, proof.evaluations.z)));
 
-    const T221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
-    const T222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
-    const T223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
-    const T22 = Fr.mul(T221, Fr.mul(T222, Fr.mul(T223, proof.evaluations.zw)));
+    const t221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
+    const t222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
+    const t223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
+    const t22 = Fr.mul(t221, Fr.mul(t222, Fr.mul(t223, proof.evaluations.zw)));
 
-    let T2 = Fr.sub(T21, T22);
-    T2 = Fr.mul(T2, challenges.invzh);
+    let t2 = Fr.sub(t21, t22);
+    t2 = Fr.mul(t2, challenges.invzh);
 
     // Compute the 6 C2 values
     if (logger) logger.info("··· Computing C2(h_2ω_3^i) values");
     let c2Values = [];
     for (let i = 0; i < 3; i++) {
-        c2Values[i] = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h2w3[i], T1));
-        c2Values[i] = Fr.add(c2Values[i], Fr.mul(Fr.square(roots.S2.h2w3[i]), T2));
+        c2Values[i] = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h2w3[i], t1));
+        c2Values[i] = Fr.add(c2Values[i], Fr.mul(Fr.square(roots.S2.h2w3[i]), t2));
     }
 
     if (logger) logger.info("··· Computing C2(h_3ω_3^i) values");
