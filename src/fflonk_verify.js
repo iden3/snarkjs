@@ -301,7 +301,7 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
     }
 
     // Interpolate a polynomial with the points computed previously
-    const R1 = Polynomial.lagrangeInterpolationFrom4Points(
+    const R1 = Polynomial.lagrangePolynomialInterpolation(
         [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
         c1Values, Fr);
 
@@ -364,12 +364,12 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
 
     // Interpolate a polynomial with the points computed previously
     if (logger) logger.info("··· Computing r2(xi)");
-    const R2 = Polynomial.lagrangeInterpolationFrom6Points(
+    const R2 = Polynomial.lagrangePolynomialInterpolation(
         [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
             roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
         c2Values, Fr);
 
-    // Check the degree of r1(X) < 4
+    // Check the degree of r2(X) < 6
     if (R2.degree() > 5) {
         throw new Error("R2 Polynomial is not well calculated");
     }

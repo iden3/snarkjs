@@ -348,7 +348,7 @@ describe("snarkjs: Polynomial tests", function () {
         const polynomial = Polynomial.fromCoefficientsArray(
             [Fr.div(Fr.e(14), Fr.e(2)), Fr.div(Fr.e(-11), Fr.e(2)), Fr.div(Fr.e(3), Fr.e(2))], Fr);
 
-        let polynomial2 = Polynomial.lagrangeInterpolationGeneric([Fr.e(2), Fr.e(3), Fr.e(1)],
+        let polynomial2 = Polynomial.lagrangePolynomialInterpolation([Fr.e(2), Fr.e(3), Fr.e(1)],
             [Fr.e(2), Fr.e(4), Fr.e(3)], Fr);
 
         assert.equal(polynomial.degree(), polynomial2.degree());

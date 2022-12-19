@@ -1009,7 +1009,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // We decide to use Lagrange interpolations because the R1 degree is very small (deg(R1)===3),
             // and we were not able to compute it using current ifft implementation because the omega are different
             if (logger) logger.info("> Computing R1");
-            polynomials.R1 = Polynomial.lagrangeInterpolationFrom4Points(
+            polynomials.R1 = Polynomial.lagrangePolynomialInterpolation(
                 [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
                 [polynomials.C1.evaluate(roots.S1.h1w4[0]), polynomials.C1.evaluate(roots.S1.h1w4[1]),
                     polynomials.C1.evaluate(roots.S1.h1w4[2]), polynomials.C1.evaluate(roots.S1.h1w4[3])], Fr);
@@ -1026,7 +1026,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // We decide to use Lagrange interpolations because the R2.degree is very small (deg(R2)===5),
             // and we were not able to compute it using current ifft implementation because the omega are different
             if (logger) logger.info("> Computing R2");
-            polynomials.R2 = Polynomial.lagrangeInterpolationFrom6Points(
+            polynomials.R2 = Polynomial.lagrangePolynomialInterpolation(
                 [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
                     roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
                 [polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
