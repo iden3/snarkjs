@@ -421,7 +421,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
-                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing T0 evaluation ${i}/${zkey.domainSize * 4}`);
+                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 // Get related evaluations to compute current T0 evaluation
                 const a = evaluations.A.getEvaluation(i);
@@ -505,6 +505,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC1() {
+            if (logger) logger.info("··· Computing C1");
+
             // Compute the polynomial A(X^4) from polynomials.A
             polynomials.A_X4 = await Polynomial.expX(polynomials.A, 4, true);
             // Compute the polynomial B(X^4) from polynomials.B
@@ -833,6 +835,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeC2() {
+            if (logger) logger.info("··· Computing C2");
+
             // Compute the polynomial z(X^3) from polynomials.Z
             polynomials.Z_X3 = await Polynomial.expX(polynomials.Z, 3, true);
             // Compute the polynomial T1(X^3) from polynomials.T1
@@ -1042,17 +1046,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             buffers.F = new BigBuffer(sDomain * 16);
 
+            if (logger) logger.info("> Computing C1 & C2 fft");
+
+            evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, Fr, logger);
+            evaluations.C2 = await Evaluations.fromPolynomial(polynomials.C2, Fr, logger);
+
             if (logger) logger.info("> Computing F");
             // COMPUTE F(X)
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing F evaluation ${i}/${zkey.domainSize}`);
+                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing F evaluation ${i}/${zkey.domainSize * 16}`);
 
                 const i_sFr = i * sFr;
 
-                const c1 = polynomials.C1.evaluate(omega);
-                const c2 = polynomials.C2.evaluate(omega);
+                const c1 = evaluations.C1.getEvaluation(i*4);
+                const c2 = evaluations.C2.getEvaluation(i*4);
                 const r1 = polynomials.R1.evaluate(omega);
                 const r2 = polynomials.R2.evaluate(omega);
 
@@ -1152,18 +1161,20 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[2]));
             preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[3]));
 
+            evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
+
             if (logger) logger.info("> Computing L");
 
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing L evaluation ${i}/${zkey.domainSize * 4}`);
+                if (logger && (0 !== i) && (i % 5000 === 0)) logger.info(`Computing L evaluation ${i}/${zkey.domainSize * 16}`);
 
                 const i_sFr = i * sFr;
 
-                const c1 = polynomials.C1.evaluate(omega);
-                const c2 = polynomials.C2.evaluate(omega);
-                const f = polynomials.F.evaluate(omega);
+                const c1 = evaluations.C1.getEvaluation(i*4);
+                const c2 = evaluations.C2.getEvaluation(i*4);
+                const f = evaluations.F.getEvaluation(i*4);
 
                 // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
                 const l1 = Fr.mul(preL1, Fr.sub(c1, evalR1Y));
