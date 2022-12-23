@@ -675,7 +675,7 @@ async function powersOfTauNew(params, options) {
     curveName = params[0];
 
     power = parseInt(params[1]);
-    if ((power < 1) || (power > 28)) {
+    if ((power<1) || (power>28) || isNaN(power)) {
         throw new Error("Power must be between 1 and 28");
     }
 
