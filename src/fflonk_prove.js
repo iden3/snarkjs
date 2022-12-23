@@ -507,68 +507,41 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeC1() {
             if (logger) logger.info("··· Computing C1");
 
-            // Compute the polynomial A(X^4) from polynomials.A
-            polynomials.A_X4 = await Polynomial.expX(polynomials.A, 4, true);
-            // Compute the polynomial B(X^4) from polynomials.B
-            polynomials.B_X4 = await Polynomial.expX(polynomials.B, 4, true);
-            // Compute the polynomial C(X^4) from polynomials.C
-            polynomials.C_X4 = await Polynomial.expX(polynomials.C, 4, true);
-            // Compute the polynomial D(X^4) from polynomials.T0
-            polynomials.T0_X4 = await Polynomial.expX(polynomials.T0, 4, true);
-
             // C1(X) := a(X^4) + X · b(X^4) + X^2 · c(X^4) + X^3 · T0(X^4)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
             // the resulting polynomial will be degree deg(f(X)) + n
 
+            const lengthA = polynomials.A.length();
+            const lengthB = polynomials.B.length();
+            const lengthC = polynomials.C.length();
+            const lengthT0 = polynomials.T0.length();
             // Compute degree of the new polynomial C1 to reserve the buffer memory size
             // Will be the next power of two to bound the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
-            let lengthA = polynomials.A_X4.length();
-            let lengthB = polynomials.B_X4.length();
-            let lengthC = polynomials.C_X4.length();
-            let lengthT0 = polynomials.T0_X4.length();
-            let length = Math.max(lengthA, lengthB + 1, lengthC + 2, lengthT0 + 3);
+            const degreeA = polynomials.A.degree();
+            const degreeB = polynomials.B.degree();
+            const degreeC = polynomials.C.degree();
+            const degreeT0 = polynomials.T0.degree();
 
-            const lengthBuffer = 2 ** (log2(length - 1) + 1);
+            const maxLength = Math.max(lengthA, lengthB, lengthC, lengthT0);
+            const maxDegree = Math.max(degreeA * 4 + 1, degreeB * 4 + 2, degreeC * 4 + 3, degreeT0 * 4 + 3);
+
+            const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
 
             polynomials.C1 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
 
-            for (let i = 0; i < length; i++) {
-                const i_sFr = i * sFr;
-                let val = Fr.zero;
-
-                //if (i < lengthA) val = polynomials.A_X4.getCoef(i);
-                // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                //if (i > 0 && i < lengthB + 1) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
-                // if (i > 1 && i < lengthC + 2) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
-                // if (i > 2 && i < lengthT0 + 3) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
-
-                polynomials.C1.coef.set(val, i_sFr);
-            }
-
-            lengthA = polynomials.A.length();
-            lengthB = polynomials.B.length();
-            lengthC = polynomials.C.length();
-            lengthT0 = polynomials.T0.length();
-            length = Math.max(lengthA, lengthB, lengthC, lengthT0);
-
-            for (let i = 0; i < length; i++) {
+            for (let i = 0; i < maxLength; i++) {
                 const i_sFr = i * sFr * 4;
 
-                if (i < lengthA) polynomials.C1.coef.set(polynomials.A.getCoef(i), i_sFr);
-                if (i < lengthB) polynomials.C1.coef.set(polynomials.B.getCoef(i), i_sFr + 32);
-                if (i < lengthC) polynomials.C1.coef.set(polynomials.C.getCoef(i), i_sFr + 64);
-                if (i < lengthT0) polynomials.C1.coef.set(polynomials.T0.getCoef(i), i_sFr + 96);
+                polynomials.C1.coef.set(polynomials.A.getCoef(i), i_sFr);
+                polynomials.C1.coef.set(polynomials.B.getCoef(i), i_sFr + 32);
+                polynomials.C1.coef.set(polynomials.C.getCoef(i), i_sFr + 64);
+                polynomials.C1.coef.set(polynomials.T0.getCoef(i), i_sFr + 96);
             }
 
             // Check degree
             if (polynomials.C1.degree() >= 8 * zkey.domainSize + 8) {
                 throw new Error("C1 Polynomial is not well calculated");
             }
-
-            delete polynomials.A_X4;
-            delete polynomials.B_X4;
-            delete polynomials.C_X4;
-            delete polynomials.T0_X4;
         }
     }
 
@@ -852,47 +825,37 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeC2() {
             if (logger) logger.info("··· Computing C2");
 
-            // Compute the polynomial z(X^3) from polynomials.Z
-            polynomials.Z_X3 = await Polynomial.expX(polynomials.Z, 3, true);
-            // Compute the polynomial T1(X^3) from polynomials.T1
-            polynomials.T1_X3 = await Polynomial.expX(polynomials.T1, 3, true);
-            // Compute the polynomial T2(X^3) from polynomials.T2
-            polynomials.T2_X3 = await Polynomial.expX(polynomials.T2, 3, true);
-
             // C2(X) := z(X^3) + X · T1(X^3) + X^2 · T2(X^3)
             // Get X^n · f(X) by shifting the f(x) coefficients n positions,
             // the resulting polynomial will be degree deg(f(X)) + n
 
+            const lengthZ = polynomials.Z.length();
+            const lengthT1 = polynomials.T1.length();
+            const lengthT2 = polynomials.T2.length();
             // Compute degree of the new polynomial C2(X) to reserve the buffer memory size
             // Will be the maximum(deg(Z_3), deg(T1_3)+1, deg(T2_3)+2)
-            const lengthZ = polynomials.Z_X3.length();
-            const lengthT1 = polynomials.T1_X3.length();
-            const lengthT2 = polynomials.T2_X3.length();
-            const length = Math.max(lengthZ, lengthT1 + 1, lengthT2 + 2);
+            const degreeZ = polynomials.Z.degree();
+            const degreeT1 = polynomials.T1.degree();
+            const degreeT2 = polynomials.T2.degree();
 
-            const lengthBuffer = 2 ** (log2(length - 1) + 1);
+            const maxLength = Math.max(lengthZ, lengthT1, lengthT2);
+            const maxDegree = Math.max(degreeZ * 3 + 1, degreeT1 * 3 + 2, degreeT2 * 3 + 3);
+
+            const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
 
             polynomials.C2 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
-            for (let i = 0; i < length; i++) {
-                const i_sFr = i * sFr;
-                let val = Fr.zero;
+            for (let i = 0; i < maxLength; i++) {
+                const i_sFr = i * sFr * 3;
 
-                if (i < lengthZ) val = polynomials.Z_X3.getCoef(i);
-                // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0 && i < lengthT1 + 1) val = Fr.add(val, polynomials.T1_X3.getCoef(i - 1));
-                if (i > 1 && i < lengthT2 + 2) val = Fr.add(val, polynomials.T2_X3.getCoef(i - 2));
-
-                polynomials.C2.coef.set(val, i_sFr);
+                polynomials.C2.coef.set(polynomials.Z.getCoef(i), i_sFr);
+                polynomials.C2.coef.set(polynomials.T1.getCoef(i), i_sFr + 32);
+                polynomials.C2.coef.set(polynomials.T2.getCoef(i), i_sFr + 64);
             }
 
             // Check degree
             if (polynomials.C2.degree() >= 9 * zkey.domainSize + 18) {
                 throw new Error("C2 Polynomial is not well calculated");
             }
-
-            delete polynomials.Z_X3;
-            delete polynomials.T1_X3;
-            delete polynomials.T2_X3;
         }
     }
 
