@@ -522,11 +522,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Compute degree of the new polynomial C1 to reserve the buffer memory size
             // Will be the next power of two to bound the maximum(deg(A_4), deg(B_4)+1, deg(C_4)+2, deg(T0_4)+3)
-            const lengthA = polynomials.A_X4.length();
-            const lengthB = polynomials.B_X4.length();
-            const lengthC = polynomials.C_X4.length();
-            const lengthT0 = polynomials.T0_X4.length();
-            const length = Math.max(lengthA, lengthB + 1, lengthC + 2, lengthT0 + 3);
+            let lengthA = polynomials.A_X4.length();
+            let lengthB = polynomials.B_X4.length();
+            let lengthC = polynomials.C_X4.length();
+            let lengthT0 = polynomials.T0_X4.length();
+            let length = Math.max(lengthA, lengthB + 1, lengthC + 2, lengthT0 + 3);
 
             const lengthBuffer = 2 ** (log2(length - 1) + 1);
 
@@ -536,13 +536,28 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const i_sFr = i * sFr;
                 let val = Fr.zero;
 
-                if (i < lengthA) val = polynomials.A_X4.getCoef(i);
+                //if (i < lengthA) val = polynomials.A_X4.getCoef(i);
                 // Following polynomials are multiplied by X^n, so the coefficienst are shifted n positions
-                if (i > 0 && i < lengthB + 1) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
-                if (i > 1 && i < lengthC + 2) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
-                if (i > 2 && i < lengthT0 + 3) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
+                //if (i > 0 && i < lengthB + 1) val = Fr.add(val, polynomials.B_X4.getCoef(i - 1));
+                // if (i > 1 && i < lengthC + 2) val = Fr.add(val, polynomials.C_X4.getCoef(i - 2));
+                // if (i > 2 && i < lengthT0 + 3) val = Fr.add(val, polynomials.T0_X4.getCoef(i - 3));
 
                 polynomials.C1.coef.set(val, i_sFr);
+            }
+
+            lengthA = polynomials.A.length();
+            lengthB = polynomials.B.length();
+            lengthC = polynomials.C.length();
+            lengthT0 = polynomials.T0.length();
+            length = Math.max(lengthA, lengthB, lengthC, lengthT0);
+
+            for (let i = 0; i < length; i++) {
+                const i_sFr = i * sFr * 4;
+
+                if (i < lengthA) polynomials.C1.coef.set(polynomials.A.getCoef(i), i_sFr);
+                if (i < lengthB) polynomials.C1.coef.set(polynomials.B.getCoef(i), i_sFr + 32);
+                if (i < lengthC) polynomials.C1.coef.set(polynomials.C.getCoef(i), i_sFr + 64);
+                if (i < lengthT0) polynomials.C1.coef.set(polynomials.T0.getCoef(i), i_sFr + 96);
             }
 
             // Check degree
@@ -1060,8 +1075,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const i_sFr = i * sFr;
 
-                const c1 = evaluations.C1.getEvaluation(i*4);
-                const c2 = evaluations.C2.getEvaluation(i*4);
+                const c1 = evaluations.C1.getEvaluation(i * 4);
+                const c2 = evaluations.C2.getEvaluation(i * 4);
                 const r1 = polynomials.R1.evaluate(omega);
                 const r2 = polynomials.R2.evaluate(omega);
 
@@ -1161,6 +1176,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[2]));
             preL2 = Fr.mul(preL2, Fr.sub(challenges.y, roots.S1.h1w4[3]));
 
+            if (logger) logger.info("> Computing F fft");
+
             evaluations.F = await Evaluations.fromPolynomial(polynomials.F, Fr, logger);
 
             if (logger) logger.info("> Computing L");
@@ -1172,9 +1189,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const i_sFr = i * sFr;
 
-                const c1 = evaluations.C1.getEvaluation(i*4);
-                const c2 = evaluations.C2.getEvaluation(i*4);
-                const f = evaluations.F.getEvaluation(i*4);
+                const c1 = evaluations.C1.getEvaluation(i * 4);
+                const c2 = evaluations.C2.getEvaluation(i * 4);
+                const f = evaluations.F.getEvaluation(i * 4);
 
                 // l1 = (y - h2) (y - h2w3) (y - h2w3_2) (y - h3) (y - h3w3) (y - h3w3_2) (C1(X) - R1(y))
                 const l1 = Fr.mul(preL1, Fr.sub(c1, evalR1Y));
