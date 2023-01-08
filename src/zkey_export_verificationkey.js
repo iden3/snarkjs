@@ -23,7 +23,7 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import { utils } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
-export default async function zkeyExportVerificationKey(zkeyName, /* logger */ ) {
+export default async function zkeyExportVerificationKey(zkeyName, logger) {
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections);
@@ -32,7 +32,7 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */ )
     if (zkey.protocol == "groth16") {
         res = await groth16Vk(zkey, fd, sections);
     } else if (zkey.protocol == "plonk") {
-        res = await plonkVk(zkey);
+        res = await plonkVk(zkey, logger);
     } else {
         throw new Error("zkey file is not groth16");
     }
@@ -80,7 +80,7 @@ async function groth16Vk(zkey, fd, sections) {
 }
 
 
-async function plonkVk(zkey) {
+async function plonkVk(zkey, logger) {
     const curve = await getCurve(zkey.q);
 
     let vKey = {
@@ -105,6 +105,44 @@ async function plonkVk(zkey) {
 
         w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
+
+    if (zkey.useCustomGates) {
+        if(logger) {
+            logger.info("Plonk with custom gates detected");
+        }
+
+        vKey.customGates = Array();
+
+        for (let i = 0; i < zkey.customGates.length; i++) {
+            vKey.customGates[i] = {};
+            vKey.customGates[i].id = zkey.customGates[i].id;
+            vKey.customGates[i].parameters = zkey.customGates[i].parameters;
+
+            Object.keys(zkey.customGates[i].preInput).forEach(key => {
+                if(key !== "polynomials" && key !== "evaluations") {
+                    vKey.customGates[i][key] = zkey.customGates[i].preInput[key];
+                    if("power"===key) {
+                        vKey.customGates[i].w = curve.Fr.toObject(curve.Fr.w[vKey.customGates[i][key]]);
+                    }
+                }
+            });
+            vKey.customGates[i].Qk = curve.G1.toObject(zkey.Qk[i]);
+
+            if(undefined !== zkey.customGates[i].preInput.polynomials) {
+                vKey.customGates[i].polynomials = {};
+                Object.keys(zkey.customGates[i].preInput.polynomials).forEach(key => {
+                    vKey.customGates[i].polynomials[key] = curve.G1.toObject(zkey.customGates[i].preInput.polynomials[key]);
+                });
+            }
+
+            if(undefined !== zkey.customGates[i].preInput.evaluations) {
+                vKey.customGates[i].evaluations = {};
+                Object.keys(zkey.customGates[i].preInput.evaluations).forEach(key => {
+                    vKey.customGates[i].evaluations[key] = curve.G1.toObject(zkey.customGates[i].preInput.evaluations[key]);
+                });
+            }
+        }
+    }
 
     vKey = stringifyBigInts(vKey);
 

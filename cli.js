@@ -44,6 +44,10 @@ import bfj from "bfj";
 
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
+import {readBinFile} from "@iden3/binfileutils";
+import {R1CS_FILE_CUSTOM_GATES_LIST_SECTION, R1CS_FILE_CUSTOM_GATES_USES_SECTION} from "r1csfile";
+import {ZKEY_CUSTOM_GATES_LIST_SECTION, ZKEY_CUSTOM_USES_SECTION} from "./src/zkey_utils.js";
+
 const logger = Logger.create("snarkJS", {showTimestamp:false});
 Logger.setLogLevel("INFO");
 
@@ -535,7 +539,7 @@ async function zkeyExportVKey(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zkeyName);
+    const vKey = await zkey.exportVerificationKey(zkeyName, logger);
 
     await bfj.write(verificationKeyName, stringifyBigInts(vKey), { space: 1 });
 }
@@ -581,9 +585,11 @@ async function zkeyExportSolidityVerifier(params, options) {
     if (await fileExists(path.join(__dirname, "templates"))) {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.RCplonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_rc_plonk.sol.ejs"), "utf8");
     } else {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.RCplonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_rc_plonk.sol.ejs"), "utf8");
     }
     
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
@@ -1032,7 +1038,19 @@ async function plonkSetup(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return plonk.setup(r1csName, ptauName, zkeyName, logger);
+    //Check if r1csName has custom gates
+    const {fd: fd, sections: sections} = await readBinFile(r1csName, "r1cs", 1, 1 << 22, 1 << 24);
+    fd.close();
+
+    const useCustomGates = typeof sections[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== "undefined"
+        && typeof sections[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== "undefined";
+
+    if (useCustomGates) {
+        logger.info("Plonk setup with custom gates detected");
+        return plonk.setupCG(r1csName, ptauName, zkeyName, logger);
+    } else {
+        return plonk.setup(r1csName, ptauName, zkeyName, logger);
+    }
 }
 
 
@@ -1046,10 +1064,23 @@ async function plonkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
+    //Check if r1csName has custom gates
+    const {fd: fd, sections: sections} = await readBinFile(zkeyName, "zkey", 2, 1 << 25, 1 << 23);
+    fd.close();
 
-    await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
-    await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
+    const useCustomGates = typeof sections[ZKEY_CUSTOM_GATES_LIST_SECTION] !== "undefined"
+        && typeof sections[ZKEY_CUSTOM_USES_SECTION] !== "undefined";
+
+    let res;
+    if (useCustomGates) {
+        logger.info("Plonk with custom gates detected");
+        res = await plonk.proveCG(zkeyName, witnessName, logger);
+    } else {
+        res = await plonk.prove(zkeyName, witnessName, logger);
+    }
+
+    await bfj.write(proofName, stringifyBigInts(res.proof), { space: 1 });
+    await bfj.write(publicName, stringifyBigInts(res.publicSignals), { space: 1 });
 
     return 0;
 }
@@ -1090,7 +1121,15 @@ async function plonkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid = await plonk.verify(verificationKey, pub, proof, logger);
+    const useCustomGates = undefined !== proof["customGates"] && undefined !== verificationKey["customGates"];
+
+    let isValid;
+    if (useCustomGates) {
+        logger.info("Plonk with custom gates detected");
+        isValid = await plonk.verifyCG(verificationKey, pub, proof, logger);
+    } else {
+        isValid = await plonk.verify(verificationKey, pub, proof, logger);
+    }
 
     if (isValid) {
         return 0;

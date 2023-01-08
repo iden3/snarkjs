@@ -1,5 +1,5 @@
 /*
-    Copyright 2018 0KIMS association.
+    Copyright 2022 Polygon Hermez https://hermez.io
 
     This file is part of snarkJS.
 
@@ -17,11 +17,14 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export {default as setup} from "./plonk_setup.js";
-export {default as setupCG} from "./plonkcg_setup.js";
-export {default as fullProve} from "./plonk_fullprove.js";
-export {default as prove} from "./plonk_prove.js";
-export {default as proveCG} from "./plonkcg_prove.js";
-export {default as verify} from "./plonk_verify.js";
-export {default as verifyCG} from "./plonkcg_verify.js";
-export {default as exportSolidityCallData} from "./plonk_exportsoliditycalldata.js";
+class CustomGate {
+    constructor(id, name, parameters) {
+        this.id = id;
+        this.name = name;
+        this.parameters = parameters || [];
+
+        return this;
+    }
+}
+
+export default CustomGate;

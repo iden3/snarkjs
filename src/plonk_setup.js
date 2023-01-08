@@ -33,10 +33,10 @@ import { log2  } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
 import Blake2b from "blake2b-wasm";
 import BigArray from "./bigarray.js";
+import {R1CS_FILE_CUSTOM_GATES_LIST_SECTION, R1CS_FILE_CUSTOM_GATES_USES_SECTION} from "r1csfile";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
-
     if (globalThis.gc) {globalThis.gc();}
 
     await Blake2b.ready();
@@ -44,6 +44,13 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+
+    const useCustomGates = typeof sectionsR1cs[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== "undefined"
+        && typeof sectionsR1cs[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== "undefined";
+
+    if (useCustomGates) {
+        throw new Error("Executing standard PLONK using a r1cs with custom gates defined is not allowed.");
+    }
 
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
