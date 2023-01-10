@@ -125,12 +125,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     // Compute k1 and k2 to be used in the permutation checks
+    if (logger) logger.info("> computing k1 and k2");
     const [k1, k2] = computeK1K2();
 
     // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
     // w3^3 = 1 and  w4^4 = 1
+    if (logger) logger.info("> computing w3");
     const w3 = computeW3();
+    if (logger) logger.info("> computing w4");
     const w4 = computeW4();
+    if (logger) logger.info("> computing wr");
     const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
 
     // Write output zkey file
@@ -156,7 +160,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         let bR1csPos = 0;
         for (let i = 0; i < r1cs.nConstraints; i++) {
             if ((logger) && (i !== 0) && (i % 10000 === 0)) {
-                logger.info(`...processing r1cs constraints... ${i}/${r1cs.nConstraints}`);
+                logger.info(`...processing r1cs constraints ${i}/${r1cs.nConstraints}`);
             }
             const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...readConstraint());
 
@@ -280,7 +284,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             buffOut.set(addition[3], 8 + sFr);
 
             await fdZKey.write(buffOut);
-            if ((logger) && (i !== 0) && (i % 1000000 === 0)) logger.info(`writing Additions: ${i}/${plonkAdditions.length}`);
+            if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`writing Additions: ${i}/${plonkAdditions.length}`);
         }
         await endWriteSection(fdZKey);
     }
@@ -288,7 +292,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writeWitnessMap(fdZKey, sectionNum, posConstraint, name) {
         await startWriteSection(fdZKey, sectionNum);
         for (let i = 0; i < plonkConstraints.length; i++) {
-            if (logger && (i !== 0) && (i % 1000000 === 0)) {
+            if (logger && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`writing witness ${name}: ${i}/${plonkConstraints.length}`);
             }
 
@@ -303,7 +307,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         for (let i = 0; i < plonkConstraints.length; i++) {
             Q.set(plonkConstraints[i][posConstraint], i * sFr);
-            if ((logger) && (i !== 0) && (i % 1000000 === 0)) {
+            if ((logger) && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`writing ${name}: ${i}/${plonkConstraints.length}`);
             }
         }
@@ -333,7 +337,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
             w = Fr.mul(w, Fr.w[settings.cirPower]);
 
-            if ((logger) && (i !== 0) && (i % 1000000 === 0)) {
+            if ((logger) && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`writing sigma phase1: ${i}/${plonkConstraints.length}`);
             }
         }
@@ -345,7 +349,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
                 // throw new Error("Variable not used");
                 console.log("Variable not used");
             }
-            if ((logger) && (i !== 0) && (i % 1000000 === 0)) logger.info(`writing sigma phase2: ${i}/${settings.nVars}`);
+            if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`writing sigma phase2: ${i}/${settings.nVars}`);
         }
 
         if (globalThis.gc) globalThis.gc();
