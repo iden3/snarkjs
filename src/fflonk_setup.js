@@ -92,7 +92,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     };
 
     const plonkConstraints = new BigArray();
-    const plonkAdditions = new BigArray();
+    let plonkAdditions = new BigArray();
 
     // Process constraints inside r1cs
     if (logger) logger.info("> Processing FFlonk constraints");
@@ -209,6 +209,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await writeAdditions(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
+        await writeFFlonkHeader(fdZKey);
+        if (globalThis.gc) globalThis.gc();
+
+        plonkAdditions = null;
+
         if (logger) logger.info(`···· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
         await writeWitnessMap(fdZKey, ZKEY_FF_A_MAP_SECTION, 0, "A map");
         if (globalThis.gc) globalThis.gc();
@@ -251,10 +257,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         if (logger) logger.info(`···· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
         await writePtau(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
-        await writeFFlonkHeader(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info("> Writing the zkey file finished");
