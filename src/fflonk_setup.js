@@ -154,7 +154,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         const bR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
         let bR1csPos = 0;
-        for (let i = 0; i < r1cs.constraints.length; i++) {
+        for (let i = 0; i < r1cs.nConstraints; i++) {
             if ((logger) && (i !== 0) && (i % 10000 === 0)) {
                 logger.info(`...processing r1cs constraints... ${i}/${r1cs.nConstraints}`);
             }
