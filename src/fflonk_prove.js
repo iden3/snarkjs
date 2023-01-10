@@ -272,6 +272,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const sSum = 8 + sFr * 2;
 
         for (let i = 0; i < zkey.nAdditions; i++) {
+            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`  Computing addition ${i}/${zkey.nAdditions}`);
+
             // Read addition values
             let offset = i * sSum;
             const signalId1 = readUInt32(additionsBuff, offset);
