@@ -50,7 +50,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey.js";
-import {FF_HEADER_ZKEY_SECTION} from "./fflonk.js";
+import {ZKEY_FF_HEADER_SECTION} from "./fflonk.js";
 
 export async function writeHeader(fd, zkey) {
 
@@ -304,7 +304,7 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     zkey.protocol = "fflonk";
     zkey.protocolId = FFLONK_PROTOCOL_ID;
 
-    await binFileUtils.startReadUniqueSection(fd, sections, FF_HEADER_ZKEY_SECTION);
+    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_FF_HEADER_SECTION);
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
     zkey.q = await binFileUtils.readBigInt(fd, n8q);

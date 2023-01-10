@@ -23,20 +23,20 @@ import * as wtnsUtils from "./wtns_utils.js";
 import {BigBuffer, Scalar, utils} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey.js";
 import {
-    FF_A_MAP_ZKEY_SECTION,
-    FF_ADDITIONS_ZKEY_SECTION,
-    FF_B_MAP_ZKEY_SECTION,
-    FF_C_MAP_ZKEY_SECTION,
-    FF_LAGRANGE_ZKEY_SECTION,
-    FF_PTAU_ZKEY_SECTION,
-    FF_QC_ZKEY_SECTION,
-    FF_QL_ZKEY_SECTION,
-    FF_QM_ZKEY_SECTION,
-    FF_QO_ZKEY_SECTION,
-    FF_QR_ZKEY_SECTION,
-    FF_SIGMA1_ZKEY_SECTION,
-    FF_SIGMA2_ZKEY_SECTION,
-    FF_SIGMA3_ZKEY_SECTION,
+    ZKEY_FF_A_MAP_SECTION,
+    ZKEY_FF_ADDITIONS_SECTION,
+    ZKEY_FF_B_MAP_SECTION,
+    ZKEY_FF_C_MAP_SECTION,
+    ZKEY_FF_LAGRANGE_SECTION,
+    ZKEY_FF_PTAU_SECTION,
+    ZKEY_FF_QC_SECTION,
+    ZKEY_FF_QL_SECTION,
+    ZKEY_FF_QM_SECTION,
+    ZKEY_FF_QO_SECTION,
+    ZKEY_FF_QR_SECTION,
+    ZKEY_FF_SIGMA1_SECTION,
+    ZKEY_FF_SIGMA2_SECTION,
+    ZKEY_FF_SIGMA3_SECTION,
 } from "./fflonk.js";
 import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {Proof} from "./proof.js";
@@ -138,35 +138,35 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     let proof = new Proof(curve, logger);
 
-    if (logger) logger.info(`> Reading Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
+    if (logger) logger.info(`> Reading Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
     await calculateAdditions();
 
-    if (logger) logger.info(`> Reading Sections ${FF_SIGMA1_ZKEY_SECTION},${FF_SIGMA2_ZKEY_SECTION},${FF_SIGMA3_ZKEY_SECTION}. Sigma1, Sigma2 & Sigma 3`);
+    if (logger) logger.info(`> Reading Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
     if (logger) logger.info("··· Reading Sigma polynomials ");
     polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
     polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
     polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), Fr, logger);
 
-    await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p);
-    await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p);
-    await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p);
 
     if (logger) logger.info("··· Reading Sigma evaluations");
     evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
     evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
     evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
 
-    await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[FF_SIGMA1_ZKEY_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[FF_SIGMA2_ZKEY_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[FF_SIGMA3_ZKEY_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p + sDomain);
+    await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p + sDomain);
 
-    if (logger) logger.info(`> Reading Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
+    if (logger) logger.info(`> Reading Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
     const PTau = new BigBuffer(zkey.domainSize * 16 * sG1);
     // domainSize * 9 + 18 = SRS length in the zkey saved in setup process.
     // it corresponds to the maximum SRS length needed, specifically to commit C2
     // notice that the reserved buffers size is zkey.domainSize * 16 * sG1 because a power of two buffer size is needed
     // the remaining buffer not filled from SRS are set to 0
-    await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[FF_PTAU_ZKEY_SECTION][0].p);
+    await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[ZKEY_FF_PTAU_SECTION][0].p);
 
     // START FFLONK PROVER PROTOCOL
     if (globalThis.gc) globalThis.gc();
@@ -265,7 +265,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     };
 
     async function calculateAdditions() {
-        const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_ADDITIONS_ZKEY_SECTION);
+        const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_ADDITIONS_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
         // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
@@ -306,9 +306,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         } else if (idx < zkey.nVars) {
             const offset = (idx - diff) * sFr;
             return buffInternalWitness.slice(offset, offset + sFr);
-        } else {
-            return Fr.zero;
         }
+
+        return Fr.zero;
     }
 
     async function round1() {
@@ -339,9 +339,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.C = new BigBuffer(sDomain);
 
             // Read zkey sections and fill the buffers
-            const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_A_MAP_ZKEY_SECTION);
-            const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_B_MAP_ZKEY_SECTION);
-            const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, FF_C_MAP_ZKEY_SECTION);
+            const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
+            const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
+            const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
 
             // Compute all witness from signal ids and set them to A,B & C buffers
             for (let i = 0; i < zkey.nConstraints; i++) {
@@ -393,8 +393,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeT0() {
-            if (logger) logger.info(`> Reading sections ${FF_QL_ZKEY_SECTION}, ${FF_QR_ZKEY_SECTION}` +
-                `, ${FF_QM_ZKEY_SECTION}, ${FF_QO_ZKEY_SECTION}, ${FF_QC_ZKEY_SECTION}. Q selectors`);
+            if (logger) logger.info(`> Reading sections ${ZKEY_FF_QL_SECTION}, ${ZKEY_FF_QR_SECTION}` +
+                `, ${ZKEY_FF_QM_SECTION}, ${ZKEY_FF_QO_SECTION}, ${ZKEY_FF_QC_SECTION}. Q selectors`);
             // Reserve memory for Q's evaluations
             evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
             evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
@@ -403,14 +403,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), Fr, logger);
 
             // Read Q's evaluations from zkey file
-            await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[FF_QL_ZKEY_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QR.eval, 0, sDomain * 4, zkeySections[FF_QR_ZKEY_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QM.eval, 0, sDomain * 4, zkeySections[FF_QM_ZKEY_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QO.eval, 0, sDomain * 4, zkeySections[FF_QO_ZKEY_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[FF_QC_ZKEY_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QL_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QR.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QR_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QM.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QM_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QO.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QO_SECTION][0].p + sDomain);
+            await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QC_SECTION][0].p + sDomain);
 
             // Read Lagrange polynomials & evaluations from zkey file
-            const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, FF_LAGRANGE_ZKEY_SECTION);
+            const lagrangePolynomials = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_LAGRANGE_SECTION);
             evaluations.lagrange1 = new Evaluations(lagrangePolynomials, Fr, logger);
 
             // Reserve memory for buffers T0 and T0z
@@ -523,6 +523,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             const degreeT0 = polynomials.T0.degree();
 
             const maxLength = Math.max(lengthA, lengthB, lengthC, lengthT0);
+            //TODO check if in next line degreeT0 * 4 + 3 must be degreeT0 * 4 + 4
             const maxDegree = Math.max(degreeA * 4 + 1, degreeB * 4 + 2, degreeC * 4 + 3, degreeT0 * 4 + 3);
 
             const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
@@ -658,9 +659,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             // Compute polynomial coefficients z(X) from buffers.Z
+            if (logger) logger.info("··· Computing Z ifft");
             polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, Fr, logger);
 
             // Compute extended evaluations of z(X) polynomial
+            if (logger) logger.info("··· Computing Z fft");
             evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, Fr, logger);
 
             // Blind z(X) polynomial coefficients with blinding scalars b
@@ -915,11 +918,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         polynomials.QC = new Polynomial(new BigBuffer(sDomain), Fr, logger);
 
         // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[FF_QL_ZKEY_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[FF_QR_ZKEY_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[FF_QM_ZKEY_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[FF_QO_ZKEY_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[FF_QC_ZKEY_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_FF_QL_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_FF_QR_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_FF_QM_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_FF_QO_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_FF_QC_SECTION][0].p);
 
         // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
         proof.addEvaluation("ql", polynomials.QL.evaluate(challenges.xi));

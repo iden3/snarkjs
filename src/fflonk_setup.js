@@ -24,23 +24,23 @@ import {log2} from "./misc.js";
 import {BigBuffer, Scalar} from "ffjavascript";
 import BigArray from "./bigarray.js";
 import {
-    FF_HEADER_ZKEY_SECTION,
-    FF_ADDITIONS_ZKEY_SECTION,
-    FF_A_MAP_ZKEY_SECTION,
-    FF_B_MAP_ZKEY_SECTION,
-    FF_C_MAP_ZKEY_SECTION,
-    FF_QL_ZKEY_SECTION,
-    FF_QR_ZKEY_SECTION,
-    FF_QM_ZKEY_SECTION,
-    FF_QO_ZKEY_SECTION,
-    FF_QC_ZKEY_SECTION,
-    FF_SIGMA1_ZKEY_SECTION,
-    FF_SIGMA2_ZKEY_SECTION,
-    FF_SIGMA3_ZKEY_SECTION,
-    FF_LAGRANGE_ZKEY_SECTION,
-    FF_PTAU_ZKEY_SECTION,
+    ZKEY_FF_HEADER_SECTION,
+    ZKEY_FF_ADDITIONS_SECTION,
+    ZKEY_FF_A_MAP_SECTION,
+    ZKEY_FF_B_MAP_SECTION,
+    ZKEY_FF_C_MAP_SECTION,
+    ZKEY_FF_QL_SECTION,
+    ZKEY_FF_QR_SECTION,
+    ZKEY_FF_QM_SECTION,
+    ZKEY_FF_QO_SECTION,
+    ZKEY_FF_QC_SECTION,
+    ZKEY_FF_SIGMA1_SECTION,
+    ZKEY_FF_SIGMA2_SECTION,
+    ZKEY_FF_SIGMA3_SECTION,
+    ZKEY_FF_LAGRANGE_SECTION,
+    ZKEY_FF_PTAU_SECTION,
     FF_T_POL_DEG_MIN,
-    FF_ZKEY_NSECTIONS,
+    ZKEY_FF_NSECTIONS,
 } from "./fflonk.js";
 import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey.js";
 import {
@@ -50,6 +50,7 @@ import {
 } from "./plonk_equation.js";
 import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
+import * as binFileUtils from "@iden3/binfileutils";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -71,8 +72,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
-    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
-    await fdR1cs.close();
+    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
     if (r1cs.prime !== curve.r) {
@@ -100,6 +100,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (globalThis.gc) globalThis.gc();
 
     // As the t polynomial is n+5 whe need at least a power of 4
+    //TODO check!!!!
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
     settings.domainSize = 2 ** settings.cirPower;
 
@@ -135,6 +136,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Write output zkey file
     await writeZkeyFile();
 
+    await fdR1cs.close();
     await fdPTau.close();
 
     if (logger) logger.info("FFLONK SETUP FINISHED");
@@ -150,74 +152,104 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         // Add all constraints from r1cs file
         const r1csProcessor = new r1csConstraintProcessor(Fr, getFFlonkConstantConstraint, getFFlonkAdditionConstraint, getFFlonkMultiplicationConstraint, logger);
 
+        const bR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
+        let bR1csPos = 0;
         for (let i = 0; i < r1cs.constraints.length; i++) {
             if ((logger) && (i !== 0) && (i % 10000 === 0)) {
                 logger.info(`...processing r1cs constraints... ${i}/${r1cs.nConstraints}`);
             }
-            const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...r1cs.constraints[i]);
+            const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...readConstraint());
 
             plonkConstraints.push(...constraints);
             plonkAdditions.push(...additions);
         }
+
+        function readConstraint() {
+            const c = [];
+            c[0] = readLC();
+            c[1] = readLC();
+            c[2] = readLC();
+            return c;
+        }
+
+        function readLC() {
+            const lc= {};
+
+            const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos+4);
+            bR1csPos += 4;
+            const buffUL32V = new DataView(buffUL32.buffer);
+            const nIdx = buffUL32V.getUint32(0, true);
+
+            const buff = bR1cs.slice(bR1csPos, bR1csPos + (4+r1cs.n8)*nIdx );
+            bR1csPos += (4+r1cs.n8)*nIdx;
+            const buffV = new DataView(buff.buffer);
+            for (let i=0; i<nIdx; i++) {
+                const idx = buffV.getUint32(i*(4+r1cs.n8), true);
+                const val = r1cs.F.fromRprLE(buff, i*(4+r1cs.n8)+4);
+                lc[idx] = val;
+            }
+            return lc;
+        }
+
         return 0;
     }
 
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
-        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, FF_ZKEY_NSECTIONS, 1 << 22, 1 << 24);
+        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
 
         if (logger) logger.info(`···· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
 
-        if (logger) logger.info(`···· Writing Section ${FF_ADDITIONS_ZKEY_SECTION}. Additions`);
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
         await writeAdditions(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_A_MAP_ZKEY_SECTION}. A Map`);
-        await writeWitnessMap(fdZKey, FF_A_MAP_ZKEY_SECTION, 0, "A map");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
+        await writeWitnessMap(fdZKey, ZKEY_FF_A_MAP_SECTION, 0, "A map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_B_MAP_ZKEY_SECTION}. B Map`);
-        await writeWitnessMap(fdZKey, FF_B_MAP_ZKEY_SECTION, 1, "B map");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_B_MAP_SECTION}. B Map`);
+        await writeWitnessMap(fdZKey, ZKEY_FF_B_MAP_SECTION, 1, "B map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_C_MAP_ZKEY_SECTION}. C Map`);
-        await writeWitnessMap(fdZKey, FF_C_MAP_ZKEY_SECTION, 2, "C map");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_C_MAP_SECTION}. C Map`);
+        await writeWitnessMap(fdZKey, ZKEY_FF_C_MAP_SECTION, 2, "C map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_QL_ZKEY_SECTION}. QL`);
-        await writeQMap(fdZKey, FF_QL_ZKEY_SECTION, 3, "QL");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QL_SECTION}. QL`);
+        await writeQMap(fdZKey, ZKEY_FF_QL_SECTION, 3, "QL");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_QR_ZKEY_SECTION}. QR`);
-        await writeQMap(fdZKey, FF_QR_ZKEY_SECTION, 4, "QR");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QR_SECTION}. QR`);
+        await writeQMap(fdZKey, ZKEY_FF_QR_SECTION, 4, "QR");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_QM_ZKEY_SECTION}. QM`);
-        await writeQMap(fdZKey, FF_QM_ZKEY_SECTION, 5, "QM");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QM_SECTION}. QM`);
+        await writeQMap(fdZKey, ZKEY_FF_QM_SECTION, 5, "QM");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_QO_ZKEY_SECTION}. QO`);
-        await writeQMap(fdZKey, FF_QO_ZKEY_SECTION, 6, "QO");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QO_SECTION}. QO`);
+        await writeQMap(fdZKey, ZKEY_FF_QO_SECTION, 6, "QO");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_QC_ZKEY_SECTION}. QC`);
-        await writeQMap(fdZKey, FF_QC_ZKEY_SECTION, 7, "QC");
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QC_SECTION}. QC`);
+        await writeQMap(fdZKey, ZKEY_FF_QC_SECTION, 7, "QC");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Sections ${FF_SIGMA1_ZKEY_SECTION},${FF_SIGMA2_ZKEY_SECTION},${FF_SIGMA3_ZKEY_SECTION}. Sigma1, Sigma2 & Sigma 3`);
+        if (logger) logger.info(`···· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
         await writeSigma(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_LAGRANGE_ZKEY_SECTION}. Lagrange Polynomials`);
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
         await writeLagrangePolynomials(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_PTAU_ZKEY_SECTION}. Powers of Tau`);
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
         await writePtau(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${FF_HEADER_ZKEY_SECTION}. FFlonk Header`);
+        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
         await writeFFlonkHeader(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
@@ -233,7 +265,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writeAdditions(fdZKey) {
-        await startWriteSection(fdZKey, FF_ADDITIONS_ZKEY_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_ADDITIONS_SECTION);
 
         // Written values are 2 * 32 bit integers (2 * 4 bytes) + 2 field size values ( 2 * sFr bytes)
         const buffOut = new Uint8Array(8 + 2 * sFr);
@@ -320,7 +352,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         // Write sigma coefficients and evaluations
         for (let i = 0; i < 3; i++) {
-            const sectionId = 0 === i ? FF_SIGMA1_ZKEY_SECTION : 1 === i ? FF_SIGMA2_ZKEY_SECTION : FF_SIGMA3_ZKEY_SECTION;
+            const sectionId = 0 === i ? ZKEY_FF_SIGMA1_SECTION : 1 === i ? ZKEY_FF_SIGMA2_SECTION : ZKEY_FF_SIGMA3_SECTION;
 
             await startWriteSection(fdZKey, sectionId);
             let S = sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1));
@@ -352,7 +384,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writeLagrangePolynomials(fdZKey) {
-        await startWriteSection(fdZKey, FF_LAGRANGE_ZKEY_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_LAGRANGE_SECTION);
 
         const l = Math.max(settings.nPublic, 1);
         for (let i = 0; i < l; i++) {
@@ -365,7 +397,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writePtau(fdZKey) {
-        await startWriteSection(fdZKey, FF_PTAU_ZKEY_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
 
         // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
         const buffOut = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
@@ -376,7 +408,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writeFFlonkHeader(fdZKey) {
-        await startWriteSection(fdZKey, FF_HEADER_ZKEY_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_HEADER_SECTION);
 
         const primeQ = curve.q;
         const n8q = (Math.floor((Scalar.bitLength(primeQ) - 1) / 64) + 1) * 8;

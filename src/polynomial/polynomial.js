@@ -359,7 +359,7 @@ export class Polynomial {
         const Fr = polynomial.Fr;
 
         if (n < 1) {
-            // n == 0 not allowed because it has no sens, but if it's necessary we have to return
+            // n == 0 not allowed because it has no sense, but if it's necessary we have to return
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {

@@ -24,20 +24,20 @@ export const FF_T_POL_DEG_MIN = 3;
 export const A = 12;
 
 // ZKEY constants
-export const FF_ZKEY_NSECTIONS = 16;
+export const ZKEY_FF_NSECTIONS = 16;
 
-export const FF_HEADER_ZKEY_SECTION = 2;
-export const FF_ADDITIONS_ZKEY_SECTION = 3;
-export const FF_A_MAP_ZKEY_SECTION = 4;
-export const FF_B_MAP_ZKEY_SECTION = 5;
-export const FF_C_MAP_ZKEY_SECTION = 6;
-export const FF_QL_ZKEY_SECTION = 7;
-export const FF_QR_ZKEY_SECTION = 8;
-export const FF_QM_ZKEY_SECTION = 9;
-export const FF_QO_ZKEY_SECTION = 10;
-export const FF_QC_ZKEY_SECTION = 11;
-export const FF_SIGMA1_ZKEY_SECTION = 12;
-export const FF_SIGMA2_ZKEY_SECTION = 13;
-export const FF_SIGMA3_ZKEY_SECTION = 14;
-export const FF_LAGRANGE_ZKEY_SECTION = 15;
-export const FF_PTAU_ZKEY_SECTION = 16;
+export const ZKEY_FF_HEADER_SECTION = 2;
+export const ZKEY_FF_ADDITIONS_SECTION = 3;
+export const ZKEY_FF_A_MAP_SECTION = 4;
+export const ZKEY_FF_B_MAP_SECTION = 5;
+export const ZKEY_FF_C_MAP_SECTION = 6;
+export const ZKEY_FF_QL_SECTION = 7;
+export const ZKEY_FF_QR_SECTION = 8;
+export const ZKEY_FF_QM_SECTION = 9;
+export const ZKEY_FF_QO_SECTION = 10;
+export const ZKEY_FF_QC_SECTION = 11;
+export const ZKEY_FF_SIGMA1_SECTION = 12;
+export const ZKEY_FF_SIGMA2_SECTION = 13;
+export const ZKEY_FF_SIGMA3_SECTION = 14;
+export const ZKEY_FF_LAGRANGE_SECTION = 15;
+export const ZKEY_FF_PTAU_SECTION = 16;
