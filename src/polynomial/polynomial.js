@@ -317,8 +317,11 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    async divZh() {
-        let domainSize = this.coef.length / 4 / this.Fr.n8;
+    divZh(domainSize) {
+        this.logger.info("divZh: this.coef.length: " + this.coef.length);
+        this.logger.info("divZh: this.Fr.n8: " + this.Fr.n8);
+        this.logger.info("divZh: this.coef.length / 4: " + this.coef.length / 4);
+        this.logger.info("divZh: this.coef.length / 4 / this.Fr.n8: " + this.coef.length / 4 / this.Fr.n8);
 
         for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
@@ -340,12 +343,33 @@ export class Polynomial {
             }
         }
 
-        this.logger.info("divZh: domainSize:" + domainSize);
-        this.logger.info("divZh: degree:" + this.degree());
-        this.logger.info("divZh: length:" + this.length());
+        this.logger.info("divZh: domainSize: " + domainSize);
+        this.logger.info("divZh: degree: " + this.degree());
+        this.logger.info("divZh: length: " + this.length());
 
         return this;
     }
+
+    // function divideByVanishing(f, n, p) {
+    //     // polynomial division f(X) / (X^n - 1) with remainder
+    //     // very cheap, 0 multiplications
+    //     // strategy:
+    //     // start with q(X) = 0, r(X) = f(X)
+    //     // then start changing q, r while preserving the identity:
+    //     // f(X) = q(X) * (X^n - 1) + r(X)
+    //     // in every step, move highest-degree term of r into the product
+    //     // => r eventually has degree < n and we're done
+    //     let q = Array(f.length).fill(0n);
+    //     let r = [...f];
+    //     for (let i = f.length - 1; i >= n; i--) {
+    //         let leadingCoeff = r[i];
+    //         if (leadingCoeff === 0n) continue;
+    //         r[i] = 0n;
+    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
+    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
+    //     }
+    //     return [q, r];
+    // }
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?

@@ -512,7 +512,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             logger.info("T0 degree: " + polynomials.T0.degree());
 
             // Divide the polynomial T0 by Z_H(X)
-            await polynomials.T0.divZh();
+            polynomials.T0.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.info("··· Computing T0z ifft");
@@ -746,7 +746,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, Fr, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            await polynomials.T1.divZh();
+            polynomials.T1.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.info("··· Computing T1z ifft");
@@ -839,7 +839,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2 = await Polynomial.fromEvaluations(buffers.T2, Fr, logger);
 
             // Divide the polynomial T2 by Z_H(X)
-            await polynomials.T2.divZh();
+            polynomials.T2.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.info("··· Computing T2z ifft");
