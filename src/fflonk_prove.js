@@ -172,6 +172,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     if (globalThis.gc) globalThis.gc();
 
     // ROUND 1. Compute C1(X) polynomial
+    if (logger) logger.info("");
     if (logger) logger.info("> ROUND 1");
     await round1();
 
@@ -265,6 +266,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     };
 
     async function calculateAdditions() {
+        if (logger) logger.info("··· Computing additions");
         const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_ADDITIONS_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
@@ -272,7 +274,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const sSum = 8 + sFr * 2;
 
         for (let i = 0; i < zkey.nAdditions; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`  Computing addition ${i}/${zkey.nAdditions}`);
+            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    addition ${i}/${zkey.nAdditions}`);
 
             // Read addition values
             let offset = i * sSum;
@@ -434,7 +436,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing t0 evaluation ${i}/${zkey.domainSize * 4}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 // Get related evaluations to compute current T0 evaluation
                 const a = evaluations.A.getEvaluation(i);
@@ -609,7 +611,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Set initial omega
             let w = Fr.one;
             for (let i = 0; i < zkey.domainSize; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing Z evaluation ${i}/${zkey.domainSize}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Z evaluation ${i}/${zkey.domainSize}`);
                 const i_sFr = i * sFr;
 
                 // Z(X) := numArr / denArr
@@ -701,7 +703,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing t1 evaluation ${i}/${zkey.domainSize * 4}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    T1 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const omega2 = Fr.square(omega);
 
@@ -752,7 +754,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing t2 evaluation ${i}/${zkey.domainSize * 4}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    T2 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const omega2 = Fr.square(omega);
                 const omegaW = Fr.mul(omega, Fr.w[zkey.power]);
@@ -1054,7 +1056,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing F evaluation ${i}/${zkey.domainSize * 16}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    F evaluation ${i}/${zkey.domainSize * 16}`);
 
                 const i_sFr = i * sFr;
 
@@ -1169,7 +1171,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing L evaluation ${i}/${zkey.domainSize * 16}`);
+                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    L evaluation ${i}/${zkey.domainSize * 16}`);
 
                 const i_sFr = i * sFr;
 
