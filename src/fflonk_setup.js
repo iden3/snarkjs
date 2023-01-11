@@ -202,60 +202,60 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         if (logger) logger.info("> Writing the zkey file");
         const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
 
-        if (logger) logger.info(`···· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
+        if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
         await writeAdditions(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
         await writeFFlonkHeader(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
         plonkAdditions = null;
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
         await writeWitnessMap(fdZKey, ZKEY_FF_A_MAP_SECTION, 0, "A map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_B_MAP_SECTION}. B Map`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_B_MAP_SECTION}. B Map`);
         await writeWitnessMap(fdZKey, ZKEY_FF_B_MAP_SECTION, 1, "B map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_C_MAP_SECTION}. C Map`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_C_MAP_SECTION}. C Map`);
         await writeWitnessMap(fdZKey, ZKEY_FF_C_MAP_SECTION, 2, "C map");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QL_SECTION}. QL`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QL_SECTION}. QL`);
         await writeQMap(fdZKey, ZKEY_FF_QL_SECTION, 3, "QL");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QR_SECTION}. QR`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QR_SECTION}. QR`);
         await writeQMap(fdZKey, ZKEY_FF_QR_SECTION, 4, "QR");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QM_SECTION}. QM`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QM_SECTION}. QM`);
         await writeQMap(fdZKey, ZKEY_FF_QM_SECTION, 5, "QM");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QO_SECTION}. QO`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QO_SECTION}. QO`);
         await writeQMap(fdZKey, ZKEY_FF_QO_SECTION, 6, "QO");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_QC_SECTION}. QC`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QC_SECTION}. QC`);
         await writeQMap(fdZKey, ZKEY_FF_QC_SECTION, 7, "QC");
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
+        if (logger) logger.info(`··· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
         await writeSigma(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
         await writeLagrangePolynomials(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`···· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
         await writePtau(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
