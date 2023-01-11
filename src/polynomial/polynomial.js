@@ -340,6 +340,10 @@ export class Polynomial {
             }
         }
 
+        this.logger.info("divZh: domainSize:" + domainSize);
+        this.logger.info("divZh: degree:" + this.degree());
+        this.logger.info("divZh: length:" + this.length());
+
         return this;
     }
 

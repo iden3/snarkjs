@@ -405,6 +405,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (polynomials.C.degree() >= zkey.domainSize + 2) {
                 throw new Error("C Polynomial is not well calculated");
             }
+
+            logger.info("A length: " + polynomials.A.length());
+            logger.info("A degree: " + polynomials.A.degree());
+            logger.info("B length: " + polynomials.B.length());
+            logger.info("B degree: " + polynomials.B.degree());
+            logger.info("C length: " + polynomials.C.length());
+            logger.info("C degree: " + polynomials.C.degree());
         }
 
         async function computeT0() {
@@ -495,9 +502,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
+            logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
+
             // Compute the coefficients of the polynomial T0(X) from buffers.T0
             if (logger) logger.info("··· Computing T0 ifft");
             polynomials.T0 = await Polynomial.fromEvaluations(buffers.T0, Fr, logger);
+
+            logger.info("T0 length: " + polynomials.T0.length());
+            logger.info("T0 degree: " + polynomials.T0.degree());
 
             // Divide the polynomial T0 by Z_H(X)
             await polynomials.T0.divZh();
@@ -506,8 +518,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing T0z ifft");
             polynomials.T0z = await Polynomial.fromEvaluations(buffers.T0z, Fr, logger);
 
+            logger.info("T0z length: " + polynomials.T0z.length());
+            logger.info("T0z degree: " + polynomials.T0z.degree());
+
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T0.add(polynomials.T0z);
+
+            logger.info("T0 length: " + polynomials.T0.length());
+            logger.info("T0 degree: " + polynomials.T0.degree());
 
             // Check degree
             if (polynomials.T0.degree() >= 2 * zkey.domainSize + 2) {
