@@ -564,12 +564,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             for (let i = 0; i < maxLength; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing C1 coefficients ${i}/${maxLength}`);
 
-                const i_sFr = i * sFr * 4;
+                const i_n8 = i * sFr;
+                const i_sFr = i_n8 * 4;
 
-                polynomials.C1.coef.set(polynomials.A.getCoef(i), i_sFr);
-                polynomials.C1.coef.set(polynomials.B.getCoef(i), i_sFr + 32);
-                polynomials.C1.coef.set(polynomials.C.getCoef(i), i_sFr + 64);
-                polynomials.C1.coef.set(polynomials.T0.getCoef(i), i_sFr + 96);
+                polynomials.C1.coef.set(polynomials.A.coef.slice(i_n8, i_n8 + sFr), i_sFr);
+                polynomials.C1.coef.set(polynomials.B.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
+                polynomials.C1.coef.set(polynomials.C.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
+                polynomials.C1.coef.set(polynomials.T0.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
             }
 
             // Check degree
