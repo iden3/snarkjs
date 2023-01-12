@@ -45,6 +45,8 @@ import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
 import {log2} from "./misc.js";
 
+const PAGE_SIZE = 1<<30;
+
 const {stringifyBigInts} = utils;
 
 
@@ -406,12 +408,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 throw new Error("C Polynomial is not well calculated");
             }
 
-            logger.info("A length: " + polynomials.A.length());
-            logger.info("A degree: " + polynomials.A.degree());
-            logger.info("B length: " + polynomials.B.length());
-            logger.info("B degree: " + polynomials.B.degree());
-            logger.info("C length: " + polynomials.C.length());
-            logger.info("C degree: " + polynomials.C.degree());
+            if(logger) logger.info("A length: " + polynomials.A.length());
+            if(logger) logger.info("A degree: " + polynomials.A.degree());
+            if(logger) logger.info("B length: " + polynomials.B.length());
+            if(logger) logger.info("B degree: " + polynomials.B.degree());
+            if(logger) logger.info("C length: " + polynomials.C.length());
+            if(logger) logger.info("C degree: " + polynomials.C.degree());
         }
 
         async function computeT0() {
@@ -442,6 +444,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing T0 evaluations");
             // Initial omega
             let omega = Fr.one;
+            let arrTmp = new Uint8Array(PAGE_SIZE);
+            let arrTmpz = new Uint8Array(PAGE_SIZE);
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
@@ -495,21 +499,27 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
                 const t0z = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
-                buffers.T0.set(t0, i * sFr);
-                buffers.T0z.set(t0z, i * sFr);
+                arrTmp.set(t0, i * sFr % PAGE_SIZE);
+                arrTmpz.set(t0z, i * sFr % PAGE_SIZE);
+
+                if (0 !== i && (((i + 1) * sFr) % PAGE_SIZE === 0)) {
+                    let pos = (((i + 1) * sFr / PAGE_SIZE) - 1) * PAGE_SIZE;
+                    buffers.T0.set(arrTmp, pos);
+                    buffers.T0z.set(arrTmpz, pos);
+                }
 
                 // Next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
-            logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
+            if (logger) logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
 
             // Compute the coefficients of the polynomial T0(X) from buffers.T0
             if (logger) logger.info("··· Computing T0 ifft");
             polynomials.T0 = await Polynomial.fromEvaluations(buffers.T0, Fr, logger);
 
-            logger.info("T0 length: " + polynomials.T0.length());
-            logger.info("T0 degree: " + polynomials.T0.degree());
+            if (logger) logger.info("T0 length: " + polynomials.T0.length());
+            if (logger) logger.info("T0 degree: " + polynomials.T0.degree());
 
             // Divide the polynomial T0 by Z_H(X)
             polynomials.T0.divZh(zkey.domainSize);
@@ -518,14 +528,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing T0z ifft");
             polynomials.T0z = await Polynomial.fromEvaluations(buffers.T0z, Fr, logger);
 
-            logger.info("T0z length: " + polynomials.T0z.length());
-            logger.info("T0z degree: " + polynomials.T0z.degree());
+            if (logger) logger.info("T0z length: " + polynomials.T0z.length());
+            if (logger) logger.info("T0z degree: " + polynomials.T0z.degree());
 
             // Add the polynomial T0z to T0 to get the final polynomial T0
             polynomials.T0.add(polynomials.T0z);
 
-            logger.info("T0 length: " + polynomials.T0.length());
-            logger.info("T0 degree: " + polynomials.T0.degree());
+            if (logger) logger.info("T0 length: " + polynomials.T0.length());
+            if (logger) logger.info("T0 degree: " + polynomials.T0.degree());
 
             // Check degree
             if (polynomials.T0.degree() >= 2 * zkey.domainSize + 2) {
