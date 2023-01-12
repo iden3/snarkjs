@@ -45,8 +45,6 @@ import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
 import {log2} from "./misc.js";
 
-const PAGE_SIZE = 1<<30;
-
 const {stringifyBigInts} = utils;
 
 
@@ -444,8 +442,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing T0 evaluations");
             // Initial omega
             let omega = Fr.one;
-            let arrTmp = new Uint8Array(PAGE_SIZE);
-            let arrTmpz = new Uint8Array(PAGE_SIZE);
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
@@ -499,14 +495,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
                 const t0z = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
-                arrTmp.set(t0, i * sFr % PAGE_SIZE);
-                arrTmpz.set(t0z, i * sFr % PAGE_SIZE);
-
-                if (0 !== i && (((i + 1) * sFr) % PAGE_SIZE === 0)) {
-                    let pos = (((i + 1) * sFr / PAGE_SIZE) - 1) * PAGE_SIZE;
-                    buffers.T0.set(arrTmp, pos);
-                    buffers.T0z.set(arrTmpz, pos);
-                }
+                buffers.T0.set(t0, i * sFr);
+                buffers.T0z.set(t0z, i * sFr);
 
                 // Next omega
                 omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
