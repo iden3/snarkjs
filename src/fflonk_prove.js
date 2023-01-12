@@ -567,10 +567,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const i_n8 = i * sFr;
                 const i_sFr = i_n8 * 4;
 
-                polynomials.C1.coef.set(polynomials.A.coef.slice(i_n8, i_n8 + sFr), i_sFr);
-                polynomials.C1.coef.set(polynomials.B.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
-                polynomials.C1.coef.set(polynomials.C.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
-                polynomials.C1.coef.set(polynomials.T0.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
+                if(degreeA <= i) polynomials.C1.coef.set(polynomials.A.coef.slice(i_n8, i_n8 + sFr), i_sFr);
+                if(degreeB <= i) polynomials.C1.coef.set(polynomials.B.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
+                if(degreeC <= i) polynomials.C1.coef.set(polynomials.C.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
+                if(degreeT0 <= i) polynomials.C1.coef.set(polynomials.T0.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
             }
 
             // Check degree
@@ -884,9 +884,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const i_sFr = i * sFr * 3;
 
-                polynomials.C2.coef.set(polynomials.Z.getCoef(i), i_sFr);
-                polynomials.C2.coef.set(polynomials.T1.getCoef(i), i_sFr + 32);
-                polynomials.C2.coef.set(polynomials.T2.getCoef(i), i_sFr + 64);
+                if(degreeZ <= i) polynomials.C2.coef.set(polynomials.Z.getCoef(i), i_sFr);
+                if(degreeT1 <= i) polynomials.C2.coef.set(polynomials.T1.getCoef(i), i_sFr + 32);
+                if(degreeT2 <= i) polynomials.C2.coef.set(polynomials.T2.getCoef(i), i_sFr + 64);
             }
 
             // Check degree

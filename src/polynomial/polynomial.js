@@ -81,7 +81,7 @@ export class Polynomial {
     getCoef(index) {
         const i_n8 = index * this.Fr.n8;
 
-        if (i_n8 + this.Fr.n8 > this.coef.length) return this.Fr.zero;
+        if (i_n8 + this.Fr.n8 > this.coef.byteLength) return this.Fr.zero;
 
         return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
     }
@@ -318,11 +318,6 @@ export class Polynomial {
     }
 
     divZh(domainSize) {
-        this.logger.info("divZh: this.coef.length: " + this.coef.length);
-        this.logger.info("divZh: this.Fr.n8: " + this.Fr.n8);
-        this.logger.info("divZh: this.coef.length / 4: " + this.coef.length / 4);
-        this.logger.info("divZh: this.coef.length / 4 / this.Fr.n8: " + this.coef.length / 4 / this.Fr.n8);
-
         for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
             this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
@@ -373,7 +368,7 @@ export class Polynomial {
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
-            new BigBuffer(this.coef.length + this.Fr.n8) : new Uint8Array(this.coef.length + this.Fr.n8);
+            new BigBuffer(this.coef.byteLength + this.Fr.n8) : new Uint8Array(this.coef.byteLength + this.Fr.n8);
         coefs.set(this.Fr.zero, 0);
         coefs.set(this.coef, this.Fr.n8);
 
