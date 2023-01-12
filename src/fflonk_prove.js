@@ -567,10 +567,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const i_n8 = i * sFr;
                 const i_sFr = i_n8 * 4;
 
-                if(degreeA <= i) polynomials.C1.coef.set(polynomials.A.coef.slice(i_n8, i_n8 + sFr), i_sFr);
-                if(degreeB <= i) polynomials.C1.coef.set(polynomials.B.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
-                if(degreeC <= i) polynomials.C1.coef.set(polynomials.C.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
-                if(degreeT0 <= i) polynomials.C1.coef.set(polynomials.T0.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
+                if(i <= degreeA) polynomials.C1.coef.set(polynomials.A.coef.slice(i_n8, i_n8 + sFr), i_sFr);
+                if(i <= degreeB) polynomials.C1.coef.set(polynomials.B.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
+                if(i <= degreeC) polynomials.C1.coef.set(polynomials.C.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
+                if(i <= degreeT0) polynomials.C1.coef.set(polynomials.T0.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
             }
 
             // Check degree
@@ -882,11 +882,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             for (let i = 0; i < maxLength; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`       Computing C2 coefficients ${i}/${maxLength}`);
 
-                const i_sFr = i * sFr * 3;
+                const i_n8 = i * sFr;
+                const i_sFr = i_n8 * 3;
 
-                if(degreeZ <= i) polynomials.C2.coef.set(polynomials.Z.getCoef(i), i_sFr);
-                if(degreeT1 <= i) polynomials.C2.coef.set(polynomials.T1.getCoef(i), i_sFr + 32);
-                if(degreeT2 <= i) polynomials.C2.coef.set(polynomials.T2.getCoef(i), i_sFr + 64);
+                if(i <= degreeZ) polynomials.C2.coef.set(polynomials.Z.coef.slice(i_n8, i_n8 + sFr), i_sFr);
+                if(i <= degreeT1) polynomials.C2.coef.set(polynomials.T1.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
+                if(i <= degreeT2) polynomials.C2.coef.set(polynomials.T2.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
             }
 
             // Check degree
