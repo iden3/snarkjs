@@ -1014,6 +1014,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing ZT polynomial");
         await computeZT();
 
+        if (logger) logger.info("> Computing W polynomial");
         const polRemainder = polynomials.F.divBy(polynomials.ZT);
 
         // Check degrees
@@ -1026,6 +1027,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
 
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
+        if (logger) logger.info("> Computing W1 multi exponentiation");
         proof.addPolynomial("W1", await multiExponentiation(polynomials.F, "W1"));
 
         return 0;
@@ -1148,6 +1150,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         polynomials.L.mulScalar(ZTS2Y);
 
         const polDividend = Polynomial.fromCoefficientsArray([Fr.neg(challenges.y), Fr.one], Fr);
+        if (logger) logger.info("> Computing W' polynomial");
         const polRemainder = polynomials.L.divBy(polDividend);
 
         // Check degrees
@@ -1160,6 +1163,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
 
         // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
+        if (logger) logger.info("> Computing W' multi exponentiation");
         proof.addPolynomial("W2", await multiExponentiation(polynomials.L, "W2"));
 
         return 0;
