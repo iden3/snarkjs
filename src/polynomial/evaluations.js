@@ -26,11 +26,11 @@ export class Evaluations {
         this.logger = logger;
     }
 
-    static async fromPolynomial(polynomial, Fr, logger) {
-        const coefficients4 = new BigBuffer(polynomial.length() * 4 * Fr.n8);
-        coefficients4.set(polynomial.coef, 0);
+    static async fromPolynomial(polynomial, extension, Fr, logger) {
+        const coefficientsN = new BigBuffer(polynomial.length() * extension * Fr.n8);
+        coefficientsN.set(polynomial.coef, 0);
 
-        const evaluations = await Fr.fft(coefficients4);
+        const evaluations = await Fr.fft(coefficientsN);
 
         return new Evaluations(evaluations, Fr, logger);
     }
@@ -38,7 +38,7 @@ export class Evaluations {
     getEvaluation(index) {
         const i_n8 = index * this.Fr.n8;
 
-        if (i_n8 + this.Fr.n8 > this.eval.length) {
+        if (i_n8 + this.Fr.n8 > this.eval.byteLength) {
             throw new Error("Evaluations.getEvaluation() out of bounds");
         }
 

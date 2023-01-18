@@ -22,7 +22,7 @@ describe("Fflonk test suite", function () {
         await curve.terminate();
     });
 
-    it("fflonk setup", async () => {
+    it("fflonk full prove", async () => {
         const r1csFilename = path.join("test", "fflonk", "circuit.r1cs");
         const ptauFilename = path.join("test", "plonk_circuit", "powersOfTau15_final.ptau");
         const zkeyFilename = path.join("test", "fflonk", "circuit.zkey");
