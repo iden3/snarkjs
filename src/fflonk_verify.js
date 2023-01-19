@@ -61,7 +61,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     // STEP 1 - Validate that all polynomial commitments ∈ G_1
     if (logger) logger.info("> Checking commitments belong to G1");
-    if (!commitmentsBelongToG1(curve, proof)) {
+    if (!commitmentsBelongToG1(curve, proof, vk)) {
         logger.error("Proof is not well constructed");
         return false;
     }
@@ -91,6 +91,10 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     const pi = calculatePI(curve, publicSignals, lagrangeEvals);
 
     // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
+    if (logger) logger.info("> Computing r0(y)");
+    const r0 = computeR0(proof, challenges, roots, pi, curve, logger);
+
+    // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
     const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
 
@@ -99,10 +103,10 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
 
     if (logger) logger.info("> Computing F");
-    const F = computeF(curve, proof, challenges, roots);
+    const F = computeF(curve, proof, vk, challenges, roots);
 
     if (logger) logger.info("> Computing E");
-    const E = computeE(curve, proof, challenges, vk, r1, r2);
+    const E = computeE(curve, proof, challenges, vk, r0, r1, r2);
 
     if (logger) logger.info("> Computing J");
     const J = computeJ(curve, proof, challenges);
@@ -132,18 +136,20 @@ function fromObjectVk(curve, vk) {
     // res.wW = curve.Fr.fromObject(vk.wW);
     res.w3 = curve.Fr.fromObject(vk.w3);
     res.w4 = curve.Fr.fromObject(vk.w4);
+    res.w8 = curve.Fr.fromObject(vk.w8);
     res.wr = curve.Fr.fromObject(vk.wr);
     res.X_2 = curve.G2.fromObject(vk.X_2);
-
+    res.C0 = curve.G1.fromObject(vk.C0);
     return res;
 }
 
-function commitmentsBelongToG1(curve, proof) {
+function commitmentsBelongToG1(curve, proof, vk) {
     const G1 = curve.G1;
     return G1.isValid(proof.polynomials.C1)
         && G1.isValid(proof.polynomials.C2)
         && G1.isValid(proof.polynomials.W1)
-        && G1.isValid(proof.polynomials.W2);
+        && G1.isValid(proof.polynomials.W2)
+        && G1.isValid(vk.C0);
 }
 
 function computeChallenges(curve, proof, vk, publicSignals, logger) {
@@ -167,29 +173,55 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     const xiSeed = transcript.getChallenge();
     const xiSeed2 = Fr.square(xiSeed);
 
-    const w3_2 = Fr.square(vk.w3);
-    const w4_2 = Fr.square(vk.w4);
-    const w4_3 = Fr.mul(w4_2, vk.w4);
+    let w8 = [];
+    w8[1] = vk.w8;
+    w8[2] = Fr.square(vk.w8);
+    w8[3] = Fr.mul(w8[2], vk.w8);
+    w8[4] = Fr.mul(w8[3], vk.w8);
+    w8[5] = Fr.mul(w8[4], vk.w8);
+    w8[6] = Fr.mul(w8[5], vk.w8);
+    w8[7] = Fr.mul(w8[6], vk.w8);
+    let w4 = [];
+    w4[1] = vk.w4;
+    w4[2] = Fr.square(vk.w4);
+    w4[3] = Fr.mul(w4[2], vk.w4);
+    let w3 = [];
+    w3[1] = vk.w3;
+    w3[2] = Fr.square(vk.w3);
 
-    // Compute h1 = xi_seeder^3
+    // const w4_2 = Fr.square(vk.w4);
+    // const w4_3 = Fr.mul(w4_2, vk.w4);
+    // const w3_2 = Fr.square(vk.w3);
+
+    // Compute h0 = xiSeeder^3
+    roots.S0 = {};
+    roots.S0.h0w8 = [];
+    roots.S0.h0w8[0] = Fr.mul(xiSeed2, xiSeed);
+    for (let i = 1; i < 8; i++) {
+        roots.S0.h0w8[i] = Fr.mul(roots.S0.h0w8[0], w8[i]);
+    }
+
+    // Compute h1 = xi_seeder^6
     roots.S1 = {};
     roots.S1.h1w4 = [];
-    roots.S1.h1w4[0] = Fr.mul(xiSeed2, xiSeed);
-    roots.S1.h1w4[1] = Fr.mul(roots.S1.h1w4[0], vk.w4);
-    roots.S1.h1w4[2] = Fr.mul(roots.S1.h1w4[0], w4_2);
-    roots.S1.h1w4[3] = Fr.mul(roots.S1.h1w4[0], w4_3);
+    roots.S1.h1w4[0] = Fr.square(roots.S0.h0w8[0]);
+    for (let i = 1; i < 4; i++) {
+        roots.S1.h1w4[i] = Fr.mul(roots.S1.h1w4[0], w4[i]);
+    }
 
+    // Compute h2 = xi_seeder^8
     roots.S2 = {};
     roots.S2.h2w3 = [];
-    roots.S2.h2w3[0] = Fr.square(xiSeed2);
-    roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], vk.w3);
-    roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], w3_2);
+    roots.S2.h2w3[0] = Fr.mul(roots.S1.h1w4[0], xiSeed2);
+    roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], w3[1]);
+    roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], w3[2]);
 
     roots.S2.h3w3 = [];
     // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
+    // So, h3 = xi_seeder^8 ω^{1/3}
     roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], vk.wr);
-    roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], vk.w3);
-    roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3_2);
+    roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], w3[1]);
+    roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3[2]);
 
     // Compute xi = xi_seeder^12
     challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
@@ -268,6 +300,47 @@ function calculatePI(curve, publicSignals, lagrangeEvals) {
         pi = Fr.sub(pi, Fr.mul(w, lagrangeEvals[i + 1]));
     }
     return pi;
+}
+
+function computeR0(proof, challenges, roots, pi, curve, logger) {
+    const Fr = curve.Fr;
+
+    // r0(y) = ∑_1^8 C_0(h_0 ω_8^{i-1}) L_i(y). To this end we need to compute
+
+    // Compute the 8 C0 values
+    if (logger) logger.info("··· Computing C0(h_0ω_8^i) values");
+
+    let c0Values = [];
+    for (let i = 0; i < 8; i++) {
+        let coefValues = [];
+        coefValues[1] = roots.S0.h0w8[i];
+        for (let j = 2; j < 8; j++) {
+            coefValues[j] = Fr.mul(coefValues[j - 1], roots.S0.h0w8[i]);
+        }
+
+        c0Values[i] = Fr.add(proof.evaluations.ql, Fr.mul(proof.evaluations.qr, coefValues[1]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.qo, coefValues[2]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.qm, coefValues[3]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.qc, coefValues[4]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.s1, coefValues[5]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.s2, coefValues[6]));
+        c0Values[i] = Fr.add(c0Values[i], Fr.mul(proof.evaluations.s3, coefValues[7]));
+    }
+
+    // Interpolate a polynomial with the points computed previously
+    const R0 = Polynomial.lagrangePolynomialInterpolation(
+        [roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
+            roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7]],
+        c0Values, Fr);
+
+    // Check the degree of r1(X) < 4
+    if (R0.degree() > 7) {
+        throw new Error("R0 Polynomial is not well calculated");
+    }
+
+    // Evaluate the polynomial in challenges.y
+    if (logger) logger.info("··· Computing evaluation r0(y)");
+    return R0.evaluate(challenges.y);
 }
 
 function computeR1(proof, challenges, roots, pi, curve, logger) {
@@ -379,36 +452,47 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     return R2.evaluate(challenges.y);
 }
 
-function computeF(curve, proof, challenges, roots) {
+function computeF(curve, proof, vk, challenges, roots) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let num = Fr.sub(challenges.y, roots.S1.h1w4[0]);
-    num = Fr.mul(num, Fr.sub(challenges.y, roots.S1.h1w4[1]));
-    num = Fr.mul(num, Fr.sub(challenges.y, roots.S1.h1w4[2]));
-    num = Fr.mul(num, Fr.sub(challenges.y, roots.S1.h1w4[3]));
+    let mulH0 = Fr.sub(challenges.y, roots.S0.h0w8[0]);
+    for (let i = 1; i < 8; i++) {
+        mulH0 = Fr.mul(mulH0, Fr.sub(challenges.y, roots.S0.h0w8[i]));
+    }
 
-    challenges.temp = num;
+    challenges.temp = mulH0;
 
-    let den = Fr.sub(challenges.y, roots.S2.h2w3[0]);
-    den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h2w3[1]));
-    den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h2w3[2]));
-    den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h3w3[0]));
-    den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h3w3[1]));
-    den = Fr.mul(den, Fr.sub(challenges.y, roots.S2.h3w3[2]));
+    let mulH1 = Fr.sub(challenges.y, roots.S1.h1w4[0]);
+    for (let i = 1; i < 4; i++) {
+        mulH1 = Fr.mul(mulH1, Fr.sub(challenges.y, roots.S1.h1w4[i]));
+    }
 
-    challenges.quotient = Fr.mul(challenges.alpha, Fr.div(num, den));
+    let mulH2 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
+    for (let i = 1; i < 3; i++) {
+        mulH2 = Fr.mul(mulH2, Fr.sub(challenges.y, roots.S2.h2w3[i]));
+    }
+    for (let i = 0; i < 3; i++) {
+        mulH2 = Fr.mul(mulH2, Fr.sub(challenges.y, roots.S2.h3w3[i]));
+    }
 
-    return G1.add(proof.polynomials.C1, G1.timesFr(proof.polynomials.C2, challenges.quotient));
+    challenges.quotient1 = Fr.mul(challenges.alpha, Fr.div(mulH0, mulH1));
+    challenges.quotient2 = Fr.mul(Fr.square(challenges.alpha), Fr.div(mulH0, mulH2));
+
+    let F2 = G1.timesFr(proof.polynomials.C1, challenges.quotient1);
+    let F3 = G1.timesFr(proof.polynomials.C2, challenges.quotient2);
+
+    return G1.add(vk.C0, G1.add(F2, F3));
 }
 
-function computeE(curve, proof, challenges, vk, r1, r2) {
+function computeE(curve, proof, challenges, vk, r0, r1, r2) {
     const G1 = curve.G1;
     const Fr = curve.Fr;
 
-    let val = Fr.add(r1, Fr.mul(challenges.quotient, r2));
+    let E2 = Fr.mul(r1, challenges.quotient1);
+    let E3 = Fr.mul(r2, challenges.quotient2);
 
-    return G1.timesFr(G1.one, val);
+    return G1.timesFr(G1.one, Fr.add(r0, Fr.add(E2,E3)));
 }
 
 function computeJ(curve, proof, challenges) {

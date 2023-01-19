@@ -326,9 +326,12 @@ async function readHeaderFFlonk(fd, sections, toObject) {
 
     zkey.w3 = await fd.read(n8r);
     zkey.w4 = await fd.read(n8r);
+    zkey.w8 = await fd.read(n8r);
     zkey.wr = await fd.read(n8r);
 
     zkey.X_2 = await readG2(fd, zkey.curve, toObject);
+
+    zkey.C0 = await readG1(fd, zkey.curve, toObject);
 
     await binFileUtils.endReadSection(fd);
 

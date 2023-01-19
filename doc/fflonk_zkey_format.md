@@ -30,7 +30,7 @@
 
 ### Sections
 
-Currently, there are 16 defined sections:
+Currently, there are 17 defined sections:
 
 - 0x00000001 : Header section
 - 0x00000002 : FFLONK header section
@@ -48,6 +48,7 @@ Currently, there are 16 defined sections:
 - 0x0000000E : Sigma 3 section
 - 0x0000000F : Lagrange polynomials section
 - 0x00000010 : Powers of tau section
+- 0x00000011 : C0 section
 
 ### FFLONK ZKEY FILE FORMAT
 
@@ -431,4 +432,27 @@ Currently, there are 16 defined sections:
      ┏━━━━━━━━━━━━━┓
      ┃ G1 fs bytes ┃ Powers of Tau_{Domain size * 9 + 18}
      ┗━━━━━━━━━━━━━┛
+````
+
+### SECTION 17. C0 SECTION
+
+````
+     ┏━━━━━━━━━━━━━┓
+     ┃ 11 00 00 00 ┃ Section Id
+     ┣━━━━━━━━━━━━━┫
+     ┃ fs bytes    ┃ Section size
+     ┣━━━━━━━━━━━━━┫                                     ━┓
+     ┃ fs bytes    ┃ C0 coefficient_1                     ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  C0 coefficients
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ C0 coefficient_{Domain size * 8}     ┃
+     ┣━━━━━━━━━━━━━┫                                     ━┫
+     ┃ fs bytes    ┃ C0 evaluation_1                      ┃
+     ┗━━━━━━━━━━━━━┛                                      ┃
+           ...        ...                                 ┃  C0 evaluations
+     ┏━━━━━━━━━━━━━┓                                      ┃
+     ┃ fs bytes    ┃ C0 evaluation_{Domain size + 16}     ┃
+     ┗━━━━━━━━━━━━━┛                                     ━┛
+
 ````

@@ -41,6 +41,7 @@ import {
     ZKEY_FF_PTAU_SECTION,
     FF_T_POL_DEG_MIN,
     ZKEY_FF_NSECTIONS,
+    ZKEY_FF_C0_SECTION,
 } from "./fflonk.js";
 import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey.js";
 import {
@@ -51,6 +52,7 @@ import {
 import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import * as binFileUtils from "@iden3/binfileutils";
+import {Evaluations} from "./polynomial/evaluations.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -81,10 +83,15 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Initializations
     const Fr = curve.Fr;
+    const G1 = curve.G1;
 
     const sFr = curve.Fr.n8;
     const sG1 = curve.G1.F.n8 * 2;
     const sG2 = curve.G2.F.n8 * 2;
+
+    let polynomials = {};
+    let evaluations = {};
+    let PTau;
 
     let settings = {
         nVars: r1cs.nVars,
@@ -134,6 +141,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     const w3 = computeW3();
     if (logger) logger.info("> computing w4");
     const w4 = computeW4();
+    if (logger) logger.info("> computing w8");
+    const w8 = computeW8();
     if (logger) logger.info("> computing wr");
     const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
 
@@ -177,19 +186,19 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         }
 
         function readLC() {
-            const lc= {};
+            const lc = {};
 
-            const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos+4);
+            const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos + 4);
             bR1csPos += 4;
             const buffUL32V = new DataView(buffUL32.buffer);
             const nIdx = buffUL32V.getUint32(0, true);
 
-            const buff = bR1cs.slice(bR1csPos, bR1csPos + (4+r1cs.n8)*nIdx );
-            bR1csPos += (4+r1cs.n8)*nIdx;
+            const buff = bR1cs.slice(bR1csPos, bR1csPos + (4 + r1cs.n8) * nIdx);
+            bR1csPos += (4 + r1cs.n8) * nIdx;
             const buffV = new DataView(buff.buffer);
-            for (let i=0; i<nIdx; i++) {
-                const idx = buffV.getUint32(i*(4+r1cs.n8), true);
-                const val = r1cs.F.fromRprLE(buff, i*(4+r1cs.n8)+4);
+            for (let i = 0; i < nIdx; i++) {
+                const idx = buffV.getUint32(i * (4 + r1cs.n8), true);
+                const val = r1cs.F.fromRprLE(buff, i * (4 + r1cs.n8) + 4);
                 lc[idx] = val;
             }
             return lc;
@@ -208,12 +217,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
         await writeAdditions(fdZKey);
         if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
-        await writeFFlonkHeader(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        plonkAdditions = null;
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
         await writeWitnessMap(fdZKey, ZKEY_FF_A_MAP_SECTION, 0, "A map");
@@ -257,6 +260,14 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
         await writePtau(fdZKey);
+        if (globalThis.gc) globalThis.gc();
+
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_C0_SECTION}. C0`);
+        await writeC0(fdZKey);
+        if (globalThis.gc) globalThis.gc();
+
+        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
+        await writeFFlonkHeader(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info("> Writing the zkey file finished");
@@ -315,9 +326,13 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
         }
 
+        polynomials[name] = await Polynomial.fromEvaluations(Q, Fr, logger);
+        evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, Fr, logger);
+
         // Write Q coefficients and evaluations
         await startWriteSection(fdZKey, sectionNum);
-        await writeP4(fdZKey, Q);
+        await fdZKey.write(polynomials[name].coef);
+        await fdZKey.write(evaluations[name].eval);
         await endWriteSection(fdZKey);
     }
 
@@ -361,9 +376,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         for (let i = 0; i < 3; i++) {
             const sectionId = 0 === i ? ZKEY_FF_SIGMA1_SECTION : 1 === i ? ZKEY_FF_SIGMA2_SECTION : ZKEY_FF_SIGMA3_SECTION;
 
+            let name = "S" + (i + 1);
+            polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), Fr, logger);
+            evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, Fr, logger);
             await startWriteSection(fdZKey, sectionId);
-            let S = sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1));
-            await writeP4(fdZKey, S);
+            await fdZKey.write(polynomials[name].coef);
+            await fdZKey.write(evaluations[name].eval);
             await endWriteSection(fdZKey);
 
             if (globalThis.gc) globalThis.gc();
@@ -407,10 +425,73 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
 
         // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
-        const buffOut = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
-        await fdPTau.readToBuffer(buffOut, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
+        PTau = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
+        await fdPTau.readToBuffer(PTau, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
 
-        await fdZKey.write(buffOut);
+        await fdZKey.write(PTau);
+        await endWriteSection(fdZKey);
+    }
+
+    async function writeC0(fdZKey) {
+        // C0(X) := QL(X^8) + X · QR(X^8) + X^2 · QO(X^8) + X^3 · QM(X^8) + X^4 · QC(X^8)
+        //            + X^5 · SIGMA1(X^8) + X^6 · SIGMA2(X^8) + X^7 · SIGMA3(X^8)
+
+        const lengthQL = polynomials.QL.length();
+        const lengthQR = polynomials.QR.length();
+        const lengthQO = polynomials.QO.length();
+        const lengthQM = polynomials.QM.length();
+        const lengthQC = polynomials.QC.length();
+        const lengthS1 = polynomials.S1.length();
+        const lengthS2 = polynomials.S2.length();
+        const lengthS3 = polynomials.S3.length();
+
+        // Compute degree of the new polynomial C0 to reserve the buffer memory size
+        // Will be the next power of two to bound the maximum(deg(QL), deg(QR)+1, deg(QO)+2, deg(QM)+3)
+        //                                                  deg(QC)+4, deg(S1)+5, deg(S2)+6, deg(S3)+7)
+        const degreeQL = polynomials.QL.degree();
+        const degreeQR = polynomials.QR.degree();
+        const degreeQO = polynomials.QO.degree();
+        const degreeQM = polynomials.QM.degree();
+        const degreeQC = polynomials.QC.degree();
+        const degreeS1 = polynomials.S1.degree();
+        const degreeS2 = polynomials.S2.degree();
+        const degreeS3 = polynomials.S3.degree();
+
+        const maxLength = Math.max(lengthQL, lengthQR, lengthQO, lengthQM, lengthQC, lengthS1, lengthS2, lengthS3);
+
+        const maxDegree = Math.max(degreeQL * 8 + 1, degreeQR * 8 + 2, degreeQO * 8 + 3, degreeQM * 8 + 4,
+            degreeQC * 8 + 5, degreeS1 * 8 + 6, degreeS2 * 8 + 7, degreeS3 * 8 + 8);
+
+        const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
+
+        polynomials.C0 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
+
+        for (let i = 0; i < maxLength; i++) {
+            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing C0 coefficients ${i}/${maxLength}`);
+
+            const i_n8 = i * sFr;
+            const i_sFr = i_n8 * 8;
+
+            if (i <= degreeQL) polynomials.C0.coef.set(polynomials.QL.coef.slice(i_n8, i_n8 + sFr), i_sFr);
+            if (i <= degreeQR) polynomials.C0.coef.set(polynomials.QR.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
+            if (i <= degreeQO) polynomials.C0.coef.set(polynomials.QO.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
+            if (i <= degreeQM) polynomials.C0.coef.set(polynomials.QM.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
+            if (i <= degreeQC) polynomials.C0.coef.set(polynomials.QC.coef.slice(i_n8, i_n8 + sFr), i_sFr + 128);
+            if (i <= degreeS1) polynomials.C0.coef.set(polynomials.S1.coef.slice(i_n8, i_n8 + sFr), i_sFr + 160);
+            if (i <= degreeS2) polynomials.C0.coef.set(polynomials.S2.coef.slice(i_n8, i_n8 + sFr), i_sFr + 192);
+            if (i <= degreeS3) polynomials.C0.coef.set(polynomials.S3.coef.slice(i_n8, i_n8 + sFr), i_sFr + 224);
+        }
+
+        // Check degree
+        if (polynomials.C0.degree() > 8 * settings.domainSize - 1) {
+            throw new Error("C0 Polynomial is not well calculated");
+        }
+
+        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, Fr, logger);
+
+        await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
+        await fdZKey.write(polynomials.C0.coef);
+        await fdZKey.write(evaluations.C0.eval);
         await endWriteSection(fdZKey);
     }
 
@@ -440,19 +521,42 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         await fdZKey.write(w3);
         await fdZKey.write(w4);
+        await fdZKey.write(w8);
         await fdZKey.write(wr);
 
         let bX_2;
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
         await fdZKey.write(bX_2);
 
+        // let length = evaluations.C0.length() / 2;
+        // buffers["C0"] = new BigBuffer(length * sFr);
+        //
+        // for (let i = 0; i < length; i++) {
+        //     buffers.C0[i] = evaluations.C0.eval[i * 2];
+        // }
+        // let C0M = await Fr.batchFromMontgomery(buffers.C0);
+        let C0_1 = await multiExponentiation(polynomials.C0, "C0");
+        await fdZKey.write(C0_1);
+
         await endWriteSection(fdZKey);
+
+        async function multiExponentiation(polynomial, name) {
+            const n = polynomial.coef.byteLength / sFr;
+            const PTauN = PTau.slice(0, n * sG1);
+            const bm = await Fr.batchFromMontgomery(polynomial.coef);
+            let res = await G1.multiExpAffine(PTauN, bm, logger, name);
+            res = G1.toAffine(res);
+            return res;
+        }
+
     }
 
     async function writeP4(fdZKey, buff) {
         const [coefficients, evaluations4] = await Polynomial.to4T(buff, settings.domainSize, [], Fr);
         await fdZKey.write(coefficients);
         await fdZKey.write(evaluations4);
+
+        return [coefficients, evaluations4];
     }
 
     function computeK1K2() {
@@ -488,6 +592,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     function computeW4() {
         return Fr.w[2];
+    }
+
+    function computeW8() {
+        return Fr.w[3];
     }
 
     function getOmegaCubicRoot(power, Fr) {
