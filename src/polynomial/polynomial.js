@@ -40,6 +40,15 @@ export class Polynomial {
         return new Polynomial(buff, Fr, logger);
     }
 
+    static fromPolynomial(polynomial, Fr, logger) {
+        let length = polynomial.length();
+        let buff = length > 2 << 14 ?
+            new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
+        buff.set(polynomial.coef.slice(), 0);
+
+        return new Polynomial(buff, Fr, logger);
+    }
+
     isEqual(polynomial) {
         const degree = this.degree();
         if (degree !== polynomial.degree()) return false;
@@ -169,6 +178,38 @@ export class Polynomial {
         return res;
     }
 
+    fastEvaluate(point) {
+        const Fr = this.Fr;
+        let nThreads = 3;
+
+        let nCoefs = this.degree() + 1;
+        let coefsThread = parseInt(nCoefs / nThreads);
+        let residualCoefs = nCoefs - coefsThread * nThreads;
+
+        let res = [];
+        let xN = [];
+
+        xN[0] = Fr.one;
+
+        for (let i = 0; i < nThreads; i++) {
+            res[i] = Fr.zero;
+
+            let nCoefs = i === (nThreads - 1) ? coefsThread + residualCoefs : coefsThread;
+            for (let j = nCoefs; j > 0; j--) {
+                res[i] = Fr.add(this.getCoef((i * coefsThread) + j - 1), Fr.mul(res[i], point));
+
+                if (i === 0) xN[0] = Fr.mul(xN[0], point);
+            }
+        }
+
+        for (let i = 1; i < nThreads; i++) {
+            res[0] = Fr.add(res[0], Fr.mul(xN[i - 1], res[i]));
+            xN[i] = Fr.mul(xN[i - 1], xN[0]);
+        }
+
+        return res[0];
+    }
+
     add(polynomial, blindingValue) {
         let other = false;
 
@@ -290,6 +331,210 @@ export class Polynomial {
         return polR;
     }
 
+    // Division by a Polynomial of the form (x^m - beta)
+    divByMonic(m, beta) {
+        const Fr = this.Fr;
+
+        let d = this.degree();
+
+        let buffer = this.length() > 2 << 14 ?
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+        let quotient = new Polynomial(buffer, this.Fr, this.logger);
+
+        let bArr = [];
+
+        // Add the m leading coefficients of this to quotient
+        for (let i = 0; i < m; i++) {
+            quotient.setCoef((d - i) - m, this.getCoef(d - i));
+            bArr[i] = this.getCoef(d - i);
+        }
+
+        let nThreads = m;
+
+        let j = 0;
+        for (let k = 0; k < nThreads; k++) {
+            for (let i = d - 2 * m - k; i >= 0; i = i - nThreads) {
+                if (i < 0) break;
+                let idx = k;
+                bArr[idx] = Fr.add(this.getCoef(i + m), Fr.mul(bArr[idx], beta));
+
+                quotient.setCoef(i, bArr[idx]);
+                j = (j + 1) % m;
+            }
+        }
+
+        this.coef = quotient.coef;
+    }
+
+    divByVanishing(n, beta) {
+        if (this.degree() < n) {
+            throw new Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
+        }
+
+        const Fr = this.Fr;
+
+        let polR = new Polynomial(this.coef, Fr, this.logger);
+
+        this.coef = this.length() > 2 << 14 ?
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+
+        for (let i = this.length() - 1; i >= n; i--) {
+            let leadingCoef = polR.getCoef(i);
+            if (Fr.eq(Fr.zero, leadingCoef)) continue;
+
+            polR.setCoef(i, Fr.zero);
+            polR.setCoef(i - n, Fr.add(polR.getCoef(i - n), Fr.mul(beta, leadingCoef)));
+            this.setCoef(i - n, Fr.add(this.getCoef(i - n), leadingCoef));
+        }
+
+        return polR;
+    }
+
+    divByVanishing2(m, beta) {
+        if (this.degree() < m) {
+            throw new Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
+        }
+
+        const Fr = this.Fr;
+
+        let polR = new Polynomial(this.coef, Fr, this.logger);
+
+        this.coef = this.length() > 2 << 14 ?
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+
+        let nThreads = 3;
+        let nTotal = this.length() - m;
+        let nElementsChunk = Math.floor(nTotal / nThreads);
+        let nElementsLast = nTotal - (nThreads - 1) * nElementsChunk;
+
+        console.log(nTotal);
+        console.log(nElementsChunk + "  " + nElementsLast);
+        for (let k = 0; k < nThreads; k++) {
+            console.log("> Thread " + k);
+            for (let i = (k === 0 ? nElementsLast : nElementsChunk); i > 0; i--) {
+                let idxDst = i - 1;
+                if (k !== 0) idxDst += (k - 1) * nElementsChunk + nElementsLast;
+                let idxSrc = idxDst + m;
+
+                let leadingCoef = polR.getCoef(idxSrc);
+                if (Fr.eq(Fr.zero, leadingCoef)) continue;
+
+                polR.setCoef(idxSrc, Fr.zero);
+                polR.setCoef(idxDst, Fr.add(polR.getCoef(idxDst), Fr.mul(beta, leadingCoef)));
+                this.setCoef(idxDst, Fr.add(this.getCoef(idxDst), leadingCoef));
+                console.log(idxDst + " <-- " + idxSrc);
+            }
+        }
+
+        this.print();
+        return polR;
+    }
+
+    fastDivByVanishing(data) {
+        const Fr = this.Fr;
+
+        for (let i = 0; i < data.length; i++) {
+
+            let m = data[i][0];
+            let beta = data[i][1];
+
+            if (this.degree() < m) {
+                throw new Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
+            }
+
+            let nThreads = 5;
+            let nElements = this.length() - m;
+            let nElementsBucket = Math.floor(nElements / nThreads / m);
+            let nElementsChunk = nElementsBucket * m;
+            let nElementsLast = nElements - nThreads * nElementsChunk;
+
+            //In C++ implementation this buffer will be allocated only once outside the loop
+            let polTmp = new Polynomial(this.length() > 2 << 14 ?
+                new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), Fr, this.logger);
+
+            let ptr = this.coef;
+            this.coef = polTmp.coef;
+            polTmp.coef = ptr;
+
+            // STEP 1: Setejar els m valors del següent bucket al chunk actual, PARALEL·LITZAR
+            for (let k = 0; k < nThreads; k++) {
+                let idx0 = (k + 1) * nElementsChunk + nElementsLast;
+                for (let i = 0; i < m; i++) {
+                    this.setCoef(idx0 + i - m, polTmp.getCoef(idx0 + i));
+                }
+
+                for (let i = 0; i < nElementsChunk - m; i++) {
+                    let offset = idx0 - i - 1;
+                    let val = Fr.add(polTmp.getCoef(offset), Fr.mul(beta, this.getCoef(offset)));
+                    this.setCoef(offset - m, val);
+                }
+            }
+
+            //STEP 2: Setejar els valors del elements last NO PARAL·LELITZAR
+            let idx0 = nElementsLast;
+            let pending = nElementsLast;
+            for (let i = 0; i < m && pending; i++) {
+                this.setCoef(idx0 - i - 1, polTmp.getCoef(idx0 + m - i - 1));
+                pending--;
+            }
+
+            for (let i = 0; i < pending; i++) {
+                let offset = idx0 - i - 1;
+                let val = Fr.add(polTmp.getCoef(offset), Fr.mul(beta, this.getCoef(offset)));
+                this.setCoef(offset - m, val);
+            }
+
+            //Step 3: calcular acumulats NO  PARALEL·LITZAR
+
+            let acc = [];
+            let betaPow = Fr.one;
+            for (let i = 0; i < nElementsBucket; i++) {
+                betaPow = Fr.mul(betaPow, beta);
+            }
+            let currentBeta = Fr.one;
+
+            for (let k = nThreads; k > 0; k--) {
+                let idThread = k - 1;
+                let idx0 = idThread * nElementsChunk + nElementsLast;
+                acc[idThread] = [];
+
+                for (let i = 0; i < m; i++) {
+                    acc[idThread][i] = this.getCoef(idx0 + i);
+
+                    if (k !== nThreads) {
+                        acc[idThread][i] = Fr.add(acc[idThread][i], Fr.mul(betaPow, acc[idThread + 1][i]));
+                    }
+                }
+                currentBeta = Fr.mul(currentBeta, betaPow);
+            }
+
+            //STEP 4 recalcular  PARALEL·LITZAR
+            for (let k = 0; k < nThreads; k++) {
+
+                let idx0 = k * nElementsChunk + nElementsLast;
+                let currentBeta = beta; //Quan hopassem a C++ i ho paralelitzem aquesta variable ha de ser privada
+                let currentM = m - 1;
+
+                let limit = k === 0 ? nElementsLast : nElementsChunk;
+                for (let i = 0; i < limit; i++) {
+                    let offset = idx0 - i - 1;
+                    let val = Fr.add(this.getCoef(offset), Fr.mul(currentBeta, acc[k][currentM]));
+
+                    this.setCoef(offset, val);
+
+                    // To avoid modular operations in each loop...
+                    if (currentM === 0) {
+                        currentM = m - 1;
+                        currentBeta = Fr.mul(currentBeta, beta);
+                    } else {
+                        currentM--;
+                    }
+                }
+            }
+        }
+    }
+
+
     // Divide polynomial by X - value
     divByXSubValue(value) {
         const coefs = this.length() > 2 << 14 ?
@@ -341,26 +586,26 @@ export class Polynomial {
         return this;
     }
 
-    // function divideByVanishing(f, n, p) {
-    //     // polynomial division f(X) / (X^n - 1) with remainder
-    //     // very cheap, 0 multiplications
-    //     // strategy:
-    //     // start with q(X) = 0, r(X) = f(X)
-    //     // then start changing q, r while preserving the identity:
-    //     // f(X) = q(X) * (X^n - 1) + r(X)
-    //     // in every step, move highest-degree term of r into the product
-    //     // => r eventually has degree < n and we're done
-    //     let q = Array(f.length).fill(0n);
-    //     let r = [...f];
-    //     for (let i = f.length - 1; i >= n; i--) {
-    //         let leadingCoeff = r[i];
-    //         if (leadingCoeff === 0n) continue;
-    //         r[i] = 0n;
-    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
-    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
-    //     }
-    //     return [q, r];
-    // }
+// function divideByVanishing(f, n, p) {
+//     // polynomial division f(X) / (X^n - 1) with remainder
+//     // very cheap, 0 multiplications
+//     // strategy:
+//     // start with q(X) = 0, r(X) = f(X)
+//     // then start changing q, r while preserving the identity:
+//     // f(X) = q(X) * (X^n - 1) + r(X)
+//     // in every step, move highest-degree term of r into the product
+//     // => r eventually has degree < n and we're done
+//     let q = Array(f.length).fill(0n);
+//     let r = [...f];
+//     for (let i = f.length - 1; i >= n; i--) {
+//         let leadingCoeff = r[i];
+//         if (leadingCoeff === 0n) continue;
+//         r[i] = 0n;
+//         r[i - n] = mod(r[i - n] + leadingCoeff, p);
+//         q[i - n] = mod(q[i - n] + leadingCoeff, p);
+//     }
+//     return [q, r];
+// }
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
@@ -371,10 +616,11 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    // Compute a new polynomial f(x^n) from f(x)
-    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
-    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
-    static async expX(polynomial, n, truncate = false) {
+// Compute a new polynomial f(x^n) from f(x)
+// f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
+// f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
+    static
+    async expX(polynomial, n, truncate = false) {
         const Fr = polynomial.Fr;
 
         if (n < 1) {
@@ -485,69 +731,69 @@ export class Polynomial {
         // proof.T3 = await expTau(polTHigh, "multiexp T3");
     }
 
-    // split2(degPols, blindingFactors) {
-    //     let currentDegree = this.degree();
-    //     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
-    //
-    //     //blinding factors can be void or must have a length of numPols - 1
-    //     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
-    //         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
-    //     }
-    //
-    //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
-    //
-    //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
-    //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
-    //     }
-    //
-    //     let res = [];
-    //     for (let i = 0; i < numFilledPols; i++) {
-    //         const isLast = (numFilledPols - 1) === i;
-    //         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-    //
-    //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
-    //         const fr = i * chunkByteLength;
-    //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-    //         res[i].coef.set(this.coef.slice(fr, to), 0);
-    //
-    //         // Add a blinding factor as higher degree
-    //         if (!isLast) {
-    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
-    //         }
-    //
-    //         // Sub blinding factor to the lowest degree
-    //         if (0 !== i) {
-    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-    //             res[i].coef.set(lowestDegree, 0);
-    //         }
-    //     }
-    //
-    //     return res;
-    // }
+// split2(degPols, blindingFactors) {
+//     let currentDegree = this.degree();
+//     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
+//
+//     //blinding factors can be void or must have a length of numPols - 1
+//     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
+//         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
+//     }
+//
+//     const chunkByteLength = (degPols + 1) * this.Fr.n8;
+//
+//     // Check polynomial can be split in numChunks parts of chunkSize bytes...
+//     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
+//         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
+//     }
+//
+//     let res = [];
+//     for (let i = 0; i < numFilledPols; i++) {
+//         const isLast = (numFilledPols - 1) === i;
+//         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+//
+//         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
+//         const fr = i * chunkByteLength;
+//         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
+//         res[i].coef.set(this.coef.slice(fr, to), 0);
+//
+//         // Add a blinding factor as higher degree
+//         if (!isLast) {
+//             res[i].coef.set(blindingFactors[i], chunkByteLength);
+//         }
+//
+//         // Sub blinding factor to the lowest degree
+//         if (0 !== i) {
+//             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+//             res[i].coef.set(lowestDegree, 0);
+//         }
+//     }
+//
+//     return res;
+// }
 
-    // merge(pols, overlap = true) {
-    //     let length = 0;
-    //     for (let i = 0; i < pols.length; i++) {
-    //         length += pols[i].length();
-    //     }
-    //
-    //     if (overlap) {
-    //         length -= pols.length - 1;
-    //     }
-    //
-    //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
-    //     for (let i = 0; i < pols.length; i++) {
-    //         const byteLength = pols[i].coef.byteLength;
-    //         if (0 === i) {
-    //             res.coef.set(pols[i].coef, 0);
-    //         } else {
-    //
-    //         }
-    //     }
-    //
-    //     return res;
-    // }
+// merge(pols, overlap = true) {
+//     let length = 0;
+//     for (let i = 0; i < pols.length; i++) {
+//         length += pols[i].length();
+//     }
+//
+//     if (overlap) {
+//         length -= pols.length - 1;
+//     }
+//
+//     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
+//     for (let i = 0; i < pols.length; i++) {
+//         const byteLength = pols[i].coef.byteLength;
+//         if (0 === i) {
+//             res.coef.set(pols[i].coef, 0);
+//         } else {
+//
+//         }
+//     }
+//
+//     return res;
+// }
 
     truncate() {
         const deg = this.degree();

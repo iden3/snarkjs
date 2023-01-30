@@ -1041,15 +1041,14 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         if (logger) logger.info("> Computing W = F / ZT polynomial");
         const polRemainder = polynomials.F.divBy(polynomials.ZT);
-
-        // Check degrees
+        //Check polReminder degree is equal to zero
         if (polRemainder.degree() > 0) {
             throw new Error(`Degree of f(X)/ZT(X) remainder is ${polRemainder.degree()} and should be 0`);
         }
+
         if (polynomials.F.degree() >= 9 * zkey.domainSize + 12) {
             throw new Error("Degree of f(X)/ZT(X) is not correct");
         }
-
 
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
         if (logger) logger.info("> Computing W1 multi exponentiation");
@@ -1058,7 +1057,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         function computeR0() {
-            // COMPUTE R1
+            // COMPUTE R0
             // Compute the coefficients of R0(X) from 8 evaluations using lagrange interpolation. R0(X) ∈ F_{<8}[X]
             // We decide to use Lagrange interpolations because the R0 degree is very small (deg(R0)===7),
             // and we were not able to compute it using current ifft implementation because the omega are different
@@ -1117,8 +1116,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             evaluations.C0 = new Evaluations(new BigBuffer(sDomain * 16), Fr, logger);
             await fdZKey.readToBuffer(evaluations.C0.eval, 0, sDomain * 16, zkeySections[ZKEY_FF_C0_SECTION][0].p + sDomain * 8);
 
-            if (logger) logger.info("··· Computing C1 & C2 fft");
+            if (logger) logger.info("··· Computing C1 fft");
             evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, 1, Fr, logger);
+            if (logger) logger.info("··· Computing C2 fft");
             evaluations.C2 = await Evaluations.fromPolynomial(polynomials.C2, 1, Fr, logger);
 
             if (logger) logger.info("··· Computing F evaluations");
@@ -1227,10 +1227,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing W' = L / ZTS2 polynomial");
         const polRemainder = polynomials.L.divBy(polDividend);
 
-        // Check degrees
+        //Check polReminder degree is equal to zero
         if (polRemainder.degree() > 0) {
             throw new Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${polRemainder.degree()} and should be 0`);
         }
+
         if (polynomials.L.degree() >= 9 * zkey.domainSize + 17) {
             throw new Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
         }
