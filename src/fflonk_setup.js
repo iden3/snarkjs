@@ -137,14 +137,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
     // w3^3 = 1 and  w4^4 = 1
-    if (logger) logger.info("> computing w3");
-    const w3 = computeW3();
-    if (logger) logger.info("> computing w4");
-    const w4 = computeW4();
-    if (logger) logger.info("> computing w8");
-    const w8 = computeW8();
-    if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    if (logger) logger.info("> computing w16");
+    const w16 = Fr.w[4];
 
     // Write output zkey file
     await writeZkeyFile();
@@ -519,10 +513,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.write(k1);
         await fdZKey.write(k2);
 
-        await fdZKey.write(w3);
-        await fdZKey.write(w4);
-        await fdZKey.write(w8);
-        await fdZKey.write(wr);
+        await fdZKey.write(w16);
 
         let bX_2;
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
@@ -579,32 +570,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             return false;
         }
     }
-
-    function computeW3() {
-        let generator = Fr.e(31624);
-
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
-
-        return Fr.exp(generator, exponent);
-    }
-
-    function computeW4() {
-        return Fr.w[2];
-    }
-
-    function computeW8() {
-        return Fr.w[3];
-    }
-
-    function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
-        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
-
-        return Fr.exp(firstRoot, 2 ** (28 - power));
-    }
-
 }
 
 
