@@ -3,10 +3,10 @@ import {getCurveFromName} from "../src/curves.js";
 import {Polynomial} from "../src/polynomial/polynomial.js";
 import {getRandomBuffer, getRandomValue} from "./test.utils.js";
 
-function radomPolynomial(maxDegree, Fr) {
+function radomPolynomial(maxDegree, curve) {
     const degree = getRandomValue(maxDegree);
 
-    return new Polynomial(getRandomBuffer(degree + 1, Fr), Fr);
+    return new Polynomial(getRandomBuffer(degree + 1, curve.Fr), curve);
 }
 
 describe("snarkjs: Polynomial tests", function () {
@@ -29,11 +29,11 @@ describe("snarkjs: Polynomial tests", function () {
 
     it("should return the correct degree", async () => {
         // buffer with no coefficients => degree 0
-        let poly = new Polynomial(new Uint8Array(0), curve.Fr);
+        let poly = new Polynomial(new Uint8Array(0), curve);
         assert.equal(0, poly.degree());
 
         // buffer with one coefficient => degree 0
-        poly = new Polynomial(curve.Fr.random(), curve.Fr);
+        poly = new Polynomial(curve.Fr.random(), curve);
         assert.equal(0, poly.degree());
 
         //buffer with 2 coefficients => degree 1
@@ -41,7 +41,7 @@ describe("snarkjs: Polynomial tests", function () {
         buff.set(curve.Fr.random(), 0);
         buff.set(curve.Fr.random(), 32);
 
-        poly = new Polynomial(buff, curve.Fr);
+        poly = new Polynomial(buff, curve);
         assert.equal(1, poly.degree());
 
         // buffer with 2 coefficients, the greatest is zero => degree 0
@@ -49,7 +49,7 @@ describe("snarkjs: Polynomial tests", function () {
         buff.set(curve.Fr.random(), 0);
         buff.set(curve.Fr.zero, 32);
 
-        poly = new Polynomial(buff, curve.Fr);
+        poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
         // buffer with 3 coefficients, the two greatests iare zero => degree 0
@@ -58,36 +58,36 @@ describe("snarkjs: Polynomial tests", function () {
         buff.set(curve.Fr.zero, 32);
         buff.set(curve.Fr.zero, 64);
 
-        poly = new Polynomial(buff, curve.Fr);
+        poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
         // buffer with 3 coefficients, the greatest is different thn zero => degree 2
         buff.set(curve.Fr.one, 64);
 
-        poly = new Polynomial(buff, curve.Fr);
+        poly = new Polynomial(buff, curve);
         assert.equal(2, poly.degree());
     });
 
     it("should check if two polynomials are equal", async () => {
         const Fr = curve.Fr;
 
-        const pol1 = radomPolynomial(30, Fr);
+        const pol1 = radomPolynomial(30, curve);
 
         assert(pol1.isEqual(pol1));
 
         const cloneBuff = Uint8Array.from(pol1.coef);
-        const pol2 = new Polynomial(cloneBuff, Fr);
+        const pol2 = new Polynomial(cloneBuff, curve);
 
         assert(pol1.isEqual(pol2));
 
         const buffer = new Uint8Array((pol1.length() + 1) * Fr.n8);
         buffer.set(pol1.coef.slice(), 0);
-        const pol3 = new Polynomial(buffer, Fr);
+        const pol3 = new Polynomial(buffer, curve);
 
         assert(pol1.isEqual(pol3));
 
         buffer.set(Fr.one, 0);
-        const pol4 = new Polynomial(buffer, Fr);
+        const pol4 = new Polynomial(buffer, curve);
 
         assert(!pol1.isEqual(pol4));
     });
@@ -109,7 +109,7 @@ describe("snarkjs: Polynomial tests", function () {
 
 
     it("should get the correct coefficient", async () => {
-        const polynomial = radomPolynomial(30, curve.Fr);
+        const polynomial = radomPolynomial(30, curve);
 
         for (let i = 0; i < polynomial.length(); i++) {
             const coef = polynomial.coef.slice(i * sFr, (i + 1) * sFr);
@@ -125,7 +125,7 @@ describe("snarkjs: Polynomial tests", function () {
             buffer[i] = curve.Fr.e(i);
         }
 
-        const polynomial = new Polynomial(buffer, curve.Fr);
+        const polynomial = new Polynomial(buffer, curve);
         assert.equal(length, polynomial.length());
     });
 
@@ -134,13 +134,13 @@ describe("snarkjs: Polynomial tests", function () {
         for (let i = 0; i < 4; i++) {
             buffer.set(curve.Fr.e(i), i * curve.Fr.n8);
         }
-        const polynomial = new Polynomial(buffer, curve.Fr);
+        const polynomial = new Polynomial(buffer, curve);
         assert.deepEqual(polynomial.evaluate(curve.Fr.two), curve.Fr.e(34));
     });
 
     it("should add a polynomial", async () => {
-        const polynomial1 = radomPolynomial(30, curve.Fr);
-        const polynomial2 = radomPolynomial(30, curve.Fr);
+        const polynomial1 = radomPolynomial(30, curve);
+        const polynomial2 = radomPolynomial(30, curve);
         const l1 = polynomial1.length();
         const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
@@ -160,8 +160,8 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should sub a polynomial", async () => {
-        const polynomial1 = radomPolynomial(30, curve.Fr);
-        const polynomial2 = radomPolynomial(30, curve.Fr);
+        const polynomial1 = radomPolynomial(30, curve);
+        const polynomial2 = radomPolynomial(30, curve);
         const l1 = polynomial1.length();
         const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
@@ -181,7 +181,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should mul a polynomial with a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve.Fr);
+        const polynomial1 = radomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 
@@ -194,7 +194,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should add a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve.Fr);
+        const polynomial1 = radomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 
@@ -207,7 +207,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should sub a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve.Fr);
+        const polynomial1 = radomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 
@@ -226,10 +226,10 @@ describe("snarkjs: Polynomial tests", function () {
         // Divisor:   x^2 + 3x
         // Quotient:   2x - 9
         // Remainder:  27x + 2
-        const polDividend = Polynomial.fromCoefficientsArray([Fr.e(2), Fr.e(0), Fr.e(-3), Fr.e(2)], Fr);
-        const polDivisor = Polynomial.fromCoefficientsArray([Fr.e(0), Fr.e(3), Fr.one], Fr);
-        const polQuotient = Polynomial.fromCoefficientsArray([Fr.e(-9), Fr.e(2)], Fr);
-        const polRemainder = Polynomial.fromCoefficientsArray([Fr.e(2), Fr.e(27)], Fr);
+        const polDividend = Polynomial.fromCoefficientsArray([Fr.e(2), Fr.e(0), Fr.e(-3), Fr.e(2)], curve);
+        const polDivisor = Polynomial.fromCoefficientsArray([Fr.e(0), Fr.e(3), Fr.one], curve);
+        const polQuotient = Polynomial.fromCoefficientsArray([Fr.e(-9), Fr.e(2)], curve);
+        const polRemainder = Polynomial.fromCoefficientsArray([Fr.e(2), Fr.e(27)], curve);
 
         const polR = polDividend.divBy(polDivisor);
 
@@ -237,10 +237,54 @@ describe("snarkjs: Polynomial tests", function () {
         assert(polRemainder.isEqual(polR));
     });
 
+    it("should divide by (X^m - y)", async () => {
+        const Fr = curve.Fr;
+
+        // Dividend: 5x^5 - 4x^6 - 3x^5 - 2x^4 - 2x^3 - 4x^2  - 4x^1 - 4
+        // Divisor:  x^3 - 2
+        // Quotient: 2x^6 + 2x^5 + 2x^4 + 2x^3 + 2x^2  + 2x^1 + 2
+        // const polDividend = Polynomial.fromCoefficientsArray(
+        //     [Fr.e(-2), Fr.e(-4), Fr.e(-6), Fr.e(-7), Fr.e(-8), Fr.e(3), Fr.e(4), Fr.e(5)], Fr);
+        // const polDivisor = Polynomial.fromCoefficientsArray([Fr.one, Fr.zero, Fr.zero, Fr.e(-2)], Fr);
+
+        // const polQuotient = Polynomial.fromCoefficientsArray([Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5)], Fr);
+        // const polDividend = Polynomial.fromCoefficientsArray(
+        //     [Fr.e(-10), Fr.e(0),Fr.e(1), Fr.e(-2), Fr.e(-2), Fr.e(-3), Fr.e(-2), Fr.e(-2), Fr.e(0), Fr.e(2), Fr.e(1)], Fr);
+        //const polQuotient = Polynomial.fromCoefficientsArray(
+        //    [Fr.e(5), Fr.e(0), Fr.e(2), Fr.e(1), Fr.e(2), Fr.e(2), Fr.e(2), Fr.e(2), Fr.e(1)], Fr);
+
+        // const polDividend = Polynomial.fromCoefficientsArray(
+        //     [Fr.e(-14), Fr.e(-2),Fr.e(3), Fr.e(-5), Fr.e(-6),
+        //         Fr.e(-7), Fr.e(-8), Fr.e(-9), Fr.e(-10), Fr.e(-11),
+        //         Fr.e(-12), Fr.e(-13), Fr.e(-14), Fr.e(11), Fr.e(12)], Fr);
+        // const polQuotient = Polynomial.fromCoefficientsArray(
+        //     [Fr.e(7), Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5), Fr.e(6), Fr.e(7), Fr.e(8),
+        //         Fr.e(9), Fr.e(10), Fr.e(11), Fr.e(12)], Fr);
+
+        const polDividend = Polynomial.fromCoefficientsArray(
+            [Fr.e(-14),Fr.e(-2),Fr.e(3),Fr.e(-5),Fr.e(-6),Fr.e(-7),Fr.e(-8),Fr.e(-9),Fr.e(-10),Fr.e(-11),
+                Fr.e(-12),Fr.e(-13),Fr.e(-14),Fr.e(-15),Fr.e(-16),Fr.e(-17),Fr.e(-18),Fr.e(15),Fr.e(16)], curve);
+        const polQuotient = Polynomial.fromCoefficientsArray(
+            [Fr.e(7), Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5), Fr.e(6), Fr.e(7), Fr.e(8),
+                Fr.e(9), Fr.e(10), Fr.e(11), Fr.e(12), Fr.e(13),Fr.e(14),Fr.e(15),Fr.e(16)], curve);
+
+        polDividend.fastDivByVanishing(2, Fr.e(2));
+
+        assert(polDividend.isEqual(polQuotient));
+
+        const polDividend2 = Polynomial.fromCoefficientsArray(
+            [Fr.e(-14),Fr.e(-2),Fr.e(3),Fr.e(-5),Fr.e(-6),Fr.e(-7),Fr.e(-8),Fr.e(-9),Fr.e(-10),Fr.e(-11),
+                Fr.e(-12),Fr.e(-13),Fr.e(-14),Fr.e(-15),Fr.e(-16),Fr.e(-17),Fr.e(-18),Fr.e(15),Fr.e(16)], curve);
+
+        polDividend2.divByVanishing(2, Fr.e(2));
+
+        assert(polDividend2.isEqual(polDividend));
+    });
+
     it("should multiply by (X-value)", async () => {
         const Fr = curve.Fr;
-        const pol = Polynomial.fromCoefficientsArray([Fr.e(4), Fr.e(-3), Fr.e(7)], Fr);
-        const polResult = Polynomial.fromCoefficientsArray([Fr.e(-24), Fr.e(22), Fr.e(-45), Fr.e(7)], Fr);
+        const pol = Polynomial.fromCoefficientsArray([Fr.e(4), Fr.e(-3), Fr.e(7)], curve);
+        const polResult = Polynomial.fromCoefficientsArray([Fr.e(-24), Fr.e(22), Fr.e(-45), Fr.e(7)], curve);
         pol.byXSubValue(Fr.e(6));
 
         assert(pol.isEqual(polResult));
@@ -254,7 +298,7 @@ describe("snarkjs: Polynomial tests", function () {
             buffer[i] = curve.Fr.e(i);
         }
 
-        const polynomial = new Polynomial(buffer, curve.Fr);
+        const polynomial = new Polynomial(buffer, curve);
         const clone = Uint8Array.from(polynomial.coef);
 
         assert.equal(length, polynomial.length());
@@ -276,7 +320,7 @@ describe("snarkjs: Polynomial tests", function () {
         // f(x)   = 3 + 7x + 11x^3
         // f(x^3) = 3 + 7x^3 + 11x^9
         const exponent = 3;
-        let pol = Polynomial.fromCoefficientsArray([Fr.e(3), Fr.e(7), Fr.zero, Fr.e(11), Fr.zero], Fr);
+        let pol = Polynomial.fromCoefficientsArray([Fr.e(3), Fr.e(7), Fr.zero, Fr.e(11), Fr.zero], curve);
 
         let polExp = await Polynomial.expX(pol, exponent);
 
@@ -284,14 +328,14 @@ describe("snarkjs: Polynomial tests", function () {
 
         let polResult = Polynomial.fromCoefficientsArray(
             [Fr.e(3), Fr.zero, Fr.zero, Fr.e(7), Fr.zero, Fr.zero,
-                Fr.zero, Fr.zero, Fr.zero, Fr.e(11), Fr.zero, Fr.zero, Fr.zero], Fr);
+                Fr.zero, Fr.zero, Fr.zero, Fr.e(11), Fr.zero, Fr.zero, Fr.zero], curve);
 
         assert(polExp.isEqual(polResult));
 
         polExp = await Polynomial.expX(pol, exponent, true);
 
         polResult = Polynomial.fromCoefficientsArray(
-            [Fr.e(3), Fr.zero, Fr.zero, Fr.e(7), Fr.zero, Fr.zero, Fr.zero, Fr.zero, Fr.zero, Fr.e(11)], Fr);
+            [Fr.e(3), Fr.zero, Fr.zero, Fr.e(7), Fr.zero, Fr.zero, Fr.zero, Fr.zero, Fr.zero, Fr.e(11)], curve);
 
         assert.deepEqual(polExp.length(), 10);
 
@@ -310,7 +354,7 @@ describe("snarkjs: Polynomial tests", function () {
         for (let i = 0; i < degree + 1; i++) {
             buff.set(Fr.e(i + 1), i * Fr.n8);
         }
-        let poly = new Polynomial(buff, Fr);
+        let poly = new Polynomial(buff, curve);
 
         let pols = poly.split(numPols, degPols, [Fr.one, Fr.one, Fr.one, Fr.one]);
 
@@ -335,7 +379,7 @@ describe("snarkjs: Polynomial tests", function () {
             buffer.set(curve.Fr.zero, i * curve.Fr.n8);
         }
 
-        const polynomial = new Polynomial(buffer, curve.Fr);
+        const polynomial = new Polynomial(buffer, curve);
         assert.equal(polynomial.length(), random1 + random2);
 
         polynomial.truncate();
@@ -346,10 +390,10 @@ describe("snarkjs: Polynomial tests", function () {
         const Fr = curve.Fr;
 
         const polynomial = Polynomial.fromCoefficientsArray(
-            [Fr.div(Fr.e(14), Fr.e(2)), Fr.div(Fr.e(-11), Fr.e(2)), Fr.div(Fr.e(3), Fr.e(2))], Fr);
+            [Fr.div(Fr.e(14), Fr.e(2)), Fr.div(Fr.e(-11), Fr.e(2)), Fr.div(Fr.e(3), Fr.e(2))], curve);
 
         let polynomial2 = Polynomial.lagrangePolynomialInterpolation([Fr.e(2), Fr.e(3), Fr.e(1)],
-            [Fr.e(2), Fr.e(4), Fr.e(3)], Fr);
+            [Fr.e(2), Fr.e(4), Fr.e(3)], curve);
 
         assert.equal(polynomial.degree(), polynomial2.degree());
         assert(polynomial.isEqual(polynomial2));
@@ -360,8 +404,8 @@ describe("snarkjs: Polynomial tests", function () {
 
         const coefArray = [Fr.e(-6), Fr.e(11), Fr.e(-6), Fr.one];
 
-        const polynomial = Polynomial.zerofierPolynomial([Fr.one, Fr.two, Fr.e(3)], Fr);
-        const polynomial2 = Polynomial.fromCoefficientsArray(coefArray, Fr);
+        const polynomial = Polynomial.zerofierPolynomial([Fr.one, Fr.two, Fr.e(3)], curve);
+        const polynomial2 = Polynomial.fromCoefficientsArray(coefArray, curve);
 
         assert.equal(polynomial.degree(), polynomial2.degree());
         assert(polynomial.isEqual(polynomial2));

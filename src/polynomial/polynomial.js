@@ -20,33 +20,38 @@
 import {BigBuffer} from "ffjavascript";
 
 export class Polynomial {
-    constructor(coefficients, Fr, logger) {
+    constructor(coefficients, curve, logger) {
         this.coef = coefficients;
-        this.Fr = Fr;
+        this.curve = curve;
+        this.Fr = curve.Fr;
+        this.G1 = curve.G1;
         this.logger = logger;
     }
 
-    static async fromEvaluations(buffer, Fr, logger) {
-        let coefficients = await Fr.ifft(buffer);
+    static async fromEvaluations(buffer, curve, logger) {
+        let coefficients = await curve.Fr.ifft(buffer);
 
-        return new Polynomial(coefficients, Fr, logger);
+        return new Polynomial(coefficients, curve, logger);
     }
 
-    static fromCoefficientsArray(array, Fr, logger) {
+    static fromCoefficientsArray(array, curve, logger) {
+        const Fr = curve.Fr;
         let buff = array.length > 2 << 14 ?
             new BigBuffer(array.length * Fr.n8) : new Uint8Array(array.length * Fr.n8);
         for (let i = 0; i < array.length; i++) buff.set(array[i], i * Fr.n8);
 
-        return new Polynomial(buff, Fr, logger);
+        return new Polynomial(buff, curve, logger);
     }
 
-    static fromPolynomial(polynomial, Fr, logger) {
+    static fromPolynomial(polynomial, curve, logger) {
         let length = polynomial.length();
+        let Fr = curve.Fr;
+
         let buff = length > 2 << 14 ?
             new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
         buff.set(polynomial.coef.slice(), 0);
 
-        return new Polynomial(buff, Fr, logger);
+        return new Polynomial(buff, curve, logger);
     }
 
     isEqual(polynomial) {
@@ -295,7 +300,7 @@ export class Polynomial {
 
         const length = resize ? this.length() + 1 : this.length();
         const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
-        let pol = new Polynomial(buff, this.Fr, this.logger);
+        let pol = new Polynomial(buff, this.curve, this.logger);
 
         // Step 0: Set current coefficients to the new buffer shifted one position
         pol.coef.set(this.coef.slice(0, (length - 1) * Fr.n8), 32);
@@ -316,7 +321,7 @@ export class Polynomial {
         const degreeA = this.degree();
         const degreeB = polynomial.degree();
 
-        let polR = new Polynomial(this.coef, Fr, this.logger);
+        let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
             new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
@@ -339,7 +344,7 @@ export class Polynomial {
 
         let buffer = this.length() > 2 << 14 ?
             new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
-        let quotient = new Polynomial(buffer, this.Fr, this.logger);
+        let quotient = new Polynomial(buffer, this.curve, this.logger);
 
         let bArr = [];
 
@@ -373,7 +378,7 @@ export class Polynomial {
 
         const Fr = this.Fr;
 
-        let polR = new Polynomial(this.coef, Fr, this.logger);
+        let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
             new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
@@ -397,7 +402,7 @@ export class Polynomial {
 
         const Fr = this.Fr;
 
-        let polR = new Polynomial(this.coef, Fr, this.logger);
+        let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
             new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
@@ -450,7 +455,7 @@ export class Polynomial {
 
             //In C++ implementation this buffer will be allocated only once outside the loop
             let polTmp = new Polynomial(this.length() > 2 << 14 ?
-                new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), Fr, this.logger);
+                new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), this.curve, this.logger);
 
             let ptr = this.coef;
             this.coef = polTmp.coef;
@@ -628,7 +633,7 @@ export class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromEvaluations(polynomial.coef, Fr, polynomial.logger);
+            return await Polynomial.fromEvaluations(polynomial.coef, curve, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients
@@ -647,7 +652,7 @@ export class Polynomial {
             bufferDst.set(coef, i_sFr * n);
         }
 
-        return new Polynomial(bufferDst, Fr, polynomial.logger);
+        return new Polynomial(bufferDst, polynomial.curve, polynomial.logger);
     }
 
     split(numPols, degPols, blindingFactors) {
@@ -670,7 +675,7 @@ export class Polynomial {
         if (numRealPols < numPols) {
             //throw new Error(`Polynomial is short to be split in ${numPols} parts of ${degPols} coefficients each.`);
             for (let i = numRealPols; i < numPols; i++) {
-                res[i] = new Polynomial(new Uint8Array(this.Fr.n8), this.Fr, this.logger);
+                res[i] = new Polynomial(new Uint8Array(this.Fr.n8), this.curve, this.logger);
             }
         }
 
@@ -680,7 +685,7 @@ export class Polynomial {
             const byteLength = isLast ? this.coef.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
 
             let buff = (byteLength / this.Fr.n8) > 2 << 14 ? new BigBuffer(byteLength) : new Uint8Array(byteLength);
-            res[i] = new Polynomial(buff, this.Fr, this.logger);
+            res[i] = new Polynomial(buff, this.curve, this.logger);
 
             const fr = i * chunkByteLength;
             const to = isLast ? this.coef.byteLength : (i + 1) * chunkByteLength;
@@ -806,7 +811,8 @@ export class Polynomial {
         }
     }
 
-    static lagrangePolynomialInterpolation(xArr, yArr, Fr) {
+    static lagrangePolynomialInterpolation(xArr, yArr, curve) {
+        const Fr = curve.Fr;
         let polynomial = computeLagrangePolynomial(0);
         for (let i = 1; i < xArr.length; i++) {
             polynomial.add(computeLagrangePolynomial(i));
@@ -823,7 +829,7 @@ export class Polynomial {
                 if (polynomial === undefined) {
                     let buff = (xArr.length + 1) > 2 << 14 ?
                         new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
-                    polynomial = new Polynomial(buff, Fr);
+                    polynomial = new Polynomial(buff, curve);
                     polynomial.setCoef(0, Fr.neg(xArr[j]));
                     polynomial.setCoef(1, Fr.one);
                 } else {
@@ -841,10 +847,11 @@ export class Polynomial {
         }
     }
 
-    static zerofierPolynomial(xArr, Fr) {
+    static zerofierPolynomial(xArr, curve) {
+        const Fr = curve.Fr;
         let buff = (xArr.length + 1) > 2 << 14 ?
             new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
-        let polynomial = new Polynomial(buff, Fr);
+        let polynomial = new Polynomial(buff, curve);
 
         // Build a zerofier polynomial with the following form:
         // zerofier(X) = (X-xArr[0])(X-xArr[1])...(X-xArr[n])
@@ -876,5 +883,14 @@ export class Polynomial {
             }
         }
         console.log(res);
+    }
+
+    async multiExponentiation(PTau, name) {
+        const n = this.coef.byteLength / this.Fr.n8;
+        const PTauN = PTau.slice(0, n * this.G1.F.n8 * 2);
+        const bm = await this.Fr.batchFromMontgomery(this.coef);
+        let res = await this.G1.multiExpAffine(PTauN, bm, this.logger, name);
+        res = this.G1.toAffine(res);
+        return res;
     }
 }

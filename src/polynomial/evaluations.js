@@ -20,19 +20,20 @@
 import {BigBuffer} from "ffjavascript";
 
 export class Evaluations {
-    constructor(evaluations, Fr, logger) {
+    constructor(evaluations, curve, logger) {
         this.eval = evaluations;
-        this.Fr = Fr;
+        this.curve = curve;
+        this.Fr = curve.Fr;
         this.logger = logger;
     }
 
-    static async fromPolynomial(polynomial, extension, Fr, logger) {
-        const coefficientsN = new BigBuffer(polynomial.length() * extension * Fr.n8);
+    static async fromPolynomial(polynomial, extension, curve, logger) {
+        const coefficientsN = new BigBuffer(polynomial.length() * extension * curve.Fr.n8);
         coefficientsN.set(polynomial.coef, 0);
 
-        const evaluations = await Fr.fft(coefficientsN);
+        const evaluations = await curve.Fr.fft(coefficientsN);
 
-        return new Evaluations(evaluations, Fr, logger);
+        return new Evaluations(evaluations, curve, logger);
     }
 
     getEvaluation(index) {

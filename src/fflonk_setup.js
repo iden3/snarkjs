@@ -326,8 +326,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
         }
 
-        polynomials[name] = await Polynomial.fromEvaluations(Q, Fr, logger);
-        evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, Fr, logger);
+        polynomials[name] = await Polynomial.fromEvaluations(Q, curve, logger);
+        evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
 
         // Write Q coefficients and evaluations
         await startWriteSection(fdZKey, sectionNum);
@@ -377,8 +377,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             const sectionId = 0 === i ? ZKEY_FF_SIGMA1_SECTION : 1 === i ? ZKEY_FF_SIGMA2_SECTION : ZKEY_FF_SIGMA3_SECTION;
 
             let name = "S" + (i + 1);
-            polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), Fr, logger);
-            evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, Fr, logger);
+            polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
+            evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
             await startWriteSection(fdZKey, sectionId);
             await fdZKey.write(polynomials[name].coef);
             await fdZKey.write(evaluations[name].eval);
@@ -464,7 +464,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
 
-        polynomials.C0 = new Polynomial(new BigBuffer(lengthBuffer * sFr, Fr, logger), Fr, logger);
+        polynomials.C0 = new Polynomial(new BigBuffer(lengthBuffer * sFr), curve, logger);
 
         for (let i = 0; i < maxLength; i++) {
             if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing C0 coefficients ${i}/${maxLength}`);
@@ -487,7 +487,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             throw new Error("C0 Polynomial is not well calculated");
         }
 
-        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, Fr, logger);
+        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, curve, logger);
 
         await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);

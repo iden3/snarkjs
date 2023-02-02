@@ -90,11 +90,11 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     if (logger) logger.info("> Computing polynomial identities PI(X)");
     const pi = calculatePI(curve, publicSignals, lagrangeEvals);
 
-    // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
+    // STEP 8 - Compute polynomial r0 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r0(y)");
     const r0 = computeR0(proof, challenges, roots, pi, curve, logger);
 
-    // STEP 8 - Compute polynomial r1 ∈ F_{<4}[X]
+    // STEP 9 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
     const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
 
@@ -331,7 +331,7 @@ function computeR0(proof, challenges, roots, pi, curve, logger) {
     const R0 = Polynomial.lagrangePolynomialInterpolation(
         [roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
             roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7]],
-        c0Values, Fr);
+        c0Values, curve);
 
     // Check the degree of r1(X) < 4
     if (R0.degree() > 7) {
@@ -376,7 +376,7 @@ function computeR1(proof, challenges, roots, pi, curve, logger) {
     // Interpolate a polynomial with the points computed previously
     const R1 = Polynomial.lagrangePolynomialInterpolation(
         [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
-        c1Values, Fr);
+        c1Values, curve);
 
     // Check the degree of r1(X) < 4
     if (R1.degree() > 3) {
@@ -440,7 +440,7 @@ function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     const R2 = Polynomial.lagrangePolynomialInterpolation(
         [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
             roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
-        c2Values, Fr);
+        c2Values, curve);
 
     // Check the degree of r2(X) < 6
     if (R2.degree() > 5) {
