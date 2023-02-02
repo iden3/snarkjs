@@ -318,6 +318,7 @@ EOT
 Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
+cd circuit_js
 circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 ```
 
@@ -329,6 +330,7 @@ Groth16 requires a trusted ceremony for each circuit. PLONK does not require it,
 
 #### Plonk
 ```sh
+cd ..
 snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
@@ -336,6 +338,7 @@ You can jump directly to Section 21 as PLONK does not require a specific trusted
 
 #### Groth16
 ```sh
+cd ..
 snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
 ```
 
