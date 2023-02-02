@@ -53,6 +53,7 @@ import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import {Evaluations} from "./polynomial/evaluations.js";
+import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -83,7 +84,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Initializations
     const Fr = curve.Fr;
-    const G1 = curve.G1;
 
     const sFr = curve.Fr.n8;
     const sG1 = curve.G1.F.n8 * 2;
@@ -435,52 +435,17 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writeC0(fdZKey) {
         // C0(X) := QL(X^8) + X · QR(X^8) + X^2 · QO(X^8) + X^3 · QM(X^8) + X^4 · QC(X^8)
         //            + X^5 · SIGMA1(X^8) + X^6 · SIGMA2(X^8) + X^7 · SIGMA3(X^8)
+        let C0 = new CPolynomial(8, curve, logger);
+        C0.addPolynomial(0, polynomials.QL);
+        C0.addPolynomial(1, polynomials.QR);
+        C0.addPolynomial(2, polynomials.QO);
+        C0.addPolynomial(3, polynomials.QM);
+        C0.addPolynomial(4, polynomials.QC);
+        C0.addPolynomial(5, polynomials.S1);
+        C0.addPolynomial(6, polynomials.S2);
+        C0.addPolynomial(7, polynomials.S3);
 
-        const lengthQL = polynomials.QL.length();
-        const lengthQR = polynomials.QR.length();
-        const lengthQO = polynomials.QO.length();
-        const lengthQM = polynomials.QM.length();
-        const lengthQC = polynomials.QC.length();
-        const lengthS1 = polynomials.S1.length();
-        const lengthS2 = polynomials.S2.length();
-        const lengthS3 = polynomials.S3.length();
-
-        // Compute degree of the new polynomial C0 to reserve the buffer memory size
-        // Will be the next power of two to bound the maximum(deg(QL), deg(QR)+1, deg(QO)+2, deg(QM)+3)
-        //                                                  deg(QC)+4, deg(S1)+5, deg(S2)+6, deg(S3)+7)
-        const degreeQL = polynomials.QL.degree();
-        const degreeQR = polynomials.QR.degree();
-        const degreeQO = polynomials.QO.degree();
-        const degreeQM = polynomials.QM.degree();
-        const degreeQC = polynomials.QC.degree();
-        const degreeS1 = polynomials.S1.degree();
-        const degreeS2 = polynomials.S2.degree();
-        const degreeS3 = polynomials.S3.degree();
-
-        const maxLength = Math.max(lengthQL, lengthQR, lengthQO, lengthQM, lengthQC, lengthS1, lengthS2, lengthS3);
-
-        const maxDegree = Math.max(degreeQL * 8 + 1, degreeQR * 8 + 2, degreeQO * 8 + 3, degreeQM * 8 + 4,
-            degreeQC * 8 + 5, degreeS1 * 8 + 6, degreeS2 * 8 + 7, degreeS3 * 8 + 8);
-
-        const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
-
-        polynomials.C0 = new Polynomial(new BigBuffer(lengthBuffer * sFr), curve, logger);
-
-        for (let i = 0; i < maxLength; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Computing C0 coefficients ${i}/${maxLength}`);
-
-            const i_n8 = i * sFr;
-            const i_sFr = i_n8 * 8;
-
-            if (i <= degreeQL) polynomials.C0.coef.set(polynomials.QL.coef.slice(i_n8, i_n8 + sFr), i_sFr);
-            if (i <= degreeQR) polynomials.C0.coef.set(polynomials.QR.coef.slice(i_n8, i_n8 + sFr), i_sFr + 32);
-            if (i <= degreeQO) polynomials.C0.coef.set(polynomials.QO.coef.slice(i_n8, i_n8 + sFr), i_sFr + 64);
-            if (i <= degreeQM) polynomials.C0.coef.set(polynomials.QM.coef.slice(i_n8, i_n8 + sFr), i_sFr + 96);
-            if (i <= degreeQC) polynomials.C0.coef.set(polynomials.QC.coef.slice(i_n8, i_n8 + sFr), i_sFr + 128);
-            if (i <= degreeS1) polynomials.C0.coef.set(polynomials.S1.coef.slice(i_n8, i_n8 + sFr), i_sFr + 160);
-            if (i <= degreeS2) polynomials.C0.coef.set(polynomials.S2.coef.slice(i_n8, i_n8 + sFr), i_sFr + 192);
-            if (i <= degreeS3) polynomials.C0.coef.set(polynomials.S3.coef.slice(i_n8, i_n8 + sFr), i_sFr + 224);
-        }
+        polynomials.C0 = C0.getPolynomial();
 
         // Check degree
         if (polynomials.C0.degree() > 8 * settings.domainSize - 1) {
@@ -528,27 +493,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
         await fdZKey.write(bX_2);
 
-        // let length = evaluations.C0.length() / 2;
-        // buffers["C0"] = new BigBuffer(length * sFr);
-        //
-        // for (let i = 0; i < length; i++) {
-        //     buffers.C0[i] = evaluations.C0.eval[i * 2];
-        // }
-        // let C0M = await Fr.batchFromMontgomery(buffers.C0);
-        let C0_1 = await multiExponentiation(polynomials.C0, "C0");
-        await fdZKey.write(C0_1);
+        let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
+        await fdZKey.write(commitC0);
 
         await endWriteSection(fdZKey);
-
-        async function multiExponentiation(polynomial, name) {
-            const n = polynomial.coef.byteLength / sFr;
-            const PTauN = PTau.slice(0, n * sG1);
-            const bm = await Fr.batchFromMontgomery(polynomial.coef);
-            let res = await G1.multiExpAffine(PTauN, bm, logger, name);
-            res = G1.toAffine(res);
-            return res;
-        }
-
     }
 
     async function writeP4(fdZKey, buff) {
