@@ -44,7 +44,6 @@ import {Proof} from "./proof.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import {Evaluations} from "./polynomial/evaluations.js";
 import {MulZ} from "./mul_z.js";
-import {log2} from "./misc.js";
 import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 const {stringifyBigInts} = utils;
@@ -692,22 +691,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeT1() {
             if (logger) logger.info("··· Computing T1 evaluations");
 
-            buffers.T1 = new BigBuffer(sDomain * 4);
-            buffers.T1z = new BigBuffer(sDomain * 4);
+            buffers.T1 = new BigBuffer(sDomain * 2);
+            buffers.T1z = new BigBuffer(sDomain * 2);
 
             // Set initial omega
             let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 4; i++) {
+            for (let i = 0; i < zkey.domainSize * 2; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    T1 evaluation ${i}/${zkey.domainSize * 4}`);
 
                 const omega2 = Fr.square(omega);
 
-                const z = evaluations.Z.getEvaluation(i);
+                const z = evaluations.Z.getEvaluation(i*2);
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
 
                 // T1(X) := (z(X) - 1) · L_1(X)
                 // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                const lagrange1 = evaluations.lagrange1.getEvaluation(zkey.domainSize + i);
+                const lagrange1 = evaluations.lagrange1.getEvaluation(zkey.domainSize + i * 2);
                 let t1 = Fr.mul(Fr.sub(z, Fr.one), lagrange1);
                 let t1z = Fr.mul(zp, lagrange1);
 
@@ -715,7 +714,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 buffers.T1z.set(t1z, i * sFr);
 
                 // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
+                omega = Fr.mul(omega, Fr.w[zkey.power + 1]);
             }
 
             // Compute the coefficients of the polynomial T1(X) from buffers.T1
@@ -723,7 +722,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, curve, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1.divZh(zkey.domainSize);
+            polynomials.T1.divZh(zkey.domainSize, 2);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.info("··· Computing T1z ifft");
