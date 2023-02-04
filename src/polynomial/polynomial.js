@@ -567,13 +567,13 @@ export class Polynomial {
         this.coef = coefs;
     }
 
-    divZh(domainSize) {
+    divZh(domainSize, extensions = 4) {
         for (let i = 0; i < domainSize; i++) {
             const i_n8 = i * this.Fr.n8;
             this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
-        for (let i = domainSize; i < domainSize * 4; i++) {
+        for (let i = domainSize; i < domainSize * extensions; i++) {
             const i_n8 = i * this.Fr.n8;
 
             const a = this.Fr.sub(
@@ -581,7 +581,7 @@ export class Polynomial {
                 this.coef.slice(i_n8, i_n8 + this.Fr.n8)
             );
             this.coef.set(a, i_n8);
-            if (i > (domainSize * 3 - 4)) {
+            if (i > (domainSize * (extensions-1) - extensions)) {
                 if (!this.Fr.isZero(a)) {
                     throw new Error("Polynomial is not divisible");
                 }

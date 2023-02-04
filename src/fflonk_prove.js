@@ -817,6 +817,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T2 = await Polynomial.fromEvaluations(buffers.T2, curve, logger);
 
             // Divide the polynomial T2 by Z_H(X)
+            if (logger) logger.info("··· Computing T2 / ZH");
             polynomials.T2.divZh(zkey.domainSize);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
@@ -1201,7 +1202,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             const evalR0Y = polynomials.R0.evaluate(challenges.y);
             const evalR1Y = polynomials.R1.evaluate(challenges.y);
             const evalR2Y = polynomials.R2.evaluate(challenges.y);
-            const evalZTY = polynomials.ZT.evaluate(challenges.y);
 
             let mulL0 = Fr.sub(challenges.y, roots.S0.h0w8[0]);
             for (let i = 1; i < 8; i++) {
@@ -1228,12 +1228,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             //TODO
             toInverse["yBatch"] = mulL1;
 
-            if (logger) logger.info("··· Computing F fft");
-
-            evaluations.F = await Evaluations.fromPolynomial(polynomials.F, 1, curve, logger);
-
             if (logger) logger.info("··· Computing L evaluations");
-
             // Set initial omega
             let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 16; i++) {
@@ -1244,7 +1239,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const c0 = evaluations.C0.getEvaluation(i);
                 const c1 = evaluations.C1.getEvaluation(i);
                 const c2 = evaluations.C2.getEvaluation(i);
-                const f = evaluations.F.getEvaluation(i);
 
                 // l0 = (y-h1) (y-h1w4) (y-h1w4_2) (y-h1w4_3) (y-h2) (y-h2w3) (y-h2w3_2) (y-h3) (y-h3w3) (y-h3w3_2) (C0(X) - R0(X))
                 let l0 = Fr.mul(preL0, Fr.sub(c0, evalR0Y));
@@ -1257,11 +1251,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 //            (y-h1) (y-h1w4) (y-h1w4_2) (y-h1w4_3) (C2(X) - R2(X))
                 let l2 = Fr.mul(preL2, Fr.sub(c2, evalR2Y));
 
-                // l3 = ZT(y) (f(X)/ZT(X))
-                // Recall f is already a f(X)/ZT(X)
-                let l3 = Fr.mul(evalZTY, f);
-
-                let l = Fr.sub(Fr.add(Fr.add(l0, l1), l2), l3);
+                let l = Fr.add(Fr.add(l0, l1), l2);
 
                 buffers.L.set(l, i_sFr);
 
@@ -1271,6 +1261,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             if (logger) logger.info("··· Computing L ifft");
             polynomials.L = await Polynomial.fromEvaluations(buffers.L, curve, logger);
+
+            const evalZTY = polynomials.ZT.evaluate(challenges.y);
+            polynomials.F.mulScalar(evalZTY);
+            polynomials.L.sub(polynomials.F);
 
             // Check degree
             if (polynomials.L.degree() >= 9 * zkey.domainSize + 18) {

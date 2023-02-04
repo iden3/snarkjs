@@ -389,22 +389,22 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         return 0;
 
-        function buildSigma(s, p) {
-            if (typeof lastSeen[s] === "undefined") {
-                firstPos[s] = p;
+        function buildSigma(signalId, idx) {
+            if (typeof lastSeen[signalId] === "undefined") {
+                firstPos[signalId] = idx;
             } else {
-                sigma.set(lastSeen[s], p * sFr);
+                sigma.set(lastSeen[signalId], idx * sFr);
             }
             let v;
-            if (p < settings.domainSize) {
+            if (idx < settings.domainSize) {
                 v = w;
-            } else if (p < 2 * settings.domainSize) {
+            } else if (idx < 2 * settings.domainSize) {
                 v = Fr.mul(w, k1);
             } else {
                 v = Fr.mul(w, k2);
             }
 
-            lastSeen[s] = v;
+            lastSeen[signalId] = v;
         }
     }
 
