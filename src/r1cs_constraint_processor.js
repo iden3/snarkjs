@@ -51,19 +51,35 @@ export class r1csConstraintProcessor {
     }
 
     getLinearCombinationType(linCom) {
-        let k = this.Fr.zero;
+        // let k = this.Fr.zero;
+        //
+        // const signalIds = Object.keys(linCom);
+        // for (let i = 0; i < signalIds.length; i++) {
+        //     if (signalIds[i] === "0") {
+        //         k = this.Fr.add(k, linCom[signalIds[i]]);
+        //     } else {
+        //         return LINEAR_COMBINATION_VARIABLE;
+        //     }
+        // }
+        //
+        // if (!this.Fr.eq(k, this.Fr.zero)) return LINEAR_COMBINATION_CONSTANT;
+        //
+        // return LINEAR_COMBINATION_NULLABLE;
 
-        const signalIds = Object.keys(linCom);
-        for (let i = 0; i < signalIds.length; i++) {
-            if (signalIds[i] === "0") {
-                k = this.Fr.add(k, linCom[signalIds[i]]);
+        let k = this.Fr.zero;
+        let n = 0;
+        const ss = Object.keys(linCom);
+        for (let i = 0; i < ss.length; i++) {
+            if (linCom[ss[i]] == 0n) {
+                delete linCom[ss[i]];
+            } else if (ss[i] == 0) {
+                k = this.Fr.add(k, linCom[ss[i]]);
             } else {
-                return LINEAR_COMBINATION_VARIABLE;
+                n++;
             }
         }
-
-        if (!this.Fr.eq(k, this.Fr.zero)) return LINEAR_COMBINATION_CONSTANT;
-
+        if (n > 0) return LINEAR_COMBINATION_VARIABLE;
+        if (!this.Fr.isZero(k)) return LINEAR_COMBINATION_CONSTANT;
         return LINEAR_COMBINATION_NULLABLE;
     }
 
@@ -79,14 +95,30 @@ export class r1csConstraintProcessor {
     joinLinearCombinations(linCom1, linCom2, k) {
         const res = {};
 
+        // for (let s in linCom1) {
+        //     const val = this.Fr.mul(k, linCom1[s]);
+        //     res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
+        // }
+        //
+        // for (let s in linCom2) {
+        //     const val = this.Fr.mul(k, linCom2[s]);
+        //     res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
+        // }
+
         for (let s in linCom1) {
-            const val = this.Fr.mul(k, linCom1[s]);
-            res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
+            if (typeof res[s] == "undefined") {
+                res[s] = this.Fr.mul(k, linCom1[s]);
+            } else {
+                res[s] = this.Fr.add(res[s], this.Fr.mul(k, linCom1[s]));
+            }
         }
 
         for (let s in linCom2) {
-            const val = this.Fr.mul(k, linCom2[s]);
-            res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
+            if (typeof res[s] == "undefined") {
+                res[s] = linCom2[s];
+            } else {
+                res[s] = this.Fr.add(res[s], linCom2[s]);
+            }
         }
 
         return this.normalizeLinearCombination(res);
@@ -103,7 +135,7 @@ export class r1csConstraintProcessor {
         for (let signalId in linCom) {
             if (signalId == 0) {
                 res.k = this.Fr.add(res.k, linCom[signalId]);
-            } else if (linCom[signalId] !== 0n) {
+            } else if (linCom[signalId] != 0n) {
                 cs.push([Number(signalId), linCom[signalId]]);
             }
         }
