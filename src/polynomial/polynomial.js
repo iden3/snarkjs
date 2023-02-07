@@ -827,8 +827,8 @@ export class Polynomial {
                 if (j === i) continue;
 
                 if (polynomial === undefined) {
-                    let buff = (xArr.length + 1) > 2 << 14 ?
-                        new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
+                    let buff = (xArr.length) > 2 << 14 ?
+                        new BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
                     polynomial = new Polynomial(buff, curve);
                     polynomial.setCoef(0, Fr.neg(xArr[j]));
                     polynomial.setCoef(1, Fr.one);

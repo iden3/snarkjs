@@ -70,7 +70,7 @@ export class r1csConstraintProcessor {
     normalizeLinearCombination(linCom) {
         const signalIds = Object.keys(linCom);
         for (let i = 0; i < signalIds.length; i++) {
-            if (linCom[signalIds[i]] === 0n) delete linCom[signalIds[i]];
+            if (this.Fr.isZero(linCom[signalIds[i]])) delete linCom[signalIds[i]];
         }
 
         return linCom;
@@ -101,7 +101,7 @@ export class r1csConstraintProcessor {
         const cs = [];
 
         for (let signalId in linCom) {
-            if (signalId === "0") {
+            if (signalId == 0) {
                 res.k = this.Fr.add(res.k, linCom[signalId]);
             } else if (linCom[signalId] !== 0n) {
                 cs.push([Number(signalId), linCom[signalId]]);
