@@ -1305,7 +1305,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         for (let i = 0; i < 6; i++) {
             toInverse["LiS2_" + (i + 1)] = computeLiS2(i);
         }
-toHexString(toInverse["LiS1_1"]);
+
         //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
         const size = Math.max(1, zkey.nPublic);
 
@@ -1360,15 +1360,4 @@ toHexString(toInverse["LiS1_1"]);
             return den;
         }
     }
-
-    function i2hex(i) {
-        return ("0" + i.toString(16)).slice(-2);
-    }
-
-    function toHexString(element) {
-        const proofBuff = new Uint8Array(Fr.n8);
-        Fr.toRprBE(proofBuff, 0, element);
-        return Array.from(proofBuff).map(i2hex).join("");
-    }
-
 }
