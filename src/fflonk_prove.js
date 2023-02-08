@@ -1225,8 +1225,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             let preL1 = Fr.mul(challenges.alpha, Fr.mul(mulL0, mulL2));
             let preL2 = Fr.mul(Fr.square(challenges.alpha), Fr.mul(mulL0, mulL1));
 
-            //TODO
-            toInverse["yBatch"] = mulL1;
+            toInverse["denH1"] = mulL1;
+            toInverse["denH2"] = mulL2;
 
             if (logger) logger.info("··· Computing L evaluations");
             // Set initial omega
@@ -1291,9 +1291,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         toInverse["zh"] = Fr.sub(xiN, Fr.one);
 
         //   · denominator needed in step 10 and 11 of the verifier
-        //     toInverse.yBatch -> Computed in round5, computeL()
+        //     toInverse.denH1 & toInverse.denH2  -> Computed in round5, computeL()
 
-        //   · denominator needed in the verifier when computing L_i^{S1}(X) and L_i^{S2}(X)
+        //   · denominator needed in the verifier when computing L_i^{S0}(X), L_i^{S1}(X) and L_i^{S2}(X)
+        for (let i = 0; i < 8; i++) {
+            toInverse["LiS0_" + (i + 1)] = computeLiS0(i);
+        }
+
         for (let i = 0; i < 4; i++) {
             toInverse["LiS1_" + (i + 1)] = computeLiS1(i);
         }
@@ -1301,7 +1305,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         for (let i = 0; i < 6; i++) {
             toInverse["LiS2_" + (i + 1)] = computeLiS2(i);
         }
-
+toHexString(toInverse["LiS1_1"]);
         //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
         const size = Math.max(1, zkey.nPublic);
 
@@ -1317,6 +1321,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             mulAccumulator = Fr.mul(mulAccumulator, element);
         }
         return Fr.inv(mulAccumulator);
+
+        function computeLiS0(i) {
+            // Compute L_i^{(S0)}(y)
+            let idx = i;
+            let den = Fr.one;
+            for (let j = 0; j < 7; j++) {
+                idx = (idx + 1) % 8;
+
+                den = Fr.mul(den, Fr.sub(roots.S0.h0w8[i], roots.S0.h0w8[idx]));
+            }
+            return den;
+        }
 
         function computeLiS1(i) {
             // Compute L_i^{(S1)}(y)
@@ -1344,4 +1360,15 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             return den;
         }
     }
+
+    function i2hex(i) {
+        return ("0" + i.toString(16)).slice(-2);
+    }
+
+    function toHexString(element) {
+        const proofBuff = new Uint8Array(Fr.n8);
+        Fr.toRprBE(proofBuff, 0, element);
+        return Array.from(proofBuff).map(i2hex).join("");
+    }
+
 }

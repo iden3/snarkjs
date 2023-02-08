@@ -36,6 +36,14 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
     vk.w4_2 = toVkey(curve.Fr.square(w4));
     vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
 
+    let w8 = fromVkey(vk.w8);
+    let acc = curve.Fr.one;
+
+    for (let i = 1; i < 8; i++) {
+        acc = curve.Fr.mul(acc, w8);
+        vk["w8_" + i] = toVkey(acc);
+    }
+
     let template = templates[vk.protocol];
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
