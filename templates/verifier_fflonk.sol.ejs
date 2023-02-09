@@ -172,7 +172,7 @@ contract PlonkVerifier {
 
                 acc := inv
 
-                // At this point pAux pint to the next free position we substract 1 to point to the last used
+                // At this point pAux point to the next free position we substract 1 to point to the last used
                 pAux := sub(pAux, 32)
                 // pIn points to the n+1 element, we substract to point to n
                 pIn := sub(pIn, 32)
