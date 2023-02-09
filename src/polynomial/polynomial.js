@@ -320,13 +320,12 @@ export class Polynomial {
         const Fr = this.Fr;
         const resize = !(this.length() - n - 1 >= this.degree());
 
-        const copyLength = (this.degree() + 1) * 32;
         const length = resize ? this.length() + n : this.length();
         const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
         let pol = new Polynomial(buff, this.curve, this.logger);
 
         // Step 0: Set current coefficients to the new buffer shifted one position
-        pol.coef.set(this.coef.slice(0, copyLength, ), n * 32);
+        pol.coef.set(this.coef.slice(0, (this.degree() + 1) * 32, ), n * 32);
 
         // Step 1: multiply each coefficient by (- value)
         this.mulScalar(value);
