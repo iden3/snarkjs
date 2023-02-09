@@ -315,6 +315,29 @@ export class Polynomial {
         this.coef = pol.coef;
     }
 
+    // Multiply current polynomial by the polynomial (X^n + value)
+    byXNSubValue(n, value) {
+        const Fr = this.Fr;
+        const resize = !(this.length() - n - 1 >= this.degree());
+
+        const copyLength = (this.degree() + 1) * 32;
+        const length = resize ? this.length() + n : this.length();
+        const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
+        let pol = new Polynomial(buff, this.curve, this.logger);
+
+        // Step 0: Set current coefficients to the new buffer shifted one position
+        pol.coef.set(this.coef.slice(0, copyLength, ), n * 32);
+
+        // Step 1: multiply each coefficient by (- value)
+        this.mulScalar(value);
+
+        // Step 2: Add current polynomial to destination polynomial
+        pol.add(this);
+
+        // Swap buffers
+        this.coef = pol.coef;
+    }
+
     // Euclidean division
     divBy(polynomial) {
         const Fr = this.Fr;

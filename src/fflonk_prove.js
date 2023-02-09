@@ -226,13 +226,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await round4();
     if (globalThis.gc) globalThis.gc();
 
-    await fdZKey.close();
-    delete polynomials.C0;
-
     // ROUND 5. Compute W'(X) polynomial
     if (logger) logger.info("> ROUND 5");
     await round5();
 
+    delete polynomials.C0;
     delete polynomials.C1;
     delete polynomials.C2;
     delete polynomials.R1;
@@ -241,6 +239,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.L;
     delete polynomials.ZT;
     delete polynomials.ZTS2;
+    await fdZKey.close();
     if (globalThis.gc) globalThis.gc();
 
     proof.addEvaluation("inv", getMontgomeryBatchedInverse());
@@ -946,10 +945,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         proof.addEvaluation("c", polynomials.C.evaluate(challenges.xi));
         proof.addEvaluation("z", polynomials.Z.evaluate(challenges.xi));
 
-        const xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        proof.addEvaluation("zw", polynomials.Z.evaluate(xiw));
-        proof.addEvaluation("t1w", polynomials.T1.evaluate(xiw));
-        proof.addEvaluation("t2w", polynomials.T2.evaluate(xiw));
+        challenges.xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
+        proof.addEvaluation("zw", polynomials.Z.evaluate(challenges.xiw));
+        proof.addEvaluation("t1w", polynomials.T1.evaluate(challenges.xiw));
+        proof.addEvaluation("t2w", polynomials.T2.evaluate(challenges.xiw));
     }
 
     async function round4() {
@@ -988,6 +987,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
         if (logger) logger.info("> Computing F polynomial");
         await computeF();
+
         if (logger) logger.info("> Computing ZT polynomial");
         await computeZT();
 
@@ -1063,86 +1063,35 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeF() {
-            buffers.F = new BigBuffer(sDomain * 16);
-
-            if (logger) logger.info("··· Reading C0 evaluations");
-            evaluations.C0 = new Evaluations(new BigBuffer(sDomain * 16), curve, logger);
-            await fdZKey.readToBuffer(evaluations.C0.eval, 0, sDomain * 16, zkeySections[ZKEY_FF_C0_SECTION][0].p + sDomain * 8);
-
-            if (logger) logger.info("··· Computing C1 fft");
-            evaluations.C1 = await Evaluations.fromPolynomial(polynomials.C1, 1, curve, logger);
-            if (logger) logger.info("··· Computing C2 fft");
-            evaluations.C2 = await Evaluations.fromPolynomial(polynomials.C2, 1, curve, logger);
-
-            if (logger) logger.info("··· Computing F evaluations");
+            if (logger) logger.info("··· Computing F polynomial");
 
             // COMPUTE F(X)
-            // Set initial omega
-            let omega = Fr.one;
+            polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
+            polynomials.F.sub(polynomials.R0);
+            polynomials.F.byXNSubValue(4, Fr.neg(challenges.xi));
+            polynomials.F.byXNSubValue(3, Fr.neg(challenges.xi));
+            polynomials.F.byXNSubValue(3, Fr.neg(challenges.xiw));
 
-            for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    F evaluation ${i}/${zkey.domainSize * 16}`);
+            let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
+            f2.sub(polynomials.R1);
+            f2.mulScalar(challenges.alpha);
+            f2.byXNSubValue(8, Fr.neg(challenges.xi));
+            f2.byXNSubValue(3, Fr.neg(challenges.xi));
+            f2.byXNSubValue(3, Fr.neg(challenges.xiw));
 
-                const i_sFr = i * sFr;
+            let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
+            f3.sub(polynomials.R2);
+            f3.mulScalar(Fr.square(challenges.alpha));
+            f3.byXNSubValue(8, Fr.neg(challenges.xi));
+            f3.byXNSubValue(4, Fr.neg(challenges.xi));
 
-                const c0 = evaluations.C0.getEvaluation(i);
-                const c1 = evaluations.C1.getEvaluation(i);
-                const c2 = evaluations.C2.getEvaluation(i);
-                const r0 = polynomials.R0.evaluate(omega);
-                const r1 = polynomials.R1.evaluate(omega);
-                const r2 = polynomials.R2.evaluate(omega);
-
-                // Compute the multiplier of all h0w8 terms
-                let preF0 = Fr.sub(omega, roots.S0.h0w8[0]);
-                for (let i = 1; i < 8; i++) {
-                    preF0 = Fr.mul(preF0, Fr.sub(omega, roots.S0.h0w8[i]));
-                }
-
-                // Compute the multiplier of all h1w4 terms
-                let preF1 = Fr.sub(omega, roots.S1.h1w4[0]);
-                for (let i = 1; i < 4; i++) {
-                    preF1 = Fr.mul(preF1, Fr.sub(omega, roots.S1.h1w4[i]));
-                }
-
-                // Compute the multiplier of all h2w3 and h2w3 terms
-                let preF2 = Fr.sub(omega, roots.S2.h2w3[0]);
-                for (let i = 1; i < 3; i++) {
-                    preF2 = Fr.mul(preF2, Fr.sub(omega, roots.S2.h2w3[i]));
-                }
-                for (let i = 0; i < 3; i++) {
-                    preF2 = Fr.mul(preF2, Fr.sub(omega, roots.S2.h3w3[i]));
-                }
-
-                // f0 = (X-h1) (X-h1w4) (X-h1w4_2) (X-h1w4_3) (X-h2) (X-h2w3) (X-h2w3_2) (X-h3) (X-h3w3) (X-h3w3_2) (C0(X) - R0(X))
-                let f0 = Fr.mul(Fr.mul(preF1, preF2), Fr.sub(c0, r0));
-
-                // f1 = alpha (X-h0) (X-h0w8) (X-h0w8_2) (X-h0w8_3) (X-h0w8_4) (X-h0w8_5) (X-h0w8_6) (X-h0w8_7) (X-h0w8_8)
-                //            (X-h2) (X-h2w3) (X-h2w3_2) (X-h3) (X-h3w3) (X-h3w3_2) (C1(X) - R1(X))
-                let f1 = Fr.mul(challenges.alpha, Fr.mul(preF0, preF2));
-                f1 = Fr.mul(f1, Fr.sub(c1, r1));
-
-                // f2 = alpha^2 (X-h0) (X-h0w8) (X-h0w8_2) (X-h0w8_3) (X-h0w8_4) (X-h0w8_5) (X-h0w8_6) (X-h0w8_7) (X-h0w8_8)
-                //            (X-h1) (X-h1w4) (X-h1w4_2) (X-h1w4_3) (C2(X) - R2(X))
-                let f2 = Fr.mul(Fr.square(challenges.alpha), Fr.mul(preF0, preF1));
-                f2 = Fr.mul(f2, Fr.sub(c2, r2));
-
-                let f = Fr.add(Fr.add(f0, f1), f2);
-
-                buffers.F.set(f, i_sFr);
-
-                // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
-            }
-
-            if (logger) logger.info("··· Computing F ifft");
-            polynomials.F = await Polynomial.fromEvaluations(buffers.F, curve, logger);
+            polynomials.F.add(f2);
+            polynomials.F.add(f3);
 
             // Check degree < 9n + 30
             if (polynomials.F.degree() >= 9 * zkey.domainSize + 30) {
                 throw new Error("F Polynomial is not well calculated");
             }
-
-            delete buffers.F;
         }
 
         async function computeZT() {
@@ -1158,6 +1107,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     async function round5() {
         if (logger) logger.info("> Computing challenge y");
+
         // STEP 5.1 - Compute random evaluation point y ∈ F
         const transcript = new Keccak256Transcript(curve);
         transcript.addPolCommitment(proof.getPolynomial("W1"));
@@ -1197,7 +1147,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         return 0;
 
         async function computeL() {
-            buffers.L = new BigBuffer(sDomain * 16);
+            if (logger) logger.info("··· Computing L polynomial");
 
             const evalR0Y = polynomials.R0.evaluate(challenges.y);
             const evalR1Y = polynomials.R1.evaluate(challenges.y);
@@ -1229,38 +1179,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             toInverse["denH2"] = mulL2;
 
             if (logger) logger.info("··· Computing L evaluations");
-            // Set initial omega
-            let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 16; i++) {
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    L evaluation ${i}/${zkey.domainSize * 16}`);
 
-                const i_sFr = i * sFr;
+            // COMPUTE F(X)
+            polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
+            polynomials.L.subScalar(evalR0Y);
+            polynomials.L.mulScalar(preL0);
 
-                const c0 = evaluations.C0.getEvaluation(i);
-                const c1 = evaluations.C1.getEvaluation(i);
-                const c2 = evaluations.C2.getEvaluation(i);
+            let l2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
+            l2.subScalar(evalR1Y);
+            l2.mulScalar(preL1);
 
-                // l0 = (y-h1) (y-h1w4) (y-h1w4_2) (y-h1w4_3) (y-h2) (y-h2w3) (y-h2w3_2) (y-h3) (y-h3w3) (y-h3w3_2) (C0(X) - R0(X))
-                let l0 = Fr.mul(preL0, Fr.sub(c0, evalR0Y));
+            let l3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
+            l3.subScalar(evalR2Y);
+            l3.mulScalar(preL2);
 
-                // f1 = alpha (y-h0) (y-h0w8) (y-h0w8_2) (y-h0w8_3) (y-h0w8_4) (y-h0w8_5) (y-h0w8_6) (y-h0w8_7) (y-h0w8_8)
-                //            (y-h2) (y-h2w3) (y-h2w3_2) (y-h3) (y-h3w3) (y-h3w3_2) (C1(X) - R1(X))
-                let l1 = Fr.mul(preL1, Fr.sub(c1, evalR1Y));
-
-                // f2 = alpha^2 (y-h0) (y-h0w8) (y-h0w8_2) (y-h0w8_3) (y-h0w8_4) (y-h0w8_5) (y-h0w8_6) (y-h0w8_7) (y-h0w8_8)
-                //            (y-h1) (y-h1w4) (y-h1w4_2) (y-h1w4_3) (C2(X) - R2(X))
-                let l2 = Fr.mul(preL2, Fr.sub(c2, evalR2Y));
-
-                let l = Fr.add(Fr.add(l0, l1), l2);
-
-                buffers.L.set(l, i_sFr);
-
-                // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 4]);
-            }
-
-            if (logger) logger.info("··· Computing L ifft");
-            polynomials.L = await Polynomial.fromEvaluations(buffers.L, curve, logger);
+            polynomials.L.add(l2);
+            polynomials.L.add(l3);
 
             const evalZTY = polynomials.ZT.evaluate(challenges.y);
             polynomials.F.mulScalar(evalZTY);
