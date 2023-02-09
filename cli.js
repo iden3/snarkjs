@@ -171,6 +171,14 @@ const commands = [
         action: wtnsExportJson
     },
     {
+        cmd: "wtns export json [numbersToRead] [witness.wtns] [witnes.json]",
+        description: "Calculate the witness with debug info.",
+        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-verbose|v",
+        alias: ["wejN"],
+        action: wtnsNExportJson
+    },
+    {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
         description: "creates a zkey file with a new contribution",
         alias: ["zkc"],
@@ -442,6 +450,21 @@ async function wtnsExportJson(params, options) {
     return 0;
 }
 
+// wtns export json  [witness.wtns] [witness.json]
+// -get|g -set|s -trigger|t
+async function wtnsNExportJson(params, options) {
+    const numberOfLines = params[0] || "0";
+    const wtnsName = params[1] || "witness.wtns";
+    const jsonName = params[2] || "witness.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const w = await wtns.exportJsonWithNLines(wtnsName, numberOfLines);
+
+    await bfj.write(jsonName, stringifyBigInts(w), { space: 1 });
+
+    return 0;
+}
 
 /*
 // zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
@@ -580,12 +603,12 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (await fileExists(path.join(__dirname, "templates"))) {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
     } else {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
     }
-    
+
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");

@@ -134,7 +134,7 @@ function r1csPrint$1(r1cs, syms, logger) {
             const keys = Object.keys(lc);
             keys.forEach( (k) => {
                 let name = syms.varIdx2Name[k];
-                if (name == "one") name = "";
+                if (name == "one") name = "1";
 
                 let vs = r1cs.curve.Fr.toString(lc[k]);
                 if (vs == "1") vs = "";  // Do not show ones
@@ -5458,6 +5458,25 @@ async function read(fileName) {
     return res;
 }
 
+async function readNLines(fileName, n) {
+
+    const {fd, sections} = await binFileUtils__namespace.readBinFile(fileName, "wtns", 2);
+
+    const {n8} = await readHeader(fd, sections);
+
+    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 2);
+    const res = [];
+    for (let i=0; i<n; i++) {
+        const v = await binFileUtils__namespace.readBigInt(fd, n8);
+        res.push(v);
+    }
+    await binFileUtils__namespace.endReadSection(fd, true);
+
+    await fd.close();
+
+    return res;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -8004,6 +8023,13 @@ async function wtnsExportJson$1(wtnsFileName) {
     return w;
 }
 
+async function wtnsNExportJson$1(wtnsFileName, n) {
+
+    const w = await readNLines(wtnsFileName, n);
+
+    return w;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -8148,6 +8174,14 @@ const commands = [
         options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
+    },
+    {
+        cmd: "wtns export json [numbersToRead] [witness.wtns] [witnes.json]",
+        description: "Calculate the witness with debug info.",
+        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        options: "-verbose|v",
+        alias: ["wejN"],
+        action: wtnsNExportJson
     },
     {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
@@ -8421,6 +8455,21 @@ async function wtnsExportJson(params, options) {
     return 0;
 }
 
+// wtns export json  [witness.wtns] [witness.json]
+// -get|g -set|s -trigger|t
+async function wtnsNExportJson(params, options) {
+    const numberOfLines = params[0] || "0";
+    const wtnsName = params[1] || "witness.wtns";
+    const jsonName = params[2] || "witness.json";
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    const w = await wtnsNExportJson$1(wtnsName, numberOfLines);
+
+    await bfj__default["default"].write(jsonName, stringifyBigInts(w), { space: 1 });
+
+    return 0;
+}
 
 /*
 // zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
@@ -8559,12 +8608,12 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
         templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");
     } else {
         templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");    
+        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
     }
-    
+
     const verifierCode = await exportSolidityVerifier(zkeyName, templates);
 
     fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
@@ -8617,7 +8666,7 @@ async function powersOfTauNew(params, options) {
     curveName = params[0];
 
     power = parseInt(params[1]);
-    if ((power<1) || (power>28)) {
+    if ((power<1) || (power>28) || isNaN(power)) {
         throw new Error("Power must be between 1 and 28");
     }
 

@@ -733,6 +733,25 @@ async function read(fileName) {
     return res;
 }
 
+async function readNLines(fileName, n) {
+
+    const {fd, sections} = await binFileUtils__namespace.readBinFile(fileName, "wtns", 2);
+
+    const {n8} = await readHeader(fd, sections);
+
+    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 2);
+    const res = [];
+    for (let i=0; i<n; i++) {
+        const v = await binFileUtils__namespace.readBigInt(fd, n8);
+        res.push(v);
+    }
+    await binFileUtils__namespace.endReadSection(fd, true);
+
+    await fd.close();
+
+    return res;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -3659,7 +3678,7 @@ function r1csPrint(r1cs, syms, logger) {
             const keys = Object.keys(lc);
             keys.forEach( (k) => {
                 let name = syms.varIdx2Name[k];
-                if (name == "one") name = "";
+                if (name == "one") name = "1";
 
                 let vs = r1cs.curve.Fr.toString(lc[k]);
                 if (vs == "1") vs = "";  // Do not show ones
@@ -3924,6 +3943,13 @@ async function wtnsExportJson(wtnsFileName) {
     return w;
 }
 
+async function wtnsNExportJson(wtnsFileName, n) {
+
+    const w = await readNLines(wtnsFileName, n);
+
+    return w;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -3947,7 +3973,8 @@ var wtns = /*#__PURE__*/Object.freeze({
     __proto__: null,
     calculate: wtnsCalculate,
     debug: wtnsDebug,
-    exportJson: wtnsExportJson
+    exportJson: wtnsExportJson,
+    exportJsonWithNLines: wtnsNExportJson
 });
 
 /*
