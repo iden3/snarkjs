@@ -240,27 +240,6 @@ describe("snarkjs: Polynomial tests", function () {
     it("should divide by (X^m - y)", async () => {
         const Fr = curve.Fr;
 
-        // Dividend: 5x^5 - 4x^6 - 3x^5 - 2x^4 - 2x^3 - 4x^2  - 4x^1 - 4
-        // Divisor:  x^3 - 2
-        // Quotient: 2x^6 + 2x^5 + 2x^4 + 2x^3 + 2x^2  + 2x^1 + 2
-        // const polDividend = Polynomial.fromCoefficientsArray(
-        //     [Fr.e(-2), Fr.e(-4), Fr.e(-6), Fr.e(-7), Fr.e(-8), Fr.e(3), Fr.e(4), Fr.e(5)], Fr);
-        // const polDivisor = Polynomial.fromCoefficientsArray([Fr.one, Fr.zero, Fr.zero, Fr.e(-2)], Fr);
-
-        // const polQuotient = Polynomial.fromCoefficientsArray([Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5)], Fr);
-        // const polDividend = Polynomial.fromCoefficientsArray(
-        //     [Fr.e(-10), Fr.e(0),Fr.e(1), Fr.e(-2), Fr.e(-2), Fr.e(-3), Fr.e(-2), Fr.e(-2), Fr.e(0), Fr.e(2), Fr.e(1)], Fr);
-        //const polQuotient = Polynomial.fromCoefficientsArray(
-        //    [Fr.e(5), Fr.e(0), Fr.e(2), Fr.e(1), Fr.e(2), Fr.e(2), Fr.e(2), Fr.e(2), Fr.e(1)], Fr);
-
-        // const polDividend = Polynomial.fromCoefficientsArray(
-        //     [Fr.e(-14), Fr.e(-2),Fr.e(3), Fr.e(-5), Fr.e(-6),
-        //         Fr.e(-7), Fr.e(-8), Fr.e(-9), Fr.e(-10), Fr.e(-11),
-        //         Fr.e(-12), Fr.e(-13), Fr.e(-14), Fr.e(11), Fr.e(12)], Fr);
-        // const polQuotient = Polynomial.fromCoefficientsArray(
-        //     [Fr.e(7), Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5), Fr.e(6), Fr.e(7), Fr.e(8),
-        //         Fr.e(9), Fr.e(10), Fr.e(11), Fr.e(12)], Fr);
-
         const polDividend = Polynomial.fromCoefficientsArray(
             [Fr.e(-14),Fr.e(-2),Fr.e(3),Fr.e(-5),Fr.e(-6),Fr.e(-7),Fr.e(-8),Fr.e(-9),Fr.e(-10),Fr.e(-11),
                 Fr.e(-12),Fr.e(-13),Fr.e(-14),Fr.e(-15),Fr.e(-16),Fr.e(-17),Fr.e(-18),Fr.e(15),Fr.e(16)], curve);
@@ -268,17 +247,9 @@ describe("snarkjs: Polynomial tests", function () {
             [Fr.e(7), Fr.e(1), Fr.e(2), Fr.e(3), Fr.e(4), Fr.e(5), Fr.e(6), Fr.e(7), Fr.e(8),
                 Fr.e(9), Fr.e(10), Fr.e(11), Fr.e(12), Fr.e(13),Fr.e(14),Fr.e(15),Fr.e(16)], curve);
 
-        polDividend.fastDivByVanishing(2, Fr.e(2));
+        polDividend.divByVanishing(2, Fr.e(2));
 
         assert(polDividend.isEqual(polQuotient));
-
-        const polDividend2 = Polynomial.fromCoefficientsArray(
-            [Fr.e(-14),Fr.e(-2),Fr.e(3),Fr.e(-5),Fr.e(-6),Fr.e(-7),Fr.e(-8),Fr.e(-9),Fr.e(-10),Fr.e(-11),
-                Fr.e(-12),Fr.e(-13),Fr.e(-14),Fr.e(-15),Fr.e(-16),Fr.e(-17),Fr.e(-18),Fr.e(15),Fr.e(16)], curve);
-
-        polDividend2.divByVanishing(2, Fr.e(2));
-
-        assert(polDividend2.isEqual(polDividend));
     });
 
     it("should multiply by (X-value)", async () => {

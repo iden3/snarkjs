@@ -1065,25 +1065,28 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             if (logger) logger.info("··· Computing F polynomial");
 
+            let xiNeg = Fr.neg(challenges.xi);
+            let xiwNeg = Fr.neg(challenges.xiw);
+
             // COMPUTE F(X)
             polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
             polynomials.F.sub(polynomials.R0);
-            polynomials.F.byXNSubValue(4, Fr.neg(challenges.xi));
-            polynomials.F.byXNSubValue(3, Fr.neg(challenges.xi));
-            polynomials.F.byXNSubValue(3, Fr.neg(challenges.xiw));
+            polynomials.F.byXNSubValue(4, xiNeg);
+            polynomials.F.byXNSubValue(3, xiNeg);
+            polynomials.F.byXNSubValue(3, xiwNeg);
 
             let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
             f2.sub(polynomials.R1);
             f2.mulScalar(challenges.alpha);
-            f2.byXNSubValue(8, Fr.neg(challenges.xi));
-            f2.byXNSubValue(3, Fr.neg(challenges.xi));
-            f2.byXNSubValue(3, Fr.neg(challenges.xiw));
+            f2.byXNSubValue(8, xiNeg);
+            f2.byXNSubValue(3, xiNeg);
+            f2.byXNSubValue(3, xiwNeg);
 
             let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
             f3.sub(polynomials.R2);
             f3.mulScalar(Fr.square(challenges.alpha));
-            f3.byXNSubValue(8, Fr.neg(challenges.xi));
-            f3.byXNSubValue(4, Fr.neg(challenges.xi));
+            f3.byXNSubValue(8, xiNeg);
+            f3.byXNSubValue(4, xiNeg);
 
             polynomials.F.add(f2);
             polynomials.F.add(f3);
@@ -1177,8 +1180,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             toInverse["denH1"] = mulL1;
             toInverse["denH2"] = mulL2;
-
-            if (logger) logger.info("··· Computing L evaluations");
 
             // COMPUTE F(X)
             polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
