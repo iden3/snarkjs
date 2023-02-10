@@ -19,26 +19,26 @@ jobs:
     - run: npm install
     - run: npm link
     - name: 1. Start a new powers of tau ceremony
-      run: snarkjs powersoftau new bn128 12 pot12_0000.ptau -v
+      run: snarkjs powersoftau new bn128 14 pot14_0000.ptau -v
     - name: 2. Contribute to the ceremony
-      run: snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau -e="some random text" --name="First contribution" -v
+      run: snarkjs powersoftau contribute pot14_0000.ptau pot14_0001.ptau -e="some random text" --name="First contribution" -v
     - name: 3. Provide a second contribution
-      run: snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution" -e="some random text" -v
+      run: snarkjs powersoftau contribute pot14_0001.ptau pot14_0002.ptau --name="Second contribution" -e="some random text" -v
     - name: 4. Provide a third contribution using third party software
       run: |
-        snarkjs powersoftau export challenge pot12_0002.ptau challenge_0003
+        snarkjs powersoftau export challenge pot14_0002.ptau challenge_0003
         snarkjs powersoftau challenge contribute bn128 challenge_0003 response_0003 -e="some random text"
-        snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
+        snarkjs powersoftau import response pot14_0002.ptau response_0003 pot14_0003.ptau -n="Third contribution name"
     - name: 5. Verify the protocol so far
-      run: snarkjs powersoftau verify pot12_0003.ptau
+      run: snarkjs powersoftau verify pot14_0003.ptau
     - name: 6. Apply a random beacon
-      run: snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
+      run: snarkjs powersoftau beacon pot14_0003.ptau pot14_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
     - name: 7. Prepare phase 2
-      run: snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
+      run: snarkjs powersoftau prepare phase2 pot14_beacon.ptau pot14_final.ptau -v
     - name: 8. Verify the final ptau
-      run: snarkjs powersoftau verify pot12_final.ptau -v
+      run: snarkjs powersoftau verify pot14_final.ptau -v
     - name: Export ptau as JSON (not part of tutorial)
-      run: snarkjs powersoftau export json pot12_final.ptau pot12_final.json -v
+      run: snarkjs powersoftau export json pot14_final.ptau pot14_final.json -v
     - name: 9. Create the circuit
       run: |
         cat <<EOT > circuit.circom
@@ -70,7 +70,7 @@ jobs:
         snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
         cat circuit.r1cs.json
     - name: 14. Generate the reference zkey without phase 2 contributions
-      run: snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
+      run: snarkjs groth16 setup circuit.r1cs pot14_final.ptau circuit_0000.zkey
     - name: 15. Contribute to the phase 2 ceremony
       run: snarkjs zkey contribute circuit_0000.zkey circuit_0001.zkey --name="1st Contributor Name" -e="some random text" -v
     - name: 16. Provide a second contribution
@@ -81,11 +81,11 @@ jobs:
         snarkjs zkey bellman contribute bn128 challenge_phase2_0003 response_phase2_0003 -e="some random text"
         snarkjs zkey import bellman circuit_0002.zkey response_phase2_0003 circuit_0003.zkey -n="Third contribution name"
     - name: 18. Verify the latest zkey
-      run: snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
+      run: snarkjs zkey verify circuit.r1cs pot14_final.ptau circuit_0003.zkey
     - name: 19. Apply a random beacon
       run: snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon phase2"
     - name: 20. Verify the final zkey
-      run: snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
+      run: snarkjs zkey verify circuit.r1cs pot14_final.ptau circuit_final.zkey
       # This is a test for a regression in the command
     - name: Export zkey as JSON (not part of tutorial)
       run: snarkjs zkey export json circuit_final.zkey circuit_final.zkey.json
@@ -108,7 +108,7 @@ jobs:
     - name: 27. Simulate a verification call
       run: snarkjs zkey export soliditycalldata public.json proof.json
     - name: 28. Plonk setup
-      run: snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
+      run: snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
     - name: 29. Export the verification key
       run: snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
     - name: 30. Create a PLONK proof
@@ -120,7 +120,7 @@ jobs:
     - name: 33. Simulate a PLONK verification call
       run: snarkjs zkey export soliditycalldata public.json proof.json
     - name: 34. Fflonk setup
-      run: snarkjs fflonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
+      run: snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
     - name: 35. Export the verification key
       run: snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
     - name: 36. Create a FFLONK proof
