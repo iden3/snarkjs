@@ -71,7 +71,7 @@ If you a feel a command is taking longer than it should, re-run it with a `-v` o
 
 ### Install circom
 
-To install `circom`, follow the instructions at [installing circom](https://docs.circom.io/getting-started/installation). 
+To install `circom`, follow the instructions at [installing circom](https://docs.circom.io/getting-started/installation).
 
 ## Guide
 
@@ -83,7 +83,7 @@ cd snarkjs_example
 
 ### 1. Start a new powers of tau ceremony
 ```sh
-snarkjs powersoftau new bn128 12 pot12_0000.ptau -v
+snarkjs powersoftau new bn128 14 pot14_0000.ptau -v
 ```
 
 The `new` command is used to start a powers of tau ceremony.
@@ -95,29 +95,29 @@ The second parameter, in this case `12`, is the power of two of the maximum numb
 
 ### 2. Contribute to the ceremony
 ```sh
-snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="First contribution" -v
+snarkjs powersoftau contribute pot14_0000.ptau pot14_0001.ptau --name="First contribution" -v
 ```
 
 The `contribute` command creates a ptau file with a new contribution.
 
 You'll be prompted to enter some random text to provide an extra source of entropy.
 
-`contribute` takes as input the transcript of the protocol so far, in this case `pot12_0000.ptau`, and outputs a new transcript, in this case `pot12_0001.ptau`, which includes the computation carried out by the new contributor (`ptau` files contain a history of all the challenges and responses that have taken place so far).
+`contribute` takes as input the transcript of the protocol so far, in this case `pot14_0000.ptau`, and outputs a new transcript, in this case `pot14_0001.ptau`, which includes the computation carried out by the new contributor (`ptau` files contain a history of all the challenges and responses that have taken place so far).
 
 `name` can be anything you want, and is just included for reference (it will be printed when you verify the file (step 5).
 
 ### 3. Provide a second contribution
 ```sh
-snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution" -v -e="some random text"
+snarkjs powersoftau contribute pot14_0001.ptau pot14_0002.ptau --name="Second contribution" -v -e="some random text"
 ```
 
 By letting you write the random text as part of the command, the `-e` parameter allows `contribute` to be non-interactive.
 
 ### 4. Provide a third contribution using third party software
 ```sh
-snarkjs powersoftau export challenge pot12_0002.ptau challenge_0003
+snarkjs powersoftau export challenge pot14_0002.ptau challenge_0003
 snarkjs powersoftau challenge contribute bn128 challenge_0003 response_0003 -e="some random text"
-snarkjs powersoftau import response pot12_0002.ptau response_0003 pot12_0003.ptau -n="Third contribution name"
+snarkjs powersoftau import response pot14_0002.ptau response_0003 pot14_0003.ptau -n="Third contribution name"
 ```
 
 The challenge and response files are compatible with [this software](https://github.com/kobigurk/phase2-bn254).
@@ -126,7 +126,7 @@ This allows you to use different types of software in a single ceremony.
 
 ### 5. Verify the protocol so far
 ```sh
-snarkjs powersoftau verify pot12_0003.ptau
+snarkjs powersoftau verify pot14_0003.ptau
 ```
 
 The `verify` command verifies a `ptau` (powers of tau) file. Which means it checks all the contributions to the multi-party computation (MPC) up to that point. It also prints the hashes of all the intermediate results to the console.
@@ -142,7 +142,7 @@ In sum, whenever a new zk-snark project needs to perform a trusted setup, you ca
 
 ### 6. Apply a random beacon
 ```sh
-snarkjs powersoftau beacon pot12_0003.ptau pot12_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
+snarkjs powersoftau beacon pot14_0003.ptau pot14_beacon.ptau 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f 10 -n="Final Beacon"
 ```
 
 The `beacon` command creates a `ptau` file with a contribution applied in the form of a random beacon.
@@ -157,7 +157,7 @@ For the purposes of this tutorial, the beacon is essentially a delayed hash func
 
 ### 7. Prepare phase 2
 ```sh
-snarkjs powersoftau prepare phase2 pot12_beacon.ptau pot12_final.ptau -v
+snarkjs powersoftau prepare phase2 pot14_beacon.ptau pot14_final.ptau -v
 ```
 
 We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
@@ -212,7 +212,7 @@ https://www.reddit.com/r/ethereum/comments/iftos6/powers_of_tau_selection_for_he
 
 ### 8. Verify the final `ptau`
 ```sh
-snarkjs powersoftau verify pot12_final.ptau
+snarkjs powersoftau verify pot14_final.ptau
 ```
 
 The `verify` command verifies a powers of tau file.
@@ -323,25 +323,25 @@ circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 
 ### 15. Setup
 
-Currently, snarkjs supports 3 proving systems: Groth16, PLONK and FFLONK (Beta version). 
+Currently, snarkjs supports 3 proving systems: Groth16, PLONK and FFLONK (Beta version).
 
 Groth16 requires a trusted ceremony for each circuit. PLONK and FFLONK do not require it, it's enough with the powers of tau ceremony which is universal.
 
 #### Plonk
 ```sh
-snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
+snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
 ```
 
 #### Fflonk
 ```sh
-snarkjs fflonk setup circuit.r1cs powersOfTau.ptau circuit.zkey
+snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit.zkey
 ```
 
 You can jump directly to Section 21 as PLONK or FFLONK does not require a specific trusted ceremony.
 
 #### Groth16
 ```sh
-snarkjs groth16 setup circuit.r1cs pot12_final.ptau circuit_0000.zkey
+snarkjs groth16 setup circuit.r1cs pot14_final.ptau circuit_0000.zkey
 ```
 
 This generates the reference `zkey` without phase 2 contributions
@@ -387,7 +387,7 @@ And a third using [third-party software](https://github.com/kobigurk/phase2-bn25
 
 ### 19. Verify the latest `zkey`
 ```sh
-snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_0003.zkey
+snarkjs zkey verify circuit.r1cs pot14_final.ptau circuit_0003.zkey
 ```
 
 The `zkey verify` command verifies a `zkey` file. It also prints the hashes of all the intermediary results to the console.
@@ -413,7 +413,7 @@ We use it to apply a random beacon to the latest `zkey` after the final contribu
 
 ### 21. Verify the final `zkey`
 ```sh
-snarkjs zkey verify circuit.r1cs pot12_final.ptau circuit_final.zkey
+snarkjs zkey verify circuit.r1cs pot14_final.ptau circuit_final.zkey
 ```
 
 Before we go ahead and export the verification key as a `json`, we perform a final check and verify the final protocol transcript (`zkey`).
