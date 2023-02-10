@@ -19,25 +19,34 @@
 
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
-import { getCurveFromQ as getCurve } from "./curves.js";
-import { utils } from "ffjavascript";
+import {getCurveFromQ as getCurve} from "./curves.js";
+import {utils} from "ffjavascript";
+import {FFLONK_PROTOCOL_ID} from "./zkey.js";
+
 const {stringifyBigInts} = utils;
 
-export default async function zkeyExportVerificationKey(zkeyName, /* logger */ ) {
+export default async function zkeyExportVerificationKey(zkeyName, logger) {
+    if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
 
     const {fd, sections} = await binFileUtils.readBinFile(zkeyName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections);
 
+    if (logger) logger.info("> Detected protocol: " + zkey.protocol);
+
     let res;
-    if (zkey.protocol == "groth16") {
+    if (zkey.protocol === "groth16") {
         res = await groth16Vk(zkey, fd, sections);
-    } else if (zkey.protocol == "plonk") {
+    } else if (zkey.protocol === "plonk") {
         res = await plonkVk(zkey);
+    } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
+        res = await exportFFlonkVk(zkey, logger);
     } else {
-        throw new Error("zkey file is not groth16");
+        throw new Error("zkey file protocol unrecognized");
     }
 
     await fd.close();
+
+    if (logger) logger.info("EXPORT VERIFICATION KEY FINISHED");
 
     return res;
 }
@@ -45,9 +54,9 @@ export default async function zkeyExportVerificationKey(zkeyName, /* logger */ )
 
 async function groth16Vk(zkey, fd, sections) {
     const curve = await getCurve(zkey.q);
-    const sG1 = curve.G1.F.n8*2;
+    const sG1 = curve.G1.F.n8 * 2;
 
-    const alphaBeta = await curve.pairing( zkey.vk_alpha_1 , zkey.vk_beta_2 );
+    const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
 
     let vKey = {
         protocol: zkey.protocol,
@@ -57,8 +66,8 @@ async function groth16Vk(zkey, fd, sections) {
         vk_alpha_1: curve.G1.toObject(zkey.vk_alpha_1),
 
         vk_beta_2: curve.G2.toObject(zkey.vk_beta_2),
-        vk_gamma_2:  curve.G2.toObject(zkey.vk_gamma_2),
-        vk_delta_2:  curve.G2.toObject(zkey.vk_delta_2),
+        vk_gamma_2: curve.G2.toObject(zkey.vk_gamma_2),
+        vk_delta_2: curve.G2.toObject(zkey.vk_delta_2),
 
         vk_alphabeta_12: curve.Gt.toObject(alphaBeta)
     };
@@ -67,7 +76,7 @@ async function groth16Vk(zkey, fd, sections) {
     ///////////
     await binFileUtils.startReadUniqueSection(fd, sections, 3);
     vKey.IC = [];
-    for (let i=0; i<= zkey.nPublic; i++) {
+    for (let i = 0; i <= zkey.nPublic; i++) {
         const buff = await fd.read(sG1);
         const P = curve.G1.toObject(buff);
         vKey.IC.push(P);
@@ -109,4 +118,31 @@ async function plonkVk(zkey) {
     vKey = stringifyBigInts(vKey);
 
     return vKey;
+}
+
+async function exportFFlonkVk(zkey, logger) {
+    const curve = await getCurve(zkey.q);
+
+    let vKey = {
+        protocol: zkey.protocol,
+        curve: curve.name,
+        nPublic: zkey.nPublic,
+        power: zkey.power,
+
+        k1: curve.Fr.toObject(zkey.k1),
+        k2: curve.Fr.toObject(zkey.k2),
+
+        w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+        //wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
+        w3: curve.Fr.toObject(zkey.w3),
+        w4: curve.Fr.toObject(zkey.w4),
+        w8: curve.Fr.toObject(zkey.w8),
+        wr: curve.Fr.toObject(zkey.wr),
+
+        X_2: curve.G2.toObject(zkey.X_2),
+
+        C0: curve.G1.toObject(zkey.C0),
+    };
+
+    return stringifyBigInts(vKey);
 }

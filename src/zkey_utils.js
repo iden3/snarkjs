@@ -49,6 +49,8 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
+import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey.js";
+import {ZKEY_FF_HEADER_SECTION} from "./fflonk.js";
 
 export async function writeHeader(fd, zkey) {
 
@@ -210,10 +212,12 @@ export async function readHeader(fd, sections, toObject) {
     const protocolId = await fd.readULE32();
     await binFileUtils.endReadSection(fd);
 
-    if (protocolId == 1) {
+    if (protocolId === GROTH16_PROTOCOL_ID) {
         return await readHeaderGroth16(fd, sections, toObject);
-    } else if (protocolId == 2) {
+    } else if (protocolId === PLONK_PROTOCOL_ID) {
         return await readHeaderPlonk(fd, sections, toObject);
+    } else if (protocolId === FFLONK_PROTOCOL_ID) {
+        return await readHeaderFFlonk(fd, sections, toObject);
     } else {
         throw new Error("Protocol not supported: ");
     }        
@@ -254,9 +258,6 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 }
 
-
-
-
 async function readHeaderPlonk(fd, sections, toObject) {
     const zkey = {};
 
@@ -291,6 +292,46 @@ async function readHeaderPlonk(fd, sections, toObject) {
     zkey.S2 = await readG1(fd, zkey.curve, toObject);
     zkey.S3 = await readG1(fd, zkey.curve, toObject);
     zkey.X_2 = await readG2(fd, zkey.curve, toObject);
+
+    await binFileUtils.endReadSection(fd);
+
+    return zkey;
+}
+
+async function readHeaderFFlonk(fd, sections, toObject) {
+    const zkey = {};
+
+    zkey.protocol = "fflonk";
+    zkey.protocolId = FFLONK_PROTOCOL_ID;
+
+    await binFileUtils.startReadUniqueSection(fd, sections, ZKEY_FF_HEADER_SECTION);
+    const n8q = await fd.readULE32();
+    zkey.n8q = n8q;
+    zkey.q = await binFileUtils.readBigInt(fd, n8q);
+    zkey.curve = await getCurve(zkey.q);
+
+    const n8r = await fd.readULE32();
+    zkey.n8r = n8r;
+    zkey.r = await binFileUtils.readBigInt(fd, n8r);
+
+    zkey.nVars = await fd.readULE32();
+    zkey.nPublic = await fd.readULE32();
+    zkey.domainSize = await fd.readULE32();
+    zkey.power = log2(zkey.domainSize);
+    zkey.nAdditions = await fd.readULE32();
+    zkey.nConstraints = await fd.readULE32();
+
+    zkey.k1 = await fd.read(n8r);
+    zkey.k2 = await fd.read(n8r);
+
+    zkey.w3 = await fd.read(n8r);
+    zkey.w4 = await fd.read(n8r);
+    zkey.w8 = await fd.read(n8r);
+    zkey.wr = await fd.read(n8r);
+
+    zkey.X_2 = await readG2(fd, zkey.curve, toObject);
+
+    zkey.C0 = await readG1(fd, zkey.curve, toObject);
 
     await binFileUtils.endReadSection(fd);
 

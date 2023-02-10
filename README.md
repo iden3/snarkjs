@@ -3,7 +3,7 @@
 
 # snarkjs
 
-This is a **JavaScript and Pure Web Assembly implementation of zkSNARK and PLONK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings) and PLONK.
+This is a **JavaScript and Pure Web Assembly implementation of zkSNARK and PLONK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings), PLONK and FFLONK.
 
 This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit specific ceremonies.
 
@@ -323,16 +323,21 @@ circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 
 ### 15. Setup
 
-Currently, snarkjs supports 2 proving systems: groth16 and PLONK. 
+Currently, snarkjs supports 3 proving systems: Groth16, PLONK and FFLONK (Beta version). 
 
-Groth16 requires a trusted ceremony for each circuit. PLONK does not require it, it's enough with the powers of tau ceremony which is universal.
+Groth16 requires a trusted ceremony for each circuit. PLONK and FFLONK do not require it, it's enough with the powers of tau ceremony which is universal.
 
 #### Plonk
 ```sh
 snarkjs plonk setup circuit.r1cs pot12_final.ptau circuit_final.zkey
 ```
 
-You can jump directly to Section 21 as PLONK does not require a specific trusted ceremony.
+#### Fflonk
+```sh
+snarkjs fflonk setup circuit.r1cs powersOfTau.ptau circuit.zkey
+```
+
+You can jump directly to Section 21 as PLONK or FFLONK does not require a specific trusted ceremony.
 
 #### Groth16
 ```sh
@@ -428,6 +433,12 @@ We export the verification key from `circuit_final.zkey` into `verification_key.
 snarkjs plonk prove circuit_final.zkey witness.wtns proof.json public.json
 ```
 
+#### FFLONK
+
+```sh
+snarkjs fflonk prove circuit.zkey witness.wtns proof.json public.json
+```
+
 #### Groth16
 
 ```sh
@@ -439,7 +450,11 @@ We create the proof. this command generates the files `proof.json` and `public.j
 > Note that it's also possible to create the proof and calculate the witness in the same command by running:
 > ```sh
 > snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json public.json
-> ```
+> or
+> snarkjs plonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+> or
+> snarkjs fflonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+> > ```
 
 
 ### 24. Verify the proof
@@ -447,6 +462,11 @@ We create the proof. this command generates the files `proof.json` and `public.j
 #### PLONK
 ```sh
 snarkjs plonk verify verification_key.json public.json proof.json
+```
+
+#### FFLONK
+```sh
+snarkjs fflonk verify verification_key.json public.json proof.json
 ```
 
 #### Groth16
