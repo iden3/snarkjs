@@ -34,6 +34,9 @@ export default {
             crypto: empty,
             readline: empty,
             ejs: empty,
+            events: empty,
+            stream: empty,
+            util: empty,
             constants: constants,
         }),
         nodeResolve({

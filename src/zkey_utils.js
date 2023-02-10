@@ -49,7 +49,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
-import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey.js";
+import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey_constants.js";
 import {ZKEY_FF_HEADER_SECTION} from "./fflonk.js";
 
 export async function writeHeader(fd, zkey) {
@@ -220,7 +220,7 @@ export async function readHeader(fd, sections, toObject) {
         return await readHeaderFFlonk(fd, sections, toObject);
     } else {
         throw new Error("Protocol not supported: ");
-    }        
+    }
 }
 
 

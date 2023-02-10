@@ -43,7 +43,7 @@ import {
     ZKEY_FF_NSECTIONS,
     ZKEY_FF_C0_SECTION,
 } from "./fflonk.js";
-import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey.js";
+import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey_constants.js";
 import {
     getFFlonkAdditionConstraint,
     getFFlonkConstantConstraint,
