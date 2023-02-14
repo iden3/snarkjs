@@ -12455,8 +12455,7 @@ const commands = [
     },
     {
         cmd: "wtns export json [witness.wtns] [witnes.json]",
-        description: "Calculate the witness with debug info.",
-        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        description: "Export a witness to a JSON file",
         options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
