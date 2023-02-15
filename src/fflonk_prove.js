@@ -508,7 +508,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Divide the polynomial T0 by Z_H(X)
             if (logger) logger.info("··· Computing T0 / ZH");
-            polynomials.T0.divZh(zkey.domainSize);
+            polynomials.T0.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.info("··· Computing T0z ifft");
@@ -721,7 +721,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, curve, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1.divZh(zkey.domainSize, 2);
+            polynomials.T1.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.info("··· Computing T1z ifft");
@@ -817,7 +817,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Divide the polynomial T2 by Z_H(X)
             if (logger) logger.info("··· Computing T2 / ZH");
-            polynomials.T2.divZh(zkey.domainSize);
+            polynomials.T2.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.info("··· Computing T2z ifft");
@@ -1054,18 +1054,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             // COMPUTE F(X)
             polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
             polynomials.F.sub(polynomials.R0);
-            polynomials.F.divByVanishing(8, challenges.xi);
+            polynomials.F.divByZerofier(8, challenges.xi);
 
             let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
             f2.sub(polynomials.R1);
             f2.mulScalar(challenges.alpha);
-            f2.divByVanishing(4, challenges.xi);
+            f2.divByZerofier(4, challenges.xi);
 
             let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
             f3.sub(polynomials.R2);
             f3.mulScalar(Fr.square(challenges.alpha));
-            f3.divByVanishing(3, challenges.xi);
-            f3.divByVanishing(3, challenges.xiw);
+            f3.divByZerofier(3, challenges.xi);
+            f3.divByZerofier(3, challenges.xiw);
 
             polynomials.F.add(f2);
             polynomials.F.add(f3);
@@ -1150,7 +1150,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             toInverse["denH1"] = mulL1;
             toInverse["denH2"] = mulL2;
 
-            // COMPUTE F(X)
+            // COMPUTE L(X)
             polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
             polynomials.L.subScalar(evalR0Y);
             polynomials.L.mulScalar(preL0);

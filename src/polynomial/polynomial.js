@@ -613,6 +613,39 @@ export class Polynomial {
         return this;
     }
 
+    divByZerofier(n, beta) {
+        let Fr = this.Fr;
+        const invBeta = Fr.inv(beta);
+        const invBetaNeg = Fr.neg(invBeta);
+
+        for (let i = 0; i < n; i++) {
+            const i_n8 = i * this.Fr.n8;
+            const element = Fr.mul(invBetaNeg, this.coef.slice(i_n8, i_n8 + this.Fr.n8));
+            this.coef.set(element, i_n8);
+
+            // TODO specific for -1, let's do another case for 1
+            // this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
+        }
+
+        for (let i = n; i < this.length(); i++) {
+            const i_n8 = i * this.Fr.n8;
+
+            const a = this.Fr.sub(
+                this.coef.slice((i - n) * this.Fr.n8, (i - n) * this.Fr.n8 + this.Fr.n8),
+                this.coef.slice(i_n8, i_n8 + this.Fr.n8)
+            );
+            this.coef.set(Fr.mul(invBeta, a), i_n8);
+
+            /*if (i > (domainSize * (extensions-1) - extensions)) {
+                if (!this.Fr.isZero(a)) {
+                    throw new Error("Polynomial is not divisible");
+                }
+            }*/
+        }
+
+        return this;
+    }
+
 // function divideByVanishing(f, n, p) {
 //     // polynomial division f(X) / (X^n - 1) with remainder
 //     // very cheap, 0 multiplications
