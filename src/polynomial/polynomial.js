@@ -618,29 +618,55 @@ export class Polynomial {
         const invBeta = Fr.inv(beta);
         const invBetaNeg = Fr.neg(invBeta);
 
-        for (let i = 0; i < n; i++) {
-            const i_n8 = i * this.Fr.n8;
-            const element = Fr.mul(invBetaNeg, this.coef.slice(i_n8, i_n8 + this.Fr.n8));
-            this.coef.set(element, i_n8);
+        let isOne = Fr.eq(Fr.one, invBetaNeg);
+        let isNegOne = Fr.eq(Fr.negone, invBetaNeg);
 
-            // TODO specific for -1, let's do another case for 1
-            // this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
+        if (!isOne) {
+            for (let i = 0; i < n; i++) {
+                const i_n8 = i * this.Fr.n8;
+                let element;
+
+                // If invBetaNeg === -1 we'll save a multiplication changing it by a neg function call
+                if (isNegOne) {
+                    element = Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8));
+                } else {
+                    element = Fr.mul(invBetaNeg, this.coef.slice(i_n8, i_n8 + this.Fr.n8));
+                }
+
+                this.coef.set(element, i_n8);
+            }
         }
+
+        isOne = Fr.eq(Fr.one, invBeta);
+        isNegOne = Fr.eq(Fr.negone, invBeta);
 
         for (let i = n; i < this.length(); i++) {
             const i_n8 = i * this.Fr.n8;
+            const i_prev_n8 = (i - n) * this.Fr.n8;
 
-            const a = this.Fr.sub(
-                this.coef.slice((i - n) * this.Fr.n8, (i - n) * this.Fr.n8 + this.Fr.n8),
+            let element = this.Fr.sub(
+                this.coef.slice(i_prev_n8, i_prev_n8 + this.Fr.n8),
                 this.coef.slice(i_n8, i_n8 + this.Fr.n8)
             );
-            this.coef.set(Fr.mul(invBeta, a), i_n8);
 
-            /*if (i > (domainSize * (extensions-1) - extensions)) {
-                if (!this.Fr.isZero(a)) {
+            // If invBeta === 1 we'll not do anything
+            if(!isOne) {
+                // If invBeta === -1 we'll save a multiplication changing it by a neg function call
+                if(isNegOne) {
+                    element = Fr.neg(element);
+                } else {
+                    element = Fr.mul(invBeta, element);
+                }
+            }
+
+            this.coef.set(element, i_n8);
+
+            // Check if polynomial is divisible by checking if n high coefficients are zero
+            if (i > this.length() - n - 1) {
+                if (!this.Fr.isZero(element)) {
                     throw new Error("Polynomial is not divisible");
                 }
-            }*/
+            }
         }
 
         return this;
