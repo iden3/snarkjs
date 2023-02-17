@@ -591,6 +591,10 @@ async function calculateProof() {
 </html>
 ```
 
+## Security
+
+Avoid using versions before v0.4.16. They contain bugs that may affect the security.
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
