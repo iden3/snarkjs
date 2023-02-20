@@ -327,7 +327,7 @@ contract PlonkVerifier {
 
                 // Denominator needed in the verifier when computing L_i^{S1}(X)
                 <%for ( let i = 0; i < 8; i++) {%>
-                    mstore(add(pMem, add(pLiS0Inv, <%= i * 32 %>)), calcLagrangeItem(pMem, <%= i %>, 7, add(pH0w8_0, <%= i * 32 %>), pH0w8_0))
+                mstore(add(pMem, add(pLiS0Inv, <%= i * 32 %>)), calcLagrangeItem(pMem, <%= i %>, 7, add(pH0w8_0, <%= i * 32 %>), pH0w8_0))
                 <%}%>
 
                 // Denominator needed in the verifier when computing L_i^{S1}(X)
@@ -693,7 +693,6 @@ contract PlonkVerifier {
             // Validate all evaluations
             let isValid := checkPairing(proof, pMem)
 
-            mstore(0x40, sub(pMem, lastMem))
             mstore(0, isValid)
             return(0,0x20)
         }
