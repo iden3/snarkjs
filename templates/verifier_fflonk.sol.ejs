@@ -140,7 +140,7 @@ contract PlonkVerifier {
     <% let pLastMem = 224 + 32 * (44 + Math.max(nPublic,1)) + 64 * 4 %>
     uint16 constant lastMem = <%=pLastMem%>;
 
-    function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
+    function verifyProof(bytes memory proof, uint256[<%= nPublic %>] calldata pubSignals) public view returns (bool) {
         assembly {
             // Computes the inverse of an array of values
             // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
@@ -226,8 +226,9 @@ contract PlonkVerifier {
 
             function computeChallenges(pProof, pMem, pPublic) {
                 // Compute challenge.beta & challenge.gamma
-                <%for (let i=0; i<nPublic;i++) {%>
-                mstore( add(pMem, <%= pLastMem + i * 32 %> ), mload( add( pPublic, <%= i * 32 + 32 %>)))
+                mstore( add(pMem, pLastMem), calldataload(pPublic))
+                <%for (let i=1; i<nPublic;i++) {%>
+                mstore( add(pMem, <%= pLastMem + i * 32 %> ), calldataload( add( pPublic, <%= i * 32 %>)))
                 <%}%>
                 mstore( add(pMem, <%= pLastMem + nPublic * 32 %> ),  mload( add( pProof, pC1)))
                 mstore( add(pMem, <%= pLastMem + nPublic * 32  + 32 %> ),  mload( add( pProof, add(pC1, 32))))
@@ -327,7 +328,7 @@ contract PlonkVerifier {
 
                 // Denominator needed in the verifier when computing L_i^{S1}(X)
                 <%for ( let i = 0; i < 8; i++) {%>
-                    mstore(add(pMem, add(pLiS0Inv, <%= i * 32 %>)), calcLagrangeItem(pMem, <%= i %>, 7, add(pH0w8_0, <%= i * 32 %>), pH0w8_0))
+                mstore(add(pMem, add(pLiS0Inv, <%= i * 32 %>)), calcLagrangeItem(pMem, <%= i %>, 7, add(pH0w8_0, <%= i * 32 %>), pH0w8_0))
                 <%}%>
 
                 // Denominator needed in the verifier when computing L_i^{S1}(X)
@@ -373,9 +374,9 @@ contract PlonkVerifier {
             // Compute public input polynomial evaluation PI(xi)
             function computePi(pMem, pPub) {
                 let pi := 0
-
-                <% for (let i=0; i<nPublic; i++) { %>
-                pi := mod(add(sub(pi, mulmod(mload(add(pMem, pEval_l<%= i + 1 %>)),mload(add(pPub, <%= 32 * i + 32 %>)), q)), q), q)
+                pi := mod(add(sub(pi, mulmod(mload(add(pMem, pEval_l1)), calldataload(pPub), q)), q), q)
+                <% for (let i=1; i<nPublic; i++) { %>
+                pi := mod(add(sub(pi, mulmod(mload(add(pMem, pEval_l<%= i + 1 %>)), calldataload(add(pPub, <%= 32 * i %>)), q)), q), q)
                 <% } %>
 
                 mstore(add(pMem, pPi), pi)
@@ -693,7 +694,6 @@ contract PlonkVerifier {
             // Validate all evaluations
             let isValid := checkPairing(proof, pMem)
 
-            mstore(0x40, sub(pMem, lastMem))
             mstore(0, isValid)
             return(0,0x20)
         }
