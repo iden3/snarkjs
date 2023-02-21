@@ -226,7 +226,7 @@ contract PlonkVerifier {
 
             function computeChallenges(pProof, pMem, pPublic) {
                 // Compute challenge.beta & challenge.gamma
-                mstore( add(pMem, pLastMem), calldataload(pPublic))
+                mstore( add(pMem, <%= pLastMem %>), calldataload(pPublic))
                 <%for (let i=1; i<nPublic;i++) {%>
                 mstore( add(pMem, <%= pLastMem + i * 32 %> ), calldataload( add( pPublic, <%= i * 32 %>)))
                 <%}%>
