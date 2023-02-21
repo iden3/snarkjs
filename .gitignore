@@ -1,5 +1,6 @@
 vk_proof.json
 vk_verifier.json
+test/fflonk/proof.json
 
 # Logs
 logs
