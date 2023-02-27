@@ -21,19 +21,24 @@
 pragma solidity >=0.7.0 <0.9.0;
 
 contract FflonkVerifier {
-    uint32 constant n         = <%= 2**power %>;
-    uint16 constant nPublic   = <%= nPublic %>;
-    uint16 constant nLagrange = <%= Math.max(nPublic, 1) %>;
+    uint32 constant n     = <%= 2**power %>; // Domain size
 
     // Verification Key data
-    uint256 constant k1   = <%= k1 %>;
-    uint256 constant k2   = <%= k2 %>;
+    uint256 constant k1   = <%= k1 %>;   // Plonk k1 multiplicative factor to force distinct cosets of H
+    uint256 constant k2   = <%= k2 %>;   // Plonk k1 multiplicative factor to force distinct cosets of H
+
+    // OMEGAS
+    // Omega, Omega^{1/3}
     uint256 constant w1   = <%= w  %>;
+    uint256 constant wr   = <%= wr %>;
+    // Omega_3, Omega_3^2
     uint256 constant w3   = <%= w3 %>;
     uint256 constant w3_2 = <%= w3_2 %>;
+    // Omega_4, Omega_4^2, Omega_4^3
     uint256 constant w4   = <%= w4 %>;
     uint256 constant w4_2 = <%= w4_2 %>;
     uint256 constant w4_3 = <%= w4_3 %>;
+    // Omega_8, Omega_8^2, Omega_8^3, Omega_8^4, Omega_8^5, Omega_8^6, Omega_8^7
     uint256 constant w8_1 = <%= w8 %>;
     uint256 constant w8_2 = <%= w8_2 %>;
     uint256 constant w8_3 = <%= w8_3 %>;
@@ -41,9 +46,12 @@ contract FflonkVerifier {
     uint256 constant w8_5 = <%= w8_5 %>;
     uint256 constant w8_6 = <%= w8_6 %>;
     uint256 constant w8_7 = <%= w8_7 %>;
-    uint256 constant wr   = <%= wr %>;
+
+    // Verifier preprocessed input C_0(x)·[1]_1
     uint256 constant C0x  = <%= C0[0] %>;
     uint256 constant C0y  = <%= C0[1] %>;
+
+    // Verifier preprocessed input x·[1]_2
     uint256 constant X2x1 = <%= X_2[0][0] %>;
     uint256 constant X2x2 = <%= X_2[0][1] %>;
     uint256 constant X2y1 = <%= X_2[1][0] %>;
@@ -51,6 +59,7 @@ contract FflonkVerifier {
 
     uint256 constant q    = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     uint256 constant qf   = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+
 
     uint256 constant G1x  = 1;
     uint256 constant G1y  = 2;
@@ -61,38 +70,43 @@ contract FflonkVerifier {
 
     // Proof data
     // Byte offset of every parameter in `bytes memory proof`
-    uint16 constant pC1 = 32;
-    uint16 constant pC2 = 96;
-    uint16 constant pW1 = 160;
-    uint16 constant pW2 = 224;
-    uint16 constant pEval_ql  = 288;
-    uint16 constant pEval_qr  = 320;
-    uint16 constant pEval_qm  = 352;
-    uint16 constant pEval_qo  = 384;
-    uint16 constant pEval_qc  = 416;
-    uint16 constant pEval_s1  = 448;
-    uint16 constant pEval_s2  = 480;
-    uint16 constant pEval_s3  = 512;
-    uint16 constant pEval_a   = 544;
-    uint16 constant pEval_b   = 576;
-    uint16 constant pEval_c   = 608;
-    uint16 constant pEval_z   = 640;
-    uint16 constant pEval_zw  = 672;
-    uint16 constant pEval_t1w = 704;
-    uint16 constant pEval_t2w = 736;
-    uint16 constant pEval_inv = 768;
+    // Polynomial commitments
+    uint16 constant pC1       = 32;  // [C1]_1
+    uint16 constant pC2       = 96;  // [C2]_1
+    uint16 constant pW1       = 160; // [W]_1
+    uint16 constant pW2       = 224; // [W']_1
+    // Opening evaluations
+    uint16 constant pEval_ql  = 288; // q_L(xi)
+    uint16 constant pEval_qr  = 320; // q_R(xi)
+    uint16 constant pEval_qm  = 352; // q_M(xi)
+    uint16 constant pEval_qo  = 384; // q_O(xi)
+    uint16 constant pEval_qc  = 416; // q_C(xi)
+    uint16 constant pEval_s1  = 448; // S_{sigma_1}(xi)
+    uint16 constant pEval_s2  = 480; // S_{sigma_2}(xi)
+    uint16 constant pEval_s3  = 512; // S_{sigma_3}(xi)
+    uint16 constant pEval_a   = 544; // a(xi)
+    uint16 constant pEval_b   = 576; // b(xi)
+    uint16 constant pEval_c   = 608; // c(xi)
+    uint16 constant pEval_z   = 640; // z(xi)
+    uint16 constant pEval_zw  = 672; // z_omega(xi)
+    uint16 constant pEval_t1w = 704; // T_1(xi omega)
+    uint16 constant pEval_t2w = 736; // T_2(xi omega)
+    uint16 constant pEval_inv = 768; // inv(batch) sent by the prover to avoid any inverse calculation to save gas,
+                                     // we check the correctness of the inv(batch) by computing batch
+                                     // and checking inv(batch) * batch == 1
 
     // Memory data
     // Challenges
-    uint16 constant pAlpha   = 0;
-    uint16 constant pBeta    = 32;
-    uint16 constant pGamma   = 64;
-    uint16 constant pY       = 96;
-    uint16 constant pXiSeed  = 128;
-    uint16 constant pXiSeed2 = 160;
-    uint16 constant pXi      = 192;
+    uint16 constant pAlpha   = 0;   // alpha challenge
+    uint16 constant pBeta    = 32;  // beta challenge
+    uint16 constant pGamma   = 64;  // gamma challenge
+    uint16 constant pY       = 96;  // y challenge
+    uint16 constant pXiSeed  = 128; // xi seed, from this value we compute xi = xiSeed^24
+    uint16 constant pXiSeed2 = 160; // (xi seed)^2
+    uint16 constant pXi      = 192; // xi challenge
 
     // Roots
+    // S_0 = roots_8(xi) = { h_0, h_0w_8, h_0w_8^2, h_0w_8^3, h_0w_8^4, h_0w_8^5, h_0w_8^6, h_0w_8^7 }
     uint16 constant pH0w8_0 = 224;
     uint16 constant pH0w8_1 = <%= 224 + 32 %>;
     uint16 constant pH0w8_2 = <%= 224 + 32 * 2 %>;
@@ -102,37 +116,40 @@ contract FflonkVerifier {
     uint16 constant pH0w8_6 = <%= 224 + 32 * 6 %>;
     uint16 constant pH0w8_7 = <%= 224 + 32 * 7 %>;
 
+    // S_1 = roots_4(xi) = { h_1, h_1w_4, h_1w_4^2, h_1w_4^3 }
     uint16 constant pH1w4_0 = <%= 224 + 32 * 8 %>;
     uint16 constant pH1w4_1 = <%= 224 + 32 * 9 %>;
     uint16 constant pH1w4_2 = <%= 224 + 32 * 10 %>;
     uint16 constant pH1w4_3 = <%= 224 + 32 * 11 %>;
 
+    // S_2 = roots_3(xi) U roots_3(xi omega)
+    // roots_3(xi) = { h_2, h_2w_3, h_2w_3^2 }
     uint16 constant pH2w3_0 = <%= 224 + 32 * 12 %>;
     uint16 constant pH2w3_1 = <%= 224 + 32 * 13 %>;
     uint16 constant pH2w3_2 = <%= 224 + 32 * 14 %>;
-
+    // roots_3(xi omega) = { h_3, h_3w_3, h_3w_3^2 }
     uint16 constant pH3w3_0 = <%= 224 + 32 * 15 %>;
     uint16 constant pH3w3_1 = <%= 224 + 32 * 16 %>;
     uint16 constant pH3w3_2 = <%= 224 + 32 * 17 %>;
 
-    uint16 constant pPi     = <%= 224 + 32 * 18 %>;
-    uint16 constant pR0     = <%= 224 + 32 * 19 %>;
-    uint16 constant pR1     = <%= 224 + 32 * 20 %>;
-    uint16 constant pR2     = <%= 224 + 32 * 21 %>;
+    uint16 constant pPi     = <%= 224 + 32 * 18 %>; // PI(xi)
+    uint16 constant pR0     = <%= 224 + 32 * 19 %>; // r0(y)
+    uint16 constant pR1     = <%= 224 + 32 * 20 %>; // r1(y)
+    uint16 constant pR2     = <%= 224 + 32 * 21 %>; // r2(y)
 
-    uint16 constant pF      = <%= 224 + 32 * 22 %>;  // 64 bytes
-    uint16 constant pE      = <%= 224 + 32 * 22 + 64 %>;  // 64 bytes
-    uint16 constant pJ      = <%= 224 + 32 * 22 + 64 * 2 %>; // 64 bytes
-    uint16 constant pA      = <%= 224 + 32 * 22 + 64 * 3 %>; // 64 bytes
+    uint16 constant pF      = <%= 224 + 32 * 22 %>;  // [F]_1, 64 bytes
+    uint16 constant pE      = <%= 224 + 32 * 22 + 64 %>;  // [E]_1, 64 bytes
+    uint16 constant pJ      = <%= 224 + 32 * 22 + 64 * 2 %>; // [J]_1, 64 bytes
 
-    uint16 constant pZh     = <%= 224 + 32 * 22 + 64 * 4 %>;
-    // From this point we write all the variables that must compute the inverse using the Montgomery batch inversion
-    uint16 constant pZhInv  = <%= 224 + 32 * 23 + 64 * 4 %>;
-    uint16 constant pDenH1  = <%= 224 + 32 * 24 + 64 * 4 %>;
-    uint16 constant pDenH2  = <%= 224 + 32 * 25 + 64 * 4 %>;
-    uint16 constant pLiS0Inv = <%= 224 + 32 * 26 + 64 * 4 %>; // Reserve 8 * 32 bytes to compute R1 and R2 inversions
-    uint16 constant pLiS1Inv = <%= 224 + 32 * 34 + 64 * 4 %>; // Reserve 4 * 32 bytes to compute R1 and R2 inversions
-    uint16 constant pLiS2Inv = <%= 224 + 32 * 38 + 64 * 4 %>; // Reserve 6 * 32 bytes to compute R1 and R2 inversions
+    uint16 constant pZh     = <%= 224 + 32 * 22 + 64 * 4 %>; // Z_H(xi)
+    // From this point we write all the variables that must be computed using the Montgomery batch inversion
+    uint16 constant pZhInv  = <%= 224 + 32 * 23 + 64 * 4 %>; // 1/Z_H(xi)
+    uint16 constant pDenH1  = <%= 224 + 32 * 24 + 64 * 4 %>; // 1/( (y-h_1w_4) (y-h_1w_4^2) (y-h_1w_4^3) (y-h_1w_4^4) )
+    uint16 constant pDenH2  = <%= 224 + 32 * 25 + 64 * 4 %>; // 1/( (y-h_2w_3) (y-h_2w_3^2) (y-h_2w_3^3) (y-h_3w_3) (y-h_3w_3^2) (y-h_3w_3^3) )
+    uint16 constant pLiS0Inv = <%= 224 + 32 * 26 + 64 * 4 %>; // Reserve 8 * 32 bytes to compute r_0(X)
+    uint16 constant pLiS1Inv = <%= 224 + 32 * 34 + 64 * 4 %>; // Reserve 4 * 32 bytes to compute r_1(X)
+    uint16 constant pLiS2Inv = <%= 224 + 32 * 38 + 64 * 4 %>; // Reserve 6 * 32 bytes to compute r_2(X)
+    // Lagrange evaluations
     <% for (let i = 1; i <= Math.max(nPublic, 1); i++) { 
     %>uint16 constant pEval_l<%=i%> = <%= 224 + 32 * (43 + i) + 64 * 4 %>;
     <% } %> <% let pLastMem = 224 + 32 * (44 + Math.max(nPublic,1)) + 64 * 4 %>
@@ -614,14 +631,13 @@ contract FflonkVerifier {
                 mstore(add(add(pMem, pE), 32), mod(sub(qf, mload(add(add(pMem, pE), 32))), qf))
                 // Compute -J
                 mstore(add(add(pMem, pJ), 32), mod(sub(qf, mload(add(add(pMem, pJ), 32))), qf))
-                // A = F - E - J + y·W2
-                g1_acc(add(pMem, pA), add(pMem, pF))
-                g1_acc(add(pMem, pA), add(pMem, pE))
-                g1_acc(add(pMem, pA), add(pMem, pJ))
-                g1_mulAcc(add(pMem, pA), add(pProof, pW2), mload(add(pMem, pY)))
+                // F = F - E - J + y·W2
+                g1_acc(add(pMem, pF), add(pMem, pE))
+                g1_acc(add(pMem, pF), add(pMem, pJ))
+                g1_mulAcc(add(pMem, pF), add(pProof, pW2), mload(add(pMem, pY)))
 
-                mstore(mIn, mload(add(pMem, pA)))
-                mstore(add(mIn, 32), mload(add(add(pMem, pA), 32)))
+                mstore(mIn, mload(add(pMem, pF)))
+                mstore(add(mIn, 32), mload(add(add(pMem, pF), 32)))
 
                 // Second pairing value
                 mstore(add(mIn, 64), G2x2)
