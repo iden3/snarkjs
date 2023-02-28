@@ -508,7 +508,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Divide the polynomial T0 by Z_H(X)
             if (logger) logger.info("··· Computing T0 / ZH");
-            polynomials.T0.divZh(zkey.domainSize);
+            polynomials.T0.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
             if (logger) logger.info("··· Computing T0z ifft");
@@ -728,7 +728,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, curve, logger);
 
             // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1.divZh(zkey.domainSize, 2);
+            polynomials.T1.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
             if (logger) logger.info("··· Computing T1z ifft");
@@ -824,7 +824,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
             // Divide the polynomial T2 by Z_H(X)
             if (logger) logger.info("··· Computing T2 / ZH");
-            polynomials.T2.divZh(zkey.domainSize);
+            polynomials.T2.divByZerofier(zkey.domainSize, Fr.one);
 
             // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
             if (logger) logger.info("··· Computing T2z ifft");
@@ -995,20 +995,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing F polynomial");
         await computeF();
 
-        if (logger) logger.info("> Computing ZT polynomial");
-        await computeZT();
-
-        if (logger) logger.info("> Computing W = F / ZT polynomial");
-        const polRemainder = polynomials.F.divBy(polynomials.ZT);
-        //Check polReminder degree is equal to zero
-        if (polRemainder.degree() > 0) {
-            throw new Error(`Degree of f(X)/ZT(X) remainder is ${polRemainder.degree()} and should be 0`);
-        }
-
-        if (polynomials.F.degree() >= 9 * zkey.domainSize + 12) {
-            throw new Error("Degree of f(X)/ZT(X) is not correct");
-        }
-
         // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
         if (logger) logger.info("> Computing W1 multi exponentiation");
         let commitW1 = await polynomials.F.multiExponentiation(PTau, "W1");
@@ -1072,46 +1058,29 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         async function computeF() {
             if (logger) logger.info("··· Computing F polynomial");
 
-            let xiNeg = Fr.neg(challenges.xi);
-            let xiwNeg = Fr.neg(challenges.xiw);
-
             // COMPUTE F(X)
             polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
             polynomials.F.sub(polynomials.R0);
-            polynomials.F.byXNSubValue(4, xiNeg);
-            polynomials.F.byXNSubValue(3, xiNeg);
-            polynomials.F.byXNSubValue(3, xiwNeg);
+            polynomials.F.divByZerofier(8, challenges.xi);
 
             let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
             f2.sub(polynomials.R1);
             f2.mulScalar(challenges.alpha);
-            f2.byXNSubValue(8, xiNeg);
-            f2.byXNSubValue(3, xiNeg);
-            f2.byXNSubValue(3, xiwNeg);
+            f2.divByZerofier(4, challenges.xi);
 
             let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
             f3.sub(polynomials.R2);
             f3.mulScalar(Fr.square(challenges.alpha));
-            f3.byXNSubValue(8, xiNeg);
-            f3.byXNSubValue(4, xiNeg);
+            f3.divByZerofier(3, challenges.xi);
+            f3.divByZerofier(3, challenges.xiw);
 
             polynomials.F.add(f2);
             polynomials.F.add(f3);
 
-            // Check degree < 9n + 30
-            if (polynomials.F.degree() >= 9 * zkey.domainSize + 30) {
+            // Check degree < 9n + 12
+            if (polynomials.F.degree() >= 9 * zkey.domainSize + 12) {
                 throw new Error("F Polynomial is not well calculated");
             }
-        }
-
-        async function computeZT() {
-            polynomials.ZT = Polynomial.zerofierPolynomial(
-                [
-                    roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
-                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7],
-                    roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
-                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
         }
     }
 
@@ -1188,7 +1157,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             toInverse["denH1"] = mulL1;
             toInverse["denH2"] = mulL2;
 
-            // COMPUTE F(X)
+            // COMPUTE L(X)
             polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
             polynomials.L.subScalar(evalR0Y);
             polynomials.L.mulScalar(preL0);
@@ -1204,6 +1173,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             polynomials.L.add(l2);
             polynomials.L.add(l3);
 
+            if (logger) logger.info("> Computing ZT polynomial");
+            await computeZT();
+
             const evalZTY = polynomials.ZT.evaluate(challenges.y);
             polynomials.F.mulScalar(evalZTY);
             polynomials.L.sub(polynomials.F);
@@ -1214,6 +1186,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             }
 
             delete buffers.L;
+        }
+
+        async function computeZT() {
+            polynomials.ZT = Polynomial.zerofierPolynomial(
+                [
+                    roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
+                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7],
+                    roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
+                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
+                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
         }
 
         async function computeZTS2() {

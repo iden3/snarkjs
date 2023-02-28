@@ -613,6 +613,65 @@ export class Polynomial {
         return this;
     }
 
+    divByZerofier(n, beta) {
+        let Fr = this.Fr;
+        const invBeta = Fr.inv(beta);
+        const invBetaNeg = Fr.neg(invBeta);
+
+        let isOne = Fr.eq(Fr.one, invBetaNeg);
+        let isNegOne = Fr.eq(Fr.negone, invBetaNeg);
+
+        if (!isOne) {
+            for (let i = 0; i < n; i++) {
+                const i_n8 = i * this.Fr.n8;
+                let element;
+
+                // If invBetaNeg === -1 we'll save a multiplication changing it by a neg function call
+                if (isNegOne) {
+                    element = Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8));
+                } else {
+                    element = Fr.mul(invBetaNeg, this.coef.slice(i_n8, i_n8 + this.Fr.n8));
+                }
+
+                this.coef.set(element, i_n8);
+            }
+        }
+
+        isOne = Fr.eq(Fr.one, invBeta);
+        isNegOne = Fr.eq(Fr.negone, invBeta);
+
+        for (let i = n; i < this.length(); i++) {
+            const i_n8 = i * this.Fr.n8;
+            const i_prev_n8 = (i - n) * this.Fr.n8;
+
+            let element = this.Fr.sub(
+                this.coef.slice(i_prev_n8, i_prev_n8 + this.Fr.n8),
+                this.coef.slice(i_n8, i_n8 + this.Fr.n8)
+            );
+
+            // If invBeta === 1 we'll not do anything
+            if(!isOne) {
+                // If invBeta === -1 we'll save a multiplication changing it by a neg function call
+                if(isNegOne) {
+                    element = Fr.neg(element);
+                } else {
+                    element = Fr.mul(invBeta, element);
+                }
+            }
+
+            this.coef.set(element, i_n8);
+
+            // Check if polynomial is divisible by checking if n high coefficients are zero
+            if (i > this.length() - n - 1) {
+                if (!this.Fr.isZero(element)) {
+                    throw new Error("Polynomial is not divisible");
+                }
+            }
+        }
+
+        return this;
+    }
+
 // function divideByVanishing(f, n, p) {
 //     // polynomial division f(X) / (X^n - 1) with remainder
 //     // very cheap, 0 multiplications
