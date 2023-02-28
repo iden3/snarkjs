@@ -556,8 +556,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         const transcript = new Keccak256Transcript(curve);
 
         // Add C0 to the transcript
-        let C0 = curve.G1.fromObject(zkey.C0);
-        transcript.addPolCommitment(C0);
+        transcript.addPolCommitment(zkey.C0);
 
         // Add A to the transcript
         for (let i = 0; i < zkey.nPublic; i++) {

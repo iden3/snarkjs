@@ -160,8 +160,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     const transcript = new Keccak256Transcript(curve);
 
     // Add C0 to the transcript
-    let C0 = curve.G1.fromObject(vk.C0);
-    transcript.addPolCommitment(C0);
+    transcript.addPolCommitment(vk.C0);
 
     for (let i = 0; i < publicSignals.length; i++) {
         transcript.addScalar(Fr.e(publicSignals[i]));
