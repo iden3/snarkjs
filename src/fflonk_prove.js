@@ -20,8 +20,8 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import {BigBuffer, Scalar, utils} from "ffjavascript";
-import {FFLONK_PROTOCOL_ID} from "./zkey_constants.js";
+import { BigBuffer, Scalar, utils } from "ffjavascript";
+import { FFLONK_PROTOCOL_ID } from "./zkey_constants.js";
 import {
     ZKEY_FF_A_MAP_SECTION,
     ZKEY_FF_ADDITIONS_SECTION,
@@ -39,14 +39,14 @@ import {
     ZKEY_FF_SIGMA2_SECTION,
     ZKEY_FF_SIGMA3_SECTION,
 } from "./fflonk.js";
-import {Keccak256Transcript} from "./Keccak256Transcript.js";
-import {Proof} from "./proof.js";
-import {Polynomial} from "./polynomial/polynomial.js";
-import {Evaluations} from "./polynomial/evaluations.js";
-import {MulZ} from "./mul_z.js";
-import {CPolynomial} from "./polynomial/cpolynomial.js";
+import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { Proof } from "./proof.js";
+import { Polynomial } from "./polynomial/polynomial.js";
+import { Evaluations } from "./polynomial/evaluations.js";
+import { MulZ } from "./mul_z.js";
+import { CPolynomial } from "./polynomial/cpolynomial.js";
 
-const {stringifyBigInts} = utils;
+const { stringifyBigInts } = utils;
 
 
 export default async function fflonkProve(zkeyFileName, witnessFileName, logger) {
@@ -554,9 +554,16 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         // Compute permutation challenge beta
         if (logger) logger.info("> Computing challenges beta and gamma");
         const transcript = new Keccak256Transcript(curve);
+
+        // Add C0 to the transcript
+        transcript.addPolCommitment(zkey.C0);
+
+        // Add A to the transcript
         for (let i = 0; i < zkey.nPublic; i++) {
             transcript.addScalar(buffers.A.slice(i * sFr, i * sFr + sFr));
         }
+
+        // Add C1 to the transcript
         transcript.addPolCommitment(proof.getPolynomial("C1"));
 
         challenges.beta = transcript.getChallenge();
@@ -700,7 +707,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
                 const omega2 = Fr.square(omega);
 
-                const z = evaluations.Z.getEvaluation(i*2);
+                const z = evaluations.Z.getEvaluation(i * 2);
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
 
                 // T1(X) := (z(X) - 1) · L_1(X)
