@@ -18,12 +18,12 @@
 */
 
 import * as curves from "./curves.js";
-import {BigBuffer, utils} from "ffjavascript";
-import {Proof} from "./proof.js";
-import {Keccak256Transcript} from "./Keccak256Transcript.js";
-import {Polynomial} from "./polynomial/polynomial.js";
+import { BigBuffer, utils } from "ffjavascript";
+import { Proof } from "./proof.js";
+import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { Polynomial } from "./polynomial/polynomial.js";
 
-const {unstringifyBigInts} = utils;
+const { unstringifyBigInts } = utils;
 
 export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     if (logger) logger.info("FFLONK VERIFIER STARTED");
@@ -75,7 +75,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     // STEP 4 - Compute the challenges: beta, gamma, xi, alpha and y ∈ F
     // as in prover description, from the common preprocessed inputs, public inputs and elements of π_SNARK
     if (logger) logger.info("> Computing challenges");
-    const {challenges, roots} = computeChallenges(curve, proof, vk, publicSignals, logger);
+    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger);
 
     // STEP 5 - Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
     if (logger) logger.info("> Computing Zero polynomial evaluation Z_H(xi)");
@@ -158,13 +158,19 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     const challenges = {};
     const roots = {};
     const transcript = new Keccak256Transcript(curve);
+
+    // Add C0 to the transcript
+    let C0 = curve.G1.fromObject(vk.C0);
+    transcript.addPolCommitment(C0);
+
     for (let i = 0; i < publicSignals.length; i++) {
         transcript.addScalar(Fr.e(publicSignals[i]));
     }
+
     transcript.addPolCommitment(proof.polynomials.C1);
     challenges.beta = transcript.getChallenge();
-
     transcript.reset();
+
     transcript.addScalar(challenges.beta);
     challenges.gamma = transcript.getChallenge();
 
@@ -263,7 +269,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
         logger.info("··· challenges.y:     " + Fr.toString(challenges.y));
     }
 
-    return {challenges: challenges, roots: roots};
+    return { challenges: challenges, roots: roots };
 }
 
 async function computeLagrangeEvaluations(curve, challenges, vk) {
@@ -492,7 +498,7 @@ function computeE(curve, proof, challenges, vk, r0, r1, r2) {
     let E2 = Fr.mul(r1, challenges.quotient1);
     let E3 = Fr.mul(r2, challenges.quotient2);
 
-    return G1.timesFr(G1.one, Fr.add(r0, Fr.add(E2,E3)));
+    return G1.timesFr(G1.one, Fr.add(r0, Fr.add(E2, E3)));
 }
 
 function computeJ(curve, proof, challenges) {
