@@ -174,6 +174,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     challenges.gamma = transcript.getChallenge();
 
     transcript.reset();
+    transcript.addScalar(challenges.gamma);
     transcript.addPolCommitment(proof.polynomials.C2);
     const xiSeed = transcript.getChallenge();
     const xiSeed2 = Fr.square(xiSeed);
@@ -239,6 +240,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     }
 
     transcript.reset();
+    transcript.addScalar(xiSeed);
     transcript.addScalar(proof.evaluations.ql);
     transcript.addScalar(proof.evaluations.qr);
     transcript.addScalar(proof.evaluations.qm);
@@ -257,6 +259,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     challenges.alpha = transcript.getChallenge();
 
     transcript.reset();
+    transcript.addScalar(challenges.alpha);
     transcript.addPolCommitment(proof.polynomials.W1);
     challenges.y = transcript.getChallenge();
 
