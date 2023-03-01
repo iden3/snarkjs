@@ -8600,13 +8600,14 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
         if (logger) logger.info("> Computing challenge xi");
         // STEP 3.1 - Compute evaluation challenge xi ∈ S
         const transcript = new Keccak256Transcript(curve);
+        transcript.addScalar(challenges.gamma);
         transcript.addPolCommitment(proof.getPolynomial("C2"));
 
         // Obtain a xi_seeder from the transcript
         // To force h1^4 = xi, h2^3 = xi and h_3^2 = xiω
         // we compute xi = xi_seeder^12, h1 = xi_seeder^3, h2 = xi_seeder^4 and h3 = xi_seeder^6
-        const xiSeed = transcript.getChallenge();
-        const xiSeed2 = Fr.square(xiSeed);
+        challenges.xiSeed = transcript.getChallenge();
+        const xiSeed2 = Fr.square(challenges.xiSeed);
 
         // Compute omega8, omega4 and omega3
         roots.w8 = [];
@@ -8629,7 +8630,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
         // Compute h0 = xiSeeder^3
         roots.S0 = {};
         roots.S0.h0w8 = [];
-        roots.S0.h0w8[0] = Fr.mul(xiSeed2, xiSeed);
+        roots.S0.h0w8[0] = Fr.mul(xiSeed2, challenges.xiSeed);
         for (let i = 1; i < 8; i++) {
             roots.S0.h0w8[i] = Fr.mul(roots.S0.h0w8[0], roots.w8[i]);
         }
@@ -8700,6 +8701,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
         if (logger) logger.info("> Computing challenge alpha");
         // STEP 4.1 - Compute challenge alpha ∈ F
         const transcript = new Keccak256Transcript(curve);
+        transcript.addScalar(challenges.xiSeed);
         transcript.addScalar(proof.getEvaluation("ql"));
         transcript.addScalar(proof.getEvaluation("qr"));
         transcript.addScalar(proof.getEvaluation("qm"));
@@ -8827,6 +8829,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
 
         // STEP 5.1 - Compute random evaluation point y ∈ F
         const transcript = new Keccak256Transcript(curve);
+        transcript.addScalar(challenges.alpha);
         transcript.addPolCommitment(proof.getPolynomial("W1"));
 
         challenges.y = transcript.getChallenge();
@@ -9305,6 +9308,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     challenges.gamma = transcript.getChallenge();
 
     transcript.reset();
+    transcript.addScalar(challenges.gamma);
     transcript.addPolCommitment(proof.polynomials.C2);
     const xiSeed = transcript.getChallenge();
     const xiSeed2 = Fr.square(xiSeed);
@@ -9370,6 +9374,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     }
 
     transcript.reset();
+    transcript.addScalar(xiSeed);
     transcript.addScalar(proof.evaluations.ql);
     transcript.addScalar(proof.evaluations.qr);
     transcript.addScalar(proof.evaluations.qm);
@@ -9388,6 +9393,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     challenges.alpha = transcript.getChallenge();
 
     transcript.reset();
+    transcript.addScalar(challenges.alpha);
     transcript.addPolCommitment(proof.polynomials.W1);
     challenges.y = transcript.getChallenge();
 
