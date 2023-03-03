@@ -106,14 +106,14 @@ const commands = [
     {
         cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Convert ptau",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        longDescription: " This process calculates the evaluation of the Lagrange polynomials at tau for alpha*tau and beta tau",
         alias: ["ptcv"],
         options: "-verbose|v",
         action: powersOfTauConvert
     },
     {
         cmd: "powersoftau truncate <powersoftau.ptau>",
-        description: "Generate diferent powers of tau with smoller sizes ",
+        description: "Generate diferent powers of tau with smaller sizes ",
         longDescription: " This process generates smaller ptau files from a bigger power ptau",
         alias: ["ptt"],
         options: "-verbose|v",
@@ -135,7 +135,7 @@ const commands = [
     },
     {
         cmd: "r1cs info [circuit.r1cs]",
-        description: "Print statistiscs of a circuit",
+        description: "Print statistics of a circuit",
         alias: ["ri", "info -r|r1cs:circuit.r1cs"],
         action: r1csInfo
     },
