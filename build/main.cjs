@@ -2056,7 +2056,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     }
 
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
+        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
     const hasherResponse = new Blake2b__default["default"](64);
     hasherResponse.update(contributionPreviousHash);
