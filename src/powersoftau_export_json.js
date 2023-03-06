@@ -31,16 +31,20 @@ export default async function exportJson(pTauFilename, verbose) {
     pTau.power = power;
     pTau.contributions = await utils.readContributions(fd, curve, sections);
 
-    pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
-    pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
-    pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
-    pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
-    pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
+    if (sections[2]) {
+        pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
+        pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
+        pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
+        pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
+        pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
 
-    pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
-    pTau.lTauG2 = await exportLagrange(13, "G2", "lTauG2");
-    pTau.lAlphaTauG1 = await exportLagrange(14, "G1", "lAlphaTauG2");
-    pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
+        if (sections[12]) {
+            pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
+            pTau.lTauG2 = await exportLagrange(13, "G2", "lTauG2");
+            pTau.lAlphaTauG1 = await exportLagrange(14, "G1", "lAlphaTauG2");
+            pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
+        }
+    }
 
     await fd.close();
 
