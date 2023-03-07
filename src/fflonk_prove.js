@@ -43,7 +43,6 @@ import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
-import { MulZ } from "./mul_z.js";
 import { CPolynomial } from "./polynomial/cpolynomial.js";
 
 const { stringifyBigInts } = utils;
