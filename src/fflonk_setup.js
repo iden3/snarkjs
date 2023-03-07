@@ -348,11 +348,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
                 buildSigma(plonkConstraints[i][0], i);
                 buildSigma(plonkConstraints[i][1], settings.domainSize + i);
                 buildSigma(plonkConstraints[i][2], settings.domainSize * 2 + i);
-            } else {
+            } else if (i < settings.domainSize - 2) {
                 buildSigma(0, i);
                 buildSigma(0, settings.domainSize + i);
                 buildSigma(0, settings.domainSize * 2 + i);
+            } else {
+                sigma.set(w, i * sFr);
+                sigma.set(Fr.mul(w, k1), (settings.domainSize + i) * sFr);
+                sigma.set(Fr.mul(w, k2), (settings.domainSize * 2 + i) * sFr);
             }
+
             w = Fr.mul(w, Fr.w[settings.cirPower]);
 
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
