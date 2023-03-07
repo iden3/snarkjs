@@ -436,8 +436,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             buffers.T0 = new BigBuffer(sDomain * 4);
 
             if (logger) logger.info("··· Computing T0 evaluations");
-            // Initial omega
-            let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
@@ -481,9 +479,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
                 const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
 
                 buffers.T0.set(t0, i * sFr);
-
-                // Next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
             if (logger) logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
