@@ -617,6 +617,7 @@ export class Polynomial {
         let Fr = this.Fr;
         const invBeta = Fr.inv(beta);
         const invBetaNeg = Fr.neg(invBeta);
+        const degree = this.degree();
 
         let isOne = Fr.eq(Fr.one, invBetaNeg);
         let isNegOne = Fr.eq(Fr.negone, invBetaNeg);
@@ -640,7 +641,7 @@ export class Polynomial {
         isOne = Fr.eq(Fr.one, invBeta);
         isNegOne = Fr.eq(Fr.negone, invBeta);
 
-        for (let i = n; i < this.length(); i++) {
+        for (let i = n; i <= degree; i++) {
             const i_n8 = i * this.Fr.n8;
             const i_prev_n8 = (i - n) * this.Fr.n8;
 
@@ -662,7 +663,7 @@ export class Polynomial {
             this.coef.set(element, i_n8);
 
             // Check if polynomial is divisible by checking if n high coefficients are zero
-            if (i > this.length() - n - 1) {
+            if (i > degree - n) {
                 if (!this.Fr.isZero(element)) {
                     throw new Error("Polynomial is not divisible");
                 }
@@ -902,17 +903,20 @@ export class Polynomial {
         return polynomial;
 
         function computeLagrangePolynomial(i) {
-            let polynomial;
+            let buff = (xArr.length) > 2 << 14 ? new BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
+            let polynomial = new Polynomial(buff, curve);
+            if(xArr.length === 1) {
+                polynomial.setCoef(0, Fr.one);
+            }
 
+            let first = true;
             for (let j = 0; j < xArr.length; j++) {
                 if (j === i) continue;
 
-                if (polynomial === undefined) {
-                    let buff = (xArr.length) > 2 << 14 ?
-                        new BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
-                    polynomial = new Polynomial(buff, curve);
+                if (first) {
                     polynomial.setCoef(0, Fr.neg(xArr[j]));
                     polynomial.setCoef(1, Fr.one);
+                    first = false;
                 } else {
                     polynomial.byXSubValue(xArr[j]);
                 }

@@ -51,20 +51,20 @@ export class CPolynomial {
     }
 
     getPolynomial() {
-        let degrees = this.polynomials.map(polynomial => polynomial === undefined ? 0 : polynomial.degree());
+        if(this.n === 1) return this.polynomials[0];
         const maxDegree = this.degree();
-        const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
+        const lengthBuffer = 2 ** (log2(maxDegree) + 1);
         const sFr = this.Fr.n8;
 
         let polynomial = new Polynomial(new BigBuffer(lengthBuffer * sFr), this.curve, this.logger);
 
-        for (let i = 0; i < maxDegree; i++) {
+        for (let i = 0; i <= maxDegree; i++) {
             const i_n8 = i * sFr;
             const i_sFr = i_n8 * this.n;
 
             for (let j = 0; j < this.n; j++) {
-                if (this.polynomials[j] !== undefined) {
-                    if (i <= degrees[j]) polynomial.coef.set(this.polynomials[j].coef.slice(i_n8, i_n8 + sFr), i_sFr + j * sFr);
+                if (this.polynomials[j] !== undefined && this.polynomials[j].degree() > 0 && i <= this.polynomials[j].degree()) {
+                    polynomial.coef.set(this.polynomials[j].coef.slice(i_n8, i_n8 + sFr), i_sFr + j * sFr);
                 }
             }
         }
