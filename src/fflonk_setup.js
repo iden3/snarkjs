@@ -108,7 +108,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // As the t polynomial is n+5 whe need at least a power of 4
     //TODO check!!!!
-    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
+    // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
+    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
     settings.domainSize = 2 ** settings.cirPower;
 
     if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
