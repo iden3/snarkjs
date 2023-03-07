@@ -708,7 +708,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             if (logger) logger.info("··· Computing T1z ifft");
             polynomials.T1z = await Polynomial.fromEvaluations(buffers.T1z, curve, logger);
 
-            // Add the polynomial T1z to T1 to get the final polynomial T0
+            // Add the polynomial T1z to T1 to get the final polynomial T1
             polynomials.T1.add(polynomials.T1z);
 
             // Check degree
