@@ -98,7 +98,7 @@ const commands = [
     {
         cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Prepares phase 2. ",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        longDescription: " This process calculates the evaluation of the Lagrange polynomials at tau for alpha*tau and beta tau",
         alias: ["pt2"],
         options: "-verbose|v",
         action: powersOfTauPreparePhase2
