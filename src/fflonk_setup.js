@@ -454,15 +454,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         polynomials.C0 = C0.getPolynomial();
 
         // Check degree
-        if (polynomials.C0.degree() > 8 * settings.domainSize - 1) {
+        if (polynomials.C0.degree() >= 8 * settings.domainSize) {
             throw new Error("C0 Polynomial is not well calculated");
         }
 
-        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, curve, logger);
-
         await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);
-        await fdZKey.write(evaluations.C0.eval);
         await endWriteSection(fdZKey);
     }
 
@@ -558,8 +555,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
-
-
 }
 
 
