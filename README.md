@@ -83,7 +83,7 @@ cd snarkjs_example
 
 ### 1. Start a new powers of tau ceremony
 ```sh
-snarkjs powersoftau new bn128 14 pot14_0000.ptau -v
+snarkjs powersoftau new bn128 12 pot14_0000.ptau -v
 ```
 
 The `new` command is used to start a powers of tau ceremony.
