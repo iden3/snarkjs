@@ -6900,7 +6900,8 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // As the t polynomial is n+5 whe need at least a power of 4
     //TODO check!!!!
-    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
+    // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
+    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
     settings.domainSize = 2 ** settings.cirPower;
 
     if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
@@ -7140,11 +7141,16 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
                 buildSigma(plonkConstraints[i][0], i);
                 buildSigma(plonkConstraints[i][1], settings.domainSize + i);
                 buildSigma(plonkConstraints[i][2], settings.domainSize * 2 + i);
-            } else {
+            } else if (i < settings.domainSize - 2) {
                 buildSigma(0, i);
                 buildSigma(0, settings.domainSize + i);
                 buildSigma(0, settings.domainSize * 2 + i);
+            } else {
+                sigma.set(w, i * sFr);
+                sigma.set(Fr.mul(w, k1), (settings.domainSize + i) * sFr);
+                sigma.set(Fr.mul(w, k2), (settings.domainSize * 2 + i) * sFr);
             }
+
             w = Fr.mul(w, Fr.w[settings.cirPower]);
 
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
@@ -7240,15 +7246,12 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
         polynomials.C0 = C0.getPolynomial();
 
         // Check degree
-        if (polynomials.C0.degree() > 8 * settings.domainSize - 1) {
+        if (polynomials.C0.degree() >= 8 * settings.domainSize) {
             throw new Error("C0 Polynomial is not well calculated");
         }
 
-        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, curve, logger);
-
         await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);
-        await fdZKey.write(evaluations.C0.eval);
         await binFileUtils.endWriteSection(fdZKey);
     }
 
@@ -7344,8 +7347,6 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
-
-
 }
 
 /*
@@ -7612,156 +7613,6 @@ class Proof {
         Object.keys(objectProof.evaluations).forEach(key => {
             this.evaluations[key] = this.curve.Fr.fromObject(objectProof.evaluations[key]);
         });
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-class MulZ {
-    static getZ1(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.e(-1), Fr.w[2]),
-            Fr.e(-2),
-            Fr.sub(Fr.e(-1), Fr.w[2]),
-        ];
-    }
-
-    static getZ2(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-            Fr.e(4),
-            Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-        ];
-    }
-
-    static getZ3(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-            Fr.e(-8),
-            Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-        ];
-
-    }
-
-    static mul2(a, b, ap, bp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        r = a_b;
-
-        let a0 = Fr.add(a_bp, ap_b);
-
-        let a1 = ap_bp;
-
-        rz = a0;
-        if (p) {
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-        }
-
-        return [r, rz];
-    }
-
-    static mul3(a, b, c, ap, bp, cp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        const Z2 = this.getZ2(Fr);
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        r = Fr.mul(a_b, c);
-
-        let a0 = Fr.mul(ap_b, c);
-        a0 = Fr.add(a0, Fr.mul(a_bp, c));
-        a0 = Fr.add(a0, Fr.mul(a_b, cp));
-
-        let a1 = Fr.mul(ap_bp, c);
-        a1 = Fr.add(a1, Fr.mul(a_bp, cp));
-        a1 = Fr.add(a1, Fr.mul(ap_b, cp));
-
-        rz = a0;
-        if (p) {
-            const a2 = Fr.mul(ap_bp, cp);
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-            rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-        }
-
-        return [r, rz];
-    }
-
-    static mul4(a, b, c, d, ap, bp, cp, dp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        const Z2 = this.getZ2(Fr);
-        const Z3 = this.getZ3(Fr);
-
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        const c_d = Fr.mul(c, d);
-        const c_dp = Fr.mul(c, dp);
-        const cp_d = Fr.mul(cp, d);
-        const cp_dp = Fr.mul(cp, dp);
-
-        r = Fr.mul(a_b, c_d);
-
-        let a0 = Fr.mul(ap_b, c_d);
-        a0 = Fr.add(a0, Fr.mul(a_bp, c_d));
-        a0 = Fr.add(a0, Fr.mul(a_b, cp_d));
-        a0 = Fr.add(a0, Fr.mul(a_b, c_dp));
-
-        let a1 = Fr.mul(ap_bp, c_d);
-        a1 = Fr.add(a1, Fr.mul(ap_b, cp_d));
-        a1 = Fr.add(a1, Fr.mul(ap_b, c_dp));
-        a1 = Fr.add(a1, Fr.mul(a_bp, cp_d));
-        a1 = Fr.add(a1, Fr.mul(a_bp, c_dp));
-        a1 = Fr.add(a1, Fr.mul(a_b, cp_dp));
-
-        let a2 = Fr.mul(a_bp, cp_dp);
-        a2 = Fr.add(a2, Fr.mul(ap_b, cp_dp));
-        a2 = Fr.add(a2, Fr.mul(ap_bp, c_dp));
-        a2 = Fr.add(a2, Fr.mul(ap_bp, cp_d));
-
-        let a3 = Fr.mul(ap_bp, cp_dp);
-
-        rz = a0;
-        if (p) {
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-            rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-            rz = Fr.add(rz, Fr.mul(Z3[p], a3));
-        }
-
-        return [r, rz];
     }
 }
 
@@ -8110,6 +7961,14 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 buffers.C.set(getWitness(signalIdC), i_sFr);
             }
 
+            // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
+            buffers.A.set(challenges.b[1], sDomain - 64);
+            buffers.A.set(challenges.b[2], sDomain - 32);
+            buffers.B.set(challenges.b[3], sDomain - 64);
+            buffers.B.set(challenges.b[4], sDomain - 32);
+            buffers.C.set(challenges.b[5], sDomain - 64);
+            buffers.C.set(challenges.b[6], sDomain - 32);
+
             buffers.A = await Fr.batchToMontgomery(buffers.A);
             buffers.B = await Fr.batchToMontgomery(buffers.B);
             buffers.C = await Fr.batchToMontgomery(buffers.C);
@@ -8130,19 +7989,14 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             if (logger) logger.info("··· Computing C fft");
             evaluations.C = await Evaluations.fromPolynomial(polynomials.C, 4, curve, logger);
 
-            // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-            polynomials.A.blindCoefficients([challenges.b[2], challenges.b[1]]);
-            polynomials.B.blindCoefficients([challenges.b[4], challenges.b[3]]);
-            polynomials.C.blindCoefficients([challenges.b[6], challenges.b[5]]);
-
             // Check degrees
-            if (polynomials.A.degree() >= zkey.domainSize + 2) {
+            if (polynomials.A.degree() >= zkey.domainSize) {
                 throw new Error("A Polynomial is not well calculated");
             }
-            if (polynomials.B.degree() >= zkey.domainSize + 2) {
+            if (polynomials.B.degree() >= zkey.domainSize) {
                 throw new Error("B Polynomial is not well calculated");
             }
-            if (polynomials.C.degree() >= zkey.domainSize + 2) {
+            if (polynomials.C.degree() >= zkey.domainSize) {
                 throw new Error("C Polynomial is not well calculated");
             }
         }
@@ -8168,13 +8022,10 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             const lagrangePolynomials = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_LAGRANGE_SECTION);
             evaluations.lagrange1 = new Evaluations(lagrangePolynomials, curve, logger);
 
-            // Reserve memory for buffers T0 and T0z
+            // Reserve memory for buffers T0
             buffers.T0 = new ffjavascript.BigBuffer(sDomain * 4);
-            buffers.T0z = new ffjavascript.BigBuffer(sDomain * 4);
 
             if (logger) logger.info("··· Computing T0 evaluations");
-            // Initial omega
-            let omega = Fr.one;
             for (let i = 0; i < zkey.domainSize * 4; i++) {
                 if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
 
@@ -8188,11 +8039,6 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 const qm = evaluations.QM.getEvaluation(i);
                 const qo = evaluations.QO.getEvaluation(i);
                 const qc = evaluations.QC.getEvaluation(i);
-
-                // Compute blinding factors
-                const az = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
-                const bz = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
-                const cz = Fr.add(Fr.mul(challenges.b[5], omega), challenges.b[6]);
 
                 // Compute current public input
                 let pi = Fr.zero;
@@ -8209,30 +8055,20 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 // Compute first T0(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
                 // expression 1 -> q_L(X)·a(X)
                 const e1 = Fr.mul(a, ql);
-                const e1z = Fr.mul(az, ql);
 
                 // expression 2 -> q_R(X)·b(X)
                 const e2 = Fr.mul(b, qr);
-                const e2z = Fr.mul(bz, qr);
 
                 // expression 3 -> q_M(X)·a(X)·b(X)
-                let [e3, e3z] = MulZ.mul2(a, b, az, bz, i % 4, Fr);
-                e3 = Fr.mul(e3, qm);
-                e3z = Fr.mul(e3z, qm);
+                const e3 = Fr.mul(Fr.mul(a, b), qm);
 
                 // expression 4 -> q_O(X)·c(X)
                 const e4 = Fr.mul(c, qo);
-                const e4z = Fr.mul(cz, qo);
 
                 // t0 = expressions 1 + expression 2 + expression 3 + expression 4 + qc + pi
                 const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
-                const t0z = Fr.add(e1z, Fr.add(e2z, Fr.add(e3z, e4z)));
 
                 buffers.T0.set(t0, i * sFr);
-                buffers.T0z.set(t0z, i * sFr);
-
-                // Next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
             }
 
             if (logger) logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
@@ -8248,27 +8084,12 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             if (logger) logger.info("··· Computing T0 / ZH");
             polynomials.T0.divByZerofier(zkey.domainSize, Fr.one);
 
-            // Compute the coefficients of the polynomial T0z(X) from buffers.T0z
-            if (logger) logger.info("··· Computing T0z ifft");
-            polynomials.T0z = await Polynomial.fromEvaluations(buffers.T0z, curve, logger);
-
-            if (logger) logger.info("T0z length: " + polynomials.T0z.length());
-            if (logger) logger.info("T0z degree: " + polynomials.T0z.degree());
-
-            // Add the polynomial T0z to T0 to get the final polynomial T0
-            polynomials.T0.add(polynomials.T0z);
-
-            if (logger) logger.info("T0 length: " + polynomials.T0.length());
-            if (logger) logger.info("T0 degree: " + polynomials.T0.degree());
-
             // Check degree
-            if (polynomials.T0.degree() >= 2 * zkey.domainSize + 2) {
+            if (polynomials.T0.degree() >= 2 * zkey.domainSize - 2) {
                 throw new Error(`T0 Polynomial is not well calculated (degree is ${polynomials.T0.degree()} and must be less than ${2 * zkey.domainSize + 2}`);
             }
 
             delete buffers.T0;
-            delete buffers.T0z;
-            delete polynomials.T0z;
         }
 
         async function computeC1() {
@@ -8281,7 +8102,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             polynomials.C1 = C1.getPolynomial();
 
             // Check degree
-            if (polynomials.C1.degree() >= 8 * zkey.domainSize + 8) {
+            if (polynomials.C1.degree() >= 8 * zkey.domainSize - 8) {
                 throw new Error("C1 Polynomial is not well calculated");
             }
         }
@@ -8472,7 +8293,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             if (logger) logger.info("··· Computing T1z ifft");
             polynomials.T1z = await Polynomial.fromEvaluations(buffers.T1z, curve, logger);
 
-            // Add the polynomial T0z to T0 to get the final polynomial T0
+            // Add the polynomial T1z to T1 to get the final polynomial T1
             polynomials.T1.add(polynomials.T1z);
 
             // Check degree
@@ -8506,9 +8327,6 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 const z = evaluations.Z.getEvaluation(i);
                 const zW = evaluations.Z.getEvaluation((zkey.domainSize * 4 + 4 + i) % (zkey.domainSize * 4));
 
-                const ap = Fr.add(Fr.mul(challenges.b[1], omega), challenges.b[2]);
-                const bp = Fr.add(Fr.mul(challenges.b[3], omega), challenges.b[4]);
-                const cp = Fr.add(Fr.mul(challenges.b[5], omega), challenges.b[6]);
                 const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
                 const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omegaW2), Fr.mul(challenges.b[8], omegaW)), challenges.b[9]);
 
@@ -8532,7 +8350,9 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 let e13 = Fr.add(c, Fr.mul(betaX, zkey.k2));
                 e13 = Fr.add(e13, challenges.gamma);
 
-                const [e1, e1z] = MulZ.mul4(e11, e12, e13, z, ap, bp, cp, zp, i % 4, Fr);
+                let e1 = Fr.mul(Fr.mul(Fr.mul(e11, e12), e13), z);
+                let e1z = Fr.mul(Fr.mul(Fr.mul(e11, e12), e13), zp);
+                // const [e1, e1z] = MulZ.mul4(e11, e12, e13, z, ap, bp, cp, zp, i % 4, Fr);
 
                 // expression 2 -> (a(X) + beta·sigma1(X) + gamma)(b(X) + beta·sigma2(X) + gamma)(c(X) + beta·sigma3(X) + gamma)z(Xω)
                 let e21 = Fr.add(a, Fr.mul(challenges.beta, sigma1));
@@ -8544,7 +8364,9 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
                 let e23 = Fr.add(c, Fr.mul(challenges.beta, sigma3));
                 e23 = Fr.add(e23, challenges.gamma);
 
-                const [e2, e2z] = MulZ.mul4(e21, e22, e23, zW, ap, bp, cp, zWp, i % 4, Fr);
+                let e2 = Fr.mul(Fr.mul(Fr.mul(e21, e22), e23), zW);
+                let e2z = Fr.mul(Fr.mul(Fr.mul(e21, e22), e23), zWp);
+                // const [e2, e2z] = MulZ.mul4(e21, e22, e23, zW, ap, bp, cp, zWp, i % 4, Fr);
 
                 let t2 = Fr.sub(e1, e2);
                 let t2z = Fr.sub(e1z, e2z);
@@ -8572,7 +8394,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             polynomials.T2.add(polynomials.T2z);
 
             // Check degree
-            if (polynomials.T2.degree() >= 3 * zkey.domainSize + 6) {
+            if (polynomials.T2.degree() >= 3 * zkey.domainSize) {
                 throw new Error("T2 Polynomial is not well calculated");
             }
 
@@ -8590,7 +8412,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             polynomials.C2 = C2.getPolynomial();
 
             // Check degree
-            if (polynomials.C2.degree() >= 9 * zkey.domainSize + 18) {
+            if (polynomials.C2.degree() >= 9 * zkey.domainSize) {
                 throw new Error("C2 Polynomial is not well calculated");
             }
         }
@@ -8817,8 +8639,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             polynomials.F.add(f2);
             polynomials.F.add(f3);
 
-            // Check degree < 9n + 12
-            if (polynomials.F.degree() >= 9 * zkey.domainSize + 12) {
+            if (polynomials.F.degree() >= 9 * zkey.domainSize - 6) {
                 throw new Error("F Polynomial is not well calculated");
             }
         }
@@ -8855,7 +8676,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             throw new Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${polRemainder.degree()} and should be 0`);
         }
 
-        if (polynomials.L.degree() >= 9 * zkey.domainSize + 17) {
+        if (polynomials.L.degree() >= 9 * zkey.domainSize - 1) {
             throw new Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
         }
 
@@ -8922,7 +8743,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
             polynomials.L.sub(polynomials.F);
 
             // Check degree
-            if (polynomials.L.degree() >= 9 * zkey.domainSize + 18) {
+            if (polynomials.L.degree() >= 9 * zkey.domainSize) {
                 throw new Error("L Polynomial is not well calculated");
             }
 
