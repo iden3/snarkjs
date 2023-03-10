@@ -447,12 +447,5 @@ Currently, there are 17 defined sections:
            ...        ...                                 ┃  C0 coefficients
      ┏━━━━━━━━━━━━━┓                                      ┃
      ┃ fs bytes    ┃ C0 coefficient_{Domain size * 8}     ┃
-     ┣━━━━━━━━━━━━━┫                                     ━┫
-     ┃ fs bytes    ┃ C0 evaluation_1                      ┃
-     ┗━━━━━━━━━━━━━┛                                      ┃
-           ...        ...                                 ┃  C0 evaluations
-     ┏━━━━━━━━━━━━━┓                                      ┃
-     ┃ fs bytes    ┃ C0 evaluation_{Domain size + 16}     ┃
      ┗━━━━━━━━━━━━━┛                                     ━┛
-
 ````

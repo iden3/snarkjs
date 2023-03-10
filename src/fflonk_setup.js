@@ -108,7 +108,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // As the t polynomial is n+5 whe need at least a power of 4
     //TODO check!!!!
-    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2(plonkConstraints.length - 1) + 1);
+    // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
+    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
     settings.domainSize = 2 ** settings.cirPower;
 
     if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
@@ -348,11 +349,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
                 buildSigma(plonkConstraints[i][0], i);
                 buildSigma(plonkConstraints[i][1], settings.domainSize + i);
                 buildSigma(plonkConstraints[i][2], settings.domainSize * 2 + i);
-            } else {
+            } else if (i < settings.domainSize - 2) {
                 buildSigma(0, i);
                 buildSigma(0, settings.domainSize + i);
                 buildSigma(0, settings.domainSize * 2 + i);
+            } else {
+                sigma.set(w, i * sFr);
+                sigma.set(Fr.mul(w, k1), (settings.domainSize + i) * sFr);
+                sigma.set(Fr.mul(w, k2), (settings.domainSize * 2 + i) * sFr);
             }
+
             w = Fr.mul(w, Fr.w[settings.cirPower]);
 
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
@@ -448,15 +454,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         polynomials.C0 = C0.getPolynomial();
 
         // Check degree
-        if (polynomials.C0.degree() > 8 * settings.domainSize - 1) {
+        if (polynomials.C0.degree() >= 8 * settings.domainSize) {
             throw new Error("C0 Polynomial is not well calculated");
         }
 
-        evaluations.C0 = await Evaluations.fromPolynomial(polynomials.C0, 2, curve, logger);
-
         await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);
-        await fdZKey.write(evaluations.C0.eval);
         await endWriteSection(fdZKey);
     }
 
@@ -552,8 +555,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
-
-
 }
 
 
