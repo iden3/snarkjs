@@ -26,6 +26,10 @@ jobs:
       - name: Install circom
         run: npm install -g circom@latest
 
+      # Install hardhat dependencies for smart contracts tests
+      - name: Install hardhat dependencies
+        run: npm install hardhat @nomicfoundation/hardhat-toolbox @nomiclabs/hardhat-ethers @nomiclabs/hardhat-waffle 
+
       - name: Install dependencies
         run: npm ci
 
