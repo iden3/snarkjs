@@ -18,15 +18,5 @@
 import wtnsCheck from "../wtns_check.js";
 
 export async function wtnsCheckCmd(r1csFilename, wtnsFilename, logger) {
-    const res = await wtnsCheck(r1csFilename, wtnsFilename, logger);
-
-    if (logger) {
-        if (res) {
-            logger.info("Witness is correct");
-        } else {
-            logger.warn("Witness is NOT correct");
-        }
-    }
-    
-    return res;
+    return await wtnsCheck(r1csFilename, wtnsFilename, logger);
 }
