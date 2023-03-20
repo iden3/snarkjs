@@ -112,6 +112,10 @@ describe("Full process", function ()  {
         await snarkjs.wtns.calculate({a: 11, b:2}, path.join("test", "circuit", "circuit.wasm"), wtns);
     });
 
+    it ("checks witness complies with r1cs", async () => {
+        await snarkjs.wtnsCmds.wtnsCheckCmd(path.join("test", "circuit", "circuit.r1cs"), wtns);
+    });
+
     it ("groth16 proof", async () => {
         const res = await snarkjs.groth16.prove(zkey_final, wtns);
         proof = res.proof;

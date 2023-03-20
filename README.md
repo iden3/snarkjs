@@ -321,6 +321,13 @@ Now, we use the Javascript/WASM program created by `circom` in the directory *ci
 circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 ```
 
+We can check if the generated witness complies with the `r1cs` file with the following command:
+
+```sh
+snarkjs wtns check circuit.r1cs witness.wtns
+```
+
+
 ### 15. Setup
 
 Currently, snarkjs supports 3 proving systems: Groth16, PLONK and FFLONK (Beta version).
