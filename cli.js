@@ -39,6 +39,7 @@ import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
 import * as plonk from "./src/plonk.js";
 import * as fflonkCmd from "./src/cmds/fflonk_cmds.js";
+import * as wtnsCmd from "./src/cmds/wtns_cmds.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
@@ -172,6 +173,12 @@ const commands = [
         options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
+    },
+    {
+        cmd: "wtns check [circuit.r1cs] [[witness.wtns]",
+        description: "Check if a specific witness of a circuit fullfills the r1cs constraints",
+        alias: ["wchk"],
+        action: wtnsCheck
     },
     {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
@@ -470,6 +477,17 @@ async function wtnsExportJson(params, options) {
     await bfj.write(jsonName, stringifyBigInts(w), {space: 1});
 
     return 0;
+}
+
+// wtns export json  [witness.wtns] [witness.json]
+// -get|g -set|s -trigger|t
+async function wtnsCheck(params, options) {
+    const r1csFilename = params[0] || "circuit.r1cs";
+    const wtnsFilename = params[1] || "witness.wtns";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    return await wtnsCmd.wtnsCheckCmd(r1csFilename, wtnsFilename, logger);
 }
 
 
