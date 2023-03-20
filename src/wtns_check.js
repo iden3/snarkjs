@@ -59,14 +59,14 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
     if (logger) {
         logger.info("----------------------------");
         logger.info("  WITNESS CHECK");
-        logger.info(`  Curve:           ${r1cs.curve.name}`);
-        logger.info(`  #Vars:           ${r1cs.nVars}`);
-        logger.info(`  #Ouputs:         ${r1cs.nOutputs}`);
-        logger.info(`  #Public Inputs:  ${r1cs.nPubInputs}`);
-        logger.info(`  #Private Inputs: ${r1cs.nPrvInputs}`);
-        logger.info(`  #Labels:         ${r1cs.nLabels}`);
-        logger.info(`  #Constraints:    ${r1cs.nConstraints}`);
-        logger.info(`  Custom Gates:    ${r1cs.useCustomGates}`);
+        logger.info(`  Curve:          ${r1cs.curve.name}`);
+        logger.info(`  Vars (wires):   ${r1cs.nVars}`);
+        logger.info(`  Ouputs:         ${r1cs.nOutputs}`);
+        logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
+        logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
+        logger.info(`  Labels:         ${r1cs.nLabels}`);
+        logger.info(`  Constraints:    ${r1cs.nConstraints}`);
+        logger.info(`  Custom Gates:   ${r1cs.useCustomGates}`);
         logger.info("----------------------------");
     }
 
@@ -118,7 +118,7 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
             const signalValue = getWitnessValue(signalId);
             const signalFactor = lc[signalId];
 
-            res = Fr.add(res, Fr.add(Fr.one,Fr.mul(signalValue, signalFactor)));
+            res = Fr.add(res, Fr.mul(signalValue, signalFactor));
         });
 
         return res;
