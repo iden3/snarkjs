@@ -91,6 +91,7 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
         // Check that A * B - C == 0
         if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
+            logger.warn("··· aborting checking process at constraint " + i);
             res = false;
             break;
         }
@@ -101,11 +102,11 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
     if (logger) {
         if (res) {
             logger.info("WITNESS IS CORRECT");
+            logger.info("WITNESS CHECKING FINISHED SUCCESSFULLY");
         } else {
             logger.warn("WITNESS IS NOT CORRECT");
+            logger.warn("WITNESS CHECKING FINISHED UNSUCCESSFULLY");
         }
-
-        logger.info("WITNESS CHECKING FINISHED");
     }
 
     return res;
