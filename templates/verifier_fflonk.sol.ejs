@@ -223,8 +223,11 @@ contract FflonkVerifier {
                 let y2 := mulmod(y, y, qf)
 
                 if iszero(eq(x3_3, y2)) {
-                    mstore(0, 0)
-                    return(0, 0x20)
+                    // Check if the point is different of the point at infinity
+                    if iszero(and(eq(x, 0), eq(y, 0))) {
+                        mstore(0, 0)
+                        return(0, 0x20)
+                    }
                 }
             }  
             
