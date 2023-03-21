@@ -4,10 +4,10 @@
   "version": "0.6.10",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
-  "module": "./build/main.js",
+  "module": "./main.js",
   "exports": {
     "node": {
-      "import": "./build/main.js",
+      "import": "./main.js",
       "require": "./build/main.cjs"
     },
     "default": "./build/snarkjs.js"
