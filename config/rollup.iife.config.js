@@ -41,7 +41,6 @@ export default {
             stream: empty,
             util: empty,
             constants: constants,
-            bjs: empty,
         }),
         nodeResolve({
             browser: true,
