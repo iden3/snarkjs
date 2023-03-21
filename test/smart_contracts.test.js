@@ -9,16 +9,10 @@ import * as zkey from "../src/zkey.js";
 
 import fs from "fs";
 
-describe("Fflonk test suite", function () {
-    let verifierContract;
-
-    const publicInputsFilename = path.join("test", "fflonk", "public.json");
-    const proofFilename = path.join("test", "fflonk", "proof.json");
-    const zkeyFilename = path.join("test", "fflonk", "circuit.zkey");
-    const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonk.sol");
-
+describe("Smart contracts test suite", function () {
     this.timeout(1000000000);
 
+    let verifierContract;
     let curve;
 
     before(async () => {
@@ -30,6 +24,11 @@ describe("Fflonk test suite", function () {
     });
 
     it("fflonk smart contract", async () => {
+        const publicInputsFilename = path.join("test", "fflonk", "public.json");
+        const proofFilename = path.join("test", "fflonk", "proof.json");
+        const zkeyFilename = path.join("test", "fflonk", "circuit.zkey");
+        const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonk.sol");
+
         // Load fflonk template
         const templates = {};
         templates.fflonk = await fs.promises.readFile(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
