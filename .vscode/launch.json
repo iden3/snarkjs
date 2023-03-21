@@ -202,5 +202,20 @@
                 "test/fflonk/verifier.sol"
             ]
         },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "wtns check",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "wtns",
+                "check",
+                "test/fflonk/circuit.r1cs",
+                "test/fflonk/witness.wtns",
+            ]
+        },
     ]
 }
