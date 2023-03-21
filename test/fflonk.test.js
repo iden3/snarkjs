@@ -57,28 +57,34 @@ describe("Fflonk test suite", function () {
     });
 
     it("fflonk smart contract", async () => {
-        // Load fflonk template
-        const templates = {};
-        templates.fflonk = await fs.promises.readFile(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
+        // Check node version to avoid an error in node < 14
+        // due to coallesce operator is used inside hardhat library but is not supported in node 13 or lower
+        if(process.version.substring(1,3) >= 14) {
+            // Load fflonk template
+            const templates = {};
+            templates.fflonk = await fs.promises.readFile(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
 
-        // Generate fflonk verifier solidity file from fflonk template + zkey
-        const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
-        fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
+            // Generate fflonk verifier solidity file from fflonk template + zkey
+            const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
+            fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
-        // Compile the fflonk verifier smart contract
-        await run("compile");
+            // Compile the fflonk verifier smart contract
+            await run("compile");
 
-        // Deploy mock fflonk verifier
-        const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
-        verifierContract = await VerifierFactory.deploy();
+            // Deploy mock fflonk verifier
+            const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
+            verifierContract = await VerifierFactory.deploy();
 
-        // Read last test generated fflonk proof & public inputs
-        const proofJson = JSON.parse(await fs.promises.readFile(proofFilename, "utf8"));
-        const publicInputs = JSON.parse(await fs.promises.readFile(publicInputsFilename, "utf8"));
+            // Read last test generated fflonk proof & public inputs
+            const proofJson = JSON.parse(await fs.promises.readFile(proofFilename, "utf8"));
+            const publicInputs = JSON.parse(await fs.promises.readFile(publicInputsFilename, "utf8"));
 
-        // Verifiy the proof in the smart contract
-        const proof = generateSolidityInputs(proofJson);
-        expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
+            // Verifiy the proof in the smart contract
+            const proof = generateSolidityInputs(proofJson);
+            expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
+        } else {
+            console.log("Skipping fflonk smart contract test, node version < 14");
+        }
     });
 });
 
