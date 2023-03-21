@@ -6,8 +6,11 @@
   "main": "./build/main.cjs",
   "module": "./main.js",
   "exports": {
-    "import": "./main.js",
-    "require": "./build/main.cjs"
+    "node": {
+      "import": "./main.js",
+      "require": "./build/main.cjs"
+    },
+    "default": "./build/snarkjs.js"
   },
   "scripts": {
     "test": "mocha",
