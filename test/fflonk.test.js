@@ -2,14 +2,15 @@ import { expect } from "chai";
 
 import * as fflonk from "../src/cmds/fflonk_cmds.js";
 import zkeyExportVerificationKey from "../src/zkey_export_verificationkey.js";
-import {getCurveFromName} from "../src/curves.js";
+import { getCurveFromName } from "../src/curves.js";
 import path from "path";
-import {utils} from "ffjavascript";
+import { utils } from "ffjavascript";
 import bfj from "bfj";
 import assert from "assert";
 import hardhat from "hardhat";
 const { ethers, run } = hardhat;
-const {stringifyBigInts} = utils;
+
+const { stringifyBigInts } = utils;
 import * as zkey from "../src/zkey.js";
 
 import fs from "fs";
@@ -47,7 +48,7 @@ describe("Fflonk test suite", function () {
 
         // export verification key
         const vKey = await zkeyExportVerificationKey(zkeyFilename);
-        await bfj.write(vkeyFilename, stringifyBigInts(vKey), {space: 1});
+        await bfj.write(vkeyFilename, stringifyBigInts(vKey), { space: 1 });
 
         // Verify the proof
         const isValid = await fflonk.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename);
@@ -59,7 +60,7 @@ describe("Fflonk test suite", function () {
         // Load fflonk template
         const templates = {};
         templates.fflonk = await fs.promises.readFile(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
-    
+
         // Generate fflonk verifier solidity file from fflonk template + zkey
         const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");

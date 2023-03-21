@@ -1,4 +1,4 @@
-require("@nomicfoundation/hardhat-toolbox");
+require("@nomiclabs/hardhat-waffle");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -21,10 +21,10 @@ module.exports = {
         cache: "./test/smart_contracts/cache",
         artifacts: "./test/smart_contracts/artifacts"
     },
-    gasReporter: {
-        enabled: !!process.env.REPORT_GAS,
-        outputFile: process.env.REPORT_GAS_FILE ? "./gas_report.md" : null,
-        noColors: process.env.REPORT_GAS_FILE ? true : false
-    },
+    // gasReporter: {
+    //     enabled: !!process.env.REPORT_GAS,
+    //     outputFile: process.env.REPORT_GAS_FILE ? "./gas_report.md" : null,
+    //     noColors: process.env.REPORT_GAS_FILE ? true : false
+    // },
 
 };
