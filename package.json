@@ -59,6 +59,8 @@
     "@rollup/plugin-virtual": "^2.0.3",
     "chai": "^4.3.7",
     "eslint": "^8.7.0",
+    "ethereum-waffle": "^4.0.10",
+    "ethers": "^5.7.2",
     "hardhat": "^2.13.0",
     "mocha": "^10.2.0",
     "rollup": "^2.36.2",
