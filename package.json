@@ -4,10 +4,10 @@
   "version": "0.6.10",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
-  "module": "./main.js",
+  "module": "./build/main.js",
   "exports": {
     "node": {
-      "import": "./main.js",
+      "import": "./build/main.js",
       "require": "./build/main.cjs"
     },
     "default": "./build/snarkjs.js"
@@ -16,6 +16,8 @@
     "test": "mocha",
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
+    "buildesm": "rollup -c config/rollup.esm.config.js",
+    "buildbrowser": "BROWSER=true rollup -c config/rollup.browser.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
     "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js"
   },
@@ -42,8 +44,8 @@
   },
   "dependencies": {
     "@iden3/binfileutils": "0.0.11",
-    "blake2b-wasm": "^2.4.0",
     "bfj": "^7.0.2",
+    "blake2b-wasm": "^2.4.0",
     "circom_runtime": "0.1.22",
     "ejs": "^3.1.6",
     "fastfile": "0.0.20",
