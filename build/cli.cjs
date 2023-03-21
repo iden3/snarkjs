@@ -170,16 +170,16 @@ function r1csPrint$1(r1cs, syms, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bls12381r = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-const bn128r = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 async function r1csInfo$1(r1csName, logger) {
 
     const cir = await r1csfile.readR1cs(r1csName);
 
-    if (ffjavascript.Scalar.eq(cir.prime, bn128r)) {
+    if (ffjavascript.Scalar.eq(cir.prime, bn128r$1)) {
         if (logger) logger.info("Curve: bn-128");
-    } else if (ffjavascript.Scalar.eq(cir.prime, bls12381r)) {
+    } else if (ffjavascript.Scalar.eq(cir.prime, bls12381r$1)) {
         if (logger) logger.info("Curve: bls12-381");
     } else {
         if (logger) logger.info(`Unknown Curve. Prime: ${ffjavascript.Scalar.toString(cir.prime)}`);
@@ -736,11 +736,23 @@ function createPTauKey(curve, challengeHash, rng) {
     return key;
 }
 
-ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+const bls12381r = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+const bn128r = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 const bls12381q = ffjavascript.Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
 const bn128q = ffjavascript.Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+
+async function getCurveFromR(r) {
+    let curve;
+    if (ffjavascript.Scalar.eq(r, bn128r)) {
+        curve = await ffjavascript.buildBn128();
+    } else if (ffjavascript.Scalar.eq(r, bls12381r)) {
+        curve = await ffjavascript.buildBls12381();
+    } else {
+        throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(r)}`);
+    }
+    return curve;
+}
 
 async function getCurveFromQ(q) {
     let curve;
@@ -12117,6 +12129,172 @@ async function plonkExportSolidityCallData(_proof, _pub) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
+async function wtnsCheck$1(r1csFilename, wtnsFilename, logger) {
+
+    if (logger) logger.info("WITNESS CHECKING STARTED");
+
+    // Read r1cs file
+    if (logger) logger.info("> Reading r1cs file");
+    const {
+        fd: fdR1cs,
+        sections: sectionsR1cs
+    } = await binFileUtils__namespace.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
+
+    // Read witness file
+    if (logger) logger.info("> Reading witness file");
+    const {
+        fd: fdWtns,
+        sections: wtnsSections
+    } = await binFileUtils__namespace.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24);
+    const wtnsHeader = await readHeader(fdWtns, wtnsSections);
+
+    if (!ffjavascript.Scalar.eq(r1cs.prime, wtnsHeader.q)) {
+        throw new Error("Curve of the witness does not match the curve of the proving key");
+    }
+
+    const buffWitness = await binFileUtils__namespace.readSection(fdWtns, wtnsSections, 2);
+    await fdWtns.close();
+
+    const curve = await getCurveFromR(r1cs.prime);
+    const Fr = curve.Fr;
+    const sFr = Fr.n8;
+
+    const bR1cs = await binFileUtils__namespace.readSection(fdR1cs, sectionsR1cs, 2);
+
+    if (logger) {
+        logger.info("----------------------------");
+        logger.info("  WITNESS CHECK");
+        logger.info(`  Curve:          ${r1cs.curve.name}`);
+        logger.info(`  Vars (wires):   ${r1cs.nVars}`);
+        logger.info(`  Ouputs:         ${r1cs.nOutputs}`);
+        logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
+        logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
+        logger.info(`  Labels:         ${r1cs.nLabels}`);
+        logger.info(`  Constraints:    ${r1cs.nConstraints}`);
+        logger.info(`  Custom Gates:   ${r1cs.useCustomGates}`);
+        logger.info("----------------------------");
+    }
+
+    if (logger) logger.info("> Checking witness correctness");
+
+    let bR1csPos = 0;
+    let res = true;
+    for (let i = 0; i < r1cs.nConstraints; i++) {
+        if ((logger) && (i !== 0) && (i % 500000 === 0)) {
+            logger.info(`··· processing r1cs constraints ${i}/${r1cs.nConstraints}`);
+        }
+
+        //Read the three linear combinations of the constraint where A * B - C = 0
+        const lcA = readLC();
+        const lcB = readLC();
+        const lcC = readLC();
+
+        // Evaluate the linear combinations
+        const evalA = EvaluateLinearCombination(lcA);
+        const evalB = EvaluateLinearCombination(lcB);
+        const evalC = EvaluateLinearCombination(lcC);
+
+        // Check that A * B - C == 0
+        if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
+            logger.warn("··· aborting checking process at constraint " + i);
+            res = false;
+            break;
+        }
+    }
+
+    fdR1cs.close();
+
+    if (logger) {
+        if (res) {
+            logger.info("WITNESS IS CORRECT");
+            logger.info("WITNESS CHECKING FINISHED SUCCESSFULLY");
+        } else {
+            logger.warn("WITNESS IS NOT CORRECT");
+            logger.warn("WITNESS CHECKING FINISHED UNSUCCESSFULLY");
+        }
+    }
+
+    return res;
+
+    function EvaluateLinearCombination(lc) {
+        let res = Fr.zero;
+
+        const keys = Object.keys(lc);
+        keys.forEach((signalId) => {
+            const signalValue = getWitnessValue(signalId);
+            const signalFactor = lc[signalId];
+
+            res = Fr.add(res, Fr.mul(signalValue, signalFactor));
+        });
+
+        return res;
+    }
+
+    function readLC() {
+        const lc = {};
+
+        const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos + 4);
+        bR1csPos += 4;
+        const buffUL32V = new DataView(buffUL32.buffer);
+        const nIdx = buffUL32V.getUint32(0, true);
+
+        const buff = bR1cs.slice(bR1csPos, bR1csPos + (4 + r1cs.n8) * nIdx);
+        bR1csPos += (4 + r1cs.n8) * nIdx;
+        const buffV = new DataView(buff.buffer);
+        for (let i = 0; i < nIdx; i++) {
+            const idx = buffV.getUint32(i * (4 + r1cs.n8), true);
+            const val = r1cs.F.fromRprLE(buff, i * (4 + r1cs.n8) + 4);
+            lc[idx] = val;
+        }
+        return lc;
+    }
+
+    function getWitnessValue(signalId) {
+        return Fr.fromRprLE(buffWitness.slice(signalId * sFr, signalId * sFr + sFr));
+    }
+}
+
+/*
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+async function wtnsCheckCmd(r1csFilename, wtnsFilename, logger) {
+    return await wtnsCheck$1(r1csFilename, wtnsFilename, logger);
+}
+
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
 const {unstringifyBigInts} = ffjavascript.utils;
 
 
@@ -12340,6 +12518,12 @@ const commands = [
         options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
+    },
+    {
+        cmd: "wtns check [circuit.r1cs] [[witness.wtns]",
+        description: "Check if a specific witness of a circuit fullfills the r1cs constraints",
+        alias: ["wchk"],
+        action: wtnsCheck
     },
     {
         cmd: "zkey contribute <circuit_old.zkey> <circuit_new.zkey>",
@@ -12638,6 +12822,17 @@ async function wtnsExportJson(params, options) {
     await bfj__default["default"].write(jsonName, stringifyBigInts(w), {space: 1});
 
     return 0;
+}
+
+// wtns export json  [witness.wtns] [witness.json]
+// -get|g -set|s -trigger|t
+async function wtnsCheck(params, options) {
+    const r1csFilename = params[0] || "circuit.r1cs";
+    const wtnsFilename = params[1] || "witness.wtns";
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    return await wtnsCheckCmd(r1csFilename, wtnsFilename, logger);
 }
 
 
