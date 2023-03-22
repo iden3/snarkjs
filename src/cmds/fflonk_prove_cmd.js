@@ -24,8 +24,10 @@ const {stringifyBigInts} = utils;
 export async function fflonkProveCmd(zkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger) {
     const {proof, publicSignals} = await fflonkProve(zkeyFilename, witnessFilename, logger);
 
-    await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
-    await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
-
-    return 0;
+    if(undefined !== proofFilename && undefined !== publicInputsFilename) {
+        await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
+        await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
+    }
+    
+    return {proof, publicSignals};
 }

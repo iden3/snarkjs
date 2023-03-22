@@ -230,6 +230,11 @@ contract FflonkVerifier {
             
             // Validate all the evaluations sent by the prover ∈ F
             function checkInput(pProof) {
+                if iszero(eq(mload(pProof), 768)) {
+                    mstore(0, 0)
+                     return(0, 0x20)
+                }
+                
                 // Check proof commitments fullfill bn128 curve equation Y^2 = X^3 + 3
                 checkPointBelongsToBN128Curve(add(pProof, pC1))
                 checkPointBelongsToBN128Curve(add(pProof, pC2))
