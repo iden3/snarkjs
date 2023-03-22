@@ -7,10 +7,20 @@ const { ethers, run } = hardhat;
 
 import * as zkey from "../src/zkey.js";
 
+import * as snarkjs from "../main.js";
+
 import fs from "fs";
 
 describe("Smart contracts test suite", function () {
     this.timeout(1000000000);
+
+    const ptauFilename = path.join("test", "plonk_circuit", "powersOfTau15_final.ptau");
+
+    // Load templates
+    const templates = {};
+    templates.groth16 = fs.readFileSync(path.join("templates", "verifier_groth16.sol.ejs"), "utf8");
+    templates.plonk = fs.readFileSync(path.join("templates", "verifier_plonk.sol.ejs"), "utf8");
+    templates.fflonk = fs.readFileSync(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
 
     let verifierContract;
     let curve;
@@ -24,14 +34,18 @@ describe("Smart contracts test suite", function () {
     });
 
     it("Groth16 smart contract", async () => {
-        const publicInputsFilename = path.join("test", "groth16", "public.json");
-        const proofFilename = path.join("test", "groth16", "proof.json");
-        const zkeyFilename = path.join("test", "groth16", "circuit.zkey");
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "groth16.sol");
 
-        // Load Groth16 template
-        const templates = {};
-        templates.groth16 = fs.readFileSync(path.join("templates", "verifier_groth16.sol.ejs"), "utf8");
+        const r1csFilename = path.join("test", "groth16", "circuit.r1cs");
+        const wtnsFilename = path.join("test", "groth16", "witness.wtns");
+        const zkeyFilename = { type: "mem" };
+
+        await snarkjs.zKey.newZKey(r1csFilename, ptauFilename, zkeyFilename);
+        const { proof: proof, publicSignals: publicInputs } = await snarkjs.groth16.prove(zkeyFilename, wtnsFilename);
+
+        const proofA = [proof.pi_a[0], proof.pi_a[1]];
+        const proofB = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]]];
+        const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
         // Generate groth16 verifier solidity file from groth16 template + zkey
         const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
@@ -44,30 +58,19 @@ describe("Smart contracts test suite", function () {
         const VerifierFactory = await ethers.getContractFactory("Verifier");
         verifierContract = await VerifierFactory.deploy();
 
-        // Read last test generated groth16 proof & public inputs
-        const proofJson = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
-        const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
-
-        const proofA = [proofJson.pi_a[0], proofJson.pi_a[1]];
-        const proofB = [
-            [proofJson.pi_b[0][1], proofJson.pi_b[0][0]],
-            [proofJson.pi_b[1][1], proofJson.pi_b[1][0]],
-        ];
-        const proofC = [proofJson.pi_c[0], proofJson.pi_c[1]];
-
         // Verifiy the proof in the smart contract
         expect(await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs)).to.be.equal(true);
     });
 
     it("plonk smart contract", async () => {
-        const publicInputsFilename = path.join("test", "plonk_circuit", "public.json");
-        const proofFilename = path.join("test", "plonk_circuit", "proof.json");
-        const zkeyFilename = path.join("test", "plonk_circuit", "circuit.zkey");
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "plonk.sol");
 
-        // Load plonk template
-        const templates = {};
-        templates.plonk = await fs.promises.readFile(path.join("templates", "verifier_plonk.sol.ejs"), "utf8");
+        const r1csFilename = path.join("test", "plonk_circuit", "circuit.r1cs");
+        const wtnsFilename = path.join("test", "plonk_circuit", "witness.wtns");
+        const zkeyFilename = { type: "mem" };
+
+        await snarkjs.plonk.setup(r1csFilename, ptauFilename, zkeyFilename);
+        const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.plonk.prove(zkeyFilename, wtnsFilename);
 
         // Generate plonk verifier solidity file from plonk template + zkey
         const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
@@ -79,10 +82,6 @@ describe("Smart contracts test suite", function () {
         // Deploy mock plonk verifier
         const VerifierFactory = await ethers.getContractFactory("PlonkVerifier");
         verifierContract = await VerifierFactory.deploy();
-
-        // Read last test generated plonk proof & public inputs
-        const proofJson = JSON.parse(await fs.promises.readFile(proofFilename, "utf8"));
-        const publicInputs = JSON.parse(await fs.promises.readFile(publicInputsFilename, "utf8"));
 
         // Verifiy the proof in the smart contract
         const arrayStrings = Array(25).fill("bytes32");
@@ -122,14 +121,14 @@ describe("Smart contracts test suite", function () {
     });
 
     it("fflonk smart contract", async () => {
-        const publicInputsFilename = path.join("test", "fflonk", "public.json");
-        const proofFilename = path.join("test", "fflonk", "proof.json");
-        const zkeyFilename = path.join("test", "fflonk", "circuit.zkey");
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonk.sol");
 
-        // Load fflonk template
-        const templates = {};
-        templates.fflonk = fs.readFileSync(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
+        const r1csFilename = path.join("test", "fflonk", "circuit.r1cs");
+        const wtnsFilename = path.join("test", "fflonk", "witness.wtns");
+        const zkeyFilename = { type: "mem" };
+
+        await snarkjs.fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename);
+        const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.fflonk.fflonkProveCmd(zkeyFilename, wtnsFilename);
 
         // Generate fflonk verifier solidity file from fflonk template + zkey
         const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
@@ -141,10 +140,6 @@ describe("Smart contracts test suite", function () {
         // Deploy mock fflonk verifier
         const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
         verifierContract = await VerifierFactory.deploy();
-
-        // Read last test generated fflonk proof & public inputs
-        const proofJson = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
-        const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
 
         // Verifiy the proof in the smart contract
         const { evaluations, polynomials } = proofJson;
