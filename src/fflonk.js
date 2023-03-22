@@ -24,7 +24,7 @@ export const FF_T_POL_DEG_MIN = 3;
 export const A = 12;
 
 // ZKEY constants
-export const ZKEY_FF_NSECTIONS = 17;
+export const ZKEY_FF_NSECTIONS = 16; // N sections without including fi from stage 0
 
 export const ZKEY_FF_HEADER_SECTION = 2;
 export const ZKEY_FF_ADDITIONS_SECTION = 3;
@@ -41,4 +41,4 @@ export const ZKEY_FF_SIGMA2_SECTION = 13;
 export const ZKEY_FF_SIGMA3_SECTION = 14;
 export const ZKEY_FF_LAGRANGE_SECTION = 15;
 export const ZKEY_FF_PTAU_SECTION = 16;
-export const ZKEY_FF_C0_SECTION = 17;
+export const ZKEY_FF_F0_SECTION = 17;

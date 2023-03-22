@@ -30,7 +30,7 @@ contract FflonkVerifier {
     // OMEGAS
     // Omega, Omega^{1/3}
     uint256 constant w1   = <%= w  %>;
-    uint256 constant wr   = <%= wr %>;
+    uint256 constant w3_1d3   = <%= w3_1d3 %>;
     // Omega_3, Omega_3^2
     uint256 constant w3   = <%= w3 %>;
     uint256 constant w3_2 = <%= w3_2 %>;
@@ -48,8 +48,8 @@ contract FflonkVerifier {
     uint256 constant w8_7 = <%= w8_7 %>;
 
     // Verifier preprocessed input C_0(x)·[1]_1
-    uint256 constant C0x  = <%= C0[0] %>;
-    uint256 constant C0y  = <%= C0[1] %>;
+    uint256 constant C0x  = <%= f0[0] %>;
+    uint256 constant C0y  = <%= f0[1] %>;
 
     // Verifier preprocessed input x·[1]_2
     uint256 constant X2x1 = <%= X_2[0][0] %>;
@@ -305,7 +305,7 @@ contract FflonkVerifier {
                 mstore(add(pMem, pH2w3_2), mulmod(mload(add(pMem, pH2w3_0)), w3_2, q))
 
                 // Compute roots.S2.h2w3
-                mstore(add(pMem, pH3w3_0), mulmod(mload(add(pMem, pH2w3_0)), wr, q))
+                mstore(add(pMem, pH3w3_0), mulmod(mload(add(pMem, pH2w3_0)), w3_1d3, q))
                 mstore(add(pMem, pH3w3_1), mulmod(mload(add(pMem, pH3w3_0)), w3, q))
                 mstore(add(pMem, pH3w3_2), mulmod(mload(add(pMem, pH3w3_0)), w3_2, q))
 

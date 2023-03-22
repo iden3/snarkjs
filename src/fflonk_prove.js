@@ -26,7 +26,7 @@ import {
     ZKEY_FF_A_MAP_SECTION,
     ZKEY_FF_ADDITIONS_SECTION,
     ZKEY_FF_B_MAP_SECTION,
-    ZKEY_FF_C0_SECTION,
+    ZKEY_FF_F0_SECTION,
     ZKEY_FF_C_MAP_SECTION,
     ZKEY_FF_LAGRANGE_SECTION,
     ZKEY_FF_PTAU_SECTION,
@@ -43,7 +43,7 @@ import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
-import { CPolynomial } from "./polynomial/cpolynomial.js";
+import { commit, open} from "shplonkjs";
 
 const { stringifyBigInts } = utils;
 
@@ -59,6 +59,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     } = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
     const wtns = await wtnsUtils.readHeader(fdWtns, wtnsSections);
 
+    
     //Read zkey file
     if (logger) logger.info("> Reading zkey file");
     const {
@@ -86,6 +87,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     const sFr = curve.Fr.n8;
     const sG1 = curve.G1.F.n8 * 2;
     const sDomain = zkey.domainSize * sFr;
+    
 
     if (logger) {
         logger.info("----------------------------");
@@ -130,12 +132,23 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     //   · denominator needed in step 10 and 11 of the verifier
     //   · denominator needed in the verifier when computing L_i^{S1}(X) and L_i^{S2}(X)
     //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
-    let toInverse = {};
 
     let challenges = {};
-    let roots = {};
 
     let proof = new Proof(curve, logger);
+
+    let committedPols = {};
+
+    if (logger) logger.info("> Reading polynomial stage 0");
+    const polsStage0 = zkey.f.filter(fi => fi.stages[0].stage === 0);
+    let zkeyFiSection = ZKEY_FF_F0_SECTION;
+    for(let i = 0; i < polsStage0.length; ++i) {
+        const deg = polsStage0[i].degree + 1;
+        polynomials[`f${polsStage0[i].index}`] = new Polynomial(new BigBuffer(deg * sFr), curve, logger);
+        await fdZKey.readToBuffer(polynomials[`f${polsStage0[i].index}`].coef, 0, deg * sFr, zkeySections[zkeyFiSection++][0].p);
+    
+        committedPols[`f${polsStage0[i].index}_0`] = {commit: zkey[`f${polsStage0[i].index}`], pol: polynomials[`f${polsStage0[i].index}`]};
+    }
 
     if (logger) logger.info(`> Reading Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
     await calculateAdditions();
@@ -150,6 +163,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p);
 
+    // Reserve memory for Q's polynomials
+    if (logger) logger.info(`> Reading Sections ${ZKEY_FF_QL_SECTION},${ZKEY_FF_QR_SECTION},${ZKEY_FF_QM_SECTION}, ${ZKEY_FF_QO_SECTION}, ${ZKEY_FF_QC_SECTION}. QL, QR, QM, QO & QC`);
+    if (logger) logger.info("··· Reading Q polynomials ");
+    polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
+
+    // Read Q's evaluations from zkey file
+    await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_FF_QL_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_FF_QR_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_FF_QM_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_FF_QO_SECTION][0].p);
+    await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_FF_QC_SECTION][0].p);
+    
     if (logger) logger.info("··· Reading Sigma evaluations");
     evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
     evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
@@ -160,22 +189,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p + sDomain);
 
     if (logger) logger.info(`> Reading Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
-    const PTau = new BigBuffer(zkey.domainSize * 16 * sG1);
-    // domainSize * 9 + 18 = SRS length in the zkey saved in setup process.
-    // it corresponds to the maximum SRS length needed, specifically to commit C2
-    // notice that the reserved buffers size is zkey.domainSize * 16 * sG1 because a power of two buffer size is needed
-    // the remaining buffer not filled from SRS are set to 0
-    await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[ZKEY_FF_PTAU_SECTION][0].p);
+
+    const maxFiDegree = Math.max(...zkey.f.map(fi => fi.degree));
+
+    const nDomainSize = Math.ceil(maxFiDegree / Math.pow(2, zkey.power));
+    const pow2DomainSize = Math.pow(2, Math.ceil(Math.log2(nDomainSize)));
+    const PTau = new BigBuffer(zkey.domainSize * pow2DomainSize * sG1);
+    await fdZKey.readToBuffer(PTau, 0, (maxFiDegree + 1) * sG1, zkeySections[ZKEY_FF_PTAU_SECTION][0].p);
 
     // START FFLONK PROVER PROTOCOL
     if (globalThis.gc) globalThis.gc();
 
-    // ROUND 1. Compute C1(X) polynomial
+    // ROUND 1. Compute stage 1 commit polynomials
     if (logger) logger.info("");
     if (logger) logger.info("> ROUND 1");
     await round1();
 
-    delete polynomials.T0;
     delete evaluations.QL;
     delete evaluations.QR;
     delete evaluations.QM;
@@ -183,7 +212,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete evaluations.QC;
     if (globalThis.gc) globalThis.gc();
 
-    // ROUND 2. Compute C2(X) polynomial
+    // ROUND 2. Compute stage 2 commit polynomials
     if (logger) logger.info("> ROUND 2");
     await round2();
 
@@ -202,12 +231,31 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     // ROUND 3. Compute opening evaluations
     if (logger) logger.info("> ROUND 3");
-    await round3();
+    const [commits, evals] = await open(zkey, PTau, polynomials, committedPols, curve, logger);
+    
+    for(let i = 0; i < Object.keys(evals).length; ++i) {
+        const key = Object.keys(evals)[i];
+        if(!["T0", "T1", "T2"].includes(key)) {
+            proof.addEvaluation(key, evals[key]);
+        }
+    }
 
+    proof.addPolynomial("W", commits.W);
+    proof.addPolynomial("Wp", commits.Wp);
+    for(let i = 0; i < Object.keys(commits).length; ++i) {
+        const key = Object.keys(commits)[i];
+        const fi = zkey.f.find(fi => key === `f${fi.index}`);
+        if(fi && (fi.stages.length !== 1 || fi.stages[0].stage !== 0)) {
+            proof.addPolynomial(key, commits[key]);
+
+        }
+    }
+    
     delete polynomials.A;
     delete polynomials.B;
     delete polynomials.C;
     delete polynomials.Z;
+    delete polynomials.T0;
     delete polynomials.T1;
     delete polynomials.T2;
     delete polynomials.Sigma1;
@@ -219,29 +267,6 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.QC;
     delete polynomials.QO;
     if (globalThis.gc) globalThis.gc();
-
-    // ROUND 4. Compute W(X) polynomial
-    if (logger) logger.info("> ROUND 4");
-    await round4();
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 5. Compute W'(X) polynomial
-    if (logger) logger.info("> ROUND 5");
-    await round5();
-
-    delete polynomials.C0;
-    delete polynomials.C1;
-    delete polynomials.C2;
-    delete polynomials.R1;
-    delete polynomials.R2;
-    delete polynomials.F;
-    delete polynomials.L;
-    delete polynomials.ZT;
-    delete polynomials.ZTS2;
-    await fdZKey.close();
-    if (globalThis.gc) globalThis.gc();
-
-    proof.addEvaluation("inv", getMontgomeryBatchedInverse());
 
     // Prepare proof
     let _proof = proof.toObjectProof();
@@ -330,14 +355,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing T0 polynomial");
         await computeT0();
 
-        // STEP 1.4 - Compute the FFT-style combination polynomial C1(X)
-        if (logger) logger.info("> Computing C1 polynomial");
-        await computeC1();
-
-        // The first output of the prover is ([C1]_1)
-        if (logger) logger.info("> Computing C1 multi exponentiation");
-        let commitC1 = await polynomials.C1.multiExponentiation(PTau, "C1");
-        proof.addPolynomial("C1", commitC1);
+        // STEP 1.4 - Compute the FFT-style combination polynomial stage 1 commit polynomials
+        if (logger) logger.info("> Computing Stage 1 commit polynomials");
+        await computeStage1Commits();
 
         return 0;
 
@@ -502,18 +522,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             delete buffers.T0;
         }
 
-        async function computeC1() {
-            let C1 = new CPolynomial(4, curve, logger);
-            C1.addPolynomial(0, polynomials.A);
-            C1.addPolynomial(1, polynomials.B);
-            C1.addPolynomial(2, polynomials.C);
-            C1.addPolynomial(3, polynomials.T0);
-
-            polynomials.C1 = C1.getPolynomial();
-
-            // Check degree
-            if (polynomials.C1.degree() >= 8 * zkey.domainSize - 8) {
-                throw new Error("C1 Polynomial is not well calculated");
+        async function computeStage1Commits() {
+            const commits = await commit(1, zkey, polynomials, PTau, true, curve, logger);
+            
+            for(let j = 0; j < commits.length; ++j) {
+                committedPols[`${commits[j].index}`] = {commit: commits[j].commit, pol: commits[j].pol};
             }
         }
     }
@@ -524,16 +537,22 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing challenges beta and gamma");
         const transcript = new Keccak256Transcript(curve);
 
-        // Add C0 to the transcript
-        transcript.addPolCommitment(zkey.C0);
+        // Add stage 0 commits to the transcript
+        const commitsStage0 = zkey.f.filter(fi => fi.stages[0].stage === 0);
+        for(let i = 0; i < commitsStage0.length; ++i) {
+            transcript.addPolCommitment(committedPols[`f${commitsStage0[i].index}_0`].commit);
+        }
 
         // Add A to the transcript
         for (let i = 0; i < zkey.nPublic; i++) {
             transcript.addScalar(buffers.A.slice(i * sFr, i * sFr + sFr));
         }
 
-        // Add C1 to the transcript
-        transcript.addPolCommitment(proof.getPolynomial("C1"));
+        // Add stage 1 commits to the transcript
+        const commitsStage1 = zkey.f.filter(fi => fi.stages[0].stage === 1);
+        for(let i = 0; i < commitsStage1.length; ++i) {
+            transcript.addPolCommitment(committedPols[`f${commitsStage1[i].index}_1`].commit);
+        }
 
         challenges.beta = transcript.getChallenge();
         if (logger) logger.info("··· challenges.beta: " + Fr.toString(challenges.beta));
@@ -554,14 +573,9 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         if (logger) logger.info("> Computing T2 polynomial");
         await computeT2();
 
-        // STEP 2.4 - Compute the FFT-style combination polynomial C2(X)
-        if (logger) logger.info("> Computing C2 polynomial");
-        await computeC2();
-
-        // The second output of the prover is ([C2]_1)
-        if (logger) logger.info("> Computing C2 multi exponentiation");
-        let commitC2 = await polynomials.C2.multiExponentiation(PTau, "C2");
-        proof.addPolynomial("C2", commitC2);
+        // STEP 2.4 - Compute the FFT-style combination polynomial for stage 2
+        if (logger) logger.info("> Computing Stage 2 commit polynomial");
+        await computeStage2Commits();
 
         return 0;
 
@@ -813,447 +827,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
             delete polynomials.T2z;
         }
 
-        async function computeC2() {
-            let C2 = new CPolynomial(3, curve, logger);
-            C2.addPolynomial(0, polynomials.Z);
-            C2.addPolynomial(1, polynomials.T1);
-            C2.addPolynomial(2, polynomials.T2);
-
-            polynomials.C2 = C2.getPolynomial();
-
-            // Check degree
-            if (polynomials.C2.degree() >= 9 * zkey.domainSize) {
-                throw new Error("C2 Polynomial is not well calculated");
+        async function computeStage2Commits() {
+            const commits = await commit(2, zkey, polynomials, PTau, true, curve, logger);
+        
+            for(let j = 0; j < commits.length; ++j) {
+                committedPols[`${commits[j].index}`] = {commit: commits[j].commit, pol: commits[j].pol};
             }
-        }
-    }
-
-    async function round3() {
-        if (logger) logger.info("> Computing challenge xi");
-        // STEP 3.1 - Compute evaluation challenge xi ∈ S
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.gamma);
-        transcript.addPolCommitment(proof.getPolynomial("C2"));
-
-        // Obtain a xi_seeder from the transcript
-        // To force h1^4 = xi, h2^3 = xi and h_3^2 = xiω
-        // we compute xi = xi_seeder^12, h1 = xi_seeder^3, h2 = xi_seeder^4 and h3 = xi_seeder^6
-        challenges.xiSeed = transcript.getChallenge();
-        const xiSeed2 = Fr.square(challenges.xiSeed);
-
-        // Compute omega8, omega4 and omega3
-        roots.w8 = [];
-        roots.w8[0] = Fr.one;
-        for (let i = 1; i < 8; i++) {
-            roots.w8[i] = Fr.mul(roots.w8[i - 1], zkey.w8);
-        }
-
-        roots.w4 = [];
-        roots.w4[0] = Fr.one;
-        for (let i = 1; i < 4; i++) {
-            roots.w4[i] = Fr.mul(roots.w4[i - 1], zkey.w4);
-        }
-
-        roots.w3 = [];
-        roots.w3[0] = Fr.one;
-        roots.w3[1] = zkey.w3;
-        roots.w3[2] = Fr.square(zkey.w3);
-
-        // Compute h0 = xiSeeder^3
-        roots.S0 = {};
-        roots.S0.h0w8 = [];
-        roots.S0.h0w8[0] = Fr.mul(xiSeed2, challenges.xiSeed);
-        for (let i = 1; i < 8; i++) {
-            roots.S0.h0w8[i] = Fr.mul(roots.S0.h0w8[0], roots.w8[i]);
-        }
-
-        // Compute h1 = xi_seeder^6
-        roots.S1 = {};
-        roots.S1.h1w4 = [];
-        roots.S1.h1w4[0] = Fr.square(roots.S0.h0w8[0]);
-        for (let i = 1; i < 4; i++) {
-            roots.S1.h1w4[i] = Fr.mul(roots.S1.h1w4[0], roots.w4[i]);
-        }
-
-        // Compute h2 = xi_seeder^8
-        roots.S2 = {};
-        roots.S2.h2w3 = [];
-        roots.S2.h2w3[0] = Fr.mul(roots.S1.h1w4[0], xiSeed2);
-        roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], roots.w3[1]);
-        roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], roots.w3[2]);
-
-        roots.S2.h3w3 = [];
-        // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
-        // So, h3 = xi_seeder^8 ω^{1/3}
-        roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], zkey.wr);
-        roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], roots.w3[1]);
-        roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], roots.w3[2]);
-
-        // Compute xi = xi_seeder^24
-        challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
-
-        if (logger) logger.info("··· challenges.xi: " + Fr.toString(challenges.xi));
-
-        // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-        // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_FF_QL_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_FF_QR_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_FF_QM_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_FF_QO_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_FF_QC_SECTION][0].p);
-
-        // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
-        if (logger) logger.info("··· Computing evaluations");
-        proof.addEvaluation("ql", polynomials.QL.evaluate(challenges.xi));
-        proof.addEvaluation("qr", polynomials.QR.evaluate(challenges.xi));
-        proof.addEvaluation("qm", polynomials.QM.evaluate(challenges.xi));
-        proof.addEvaluation("qo", polynomials.QO.evaluate(challenges.xi));
-        proof.addEvaluation("qc", polynomials.QC.evaluate(challenges.xi));
-        proof.addEvaluation("s1", polynomials.Sigma1.evaluate(challenges.xi));
-        proof.addEvaluation("s2", polynomials.Sigma2.evaluate(challenges.xi));
-        proof.addEvaluation("s3", polynomials.Sigma3.evaluate(challenges.xi));
-        proof.addEvaluation("a", polynomials.A.evaluate(challenges.xi));
-        proof.addEvaluation("b", polynomials.B.evaluate(challenges.xi));
-        proof.addEvaluation("c", polynomials.C.evaluate(challenges.xi));
-        proof.addEvaluation("z", polynomials.Z.evaluate(challenges.xi));
-
-        challenges.xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        proof.addEvaluation("zw", polynomials.Z.evaluate(challenges.xiw));
-        proof.addEvaluation("t1w", polynomials.T1.evaluate(challenges.xiw));
-        proof.addEvaluation("t2w", polynomials.T2.evaluate(challenges.xiw));
-    }
-
-    async function round4() {
-        if (logger) logger.info("> Computing challenge alpha");
-        // STEP 4.1 - Compute challenge alpha ∈ F
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.xiSeed);
-        transcript.addScalar(proof.getEvaluation("ql"));
-        transcript.addScalar(proof.getEvaluation("qr"));
-        transcript.addScalar(proof.getEvaluation("qm"));
-        transcript.addScalar(proof.getEvaluation("qo"));
-        transcript.addScalar(proof.getEvaluation("qc"));
-        transcript.addScalar(proof.getEvaluation("s1"));
-        transcript.addScalar(proof.getEvaluation("s2"));
-        transcript.addScalar(proof.getEvaluation("s3"));
-        transcript.addScalar(proof.getEvaluation("a"));
-        transcript.addScalar(proof.getEvaluation("b"));
-        transcript.addScalar(proof.getEvaluation("c"));
-        transcript.addScalar(proof.getEvaluation("z"));
-        transcript.addScalar(proof.getEvaluation("zw"));
-        transcript.addScalar(proof.getEvaluation("t1w"));
-        transcript.addScalar(proof.getEvaluation("t2w"));
-        challenges.alpha = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.alpha: " + Fr.toString(challenges.alpha));
-
-        // STEP 4.2 - Compute F(X)
-        if (logger) logger.info("> Reading C0 polynomial");
-        polynomials.C0 = new Polynomial(new BigBuffer(sDomain * 8), curve, logger);
-        await fdZKey.readToBuffer(polynomials.C0.coef, 0, sDomain * 8, zkeySections[ZKEY_FF_C0_SECTION][0].p);
-
-        if (logger) logger.info("> Computing R0 polynomial");
-        computeR0();
-        if (logger) logger.info("> Computing R1 polynomial");
-        computeR1();
-        if (logger) logger.info("> Computing R2 polynomial");
-        computeR2();
-
-        if (logger) logger.info("> Computing F polynomial");
-        await computeF();
-
-        // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
-        if (logger) logger.info("> Computing W1 multi exponentiation");
-        let commitW1 = await polynomials.F.multiExponentiation(PTau, "W1");
-        proof.addPolynomial("W1", commitW1);
-
-        return 0;
-
-        function computeR0() {
-            // COMPUTE R0
-            // Compute the coefficients of R0(X) from 8 evaluations using lagrange interpolation. R0(X) ∈ F_{<8}[X]
-            // We decide to use Lagrange interpolations because the R0 degree is very small (deg(R0)===7),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R0 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
-                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7]],
-                [polynomials.C0.evaluate(roots.S0.h0w8[0]), polynomials.C0.evaluate(roots.S0.h0w8[1]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[2]), polynomials.C0.evaluate(roots.S0.h0w8[3]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[4]), polynomials.C0.evaluate(roots.S0.h0w8[5]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[6]), polynomials.C0.evaluate(roots.S0.h0w8[7])], curve);
-
-            // Check the degree of r0(X) < 8
-            if (polynomials.R0.degree() > 7) {
-                throw new Error("R0 Polynomial is not well calculated");
-            }
-        }
-
-        function computeR1() {
-            // COMPUTE R1
-            // Compute the coefficients of R1(X) from 4 evaluations using lagrange interpolation. R1(X) ∈ F_{<4}[X]
-            // We decide to use Lagrange interpolations because the R1 degree is very small (deg(R1)===3),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R1 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
-                [polynomials.C1.evaluate(roots.S1.h1w4[0]), polynomials.C1.evaluate(roots.S1.h1w4[1]),
-                    polynomials.C1.evaluate(roots.S1.h1w4[2]), polynomials.C1.evaluate(roots.S1.h1w4[3])], curve);
-
-            // Check the degree of r1(X) < 4
-            if (polynomials.R1.degree() > 3) {
-                throw new Error("R1 Polynomial is not well calculated");
-            }
-        }
-
-        function computeR2() {
-            // COMPUTE R2
-            // Compute the coefficients of r2(X) from 6 evaluations using lagrange interpolation. r2(X) ∈ F_{<6}[X]
-            // We decide to use Lagrange interpolations because the R2.degree is very small (deg(R2)===5),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R2 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
-                [polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
-                    polynomials.C2.evaluate(roots.S2.h2w3[2]), polynomials.C2.evaluate(roots.S2.h3w3[0]),
-                    polynomials.C2.evaluate(roots.S2.h3w3[1]), polynomials.C2.evaluate(roots.S2.h3w3[2])], curve);
-
-            // Check the degree of r2(X) < 6
-            if (polynomials.R2.degree() > 5) {
-                throw new Error("R2 Polynomial is not well calculated");
-            }
-        }
-
-        async function computeF() {
-            if (logger) logger.info("··· Computing F polynomial");
-
-            // COMPUTE F(X)
-            polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
-            polynomials.F.sub(polynomials.R0);
-            polynomials.F.divByZerofier(8, challenges.xi);
-
-            let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
-            f2.sub(polynomials.R1);
-            f2.mulScalar(challenges.alpha);
-            f2.divByZerofier(4, challenges.xi);
-
-            let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
-            f3.sub(polynomials.R2);
-            f3.mulScalar(Fr.square(challenges.alpha));
-            f3.divByZerofier(3, challenges.xi);
-            f3.divByZerofier(3, challenges.xiw);
-
-            polynomials.F.add(f2);
-            polynomials.F.add(f3);
-
-            if (polynomials.F.degree() >= 9 * zkey.domainSize - 6) {
-                throw new Error("F Polynomial is not well calculated");
-            }
-        }
-    }
-
-    async function round5() {
-        if (logger) logger.info("> Computing challenge y");
-
-        // STEP 5.1 - Compute random evaluation point y ∈ F
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.alpha);
-        transcript.addPolCommitment(proof.getPolynomial("W1"));
-
-        challenges.y = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.y: " + Fr.toString(challenges.y));
-
-        // STEP 5.2 - Compute L(X)
-        if (logger) logger.info("> Computing L polynomial");
-        await computeL();
-
-        if (logger) logger.info("> Computing ZTS2 polynomial");
-        await computeZTS2();
-
-        let ZTS2Y = polynomials.ZTS2.evaluate(challenges.y);
-        ZTS2Y = Fr.inv(ZTS2Y);
-        polynomials.L.mulScalar(ZTS2Y);
-
-        const polDividend = Polynomial.fromCoefficientsArray([Fr.neg(challenges.y), Fr.one], curve);
-        if (logger) logger.info("> Computing W' = L / ZTS2 polynomial");
-        const polRemainder = polynomials.L.divBy(polDividend);
-
-        //Check polReminder degree is equal to zero
-        if (polRemainder.degree() > 0) {
-            throw new Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${polRemainder.degree()} and should be 0`);
-        }
-
-        if (polynomials.L.degree() >= 9 * zkey.domainSize - 1) {
-            throw new Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
-        }
-
-        // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
-        if (logger) logger.info("> Computing W' multi exponentiation");
-        let commitW2 = await polynomials.L.multiExponentiation(PTau, "W2");
-        proof.addPolynomial("W2", commitW2);
-
-        return 0;
-
-        async function computeL() {
-            if (logger) logger.info("··· Computing L polynomial");
-
-            const evalR0Y = polynomials.R0.evaluate(challenges.y);
-            const evalR1Y = polynomials.R1.evaluate(challenges.y);
-            const evalR2Y = polynomials.R2.evaluate(challenges.y);
-
-            let mulL0 = Fr.sub(challenges.y, roots.S0.h0w8[0]);
-            for (let i = 1; i < 8; i++) {
-                mulL0 = Fr.mul(mulL0, Fr.sub(challenges.y, roots.S0.h0w8[i]));
-            }
-
-            let mulL1 = Fr.sub(challenges.y, roots.S1.h1w4[0]);
-            for (let i = 1; i < 4; i++) {
-                mulL1 = Fr.mul(mulL1, Fr.sub(challenges.y, roots.S1.h1w4[i]));
-            }
-
-            let mulL2 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
-            for (let i = 1; i < 3; i++) {
-                mulL2 = Fr.mul(mulL2, Fr.sub(challenges.y, roots.S2.h2w3[i]));
-            }
-            for (let i = 0; i < 3; i++) {
-                mulL2 = Fr.mul(mulL2, Fr.sub(challenges.y, roots.S2.h3w3[i]));
-            }
-
-            let preL0 = Fr.mul(mulL1, mulL2);
-            let preL1 = Fr.mul(challenges.alpha, Fr.mul(mulL0, mulL2));
-            let preL2 = Fr.mul(Fr.square(challenges.alpha), Fr.mul(mulL0, mulL1));
-
-            toInverse["denH1"] = mulL1;
-            toInverse["denH2"] = mulL2;
-
-            // COMPUTE L(X)
-            polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
-            polynomials.L.subScalar(evalR0Y);
-            polynomials.L.mulScalar(preL0);
-
-            let l2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
-            l2.subScalar(evalR1Y);
-            l2.mulScalar(preL1);
-
-            let l3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
-            l3.subScalar(evalR2Y);
-            l3.mulScalar(preL2);
-
-            polynomials.L.add(l2);
-            polynomials.L.add(l3);
-
-            if (logger) logger.info("> Computing ZT polynomial");
-            await computeZT();
-
-            const evalZTY = polynomials.ZT.evaluate(challenges.y);
-            polynomials.F.mulScalar(evalZTY);
-            polynomials.L.sub(polynomials.F);
-
-            // Check degree
-            if (polynomials.L.degree() >= 9 * zkey.domainSize) {
-                throw new Error("L Polynomial is not well calculated");
-            }
-
-            delete buffers.L;
-        }
-
-        async function computeZT() {
-            polynomials.ZT = Polynomial.zerofierPolynomial(
-                [
-                    roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
-                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7],
-                    roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
-                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
-        }
-
-        async function computeZTS2() {
-            polynomials.ZTS2 = Polynomial.zerofierPolynomial(
-                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
-                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
-        }
-    }
-
-    function getMontgomeryBatchedInverse() {
-        //   · denominator needed in step 8 and 9 of the verifier to multiply by 1/Z_H(xi)
-        let xiN = challenges.xi;
-        for (let i = 0; i < zkey.power; i++) {
-            xiN = Fr.square(xiN);
-        }
-        toInverse["zh"] = Fr.sub(xiN, Fr.one);
-
-        //   · denominator needed in step 10 and 11 of the verifier
-        //     toInverse.denH1 & toInverse.denH2  -> Computed in round5, computeL()
-
-        //   · denominator needed in the verifier when computing L_i^{S0}(X), L_i^{S1}(X) and L_i^{S2}(X)
-        for (let i = 0; i < 8; i++) {
-            toInverse["LiS0_" + (i + 1)] = computeLiS0(i);
-        }
-
-        for (let i = 0; i < 4; i++) {
-            toInverse["LiS1_" + (i + 1)] = computeLiS1(i);
-        }
-
-        for (let i = 0; i < 6; i++) {
-            toInverse["LiS2_" + (i + 1)] = computeLiS2(i);
-        }
-
-        //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
-        const size = Math.max(1, zkey.nPublic);
-
-        let w = Fr.one;
-        for (let i = 0; i < size; i++) {
-            toInverse["Li_" + (i + 1)] = Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challenges.xi, w));
-
-            w = Fr.mul(w, zkey.w);
-        }
-
-        let mulAccumulator = Fr.one;
-        for (const element of Object.values(toInverse)) {
-            mulAccumulator = Fr.mul(mulAccumulator, element);
-        }
-        return Fr.inv(mulAccumulator);
-
-        function computeLiS0(i) {
-            // Compute L_i^{(S0)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 7; j++) {
-                idx = (idx + 1) % 8;
-
-                den = Fr.mul(den, Fr.sub(roots.S0.h0w8[i], roots.S0.h0w8[idx]));
-            }
-            return den;
-        }
-
-        function computeLiS1(i) {
-            // Compute L_i^{(S1)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 3; j++) {
-                idx = (idx + 1) % 4;
-
-                den = Fr.mul(den, Fr.sub(roots.S1.h1w4[i], roots.S1.h1w4[idx]));
-            }
-            return den;
-        }
-
-        function computeLiS2(i) {
-            // Compute L_i^{(S1)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 5; j++) {
-                idx = (idx + 1) % 6;
-
-                const root1 = i < 3 ? roots.S2.h2w3[i] : roots.S2.h3w3[i - 3];
-                const root2 = idx < 3 ? roots.S2.h2w3[idx] : roots.S2.h3w3[idx - 3];
-                den = Fr.mul(den, Fr.sub(root1, root2));
-            }
-            return den;
+            
         }
     }
 }

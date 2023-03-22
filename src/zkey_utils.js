@@ -51,6 +51,8 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey_constants.js";
 import {ZKEY_FF_HEADER_SECTION} from "./fflonk.js";
+import getFFlonkConfig from "./fflonk_config.js";
+import { getFByStage, getPowersW } from "shplonkjs";
 
 export async function writeHeader(fd, zkey) {
 
@@ -324,14 +326,29 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     zkey.k1 = await fd.read(n8r);
     zkey.k2 = await fd.read(n8r);
 
-    zkey.w3 = await fd.read(n8r);
-    zkey.w4 = await fd.read(n8r);
-    zkey.w8 = await fd.read(n8r);
-    zkey.wr = await fd.read(n8r);
+    const fflonkConfig = getFFlonkConfig(zkey.power, 0);
+    const f = getFByStage(fflonkConfig);
+    const wPowers = getPowersW(f);
+    for(let i = 0; i < Object.keys(wPowers).length; ++i) {
+        const deg = Number(Object.keys(wPowers)[i]);
+        zkey[`w${deg}`] = await fd.read(n8r);
+
+        const ws = wPowers[Object.keys(wPowers)[i]].sort();
+        for(let j = 0; j < ws.length; ++j) {
+            if(ws[j] > 0) {
+                zkey[`w${deg}_${ws[j]}d${deg}`] = await fd.read(n8r);
+            }
+        }
+    } 
 
     zkey.X_2 = await readG2(fd, zkey.curve, toObject);
 
-    zkey.C0 = await readG1(fd, zkey.curve, toObject);
+    const polsStage0 = f.filter(fi => fi.stages[0].stage === 0);
+    for(let i = 0; i < polsStage0.length; ++i) {
+        zkey[`f${polsStage0[i].index}`] = await readG1(fd, zkey.curve, toObject);
+    }
+    
+    zkey.f = f;
 
     await binFileUtils.endReadSection(fd);
 

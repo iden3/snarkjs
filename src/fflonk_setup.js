@@ -23,6 +23,9 @@ import {createBinFile, endWriteSection, readBinFile, startWriteSection, writeBig
 import {log2} from "./misc.js";
 import {BigBuffer, Scalar} from "ffjavascript";
 import BigArray from "./bigarray.js";
+import {commit, setup} from "shplonkjs";
+import getFFlonkConfig from "./fflonk_config.js";
+
 import {
     ZKEY_FF_HEADER_SECTION,
     ZKEY_FF_ADDITIONS_SECTION,
@@ -41,7 +44,7 @@ import {
     ZKEY_FF_PTAU_SECTION,
     FF_T_POL_DEG_MIN,
     ZKEY_FF_NSECTIONS,
-    ZKEY_FF_C0_SECTION,
+    ZKEY_FF_F0_SECTION,
 } from "./fflonk.js";
 import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey_constants.js";
 import {
@@ -53,7 +56,6 @@ import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
 import {Polynomial} from "./polynomial/polynomial.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import {Evaluations} from "./polynomial/evaluations.js";
-import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -86,12 +88,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     const Fr = curve.Fr;
 
     const sFr = curve.Fr.n8;
-    const sG1 = curve.G1.F.n8 * 2;
-    const sG2 = curve.G2.F.n8 * 2;
 
     let polynomials = {};
     let evaluations = {};
-    let PTau;
+    let commits;
 
     let settings = {
         nVars: r1cs.nVars,
@@ -112,13 +112,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
     settings.domainSize = 2 ** settings.cirPower;
 
-    if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
-        throw new Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
-    }
-    if (pTauSections[3][0].size < sG2) {
-        throw new Error("Powers of Tau is not well prepared. Section 3 too small.");
-    }
-
     if (logger) {
         logger.info("----------------------------");
         logger.info("  FFLONK SETUP SETTINGS");
@@ -136,16 +129,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (logger) logger.info("> computing k1 and k2");
     const [k1, k2] = computeK1K2();
 
-    // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
-    // w3^3 = 1 and  w4^4 = 1
-    if (logger) logger.info("> computing w3");
-    const w3 = computeW3();
-    if (logger) logger.info("> computing w4");
-    const w4 = computeW4();
-    if (logger) logger.info("> computing w8");
-    const w8 = computeW8();
-    if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    const fflonkConfig = getFFlonkConfig(settings.cirPower, 0);
+    const {zkey, PTau} = await setup(fflonkConfig, ptauFilename, logger);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -209,8 +194,11 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writeZkeyFile() {
+        let zkeyNSections = ZKEY_FF_NSECTIONS;
+        zkeyNSections += zkey.f.filter(fi => fi.stages[0].stage === 0).length;
+
         if (logger) logger.info("> Writing the zkey file");
-        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, zkeyNSections, 1 << 22, 1 << 24);
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
@@ -263,8 +251,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await writePtau(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_C0_SECTION}. C0`);
-        await writeC0(fdZKey);
+        await writeStage0(fdZKey);
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
@@ -382,7 +369,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         for (let i = 0; i < 3; i++) {
             const sectionId = 0 === i ? ZKEY_FF_SIGMA1_SECTION : 1 === i ? ZKEY_FF_SIGMA2_SECTION : ZKEY_FF_SIGMA3_SECTION;
 
-            let name = "S" + (i + 1);
+            let name = "Sigma" + (i + 1);
             polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
             evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
             await startWriteSection(fdZKey, sectionId);
@@ -430,37 +417,24 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writePtau(fdZKey) {
         await startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
 
-        // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
-        PTau = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
-        await fdPTau.readToBuffer(PTau, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
-
         await fdZKey.write(PTau);
         await endWriteSection(fdZKey);
     }
 
-    async function writeC0(fdZKey) {
-        // C0(X) := QL(X^8) + X · QR(X^8) + X^2 · QO(X^8) + X^3 · QM(X^8) + X^4 · QC(X^8)
-        //            + X^5 · SIGMA1(X^8) + X^6 · SIGMA2(X^8) + X^7 · SIGMA3(X^8)
-        let C0 = new CPolynomial(8, curve, logger);
-        C0.addPolynomial(0, polynomials.QL);
-        C0.addPolynomial(1, polynomials.QR);
-        C0.addPolynomial(2, polynomials.QO);
-        C0.addPolynomial(3, polynomials.QM);
-        C0.addPolynomial(4, polynomials.QC);
-        C0.addPolynomial(5, polynomials.S1);
-        C0.addPolynomial(6, polynomials.S2);
-        C0.addPolynomial(7, polynomials.S3);
+    async function writeStage0(fdZKey) {
+        commits = await commit(0, zkey, polynomials, PTau, true, curve, logger);
 
-        polynomials.C0 = C0.getPolynomial();
+        let initialFiSection = ZKEY_FF_F0_SECTION;
 
-        // Check degree
-        if (polynomials.C0.degree() >= 8 * settings.domainSize) {
-            throw new Error("C0 Polynomial is not well calculated");
+        for(let i = 0; i < commits.length; ++i) {
+            if (logger) logger.info(`··· Writing Section ${initialFiSection}. ${commits[i].index}`);
+            await startWriteSection(fdZKey, initialFiSection);
+
+            await fdZKey.write(commits[i].pol.coef);
+
+            await endWriteSection(fdZKey);
+            initialFiSection++;
         }
-
-        await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
-        await fdZKey.write(polynomials.C0.coef);
-        await endWriteSection(fdZKey);
     }
 
     async function writeFFlonkHeader(fdZKey) {
@@ -487,17 +461,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.write(k1);
         await fdZKey.write(k2);
 
-        await fdZKey.write(w3);
-        await fdZKey.write(w4);
-        await fdZKey.write(w8);
-        await fdZKey.write(wr);
+        const ws = Object.keys(zkey).filter(k => k.match(/^w\d/));   
+        for(let i = 0; i < ws.length; ++i) {
+            await fdZKey.write(zkey[ws[i]]);
+        } 
 
-        let bX_2;
-        bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
-        await fdZKey.write(bX_2);
+        await fdZKey.write(zkey.X_2);  
 
-        let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
-        await fdZKey.write(commitC0);
+        for(let i = 0; i < commits.length; ++i) {
+            await fdZKey.write(commits[i].commit);      
+        }
 
         await endWriteSection(fdZKey);
     }
@@ -529,31 +502,6 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             }
             return false;
         }
-    }
-
-    function computeW3() {
-        let generator = Fr.e(31624);
-
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
-
-        return Fr.exp(generator, exponent);
-    }
-
-    function computeW4() {
-        return Fr.w[2];
-    }
-
-    function computeW8() {
-        return Fr.w[3];
-    }
-
-    function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
-        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
-
-        return Fr.exp(firstRoot, 2 ** (28 - power));
     }
 }
 

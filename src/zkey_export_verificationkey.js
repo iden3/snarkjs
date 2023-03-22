@@ -128,21 +128,24 @@ async function exportFFlonkVk(zkey, logger) {
         curve: curve.name,
         nPublic: zkey.nPublic,
         power: zkey.power,
-
+        f: zkey.f,
         k1: curve.Fr.toObject(zkey.k1),
         k2: curve.Fr.toObject(zkey.k2),
 
         w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
-        //wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
-        w3: curve.Fr.toObject(zkey.w3),
-        w4: curve.Fr.toObject(zkey.w4),
-        w8: curve.Fr.toObject(zkey.w8),
-        wr: curve.Fr.toObject(zkey.wr),
 
         X_2: curve.G2.toObject(zkey.X_2),
-
-        C0: curve.G1.toObject(zkey.C0),
     };
 
+    const ws = Object.keys(zkey).filter(k => k.match(/^w\d/));    
+    for(let i = 0; i < ws.length; ++i) {
+        vKey[ws[i]] = curve.Fr.toObject(zkey[ws[i]]);
+    }
+
+    const fs = Object.keys(zkey).filter(k => k.match(/^f\d/));    
+    for(let i = 0; i < fs.length; ++i) {
+        vKey[fs[i]] = curve.G1.toObject(zkey[fs[i]]);
+    }
+    
     return stringifyBigInts(vKey);
 }
