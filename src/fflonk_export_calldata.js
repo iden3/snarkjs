@@ -48,14 +48,14 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
     }
 
     return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},` +
-    `${p256(proof.polynomials.C2[0])}, ${p256(proof.polynomials.C2[1])},` +
-    `${p256(proof.polynomials.W1[0])}, ${p256(proof.polynomials.W1[1])},` +
-    `${p256(proof.polynomials.W2[0])}, ${p256(proof.polynomials.W2[1])},` +
-    `${p256(proof.evaluations.ql)}, ${p256(proof.evaluations.qr)}, ${p256(proof.evaluations.qm)},` +
-    `${p256(proof.evaluations.qo)}, ${p256(proof.evaluations.qc)}, ${p256(proof.evaluations.s1)},` +
-    `${p256(proof.evaluations.s2)}, ${p256(proof.evaluations.s3)}, ${p256(proof.evaluations.a)},` +
-    `${p256(proof.evaluations.b)}, ${p256(proof.evaluations.c)}, ${p256(proof.evaluations.z)},` +
-    `${p256(proof.evaluations.zw)}, ${p256(proof.evaluations.t1w)}, ${p256(proof.evaluations.t2w)},` +
+    `${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},` +
+    `${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},` +
+    `${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},` +
+    `${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},` +
+    `${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},` +
+    `${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},` +
+    `${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},` +
+    `${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},` +
     `${p256(proof.evaluations.inv)}],` +
     `[${inputs}]`;
 }
