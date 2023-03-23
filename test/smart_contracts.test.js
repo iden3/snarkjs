@@ -144,8 +144,7 @@ describe("Smart contracts test suite", function () {
         // Verifiy the proof in the smart contract
         const { evaluations, polynomials } = proofJson;
         const arrayStrings = Array(24).fill("bytes32");
-        const proof = ethers.utils.defaultAbiCoder.encode(
-            arrayStrings,
+        const proof = 
             [
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.C1[0]).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.C1[1]).toHexString(), 32),
@@ -171,8 +170,8 @@ describe("Smart contracts test suite", function () {
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(evaluations.t1w).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(evaluations.t2w).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(evaluations.inv).toHexString(), 32),
-            ],
-        );
+            ];
+            console.log(proof);
 
         expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
     });
