@@ -396,8 +396,7 @@ contract FflonkVerifier {
                 } %>
 
                 // Execute Montgomery batched inversions of the previous prepared values
-                inverseArray(add(pMem, pZhInv), 22)
-            }
+                inverseArray(pProof, add(pMem, pZhInv), <%= Math.max(nPublic, 1) + 21 %>)            }
 
             // Compute Lagrange polynomial evaluation L_i(xi)
             function computeLagrange(pMem) {
