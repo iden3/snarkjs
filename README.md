@@ -1,4 +1,4 @@
-![tests](https://github.com/venture23-zkp/icon-snarkjs/workflows/tests/badge.svg)![Check%20snarkjs%20tutorial](https://github.com/venture23-zkp/icon-snarkjs/workflows/Check%20snarkjs%20tutorial/badge.svg)
+![Check%20snarkjs%20tutorial](https://github.com/venture23-zkp/icon-snarkjs/workflows/Check%20icon-snarkjs%20tutorial/badge.svg)
 
 # icon-snarkjs
 
@@ -449,7 +449,7 @@ If all is well, you should see that `OK` has been outputted to your console. Thi
 
 ### 25. Turn the verifier into a smart contract
 ```sh
-icon-snarkjs zkey export solidityverifier circuit_final.zkey verifier.java
+icon-snarkjs zkey export javaverifier circuit_final.zkey verifier.java
 ```
 
 Finally, we export the verifier as a Solidity smart-contract so that we can publish it on-chain -- using [remix](https://remix.ethereum.org/) for example. For the details on how to do this, refer to section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
