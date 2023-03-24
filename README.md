@@ -1,4 +1,3 @@
-
 ![tests](https://github.com/venture23-zkp/icon-snarkjs/workflows/tests/badge.svg)![Check%20snarkjs%20tutorial](https://github.com/venture23-zkp/icon-snarkjs/workflows/Check%20snarkjs%20tutorial/badge.svg)
 
 # icon-snarkjs
@@ -450,14 +449,14 @@ If all is well, you should see that `OK` has been outputted to your console. Thi
 
 ### 25. Turn the verifier into a smart contract
 ```sh
-icon-snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+icon-snarkjs zkey export solidityverifier circuit_final.zkey verifier.java
 ```
 
 Finally, we export the verifier as a Solidity smart-contract so that we can publish it on-chain -- using [remix](https://remix.ethereum.org/) for example. For the details on how to do this, refer to section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
 
 ### 26. Simulate a verification call
 ```sh
-icon-snarkjs zkey export soliditycalldata public.json proof.json
+icon-snarkjs zkey export javacalldata public.json proof.json
 ```
 
 We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract in the remix environment.
@@ -575,5 +574,5 @@ the Random Beacon Model](https://eprint.iacr.org/2017/1050.pdf)
 - [Simple react projct using icon-snarkjs](https://github.com/LHerskind/icon-snarkjs-react)
 
 ## License
-icon-snarkjs is a fork of [snarkjs](https://github.com/iden3/snarkjs) to support ICON blockchain. 
+icon-snarkjs is a fork of [snarkjs](https://github.com/iden3/snarkjs) to support SNARKs on ICON blockchain. 
 snarkjs is part of the iden3 project copyright 2018 0KIMS association and published with GPL-3 license.
