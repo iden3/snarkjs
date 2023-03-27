@@ -322,11 +322,12 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     zkey.power = log2(zkey.domainSize);
     zkey.nAdditions = await fd.readULE32();
     zkey.nConstraints = await fd.readULE32();
+    zkey.extraMuls = await fd.readULE32();
 
     zkey.k1 = await fd.read(n8r);
     zkey.k2 = await fd.read(n8r);
 
-    const fflonkConfig = getFFlonkConfig(zkey.power, 0);
+    const fflonkConfig = getFFlonkConfig(zkey.power, zkey.extraMuls);
     const f = getFByStage(fflonkConfig);
     const wPowers = getPowersW(f);
     for(let i = 0; i < Object.keys(wPowers).length; ++i) {

@@ -21,7 +21,7 @@ import * as curves from "./curves.js";
 import { BigBuffer, utils } from "ffjavascript";
 import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
-import { computeChallengeXiSeed, verifyOpenings } from "shplonkjs";
+import { verifyOpenings } from "shplonkjs";
 import { lcm } from "shplonkjs/src/utils.js";
 
 const { unstringifyBigInts } = utils;
@@ -113,7 +113,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     evaluations.T2 = t2;
 
     if (logger) logger.info("> Verifying openings");
-    const res = verifyOpenings(vk, commits, evaluations, curve, logger);
+    const res = verifyOpenings(vk, commits, evaluations, curve, {logger, xiSeed: challenges.xiSeed, nonCommittedPols:["T0", "T1", "T2"]});
 
     if (logger) {
         if (res) {
@@ -187,9 +187,8 @@ function computeChallenges(curve, commits, vk, publicSignals, logger) {
     for(let i = 0; i < commitsStage2.length; ++i) {
         transcript.addPolCommitment(commits[`f${commitsStage2[i].index}`]);
     }
-
-    const commitsXi = Object.keys(commits).filter(k => k.match(/^f\d/)).sort(((a,b) => Number(a.slice(1)) > Number(b.slice(1)) ? 1 : -1)).map(c => commits[c]);
-    const xiSeed = computeChallengeXiSeed(commitsXi, curve, logger);
+    const xiSeed = transcript.getChallenge();
+    challenges.xiSeed = xiSeed;
        
     const powerW = lcm(Object.keys(vk).filter(k => k.match(/^w\d$/)).map(wi => wi.slice(1)));
 

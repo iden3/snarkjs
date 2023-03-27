@@ -58,7 +58,10 @@ import * as binFileUtils from "@iden3/binfileutils";
 import {Evaluations} from "./polynomial/evaluations.js";
 
 
-export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, options) {
+
+    const logger = options.logger;
+    const extraMuls = options.extraMuls || 0;
     if (logger) logger.info("FFLONK SETUP STARTED");
 
     if (globalThis.gc) globalThis.gc();
@@ -117,6 +120,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         logger.info("  FFLONK SETUP SETTINGS");
         logger.info(`  Curve:         ${curve.name}`);
         logger.info(`  Circuit power: ${settings.cirPower}`);
+        logger.info(`  Extra group multiplications: ${extraMuls}`);
         logger.info(`  Domain size:   ${settings.domainSize}`);
         logger.info(`  Vars:          ${settings.nVars}`);
         logger.info(`  Public vars:   ${settings.nPublic}`);
@@ -129,7 +133,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (logger) logger.info("> computing k1 and k2");
     const [k1, k2] = computeK1K2();
 
-    const fflonkConfig = getFFlonkConfig(settings.cirPower, 0);
+
+    const fflonkConfig = getFFlonkConfig(settings.cirPower, extraMuls);
     const {zkey, PTau} = await setup(fflonkConfig, ptauFilename, logger);
 
     // Write output zkey file
@@ -427,7 +432,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         let initialFiSection = ZKEY_FF_F0_SECTION;
 
         for(let i = 0; i < commits.length; ++i) {
-            if (logger) logger.info(`··· Writing Section ${initialFiSection}. ${commits[i].index}`);
+            if (logger) logger.info(`··· Writing Section ${initialFiSection}. ${commits[i].index.split("_")[0]}`);
             await startWriteSection(fdZKey, initialFiSection);
 
             await fdZKey.write(commits[i].pol.coef);
@@ -457,6 +462,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.writeULE32(settings.domainSize);
         await fdZKey.writeULE32(plonkAdditions.length);
         await fdZKey.writeULE32(plonkConstraints.length);
+        await fdZKey.writeULE32(extraMuls);
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);

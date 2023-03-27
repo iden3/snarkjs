@@ -460,15 +460,10 @@ contract FflonkVerifier {
                 mstore(add(pMem, pR0), res)
             }
 
-            // Compute r1(y) by interpolating the polynomial r1(X) using 4 points (x,y)
-            // where x = {h1, h1w4, h1w4^2, h1w4^3}
-            // and   y = {C1(h1), C1(h1w4), C1(h1w4^2), C1(h1w4^3)}
-            // and computing T0(xi)
-            function computeR1(pMem) {
-                let t0
-                let evalA := calldataload(pEval_a)
-                let evalB := calldataload(pEval_b)
-                let evalC := calldataload(pEval_c)
+            function computeT0(pProof, pMem)-> t0 {
+                let evalA := mload(add(pProof, pEval_a))
+                let evalB := mload(add(pProof, pEval_b))
+                let evalC := mload(add(pProof, pEval_c))
 
                 t0 := mulmod(calldataload(pEval_ql), evalA, q)
                 t0 := addmod(t0, mulmod(calldataload(pEval_qr), evalB, q) ,q)
@@ -477,16 +472,24 @@ contract FflonkVerifier {
                 t0 := addmod(t0, calldataload(pEval_qc) ,q)
                 t0 := addmod(t0, mload(add(pMem, pPi)), q)
                 t0 := mulmod(t0, mload(add(pMem, pZhInv)), q)
+            }
 
+            // Compute r1(y) by interpolating the polynomial r1(X) using 4 points (x,y)
+            // where x = {h1, h1w4, h1w4^2, h1w4^3}
+            // and   y = {C1(h1), C1(h1w4), C1(h1w4^2), C1(h1w4^3)}
+            // and computing T0(xi)
+            function computeR1(pProof, pMem) {
+                let t0 := computeT0(pProof, pMem)
+                
                 let res
                 for { let i := 0 } lt(i, 4) { i := add(i, 1) }
                 {
-                    let c1Value := evalA
+                    let c1Value := mload(add(pProof, pEval_a))
                     let h1w4 := mload(add(pMem, add(pH1w4_0, mul(i, 32))))
 
-                    c1Value := addmod(c1Value, mulmod(h1w4, evalB, q), q)
+                    c1Value := addmod(c1Value, mulmod(h1w4, mload(add(pProof, pEval_b)), q), q)
                     let square := mulmod(h1w4, h1w4, q)
-                    c1Value := addmod(c1Value, mulmod(square, evalC, q), q)
+                    c1Value := addmod(c1Value, mulmod(square, mload(add(pProof, pEval_c)), q), q)
                     c1Value := addmod(c1Value, mulmod(mulmod(square, h1w4, q), t0, q), q)
 
                     let lagrange := calcLagrangeItem(pMem, i, 3, pY, pH1w4_0)
@@ -498,13 +501,13 @@ contract FflonkVerifier {
                 mstore(add(pMem, pR1), res)
             }
 
-            // Compute r2(y) by interpolating the polynomial r2(X) using 6 points (x,y)
-            // where x = {[h2, h2w3, h2w3^2], [h3, h3w3, h3w3^2]}
-            // and   y = {[C2(h2), C2(h2w3), C2(h2w3^2)], [C2(h3), C2(h3w3), C2(h3w3^2)]}
-            // and computing T1(xi) and T2(xi)
-            function computeR2(pMem) {
-                let t1
-                let t2
+            function computeT1(pProof, pMem) -> t1 {
+                t1 := sub(mload(add(pProof, pEval_z)), 1)
+                t1 := mulmod(t1, mload(add(pMem, pEval_l1)) ,q)
+                t1 := mulmod(t1, mload(add(pMem, pZhInv)) ,q)
+            }
+
+            function computeT2(pProof, pMem) -> t2 {
                 let betaXi := mulmod(mload(add(pMem, pBeta)), mload(add(pMem, pXi)), q)
                 let gamma := mload(add(pMem, pGamma))
                 let evalZ := calldataload( pEval_z)
@@ -519,24 +522,33 @@ contract FflonkVerifier {
                             addmod(mulmod(betaXi, k2, q), gamma, q) ,q), q)
                 t2 := mulmod(t2, evalZ, q)
 
-                //Let's use t1 as a temporal variable to save one local
-                t1 := addmod(calldataload(pEval_a), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_s1), q), gamma, q) ,q)
-                t1 := mulmod(t1,
-                      addmod(calldataload(pEval_b), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_s2), q), gamma, q) ,q), q)
-                t1 := mulmod(t1,
-                      addmod(calldataload(pEval_c), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_s3), q), gamma, q) ,q), q)
-                t1 := mulmod(t1, evalZw, q)
+                let t22
+                t22 := addmod(mload(add(pProof, pEval_a)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s1)), q), gamma, q) ,q)
+                t22 := mulmod(t22,
+                      addmod(mload(add(pProof, pEval_b)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s2)), q), gamma, q) ,q), q)
+                t22 := mulmod(t22,
+                      addmod(mload(add(pProof, pEval_c)), addmod(mulmod(mload(add(pMem, pBeta)), mload(add(pProof, pEval_s3)), q), gamma, q) ,q), q)
+                t22 := mulmod(t22, evalZw, q)
 
-                t2:= addmod(t2, mod(sub(q, t1), q), q)
+                t2:= addmod(t2, mod(sub(q, t22), q), q)
                 t2 := mulmod(t2, mload(add(pMem, pZhInv)), q)
+            }
 
-                // Compute T1(xi)
-                t1 := sub(evalZ, 1)
-                t1 := mulmod(t1, mload(add(pMem, pEval_l1)) ,q)
-                t1 := mulmod(t1, mload(add(pMem, pZhInv)) ,q)
+            
+
+            // Compute r2(y) by interpolating the polynomial r2(X) using 6 points (x,y)
+            // where x = {[h2, h2w3, h2w3^2], [h3, h3w3, h3w3^2]}
+            // and   y = {[C2(h2), C2(h2w3), C2(h2w3^2)], [C2(h3), C2(h3w3), C2(h3w3^2)]}
+            // and computing T1(xi) and T2(xi)
+            function computeR2(pProof, pMem) {
+                let t1 := computeT1(pProof, pMem)
+                let t2 := computeT2(pProof, pMem)
+                
+                let evalZ := mload(add(pProof, pEval_z))
+                let evalZw := mload(add(pProof, pEval_zw))
 
                 // Let's use local variable gamma to save the result
-                gamma:=0
+                let gamma:=0
                 for { let i := 0 } lt(i, 6) { i := add(i, 1) }
                 {
                     let hw := mload(add(pMem, add(pH2w3_0, mul(i, 32))))

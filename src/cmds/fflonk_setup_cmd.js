@@ -17,6 +17,6 @@
 
 import fflonkSetup from "../fflonk_setup.js";
 
-export async function fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger) {
-    return fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger);
+export async function fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, options) {
+    return fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, options);
 }

@@ -231,7 +231,18 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
 
     // ROUND 3. Compute opening evaluations
     if (logger) logger.info("> ROUND 3");
-    const [commits, evals] = await open(zkey, PTau, polynomials, committedPols, curve, logger);
+
+    const transcript = new Keccak256Transcript(curve);
+    transcript.addScalar(challenges.gamma);
+
+    // Add stage 2 commits to the transcript
+    const commitsStage2 = zkey.f.filter(fi => fi.stages[0].stage === 2);
+    for(let i = 0; i < commitsStage2.length; ++i) {
+        transcript.addPolCommitment(committedPols[`f${commitsStage2[i].index}_2`].commit);
+    }
+    const xiSeed = transcript.getChallenge();
+
+    const [commits, evals] = await open(zkey, PTau, polynomials, committedPols, curve, {logger, xiSeed, nonCommittedPols: ["T0", "T1", "T2"]});
     
     for(let i = 0; i < Object.keys(evals).length; ++i) {
         const key = Object.keys(evals)[i];

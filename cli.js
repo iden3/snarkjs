@@ -310,7 +310,7 @@ const commands = [
         action: plonkVerify
     },
     {
-        cmd: "fflonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey]",
+        cmd: "fflonk setup [circuit.r1cs] [powersoftau.ptau] [circuit.zkey] [extraMuls]",
         description: "BETA version. Creates a FFLONK zkey from a circuit",
         alias: ["ffs"],
         options: "-verbose|v",
@@ -1158,10 +1158,13 @@ async function fflonkSetup(params, options) {
     const r1csFilename = params[0] || "circuit.r1cs";
     const ptauFilename = params[1] || "powersoftau.ptau";
     const zkeyFilename = params[2] || "circuit.zkey";
+    const extraMuls = Number(params[3]) || 0;
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger);
+    const opts = {logger, extraMuls};
+
+    return await fflonkCmd.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, opts);
 }
 
 
