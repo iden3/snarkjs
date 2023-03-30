@@ -58,7 +58,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import {Evaluations} from "./polynomial/evaluations.js";
 
 
-export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, options) {
+export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, options = {}) {
 
     const logger = options.logger;
     const extraMuls = options.extraMuls || 0;
@@ -135,7 +135,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
 
     const fflonkConfig = getFFlonkConfig(settings.cirPower, extraMuls);
-    const {zkey, PTau} = await setup(fflonkConfig, ptauFilename, logger);
+    const {zkey, PTau} = await setup(fflonkConfig, ptauFilename, {logger});
 
     // Write output zkey file
     await writeZkeyFile();
@@ -427,7 +427,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     async function writeStage0(fdZKey) {
-        commits = await commit(0, zkey, polynomials, PTau, true, curve, logger);
+        commits = await commit(0, zkey, polynomials, PTau, curve, {logger, multiExp: true});
 
         let initialFiSection = ZKEY_FF_F0_SECTION;
 

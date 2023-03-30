@@ -44,6 +44,7 @@ import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
 import { commit, open} from "shplonkjs";
+import { lcm } from "shplonkjs/src/utils.js";
 
 const { stringifyBigInts } = utils;
 
@@ -279,6 +280,12 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
     delete polynomials.QO;
     if (globalThis.gc) globalThis.gc();
 
+    // Calculate Montgomery inverse 
+
+   
+    const invPublics = getMontgomeryBatchInverse();
+    proof.addEvaluation("invFflonk", invPublics);
+
     // Prepare proof
     let _proof = proof.toObjectProof();
     _proof.protocol = "fflonk";
@@ -349,6 +356,41 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         return Fr.zero;
+    }
+
+    function getMontgomeryBatchInverse() {
+        let challengeXi = Fr.one;
+        const powerW = lcm(Object.keys(zkey).filter(k => k.match(/^w\d$/)).map(wi => wi.slice(1)));
+    
+        for(let i = 0; i < powerW; ++i) {
+            challengeXi = Fr.mul(challengeXi, xiSeed);
+        }
+    
+        let xiN = challengeXi;
+        for (let i = 0; i < zkey.power; i++) {
+            xiN = Fr.square(xiN);
+        }
+    
+        const toInverse = [];
+    
+        toInverse.push(Fr.sub(xiN, Fr.one));
+    
+        //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
+        const size = Math.max(1, zkey.nPublic);
+    
+        let w = Fr.one;
+        for (let i = 0; i < size; i++) {
+            toInverse.push(Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challengeXi, w)));
+    
+            w = Fr.mul(w, zkey.w);
+        }
+    
+        let mulAccumulator = Fr.one;
+        for(let i = 0; i < toInverse.length; ++i) {
+            mulAccumulator = curve.Fr.mul(mulAccumulator, toInverse[i]);
+        }
+     
+        return Fr.inv(mulAccumulator);
     }
 
     async function round1() {
@@ -534,7 +576,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeStage1Commits() {
-            const commits = await commit(1, zkey, polynomials, PTau, true, curve, logger);
+            const commits = await commit(1, zkey, polynomials, PTau, curve, {logger, multiExp: true});
             
             for(let j = 0; j < commits.length; ++j) {
                 committedPols[`${commits[j].index}`] = {commit: commits[j].commit, pol: commits[j].pol};
@@ -839,7 +881,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         }
 
         async function computeStage2Commits() {
-            const commits = await commit(2, zkey, polynomials, PTau, true, curve, logger);
+            const commits = await commit(2, zkey, polynomials, PTau, curve, {logger, multiExp: true});
         
             for(let j = 0; j < commits.length; ++j) {
                 committedPols[`${commits[j].index}`] = {commit: commits[j].commit, pol: commits[j].pol};

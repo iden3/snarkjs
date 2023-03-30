@@ -31,7 +31,7 @@ describe("Fflonk test suite", function () {
     });
 
     it("fflonk full prove", async () => {
-        const options = {extraMuls: 0};
+        const options = {extraMuls: 3};
         
         // fflonk setup
         await fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, options);
