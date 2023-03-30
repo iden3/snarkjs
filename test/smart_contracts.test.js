@@ -154,10 +154,8 @@ describe("Smart contracts test suite", function () {
         await run("compile");
 
         // Deploy mock fflonk verifier
-        const ShPlonkFactory = await ethers.getContractFactory("ShPlonkVerifier");
-        let shPlonkContract = await ShPlonkFactory.deploy();
         const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
-        verifierContract = await VerifierFactory.deploy(shPlonkContract.address);
+        verifierContract = await VerifierFactory.deploy();
 
         // Verifiy the proof in the smart contract
         const { evaluations, polynomials } = proofJson;

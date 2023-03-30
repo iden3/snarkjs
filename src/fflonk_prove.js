@@ -43,8 +43,7 @@ import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
-import { commit, open} from "shplonkjs";
-import { lcm } from "shplonkjs/src/utils.js";
+import { commit, open, lcm} from "shplonkjs";
 
 const { stringifyBigInts } = utils;
 

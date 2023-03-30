@@ -21,8 +21,7 @@ import * as curves from "./curves.js";
 import { BigBuffer, utils } from "ffjavascript";
 import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
-import { verifyOpenings } from "shplonkjs";
-import { lcm } from "shplonkjs/src/utils.js";
+import { verifyOpenings, lcm } from "shplonkjs";
 
 const { unstringifyBigInts } = utils;
 
