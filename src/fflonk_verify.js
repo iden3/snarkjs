@@ -112,8 +112,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     evaluations.T2 = t2;
 
     if (logger) logger.info("> Verifying openings");
-    const res = verifyOpenings(vk, commits, evaluations, curve, {logger, xiSeed: challenges.xiSeed, nonCommittedPols:["T0", "T1", "T2"]});
-
+    const res = await verifyOpenings(vk, commits, evaluations, curve, {logger, xiSeed: challenges.xiSeed, nonCommittedPols:["T0", "T1", "T2"]});
     if (logger) {
         if (res) {
             logger.info("PROOF VERIFIED SUCCESSFULLY");

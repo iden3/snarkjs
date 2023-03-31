@@ -17,14 +17,9 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {getCurveFromName} from "./curves.js";
 import {utils} from "ffjavascript";
-
 const {unstringifyBigInts} = utils;
 
-function i2hex(i) {
-    return ("0" + i.toString(16)).slice(-2);
-}
 
 function p256(n) {
     let nstr = n.toString(16);
@@ -37,25 +32,25 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-
     let inputs = "";
     for (let i = 0; i < pub.length; i++) {
         if (inputs !== "") inputs = inputs + ",";
         inputs = inputs + p256(pub[i]);
     }
 
-    return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},` +
-    `${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},` +
-    `${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},` +
-    `${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},` +
-    `${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},` +
-    `${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},` +
-    `${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},` +
-    `${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},` +
-    `${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},` +
-    `${p256(proof.evaluations.inv)}],` +
-    `[${inputs}]`;
+    const proofCommits = [p256(proof.polynomials.W[0]),p256(proof.polynomials.W[1]), p256(proof.polynomials.Wp[0]), p256(proof.polynomials.Wp[1])];
+    for(let i = 0; i < Object.keys(proof.polynomials).length; ++i) {
+        const key = Object.keys(proof.polynomials)[i];
+        if(key.startsWith("f")) {
+            proofCommits.push(p256(proof.polynomials[key][0]));
+            proofCommits.push(p256(proof.polynomials[key][1]));
+        }
+    }
+
+    for(let i = 0; i < Object.keys(proof.evaluations).length; ++i) {
+        const key = Object.keys(proof.evaluations)[i];
+        proofCommits.push(p256(proof.evaluations[key]));
+    }
+
+    return `[${proofCommits.join(",")}], [${inputs}]`;
 }
