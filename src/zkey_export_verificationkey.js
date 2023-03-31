@@ -22,6 +22,8 @@ import * as zkeyUtils from "./zkey_utils.js";
 import {getCurveFromQ as getCurve} from "./curves.js";
 import {utils} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey_constants.js";
+import { getFByStage } from "shplonkjs";
+import getFFlonkConfig from "./fflonk_config.js";
 
 const {stringifyBigInts} = utils;
 
@@ -123,12 +125,16 @@ async function plonkVk(zkey) {
 async function exportFFlonkVk(zkey, logger) {
     const curve = await getCurve(zkey.q);
 
+    const fflonkConfig = getFFlonkConfig(zkey.power, zkey.extraMuls);
+    const f = getFByStage(fflonkConfig);
+
     let vKey = {
         protocol: zkey.protocol,
         curve: curve.name,
         nPublic: zkey.nPublic,
         power: zkey.power,
-        f: zkey.f,
+        extraMuls: zkey.extraMuls,
+        f,
         k1: curve.Fr.toObject(zkey.k1),
         k2: curve.Fr.toObject(zkey.k2),
 

@@ -43,7 +43,8 @@ import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
-import { commit, open, lcm} from "shplonkjs";
+import { commit, open, lcm, getFByStage} from "shplonkjs";
+import getFFlonkConfig from "./fflonk_config.js";
 
 const { stringifyBigInts } = utils;
 
@@ -67,6 +68,10 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         sections: zkeySections
     } = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
     const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
+
+    const fflonkConfig = getFFlonkConfig(zkey.power, zkey.extraMuls);
+    const f = getFByStage(fflonkConfig);
+    zkey.f = f;
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not fflonk");

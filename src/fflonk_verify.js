@@ -52,6 +52,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
         logger.info("  FFLONK VERIFY SETTINGS");
         logger.info(`  Curve:         ${curve.name}`);
         logger.info(`  Circuit power: ${vk.power}`);
+        logger.info(`  Extra muls: ${vk.extraMuls}`);
         logger.info(`  Domain size:   ${2 ** vk.power}`);
         logger.info(`  Public vars:   ${vk.nPublic}`);
         logger.info("----------------------------");

@@ -349,8 +349,6 @@ async function readHeaderFFlonk(fd, sections, toObject) {
         zkey[`f${polsStage0[i].index}`] = await readG1(fd, zkey.curve, toObject);
     }
     
-    zkey.f = f;
-
     await binFileUtils.endReadSection(fd);
 
     return zkey;
