@@ -39,7 +39,7 @@ describe("Smart contracts test suite", function () {
         await curve.terminate();
     });
 
-    it.skip("Groth16 smart contract", async () => {
+    it("Groth16 smart contract", async () => {
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "groth16.sol");
 
         const r1csFilename = path.join("test", "groth16", "circuit.r1cs");
@@ -68,7 +68,7 @@ describe("Smart contracts test suite", function () {
         expect(await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs)).to.be.equal(true);
     });
 
-    it.skip("plonk smart contract", async () => {
+    it("plonk smart contract", async () => {
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "plonk.sol");
 
         const r1csFilename = path.join("test", "plonk_circuit", "circuit.r1cs");

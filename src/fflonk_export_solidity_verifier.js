@@ -20,8 +20,6 @@
 import ejs from "ejs";
 import { getCurveFromName, utils } from "ffjavascript";
 import { exportSolidityShPlonkVerifier, getOrderedEvals,lcm } from "shplonkjs";
-import hardhat from "hardhat";
-const { ethers } = hardhat;
 
 
 export default async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -58,11 +56,8 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
     const powerW = lcm(Object.keys(vk).filter(k => k.match(/^w\d+$/)).map(wi => wi.slice(1)));
 
     vk.powerW = powerW;
-
-    const fiCommitted = vk.f.filter(fi => fi.stages.length !== 1 || fi.stages[0].stage !== 0);
-    const selectorVerifyCommitments = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(`verifyCommitments(bytes32[${20 + fiCommitted.length * 2}],bytes32,bytes32[3])`)).substring(0, 10);
     
-    const verificationCode = ejs.render(template, {vk, orderedEvals, ws, nonCommittedPols: ["T0", "T1", "T2"],selectorVerifyCommitments});
+    const verificationCode = ejs.render(template, {vk, orderedEvals, ws, nonCommittedPols: ["T0", "T1", "T2"]});
 
     const verificationShPlonkCode = await exportSolidityShPlonkVerifier(vk, curve, {logger, nonCommittedPols: ["T0", "T1", "T2"], extendLoops: true, xiSeed: true});
 
@@ -70,9 +65,11 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
 
     const verifierCode1 = verificationCode.slice(0, verificationCode.indexOf("function verifyProof"));
     const verifierCode2 = verificationCode.slice(verificationCode.indexOf("function verifyProof"));
-    const verifierCommitmentShPlonk = verificationShPlonkCode.slice(verificationShPlonkCode.indexOf("function verifyCommitments"), verificationShPlonkCode.lastIndexOf("}") - 1);
     
-    return verifierCode1 + verifierCommitmentShPlonk + verifierCode2;
+    let verifierCommitmentShPlonk = verificationShPlonkCode.slice(verificationShPlonkCode.indexOf("function verifyCommitments"), verificationShPlonkCode.lastIndexOf("}") - 1);
+    verifierCommitmentShPlonk = verifierCommitmentShPlonk.replace("public view", "internal view");
+
+    return verifierCode1 + "    " + verifierCommitmentShPlonk + "\n\n    " + verifierCode2;
 
     function toVkey(val) {
         const str = curve.Fr.toObject(val);

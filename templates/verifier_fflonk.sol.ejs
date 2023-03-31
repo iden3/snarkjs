@@ -82,15 +82,6 @@ contract FflonkVerifier {
 <% count += 32 -%>
 <%  } -%>
 
-<% if(nonCommittedPols.length > 0) { -%>
-<% let commitsCounter = 0; -%>
-    // Commits memory data
-<%  for(let i = 0; i < nonCommittedPols.length; ++i) { -%>
-    uint16 constant pEval_<%- nonCommittedPols[i] %> = <%- commitsCounter %>;
-<% commitsCounter += 32 -%>
-<%  } -%>
-<%  } -%>
-
     // Memory data
     // Challenges
     uint16 constant pBeta    = 0;  // beta challenge
@@ -203,12 +194,24 @@ contract FflonkVerifier {
 <% } -%>
 <% } -%>
 
+<% if(nonCommittedPols.length > 0) { -%>
+    // Commits memory data
+<% let commitsCounter = 0; -%>
+<%  for(let i = 0; i < nonCommittedPols.length; ++i) { -%>
+    uint16 constant pEval_<%- nonCommittedPols[i] %> = <%- commitsCounter %>;
+<% commitsCounter += 32 -%>
+<%  } -%>
+<%  } -%>
+
 <%  let pLastMem = memC -%>
     uint16 constant lastMem = <%- pLastMem %>;
      
-    bytes4 constant selectorShPlonk = <%- selectorVerifyCommitments %>;
-
     function verifyProof(bytes32[<%- 17 + commits * 2 %>] calldata proof, uint256[1] calldata pubSignals) public view returns (bool) {        
+        bytes32 evalT0;
+        bytes32 evalT1;
+        bytes32 evalT2;
+        bytes32 challengeXiSeed;
+        bytes32[<%- 16 + commits * 2 %>] calldata commits;
         assembly {
             // Computes the inverse of an array of values
             // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
@@ -359,24 +362,18 @@ contract FflonkVerifier {
             function computeT2(pMem) -> t2 {
                 let betaXi := mulmod(mload(add(pMem, pBeta)), mload(add(pMem, pXi)), q)
                 let gamma := mload(add(pMem, pGamma))
+                let beta := mload(add(pMem, pBeta))
                 let evalZ := calldataload(pEval_Z)
                 let evalZw := calldataload(pEval_Zw)
 
                 t2 := addmod(calldataload( pEval_A), addmod(betaXi, gamma, q) ,q)
-                t2 := mulmod(t2,
-                            addmod(calldataload( pEval_B),
-                            addmod(mulmod(betaXi, k1, q), gamma, q) ,q), q)
-                t2 := mulmod(t2,
-                            addmod(calldataload( pEval_C),
-                            addmod(mulmod(betaXi, k2, q), gamma, q) ,q), q)
+                t2 := mulmod(t2,addmod(calldataload( pEval_B), addmod(mulmod(betaXi, k1, q), gamma, q) ,q), q)
+                t2 := mulmod(t2,addmod(calldataload( pEval_C), addmod(mulmod(betaXi, k2, q), gamma, q) ,q), q)
                 t2 := mulmod(t2, evalZ, q)
 
-                let t22
-                t22 := addmod(calldataload(pEval_A), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_Sigma1), q), gamma, q) ,q)
-                t22 := mulmod(t22,
-                      addmod(calldataload(pEval_B), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_Sigma2), q), gamma, q) ,q), q)
-                t22 := mulmod(t22,
-                      addmod(calldataload(pEval_C), addmod(mulmod(mload(add(pMem, pBeta)), calldataload(pEval_Sigma3), q), gamma, q) ,q), q)
+                let t22 := addmod(calldataload(pEval_A), addmod(mulmod(beta, calldataload(pEval_Sigma1), q), gamma, q) ,q)
+                t22 := mulmod(t22,addmod(calldataload(pEval_B), addmod(mulmod(beta, calldataload(pEval_Sigma2), q), gamma, q) ,q), q)
+                t22 := mulmod(t22,addmod(calldataload(pEval_C), addmod(mulmod(beta, calldataload(pEval_Sigma3), q), gamma, q) ,q), q)
                 t22 := mulmod(t22, evalZw, q)
 
                 t2:= addmod(t2, mod(sub(q, t22), q), q)
@@ -399,21 +396,15 @@ contract FflonkVerifier {
             // Compute public input polynomial evaluation PI(xi) = \sum_i^l -public_input_i·L_i(xi)
             computePi(pMem, pubSignals)
             
-            let t0 := computeT0(pMem)
-            let t1 := computeT1(pMem)
-            let t2 := computeT2(pMem)
+            evalT0 := computeT0(pMem)
+            evalT1 := computeT1(pMem)
+            evalT2 := computeT2(pMem)
+            
+            challengeXiSeed := mload(add(pMem, pXiSeed))
 
-            mstore(pMem, selectorShPlonk)
-            mstore(add(pMem, <%- 4 + (17 + commits * 2 - 1)*32 %>), mload(add(pMem, pXiSeed)))
-            calldatacopy(add(pMem, 0x04), pW, <%- (17 + commits * 2 - 1)*32 %>)
-            mstore(add(pMem, <%- 4 + (17 + commits * 2 - 1)*32 + 32 %>), t0)
-            mstore(add(pMem, <%- 4 + (17 + commits * 2 - 1)*32 + 32*2 %>), t1)
-            mstore(add(pMem, <%- 4 + (17 + commits * 2 - 1)*32 + 32*3 %>), t2)
-            let success := staticcall(gas(), address(), pMem, <%- 4 + (17 + commits * 2 - 1)*32 + 32*3 + 32 %>, pMem, 0x20)
-            let isValid := and(success, mload(pMem))
-
-            mstore(0, isValid)
-            return(0,0x20)
+            calldatacopy(commits, proof, 832)
         }
+
+        verifyCommitments(commits, challengeXiSeed, [evalT0, evalT1, evalT2]);
     }
 }
