@@ -156,14 +156,14 @@ public class Verifier {
         }
 
         public static G1Point addition(G1Point p1, G1Point p2) {
-            byte[] res = Context.bn256("add", ByteUtil.concat(p1.encode(), p2.encode()));
+            byte[] res = Context.altBN128("add", ByteUtil.concat(p1.encode(), p2.encode()));
             G1Point p = G1Point.decode(res);
             return p;
         }
 
         public static G1Point scalar_mul(G1Point p, Scalar s) {
             byte[] res;
-            res = Context.bn256("mul", ByteUtil.concat(p.encode(), s.encode()));
+            res = Context.altBN128("mul", ByteUtil.concat(p.encode(), s.encode()));
             return G1Point.decode(res);
         }
 
@@ -177,7 +177,7 @@ public class Verifier {
                 arg = ByteUtil.concat(arg, tmp);
             }
 
-            byte[] res = Context.bn256("pairing", arg);
+            byte[] res = Context.altBN128("pairing", arg);
 
             return !Scalar.decode(res).v.equals(BigInteger.ZERO);
         }
@@ -266,7 +266,7 @@ public class Verifier {
         Pairing.G1Point vk_x = new Pairing.G1Point(BigInteger.ZERO,BigInteger.ZERO);
         for (int i=0; i<input.length; i++) {
             Context.require(input[i].compareTo(snark_scalar_field) < 0, "verifier-gte-snark-scalar-field");
-            vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i+1], new Pairing.Scalar(input[0])));
+            vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i+1], new Pairing.Scalar(input[i])));
         }
         vk_x = Pairing.addition(vk_x, vk.IC[0]);
         if (!Pairing.pairingProd4(Pairing.negate(proof.A), proof.B, vk.alfa1, vk.beta2, vk_x, vk.gamma2, proof.C, vk.delta2)) {
