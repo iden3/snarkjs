@@ -133,20 +133,6 @@ contract FflonkVerifier {
 <%  } -%>
 <%  } -%>
 
-    // Lagrange Items
-<%  let laNames = [] -%>
-<%  for(let i = 0; i < vk.f.length; i++) { -%>
-<%      let laName = vk.f[i].openingPoints[0] === 0 ? `${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` : `${vk.f[i].pols.length}_${vk.f[i].openingPoints[0]}d${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` -%>
-<%      if(!laNames.includes(laName)) { -%>
-<%          laNames.push(laName); -%>
-<%      for(let l = 0; l < vk.f[i].pols.length * vk.f[i].openingPoints.length; l++) { -%>
-    uint16 constant pLagrange<%- laName %>_<%- l %> = <%- memC %>;
-<%          memC += 32; -%>
-<%      } -%>
-<%      } -%>
-<%  } -%>
-
-
     // Ri
 <%  for(let i = 0; i < vk.f.length; ++i) { -%>
     uint16 constant pR<%- i %> = <%- memC %>; // r<%- i %>(y)
@@ -296,16 +282,16 @@ contract FflonkVerifier {
 
                 // Compute xin
                 let xin := 1
-<%  for ( let i = 0; i < vk.powerW; i++) { -%>
-                xin:= mulmod(xin, xiSeed, q)
-<%  }   -%>
+                for {let i := 0} lt(i, <%- vk.powerW %>) {i := add(i, 1)}{ -%>
+                    xin:= mulmod(xin, xiSeed, q)
+                }
 
                 mstore(add(pMem, pXi), xin)
 
                 // Compute xi^n
-<%for ( let i = 0; i < vk.power; i++) { -%>
-                xin:= mulmod(xin, xin, q)
-<%  }   -%>
+                for {let i := 0} lt(i, <%- vk.power %>) {i := add(i, 1)}{ -%>
+                    xin:= mulmod(xin, xin, q)
+                }
                 
                 xin:= mod(add(sub(xin, 1), q), q)
                 mstore(add(pMem, pZh), xin)

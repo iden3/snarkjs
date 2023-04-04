@@ -342,6 +342,10 @@ async function readHeaderFFlonk(fd, sections, toObject) {
         }
     } 
 
+    if("wPowers", !wPowers["1"] || !wPowers["1"].includes(1)) {
+        zkey["w1_1d1"] = await fd.read(n8r);
+    }
+    
     zkey.X_2 = await readG2(fd, zkey.curve, toObject);
 
     const polsStage0 = f.filter(fi => fi.stages[0].stage === 0);
