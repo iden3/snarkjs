@@ -27,6 +27,7 @@ describe("Smart contracts test suite", function () {
     templates.groth16 = fs.readFileSync(path.join("templates", "verifier_groth16.sol.ejs"), "utf8");
     templates.plonk = fs.readFileSync(path.join("templates", "verifier_plonk.sol.ejs"), "utf8");
     templates.fflonk = fs.readFileSync(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
+    templates.fflonkShPlonk = fs.readFileSync(path.join("templates", "verifier_fflonkShPlonk.sol.ejs"), "utf8");
 
     let verifierContract;
     let curve;
@@ -126,8 +127,65 @@ describe("Smart contracts test suite", function () {
         expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
     });
 
-    it("fflonk smart contract", async () => {
+    it("fflonk smart contract without scalar muls", async () => {
         const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonk.sol");
+       
+        const vkeyFilename = path.join("test", "fflonk", "circuit_vk.json");
+        const publicInputsFilename = path.join("test", "fflonk", "public.json");
+        const proofFilename = path.join("test", "fflonk", "proof.json");
+        const r1csFilename = path.join("test", "fflonk", "circuit.r1cs");
+        const wtnsFilename = path.join("test", "fflonk", "witness.wtns");
+        const zkeyFilename = { type: "mem" };
+
+        await fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, {extraMuls: 0});
+        const { proof: proofJson, publicSignals: publicInputs } = await fflonk.fflonkProveCmd(zkeyFilename, wtnsFilename, publicInputsFilename, proofFilename);
+
+        // export verification key
+        const vKey = await zkeyExportVerificationKey(zkeyFilename);
+        await bfj.write(vkeyFilename, stringifyBigInts(vKey), { space: 1 });
+
+        const isValid = await fflonk.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename);
+        assert(isValid);
+        
+        // Generate fflonk verifier solidity file from fflonk template + zkey
+        const verifierCode = await zkeyExportSolidityVerifier(zkeyFilename, templates);        
+        fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
+
+        // Compile the fflonk verifier smart contract
+        await run("compile");
+
+        // Deploy mock fflonk verifier
+        const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
+        verifierContract = await VerifierFactory.deploy();
+
+        // Verifiy the proof in the smart contract
+        const { evaluations, polynomials } = proofJson;
+        
+        const proof = [ 
+            ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.W[0]).toHexString(), 32),
+            ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.W[1]).toHexString(), 32),
+            ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.Wp[0]).toHexString(), 32),
+            ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials.Wp[1]).toHexString(), 32)
+        ];
+        
+        for(let i = 0; i < Object.keys(polynomials).length; ++i) {
+            const key = Object.keys(polynomials)[i];
+            if(key.startsWith("f")) {
+                proof.push(ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials[key][0]).toHexString(), 32));
+                proof.push(ethers.utils.hexZeroPad(ethers.BigNumber.from(polynomials[key][1]).toHexString(), 32));
+            }
+        }
+
+        for(let i = 0; i < Object.keys(evaluations).length; ++i) {
+            const key = Object.keys(evaluations)[i];
+            proof.push(ethers.utils.hexZeroPad(ethers.BigNumber.from(evaluations[key]).toHexString(), 32));
+        }
+
+        expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
+    });
+
+    it("fflonk smart contract with scalar muls", async () => {
+        const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonkShPlonk.sol");
        
         const vkeyFilename = path.join("test", "fflonk", "circuit_vk.json");
         const publicInputsFilename = path.join("test", "fflonk", "public.json");
@@ -154,7 +212,7 @@ describe("Smart contracts test suite", function () {
         await run("compile");
 
         // Deploy mock fflonk verifier
-        const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
+        const VerifierFactory = await ethers.getContractFactory("FflonkShPlonkVerifier");
         verifierContract = await VerifierFactory.deploy();
 
         // Verifiy the proof in the smart contract

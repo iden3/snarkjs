@@ -1,0 +1,396 @@
+// SPDX-License-Identifier: GPL-3.0
+/*
+    Copyright 2021 0KIMS association.
+
+    This file is generated with [snarkJS](https://github.com/iden3/snarkjs).
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+pragma solidity >=0.7.0 <0.9.0;
+
+contract FflonkShPlonkVerifier {
+    uint32 constant n     = <%= 2**vk.power %>; // Domain size
+
+    // Verification Key data
+    uint256 constant k1   = <%= vk.k1 %>;   // Plonk k1 multiplicative factor to force distinct cosets of H
+    uint256 constant k2   = <%= vk.k2 %>;   // Plonk k2 multiplicative factor to force distinct cosets of H
+
+    // Verification Key data
+    // Omegas
+<% for (let i = 0; i < Object.keys(ws).length; ++i) { -%>
+    uint256 constant <%- Object.keys(ws)[i] %> = <%= ws[Object.keys(ws)[i]] %>;
+<% } -%>
+   
+    // Verifier preprocessed input x·[1]_2
+    uint256 constant X2x1 = <%= vk.X_2[0][0] %>;
+    uint256 constant X2x2 = <%= vk.X_2[0][1] %>;
+    uint256 constant X2y1 = <%= vk.X_2[1][0] %>;
+    uint256 constant X2y2 = <%= vk.X_2[1][1] %>;
+
+    // Scalar field size
+    uint256 constant q    = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    // Base field size
+    uint256 constant qf   = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+
+<%  for(let i = 0; i < vk.f.length; ++i) { -%>
+<%      if(vk.f[i].stages.length === 1 && vk.f[i].stages[0].stage === 0) {  -%>
+    uint256 constant f<%- vk.f[i].index %>x = <%= vk[`f${vk.f[i].index}`][0] %>;
+    uint256 constant f<%- vk.f[i].index %>y = <%= vk[`f${vk.f[i].index}`][1] %>;
+<%      } -%>
+<%  } -%>
+
+    // [1]_1
+    uint256 constant G1x  = 1;
+    uint256 constant G1y  = 2;
+    // [1]_2
+    uint256 constant G2x1 = 10857046999023057135944570762232829481370756359578518086990519993285655852781;
+    uint256 constant G2x2 = 11559732032986387107991004021392285783925812861821192530917403151452391805634;
+    uint256 constant G2y1 = 8495653923123431417604973247489272438418190587263600148770280649306958101930;
+    uint256 constant G2y2 = 4082367875863433681332203403145435568316851327593401208105741076214120093531;
+
+    // Commits calldata
+    // Byte offset of every parameter in the calldata
+    // Polynomial commitments W and Wp
+    uint16 constant pW = 4 + 0;
+    uint16 constant pWp = 4 + 64;
+
+    // Polynomial commitments fi
+<%  let count = 128; -%>
+<%  let commits = 2 -%>
+<%  for(let i = 0; i < vk.f.length; ++i) { -%>
+<%      if(vk.f[i].stages.length !== 1 || vk.f[i].stages[0].stage !== 0) { -%>
+    uint16 constant pf<%- vk.f[i].index %> = 4 + <%- count %>;
+<%      count += 64 -%>
+<%      commits += 1 -%>
+<%      } -%>
+<%  } -%>
+    // Opening evaluations
+<%  for(let i = 0; i < orderedEvals.length; ++i) { -%>
+    uint16 constant pEval_<%- orderedEvals[i] %> = 4 + <%- count %>;
+<% count += 32 -%>
+<%  } -%>
+
+    // Memory data
+    // Challenges
+    uint16 constant pBeta    = 0;  // beta challenge
+    uint16 constant pGamma   = 32;  // gamma challenge
+    uint16 constant pY       = 64;
+    uint16 constant pAlpha   = 96;
+    uint16 constant pXi      = 128; // xi challenge
+    uint16 constant pXiSeed  = 160; // xi seed, from this value we compute xi = xiSeed^24
+
+<%  let memC = 192; -%>
+<%  let degreesXi = [] -%>
+<%  for (let i = 0; i < vk.f.length; ++i) { -%>
+<%     if(!degreesXi.includes(vk.f[i].pols.length)) { -%>
+<%          degreesXi.push(vk.f[i].pols.length); -%>
+    uint16 constant pXiSeed_w<%- vk.f[i].pols.length %> = <%- memC %>;
+<%      memC += 32; -%>
+<% } -%>
+<% } -%>
+    
+    uint16 constant pPi     = <%- memC %>; // PI(xi)
+<%      memC += 32; -%>
+
+    uint16 constant pZh     =  <%- memC %>; // Z_H(xi)
+<%      memC += 32; -%>
+
+    // From this point we write the Zh and lagrange related to public inputs that must be computed using the Montgomery batch inversion
+    uint16 constant pZhInv  = <%- memC %>; // 1/Z_H(xi)
+<%      memC += 32; -%>
+<% let inversionArray = ["pZhInv"]; -%>
+<% for (let i = 0; i < Math.max(vk.nPublic, 1); i++) { %>
+    uint16 constant pEval_L<%=i+1%> = <%= memC %>;
+<% inversionArray.push(`pEval_L${i+1}`) -%>
+<%      memC += 32; -%>
+<% } %>
+
+    // Roots
+<%  let rootsNames = []; -%>
+<%  let vkSorted = [...vk.f].sort((a,b) => a.pols.length - b.pols.length) -%>
+<%  for(let i = 0; i < vkSorted.length; i++) { -%>
+<%      for(let k = 0; k < vkSorted[i].openingPoints.length; k++) { -%>
+<%  let wName = vkSorted[i].openingPoints[k] === 0 ? vkSorted[i].pols.length : `${vkSorted[i].pols.length}_${vkSorted[i].openingPoints[k]}d${vkSorted[i].pols.length}` -%>
+<%  if(!rootsNames.includes(wName)) { -%>
+<%      rootsNames.push(wName); -%>
+<%          for(let l = 0; l < vkSorted[i].pols.length; l++) { -%>
+    uint16 constant pw<%- wName %>_<%- l %> = <%- memC %>;
+<%              memC += 32; -%>
+<%          } -%>
+<%      } -%>
+<%  } -%>
+<%  } -%>
+
+    // Ri
+<%  for(let i = 0; i < vk.f.length; ++i) { -%>
+    uint16 constant pR<%- i %> = <%- memC %>; // r<%- i %>(y)
+<%      memC += 32 -%>
+<%  } -%>
+   
+    uint16 constant pF = <%- memC %>; // [F]_1, 64 bytes
+    uint16 constant pE = <%- memC + 64 %>; // [E]_1, 64 bytes
+    uint16 constant pJ = <%- memC + 64 * 2 %>; // [J]_1, 64 bytes
+<%  memC += 64*3 -%>
+
+<%  for(let i = 1; i < vk.f.length; ++i) { -%>
+    uint16 constant pQuotient<%- i %> = <%- memC %>;
+<%      memC += 32 -%>
+<%  } -%>
+
+   // From this point we write all the variables that must compute the inverse using the Montgomery batch inversion
+<% let dens = [] -%>
+<% let inversionCounter = 0 -%>
+<% let inversionArrayShPlonk = [] -%>
+<% for(let i = 1; i < vk.f.length; ++i) { -%>
+<%      let dName = vk.f[i].openingPoints[0] === 0 ? `${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` : `${vk.f[i].pols.length}_${vk.f[i].openingPoints[0]}d${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` -%>
+<%      if(!dens.includes(dName)) { -%>
+<%            dens.push(dName) -%>
+    uint16 constant pDenw<%- dName %> = <%- memC %>;
+<%      memC += 32 -%>
+<% inversionCounter += 1 -%>
+<% inversionArrayShPlonk.push(`pDenw${dName}`) -%>
+<%      } -%>
+<%  } -%>
+
+<% let liNames = [] -%>
+<% for(let i = 0; i < vk.f.length; ++i) { -%>
+<% for(let k = 0; k < vk.f[i].openingPoints.length; ++k) { -%>
+<%      let liName = vk.f[i].openingPoints[k] === 0 ? `${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` : `${vk.f[i].pols.length}_${vk.f[i].openingPoints[k]}d${vk.f[i].pols.length}_${vk.f[i].openingPoints.join("")}` -%>
+<%      if(!liNames.includes(liName)) { -%>
+<%          liNames.push(liName) -%>
+<% for(let j = 0; j < vk.f[i].pols.length; ++j) { -%>
+    uint16 constant pLiw<%- liName %>Inv_<%- j %> = <%- memC %>;
+<% inversionCounter += 1 -%>
+<% inversionArrayShPlonk.push(`pLiw${liName}Inv_${j}`) -%>
+<%      memC += 32 -%>
+<% } -%>
+<% } -%>
+<% } -%>
+<% } -%>
+
+<% if(nonCommittedPols.length > 0) { -%>
+    // Commits memory data
+<% let commitsCounter = 0; -%>
+<%  for(let i = 0; i < nonCommittedPols.length; ++i) { -%>
+    uint16 constant pEval_<%- nonCommittedPols[i] %> = <%- commitsCounter %>;
+<% commitsCounter += 32 -%>
+<%  } -%>
+<%  } -%>
+
+<%  let pLastMem = memC -%>
+    uint16 constant lastMem = <%- pLastMem %>;
+     
+    function verifyProof(bytes32[<%- 17 + commits * 2 %>] calldata proof, uint256[1] calldata pubSignals) public view returns (bool) {        
+        bytes32 evalT0;
+        bytes32 evalT1;
+        bytes32 evalT2;
+        bytes32 challengeXiSeed;
+        bytes32[<%- 16 + commits * 2 %>] calldata commits;
+        assembly {
+            // Computes the inverse of an array of values
+            // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
+            // To save the inverse to be computed on chain the prover sends the inverse as an evaluation in commits.eval_inv
+            function inverseArray(pMem) {
+
+                let pAux := mload(0x40)     // Point to the next free position
+                let acc := mload(add(pMem,<%- inversionArray[0] %>))       // Read the first element
+                mstore(pAux, acc)
+
+<%  for(let i = 1; i < inversionArray.length; ++i) { -%>
+                pAux := add(pAux, 32)
+                acc := mulmod(acc, mload(add(pMem, <%- inversionArray[i] %>)), q)
+                mstore(pAux, acc)
+
+<% } -%>
+                let inv := calldataload(pEval_invPublics)
+
+                // Before using the inverse sent by the prover the verifier checks inv(batch) * batch === 1
+                if iszero(eq(1, mulmod(acc, inv, q))) {
+                    mstore(0, 0)
+                    return(0,0x20)
+                }
+
+                acc := inv
+
+<%  for(let i = inversionArray.length - 1; i > 0; --i) { -%>
+                pAux := sub(pAux, 32)
+                inv := mulmod(acc, mload(pAux), q)
+                acc := mulmod(acc, mload(add(pMem, <%- inversionArray[i] %>)), q)
+                mstore(add(pMem, <%- inversionArray[i] %>), inv)
+<% } -%>
+                mstore(add(pMem, <%- inversionArray[0] %>), acc)
+            }
+            
+            function computeInverseValues(pMem) {
+                // L_i where i from 1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
+                let w := 1
+                let xi := mload(add(pMem, pXi))
+                <% for (let i=1; i<=Math.max(vk.nPublic, 1); i++) { 
+                %>mstore(add(pMem, pEval_L<%=i%>), mulmod(n, mod(add(sub(xi, w), q), q), q))
+                <% if (i<Math.max(vk.nPublic, 1)) { 
+                %>w := mulmod(w, w1, q)
+                <% } 
+                } %>
+            }
+            
+            function computeChallenges(pMem, pPublic) {
+                let mIn := mload(0x40)
+                // Compute challenge.beta & challenge.gamma
+<%  let fStage0 = vk.f.filter(fi => fi.stages[0].stage === 0)-%>
+<%  for(let i = 0; i < fStage0.length; ++i) { -%>
+                mstore(add(mIn,<%=  i * 64 %>), f<%= fStage0[i].index %>x)
+                mstore(add(mIn,<%= i * 64 + 32 %>), f<%= fStage0[i].index %>y)
+<%  } -%>
+
+                mstore(add(mIn, <%= 64*fStage0.length %>), calldataload(pPublic))
+<%for (let i=1; i<vk.nPublic;i++) { -%>
+                mstore(add(mIn, <%= 64*fStage0.length + i * 32 %> ), calldataload(add(pPublic, <%= i * 32 %>)))
+<%  } -%>
+                
+
+<%  let fStage1 = vk.f.filter(fi => fi.stages[0].stage === 1) -%>
+<%  for(let i = 0; i < fStage1.length; ++i) { -%>
+                mstore(add(mIn,<%- vk.nPublic * 32 + 64*(fStage0.length + i) %>), calldataload(pf<%= fStage1[i].index %>))
+                mstore(add(mIn,<%- vk.nPublic * 32 + 64*(fStage0.length + i) + 32 %>), calldataload(add(pf<%= fStage1[i].index %>, 32)))
+<%  } -%>
+              
+                mstore(add(pMem, pBeta),  mod(keccak256(mIn, <%= vk.nPublic * 32 + 64 * (fStage0.length + fStage1.length) %>), q))
+                mstore(add(pMem, pGamma), mod(keccak256(add(pMem, pBeta), 32), q))
+
+                // Get xiSeed 
+                mstore(mIn, mload(add(pMem, pGamma)))
+<%  let fStage2 = vk.f.filter(fi => fi.stages[0].stage === 2) -%>
+<%  for(let i = 0; i < fStage2.length; ++i) { -%>
+                mstore(add(mIn,<%- 32 + 64*i%>), calldataload(pf<%= fStage2[i].index %>))
+                mstore(add(mIn,<%- 32 + 64*i + 32 %>), calldataload(add(pf<%= fStage2[i].index %>, 32)))
+<%  } -%>
+                let xiSeed := mod(keccak256(mIn, <%= 32 + 64*fStage2.length %>), q)
+
+                mstore(add(pMem, pXiSeed), xiSeed)
+
+                // Compute xin
+                let xin := 1
+                for {let i := 0} lt(i, <%- vk.powerW %>) {i := add(i, 1)}{ 
+                    xin:= mulmod(xin, xiSeed, q)
+                }
+
+                mstore(add(pMem, pXi), xin)
+
+                // Compute xi^n
+                for {let i := 0} lt(i, <%- vk.power %>) {i := add(i, 1)}{ 
+                    xin:= mulmod(xin, xin, q)
+                }
+                
+                xin:= mod(add(sub(xin, 1), q), q)
+                mstore(add(pMem, pZh), xin)
+                mstore(add(pMem, pZhInv), xin)  // We will invert later together with lagrange pols
+            }
+
+
+            // Compute Lagrange polynomial evaluation L_i(xi)
+            function computeLagrange(pMem) {
+                let zh := mload(add(pMem, pZh))
+                let w := 1
+                <% for (let i=1; i<=Math.max(vk.nPublic, 1); i++) { 
+                    if (i===1) { %>
+                    mstore(add(pMem, pEval_L1 ), mulmod(mload(add(pMem, pEval_L1 )), zh, q))
+                    <% } else { %>
+                    mstore(add(pMem, pEval_L<%=i%>), mulmod(w, mulmod(mload(add(pMem, pEval_L<%=i%>)), zh, q), q))
+                    <% } 
+                    if (i<Math.max(vk.nPublic, 1)) { %>
+                    w := mulmod(w, w1, q)
+                    <% } 
+                } %>
+            }
+
+            // Compute public input polynomial evaluation PI(xi)
+            function computePi(pMem, pPub) {
+                let pi := 0
+                pi := mod(add(sub(pi, mulmod(mload(add(pMem, pEval_L1)), calldataload(pPub), q)), q), q)
+                <% for (let i=1; i<vk.nPublic; i++) { %>
+                pi := mod(add(sub(pi, mulmod(mload(add(pMem, pEval_L<%= i + 1 %>)), calldataload(add(pPub, <%= 32 * i %>)), q)), q), q)
+                <% } %>
+                mstore(add(pMem, pPi), pi)
+            }
+
+            function computeT0(pMem)-> t0 {
+                let evalA := calldataload(pEval_A)
+                let evalB := calldataload(pEval_B)
+                let evalC := calldataload(pEval_C)
+
+                t0 := mulmod(calldataload(pEval_QL), evalA, q)
+                t0 := addmod(t0, mulmod(calldataload(pEval_QR), evalB, q) ,q)
+                t0 := addmod(t0, mulmod(calldataload(pEval_QM), mulmod(evalA, evalB, q), q) ,q)
+                t0 := addmod(t0, mulmod(calldataload(pEval_QO), evalC, q) ,q)
+                t0 := addmod(t0, calldataload(pEval_QC) ,q)
+                t0 := addmod(t0, mload(add(pMem, pPi)), q)
+                t0 := mulmod(t0, mload(add(pMem, pZhInv)), q)
+            }
+
+            function computeT1(pMem) -> t1 {
+                t1 := sub(calldataload(pEval_Z), 1)
+                t1 := mulmod(t1, mload(add(pMem, pEval_L1)) ,q)
+                t1 := mulmod(t1, mload(add(pMem, pZhInv)) ,q)
+            }
+
+            function computeT2(pMem) -> t2 {
+                let betaXi := mulmod(mload(add(pMem, pBeta)), mload(add(pMem, pXi)), q)
+                let gamma := mload(add(pMem, pGamma))
+                let beta := mload(add(pMem, pBeta))
+                let evalZ := calldataload(pEval_Z)
+                let evalZw := calldataload(pEval_Zw)
+
+                t2 := addmod(calldataload( pEval_A), addmod(betaXi, gamma, q) ,q)
+                t2 := mulmod(t2,addmod(calldataload( pEval_B), addmod(mulmod(betaXi, k1, q), gamma, q) ,q), q)
+                t2 := mulmod(t2,addmod(calldataload( pEval_C), addmod(mulmod(betaXi, k2, q), gamma, q) ,q), q)
+                t2 := mulmod(t2, evalZ, q)
+
+                let t22 := addmod(calldataload(pEval_A), addmod(mulmod(beta, calldataload(pEval_Sigma1), q), gamma, q) ,q)
+                t22 := mulmod(t22,addmod(calldataload(pEval_B), addmod(mulmod(beta, calldataload(pEval_Sigma2), q), gamma, q) ,q), q)
+                t22 := mulmod(t22,addmod(calldataload(pEval_C), addmod(mulmod(beta, calldataload(pEval_Sigma3), q), gamma, q) ,q), q)
+                t22 := mulmod(t22, evalZw, q)
+
+                t2:= addmod(t2, mod(sub(q, t22), q), q)
+                t2 := mulmod(t2, mload(add(pMem, pZhInv)), q)
+            }
+
+            let pMem := mload(0x40)
+            mstore(0x40, add(pMem, lastMem))
+
+            // Compute the challenges: beta, gamma, xi, xiN and zh(xi)
+            computeChallenges(pMem, pubSignals)
+
+            computeInverseValues(pMem)
+
+            inverseArray(pMem)
+
+            // Compute Lagrange polynomial evaluations Li(xi)
+            computeLagrange(pMem)
+
+            // Compute public input polynomial evaluation PI(xi) = \sum_i^l -public_input_i·L_i(xi)
+            computePi(pMem, pubSignals)
+            
+            evalT0 := computeT0(pMem)
+            evalT1 := computeT1(pMem)
+            evalT2 := computeT2(pMem)
+            
+            challengeXiSeed := mload(add(pMem, pXiSeed))
+
+            calldatacopy(commits, proof, 832)
+        }
+
+        verifyCommitments(commits, challengeXiSeed, [evalT0, evalT1, evalT2]);
+    }
+}

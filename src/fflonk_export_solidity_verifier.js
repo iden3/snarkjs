@@ -18,62 +18,45 @@
 */
 
 import ejs from "ejs";
-import { getCurveFromName, utils } from "ffjavascript";
-import { exportSolidityShPlonkVerifier, getOrderedEvals,lcm } from "shplonkjs";
+import {getCurveFromName} from "./curves.js";
+import {utils} from "ffjavascript";
 
+const {unstringifyBigInts, stringifyBigInts} = utils;
 
 export default async function fflonkExportSolidityVerifier(vk, templates, logger) {
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
 
-    let template = templates[vk.protocol];
-
     const curve = await getCurveFromName(vk.curve);
 
-    //Precompute omegas
-    const omegas = Object.keys(vk).filter(k => k.match(/^w\d+/));
-    const ws = {};
-    for(let i = 0; i < omegas.length; ++i) {
-        if(omegas[i].includes("_")) {
-            ws[omegas[i]] = vk[omegas[i]];
-            continue;
-        }
-        let acc = curve.Fr.one;
-        let pow = Number(omegas[i].slice(1));
-        for(let j = 1; j < Number(omegas[i].slice(1)); ++j) {
-            acc = curve.Fr.mul(acc, curve.Fr.e(vk[omegas[i]]));
-            ws[`w${pow}_${j}`] = toVkey(acc);
-        }
+    // Precompute w3_2, w4_2 and w4_3
+    let w3 = fromVkey(vk.w3);
+    vk.w3_2 = toVkey(curve.Fr.square(w3));
+
+    let w4 = fromVkey(vk.w4);
+    vk.w4_2 = toVkey(curve.Fr.square(w4));
+    vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
+
+    let w8 = fromVkey(vk.w8);
+    let acc = curve.Fr.one;
+
+    for (let i = 1; i < 8; i++) {
+        acc = curve.Fr.mul(acc, w8);
+        vk["w8_" + i] = toVkey(acc);
     }
 
-    let orderedEvals = getOrderedEvals(vk.f);
-
-    orderedEvals = orderedEvals.filter(e => !["T0", "T1", "T2"].includes(e.name));
-
-    orderedEvals.push({name: "inv"});
-    orderedEvals.push({name: "invPublics"});
-
-    orderedEvals = orderedEvals.map(e => e.name);
-    const powerW = lcm(Object.keys(vk).filter(k => k.match(/^w\d+$/)).map(wi => wi.slice(1)));
-
-    vk.powerW = powerW;
-    
-    const verificationCode = ejs.render(template, {vk, orderedEvals, ws, nonCommittedPols: ["T0", "T1", "T2"]});
-
-    const verificationShPlonkCode = await exportSolidityShPlonkVerifier(vk, curve, {logger, nonCommittedPols: ["T0", "T1", "T2"], extendLoops: true, xiSeed: true});
+    let template = templates[vk.protocol];
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    const verifierCode1 = verificationCode.slice(0, verificationCode.indexOf("function verifyProof"));
-    const verifierCode2 = verificationCode.slice(verificationCode.indexOf("function verifyProof"));
-    
-    let verifierCommitmentShPlonk = verificationShPlonkCode.slice(verificationShPlonkCode.indexOf("function verifyCommitments"), verificationShPlonkCode.lastIndexOf("}") - 1);
-    verifierCommitmentShPlonk = verifierCommitmentShPlonk.replace("public view", "internal view");
+    return ejs.render(template, vk);
 
-    return verifierCode1 + "    " + verifierCommitmentShPlonk + "\n\n    " + verifierCode2;
+    function fromVkey(str) {
+        const val = unstringifyBigInts(str);
+        return curve.Fr.fromObject(val);
+    }
 
     function toVkey(val) {
         const str = curve.Fr.toObject(val);
-        return utils.stringifyBigInts(str);
+        return stringifyBigInts(str);
     }
 }
-

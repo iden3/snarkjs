@@ -15,8 +15,13 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+import fflonkShPlonkExportSolidityVerifier from "../fflonkShplonk_export_solidity_verifier.js";
 import fflonkExportSolidityVerifier from "../fflonk_export_solidity_verifier.js";
 
 export async function fflonkExportSolidityVerifierCmd(vk, templates, logger) {
-    return fflonkExportSolidityVerifier(vk, templates, logger);
+    if(vk.extraMuls > 0) {
+        return fflonkShPlonkExportSolidityVerifier(vk, templates, logger);
+    } else {
+        return fflonkExportSolidityVerifier(vk, templates, logger);
+    }
 }

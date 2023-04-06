@@ -633,10 +633,12 @@ async function zkeyExportSolidityVerifier(params, options) {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
         templates.fflonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonk.sol.ejs"), "utf8");
+        templates.fflonkShPlonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonkShPlonk.sol.ejs"), "utf8");
     } else {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
         templates.fflonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
+        templates.fflonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_fflonkShPlonk.sol.ejs"), "utf8");
     }
 
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);

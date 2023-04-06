@@ -1,4 +1,3 @@
-import * as fastFile from "fastfile";
 import ejs from "ejs";
 
 import exportVerificationKey from "./zkey_export_verificationkey.js";
