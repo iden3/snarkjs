@@ -17,6 +17,6 @@
 
 import fflonkExportCallData from "../fflonk_export_calldata.js";
 
-export async function fflonkExportCallDataCmd(publicInputs, proof, logger) {
-    return await fflonkExportCallData(publicInputs, proof, logger);
+export async function fflonkExportCallDataCmd(publicInputs, proof, verificationKey, logger) {
+    return await fflonkExportCallData(publicInputs, proof, verificationKey, logger);
 }

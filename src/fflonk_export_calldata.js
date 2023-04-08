@@ -18,6 +18,8 @@
 */
 
 import {utils} from "ffjavascript";
+import { getOrderedEvals } from "shplonkjs";
+import * as curves from "./curves.js";
 const {unstringifyBigInts} = utils;
 
 
@@ -28,9 +30,14 @@ function p256(n) {
     return nstr;
 }
 
-export default async function fflonkExportCallData(_pub, _proof, logger) {
+export default async function fflonkExportCallData(_pub, _proof, _vk_verifier, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
+
+    _vk_verifier = unstringifyBigInts(_vk_verifier);
+    const curve = await curves.getCurveFromName(_vk_verifier.curve);
+
+    const vk = fromObjectVk(curve, _vk_verifier);
 
     let inputs = "";
     for (let i = 0; i < pub.length; i++) {
@@ -47,10 +54,32 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
         }
     }
 
-    for(let i = 0; i < Object.keys(proof.evaluations).length; ++i) {
-        const key = Object.keys(proof.evaluations)[i];
-        proofCommits.push(p256(proof.evaluations[key]));
+    const orderedEvals = getOrderedEvals(vk.f, proof.evaluations);
+    for(let i = 0; i < orderedEvals.length; ++i) {
+        if(orderedEvals[i].evaluation >= 0n) {
+            proofCommits.push(p256(orderedEvals[i].evaluation));
+        }
     }
 
+    proofCommits.push(p256(proof.evaluations["inv"]));
+    proofCommits.push(p256(proof.evaluations["invPublics"]));
+
     return `[${proofCommits.join(",")}], [${inputs}]`;
+}
+
+function fromObjectVk(curve, vk) {
+    const res = vk;
+    res.k1 = curve.Fr.fromObject(vk.k1);
+    res.k2 = curve.Fr.fromObject(vk.k2);
+    res.w = curve.Fr.fromObject(vk.w);
+    const ws = Object.keys(vk).filter(k => k.match(/^w\d/));    
+    for(let i = 0; i < ws.length; ++i) {
+        res[ws[i]] = curve.Fr.fromObject(vk[ws[i]]);
+    }
+    res.X_2 = curve.G2.fromObject(vk.X_2);
+    const fs = Object.keys(vk).filter(k => k.match(/^f\d/));  
+    for(let i = 0; i < fs.length; ++i) {
+        res[fs[i]] = curve.G1.fromObject(vk[fs[i]]);
+    }
+    return res;
 }

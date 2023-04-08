@@ -249,9 +249,9 @@ const commands = [
         action: zkeyExportSolidityVerifier
     },
     {
-        cmd: "zkey export soliditycalldata [public.json] [proof.json]",
+        cmd: "zkey export soliditycalldata [circuit_final.zkey] [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
-        alias: ["zkesc", "generatecall -pub|public -p|proof"],
+        alias: ["zkesc", "generatecall -vk|verificationkey -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
     },
     {
@@ -653,6 +653,7 @@ async function zkeyExportSolidityVerifier(params, options) {
 async function zkeyExportSolidityCalldata(params, options) {
     let publicName;
     let proofName;
+    let vkeyName;
 
     if (params.length < 1) {
         publicName = "public.json";
@@ -677,7 +678,15 @@ async function zkeyExportSolidityCalldata(params, options) {
     } else if (proof.protocol == "plonk") {
         res = await plonk.exportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
-        res = await fflonkCmd.fflonkExportCallDataCmd(pub, proof, logger);
+        if (params.length < 3) {
+            vkeyName = "circuit.vkey";
+        } else {
+            vkeyName = params[2];
+        }
+
+        const verificationKey = JSON.parse(fs.readFileSync(vkeyName, "utf8"));
+
+        res = await fflonkCmd.fflonkExportCallDataCmd(pub, proof, verificationKey, logger);
     } else {
         throw new Error("Invalid Protocol");
     }
