@@ -1,288 +1,263 @@
-package com.icon.score;
+package com.icon.snarkjs.verifier;
 
 import score.Context;
 import score.annotation.External;
 
 import java.math.BigInteger;
 
-import java.util.Arrays;
 
-public class Verifier {
-    static class ByteUtil {
-        public static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
-        public static final byte[] ZERO_BYTE_ARRAY = new byte[]{0};
+public class SnarkJSVerifier {
+    static final String protocol = "<%=protocol%>";
+    static final String curve = "<%=curve%>";
+    static final int nPublic = <%=nPublic%>;
 
-        public static int firstNonZeroByte(byte[] data) {
-            for (int i = 0; i < data.length; ++i) {
-                if (data[i] != 0) {
-                    return i;
-                }
+    static final BigInteger BASE_FIELD = new BigInteger(
+            "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787");
+    static final BigInteger SCALAR_FIELD = new BigInteger(
+            "52435875175126190479447740508185965837690552500527637822603658699938581184513");
+    static final int BASE_FIELD_SIZE = 48; // bytes
+
+    static byte[] concat(byte[]... args) {
+        int length = 0;
+        for (int i = 0; i < args.length; i++) {
+            length += args[i].length;
+        }
+        byte[] out = new byte[length];
+        int offset = 0;
+        for (int i = 0; i < args.length; i++) {
+            System.arraycopy(args[i], 0, out, offset, args[i].length);
+            offset += args[i].length;
+        }
+        return out;
+    }
+
+    static class P1 {
+        BigInteger x;
+        BigInteger y;
+
+        P1() {
+            this.x = new BigInteger(
+                    "9850501549098619803069760025035903451269934817616361666987073351061430442874302652853566563721228910201656997576704");
+            this.y = BigInteger.ZERO;
+        }
+
+        P1(BigInteger x, BigInteger y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        public static P1 from_bytes(byte[] data) {
+            if (data.length != 2 * BASE_FIELD_SIZE) {
+                throw new IllegalArgumentException("P1.from_bytes: invalid data layout!");
             }
-            return -1;
+            byte[] buf = new byte[BASE_FIELD_SIZE];
+            System.arraycopy(data, 0, buf, 0, BASE_FIELD_SIZE);
+            BigInteger x = new BigInteger(buf);
+            System.arraycopy(data, BASE_FIELD_SIZE, buf, 0, BASE_FIELD_SIZE);
+            BigInteger y = new BigInteger(buf);
+            return new P1(x, y);
         }
 
-        public static byte[] stripLeadingZeroes(byte[] data) {
-
-            if (data == null)
-                return null;
-
-            final int firstNonZero = firstNonZeroByte(data);
-            switch (firstNonZero) {
-                case -1:
-                    return ZERO_BYTE_ARRAY;
-
-                case 0:
-                    return data;
-
-                default:
-                    byte[] result = new byte[data.length - firstNonZero];
-                    System.arraycopy(data, firstNonZero, result, 0, data.length - firstNonZero);
-
-                    return result;
-            }
+        public byte[] to_bytes() {
+            byte[] buf = new byte[2 * BASE_FIELD_SIZE];
+            byte[] xb = this.x.toByteArray();
+            byte[] yb = this.y.toByteArray();
+            System.arraycopy(xb, 0, buf, BASE_FIELD_SIZE - xb.length, xb.length);
+            System.arraycopy(yb, 0, buf, 2 * BASE_FIELD_SIZE - yb.length, yb.length);
+            return buf;
         }
 
-        static byte[] encodeInto64Bytes(byte[] w1, byte[] w2) {
-            byte[] res = new byte[64];
-
-            w1 = stripLeadingZeroes(w1);
-            w2 = stripLeadingZeroes(w2);
-
-            System.arraycopy(w1, 0, res, 32 - w1.length, w1.length);
-            System.arraycopy(w2, 0, res, 64 - w2.length, w2.length);
-
-            return res;
+        public boolean equals(P1 p) {
+            return this.x.equals(p.x) && this.y.equals(p.y);
         }
 
-        static byte[] encodeInto32Bytes(byte[] w) {
-            byte[] res = new byte[32];
-            w = stripLeadingZeroes(w);
-            System.arraycopy(w, 0, res, 32 - w.length, w.length);
-            return res;
+        public P1 neg() {
+            P1 zero = new P1();
+            return this.equals(zero) ? zero : new P1(this.x, BASE_FIELD.subtract(this.y.mod(BASE_FIELD)));
         }
 
+        public P1 add(P1 other) {
+            byte[] res = Context.ecAdd("bls12-381", concat(this.to_bytes(), other.to_bytes()), false);
+            return P1.from_bytes(res);
+        }
 
-        static byte[] concat(byte[] w1, byte[] w2) {
-            byte[] res = new byte[w1.length+w2.length];
-            System.arraycopy(w1, 0, res, 0, w1.length);
-            System.arraycopy(w2, 0, res, w1.length, w2.length);
-            return res;
+        public P1 scalarMul(BigInteger scalar) {
+            byte[] res = Context.ecScalarMul("bls12-381", scalar.toByteArray(), this.to_bytes(), false);
+            return P1.from_bytes(res);
+        }
+
+        public P1 generator() {
+            return new P1(
+                    new BigInteger(
+                            "3685416753713387016781088315183077757961620795782546409894578378688607592378376318836054947676345821548104185464507"),
+                    new BigInteger(
+                            "1339506544944476473020471379941921221584933875938349620426543736416511423956333506472724655353366534992391756441569"));
         }
     }
 
-    static class Pairing {
+    static class P2 {
+        BigInteger x_u;
+        BigInteger x;
+        BigInteger y_u;
+        BigInteger y;
 
-        static class Scalar {
-            public BigInteger v;
-            Scalar(BigInteger v) {
-                this.v = v;
+        P2() {
+            this.x_u = new BigInteger(
+                    "9850501549098619803069760025035903451269934817616361666987073351061430442874302652853566563721228910201656997576704");
+            this.x = BigInteger.ZERO;
+            this.y_u = BigInteger.ZERO;
+            this.y = BigInteger.ZERO;
+
+        }
+
+        P2(BigInteger x_u, BigInteger x, BigInteger y_u, BigInteger y) {
+            this.x_u = x_u;
+            this.x = x;
+            this.y_u = y_u;
+            this.y = y;
+        }
+
+        public static P2 from_bytes(byte[] data) {
+            if (data.length != 4 * BASE_FIELD_SIZE) {
+                throw new IllegalArgumentException("P2.from_bytes: invalid data layout!");
             }
-            public static Scalar decode(byte[] r) {
-                Context.require(r.length == 32, "Scalar: a scalar should be 32 bytes");
-                return new Scalar(new BigInteger(r));
-            }
-            public byte[] encode() {
-                return ByteUtil.encodeInto32Bytes(v.toByteArray());
-            }
+            byte[] buf = new byte[BASE_FIELD_SIZE];
+            System.arraycopy(data, 0, buf, 0, BASE_FIELD_SIZE);
+            BigInteger x_u = new BigInteger(buf);
+            System.arraycopy(data, BASE_FIELD_SIZE, buf, 0, BASE_FIELD_SIZE);
+            BigInteger x = new BigInteger(buf);
+            System.arraycopy(data, 2 * BASE_FIELD_SIZE, buf, 0, BASE_FIELD_SIZE);
+            BigInteger y_u = new BigInteger(buf);
+            System.arraycopy(data, 3 * BASE_FIELD_SIZE, buf, 0, BASE_FIELD_SIZE);
+            BigInteger y = new BigInteger(buf);
+            return new P2(x_u, x, y_u, y);
         }
 
-        static class G1Point {
-            public BigInteger x;
-            public BigInteger y;
-            G1Point(BigInteger x, BigInteger y) {
-                this.x = x;
-                this.y = y;
-            }
-            public static G1Point decode(byte[] r) {
-                Context.require(r.length == 64, "G1Point: a G1Point should be 64 bytes");
-                return new G1Point(
-                        new BigInteger(Arrays.copyOfRange(r, 0, 32)),
-                        new BigInteger(Arrays.copyOfRange(r, 32, 64)));
-            }
-            public byte[] encode() {
-                return ByteUtil.encodeInto64Bytes(x.toByteArray(), y.toByteArray());
-            }
+        public byte[] to_bytes() {
+            byte[] buf = new byte[4 * BASE_FIELD_SIZE];
+            byte[] x_ub = this.x_u.toByteArray();
+            byte[] x_b = this.x.toByteArray();
+            byte[] y_ub = this.y_u.toByteArray();
+            byte[] y_b = this.y.toByteArray();
+            System.arraycopy(x_ub, 0, buf, BASE_FIELD_SIZE - x_ub.length, x_ub.length);
+            System.arraycopy(x_b, 0, buf, 2 * BASE_FIELD_SIZE - x_b.length, x_b.length);
+            System.arraycopy(y_ub, 0, buf, 3 * BASE_FIELD_SIZE - y_ub.length, y_ub.length);
+            System.arraycopy(y_b, 0, buf, 4 * BASE_FIELD_SIZE - y_b.length, y_b.length);
+            return buf;
         }
 
-        static class G2Point {
-            public BigInteger xi;
-            public BigInteger xr;
-            public BigInteger yi;
-            public BigInteger yr;
-            G2Point(BigInteger xi, BigInteger xr, BigInteger yi, BigInteger yr) {
-                this.xi = xi;
-                this.xr = xr;
-                this.yi = yi;
-                this.yr = yr;
-            }
-            public byte[] encode() {
-                byte[] x = ByteUtil.encodeInto64Bytes(xi.toByteArray(), xr.toByteArray());
-                byte[] y = ByteUtil.encodeInto64Bytes(yi.toByteArray(), yr.toByteArray());
-                return ByteUtil.concat(x, y);
-            }
+        public boolean equals(P2 p) {
+            return this.x_u.equals(p.x_u) && this.x.equals(p.x) && this.y_u.equals(p.y_u) && this.y.equals(p.y);
         }
 
-        public G1Point P1() {
-            return new G1Point(
-                    new BigInteger("1"),
-                    new BigInteger("2")
-            );
+        public P2 neg() {
+            P2 zero = new P2();
+            return this.equals(zero) ? zero
+                    : new P2(this.x_u, this.x, BASE_FIELD.subtract(this.y_u.mod(BASE_FIELD)),
+                            BASE_FIELD.subtract(this.y.mod(BASE_FIELD)));
         }
 
-        public static G1Point negate(G1Point p) {
-            // The prime q in the base field F_q for G1
-            BigInteger q = new BigInteger("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-            if (p.x.equals(BigInteger.ZERO) && p.y.equals(BigInteger.ZERO)) {
-                return new G1Point(
-                        new BigInteger("0"),
-                        new BigInteger("0")
-                );
-            }
-            return new G1Point(
-                    p.x,
-                    q.subtract(p.y.mod(q))
-            );
+        public P2 add(P2 other) {
+            byte[] res = Context.ecAdd("bls12-381-G2", concat(this.to_bytes(), other.to_bytes()), false);
+            return P2.from_bytes(res);
         }
 
-        public G2Point P2() {
-
-            // Original code point
-            return new G2Point(
-                    new BigInteger("11559732032986387107991004021392285783925812861821192530917403151452391805634"),
-                    new BigInteger("10857046999023057135944570762232829481370756359578518086990519993285655852781"),
-                    new BigInteger("4082367875863433681332203403145435568316851327593401208105741076214120093531"),
-                    new BigInteger("8495653923123431417604973247489272438418190587263600148770280649306958101930")
-                );
+        public P2 scalarMul(BigInteger scalar) {
+            byte[] res = Context.ecScalarMul("bls12-381-G2", scalar.toByteArray(), this.to_bytes(), false);
+            return P2.from_bytes(res);
         }
 
-        public static G1Point addition(G1Point p1, G1Point p2) {
-            byte[] res = Context.altBN128("add", ByteUtil.concat(p1.encode(), p2.encode()));
-            G1Point p = G1Point.decode(res);
-            return p;
+        public P2 generator() {
+            return new P2(
+                    new BigInteger(
+                            "3059144344244213709971259814753781636986470325476647558659373206291635324768958432433509563104347017837885763365758"),
+                    new BigInteger(
+                            "352701069587466618187139116011060144890029952792775240219908644239793785735715026873347600343865175952761926303160"),
+                    new BigInteger(
+                            "927553665492332455747201965776037880757740193453592970025027978793976877002675564980949289727957565575433344219582"),
+                    new BigInteger(
+                            "1985150602287291935568054521177171638300868978215655730859378665066344726373823718423869104263333984641494340347905"));
         }
-
-        public static G1Point scalar_mul(G1Point p, Scalar s) {
-            byte[] res;
-            res = Context.altBN128("mul", ByteUtil.concat(p.encode(), s.encode()));
-            return G1Point.decode(res);
-        }
-
-        public static boolean pairing(G1Point[] p1, G2Point[] p2) {
-            Context.require(p1.length == p2.length, "Pairing: G1 and G2 points must have same length");
-            Context.require(p1.length > 0, "Paring: Must have some points");
-
-            byte[] arg = ByteUtil.concat(p1[0].encode(), p2[0].encode());
-            for (int i=1; i<p1.length; i++) {
-                byte[] tmp = ByteUtil.concat(p1[i].encode(), p2[i].encode());
-                arg = ByteUtil.concat(arg, tmp);
-            }
-
-            byte[] res = Context.altBN128("pairing", arg);
-
-            return !Scalar.decode(res).v.equals(BigInteger.ZERO);
-        }
-
-        public boolean pairingProd2(G1Point a1, G2Point a2, G1Point b1, G2Point b2) {
-            G1Point[] p1 = new G1Point[]{a1, b1};
-            G2Point[] p2 = new G2Point[]{a2, b2};
-            return pairing(p1, p2);
-        }
-
-        public boolean pairingProd3(G1Point a1, G2Point a2, G1Point b1, G2Point b2, G1Point c1, G2Point c2) {
-            G1Point[] p1 = new G1Point[]{a1, b1, c1};
-            G2Point[] p2 = new G2Point[]{a2, b2, c2};
-            return pairing(p1, p2);
-        }
-
-        public static boolean pairingProd4(G1Point a1, G2Point a2, G1Point b1, G2Point b2, G1Point c1, G2Point c2, G1Point d1, G2Point d2) {
-            G1Point[] p1 = new G1Point[]{a1, b1, c1, d1};
-            G2Point[] p2 = new G2Point[]{a2, b2, c2, d2};
-            return pairing(p1, p2);
-        }
-
     }
 
-    static class VerifyingKey {
-        Pairing.G1Point alfa1;
-        Pairing.G2Point beta2;
-        Pairing.G2Point gamma2;
-        Pairing.G2Point delta2;
-
-        Pairing.G1Point[] IC;
+    class Proof {
+        P1 A;
+        P2 B;
+        P1 C;
     }
 
-    static class Proof {
-        Pairing.G1Point A;
-        Pairing.G2Point B;
-        Pairing.G1Point C;
-
+    class VerifyingKey {
+        P1 alfa1;
+        P2 beta2;
+        P2 gamma2;
+        P2 delta2;
+        P1[] IC;
     }
 
-    public VerifyingKey verifyingKey () {
+    public VerifyingKey verifyingKey() {
         VerifyingKey vk = new VerifyingKey();
-        vk.alfa1 = new Pairing.G1Point(
+        vk.alfa1 = new P1(
                 new BigInteger("<%=vk_alpha_1[0]%>"),
-                new BigInteger("<%=vk_alpha_1[1]%>")
-        );
+                new BigInteger("<%=vk_alpha_1[1]%>"));
 
-        vk.beta2 = new Pairing.G2Point(
-                    new BigInteger("<%=vk_beta_2[0][1]%>"),
-                    new BigInteger("<%=vk_beta_2[0][0]%>"),
-                    new BigInteger("<%=vk_beta_2[1][1]%>"),
-                    new BigInteger("<%=vk_beta_2[1][0]%>")
-                );
+        vk.beta2 = new P2(
+                new BigInteger("<%=vk_beta_2[0][1]%>"),
+                new BigInteger("<%=vk_beta_2[0][0]%>"),
+                new BigInteger("<%=vk_beta_2[1][1]%>"),
+                new BigInteger("<%=vk_beta_2[1][0]%>"));
 
-        vk.gamma2 = new Pairing.G2Point(
-                    new BigInteger("<%=vk_gamma_2[0][1]%>"),
-                    new BigInteger("<%=vk_gamma_2[0][0]%>"),
-                    new BigInteger("<%=vk_gamma_2[1][1]%>"),
-                    new BigInteger("<%=vk_gamma_2[1][0]%>")
-                );
+        vk.gamma2 = new P2(
+                new BigInteger("<%=vk_gamma_2[0][1]%>"),
+                new BigInteger("<%=vk_gamma_2[0][0]%>"),
+                new BigInteger("<%=vk_gamma_2[1][1]%>"),
+                new BigInteger("<%=vk_gamma_2[1][0]%>"));
 
-        vk.delta2 = new Pairing.G2Point(
-                    new BigInteger("<%=vk_delta_2[0][1]%>"),
-                    new BigInteger("<%=vk_delta_2[0][0]%>"),
-                    new BigInteger("<%=vk_delta_2[1][1]%>"),
-                    new BigInteger("<%=vk_delta_2[1][0]%>")
-                );
+        vk.delta2 = new P2(
+                new BigInteger("<%=vk_delta_2[0][1]%>"),
+                new BigInteger("<%=vk_delta_2[0][0]%>"),
+                new BigInteger("<%=vk_delta_2[1][1]%>"),
+                new BigInteger("<%=vk_delta_2[1][0]%>"));
 
-        vk.IC = new Pairing.G1Point[] {
-            <% for (let i=0; i<IC.length; i++) { %>
-            new Pairing.G1Point( 
+        vk.IC = new P1[] {
+            <% for (let i = 0; i < IC.length; i++) { %>
+            new P1( 
                 new BigInteger("<%=IC[i][0]%>"),
-                new BigInteger("<%=IC[i][1]%>")
-            ),
+                new BigInteger("<%=IC[i][1]%>")),
             <% } %>
         };
 
         return vk;
     }
 
-    public int verify(BigInteger[] input, Proof proof) {
-        BigInteger snark_scalar_field = new BigInteger("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+    public boolean verify(BigInteger[] input, Proof proof) {
         VerifyingKey vk = verifyingKey();
         Context.require(input.length + 1 == vk.IC.length, "verifier-bad-input");
         // Compute the linear combination vk_x
-        Pairing.G1Point vk_x = new Pairing.G1Point(BigInteger.ZERO,BigInteger.ZERO);
-        for (int i=0; i<input.length; i++) {
-            Context.require(input[i].compareTo(snark_scalar_field) < 0, "verifier-gte-snark-scalar-field");
-            vk_x = Pairing.addition(vk_x, Pairing.scalar_mul(vk.IC[i+1], new Pairing.Scalar(input[i])));
+        P1 vk_x = new P1();
+        for (int i = 0; i < input.length; i++) {
+            Context.require(input[i].compareTo(SCALAR_FIELD) < 0, "verifier-gte-snark-scalar-field");
+            vk_x = vk_x.add(vk.IC[i + 1].scalarMul(input[i]));
         }
-        vk_x = Pairing.addition(vk_x, vk.IC[0]);
-        if (!Pairing.pairingProd4(Pairing.negate(proof.A), proof.B, vk.alfa1, vk.beta2, vk_x, vk.gamma2, proof.C, vk.delta2)) {
-            return 1;
-        }
-        return 0;
+        vk_x = vk_x.add(vk.IC[0]);
+        byte[] data = concat(
+                proof.A.neg().to_bytes(),
+                proof.B.to_bytes(),
+                vk.alfa1.to_bytes(),
+                vk.beta2.to_bytes(),
+                vk_x.to_bytes(),
+                vk.gamma2.to_bytes(),
+                proof.C.to_bytes(),
+                vk.delta2.to_bytes());
+        return Context.ecPairingCheck("bls12-381", data, false);
     }
 
     @External(readonly = true)
     public boolean verifyProof(BigInteger[] a, BigInteger[][] b, BigInteger[] c, BigInteger[] input) {
         Proof proof = new Proof();
-        proof.A = new Pairing.G1Point(a[0], a[1]);
-        proof.B = new Pairing.G2Point(b[0][0], b[0][1], b[1][0], b[1][1]);
-        proof.C = new Pairing.G1Point(c[0], c[1]);
-
-        // TODO: Verify if copying is necessary
-        return verify(input, proof) == 0;
+        proof.A = new P1(a[0], a[1]);
+        proof.B = new P2(b[0][0], b[0][1], b[1][0], b[1][1]);
+        proof.C = new P1(c[0], c[1]);
+        return verify(input, proof);
     }
+
 }

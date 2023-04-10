@@ -10370,6 +10370,20 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
     return ejs__default["default"].render(template, verificationKey);
 }
 
+// Not ready yet
+// module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
+
+
+
+async function exportJavaVerifier(zKeyName, templates, logger) {
+
+    const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
+
+    let template = templates[verificationKey.protocol];
+
+    return ejs__default["default"].render(template ,  verificationKey);
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -10401,7 +10415,8 @@ var zkey = /*#__PURE__*/Object.freeze({
     exportJson: zkeyExportJson,
     bellmanContribute: bellmanContribute,
     exportVerificationKey: zkeyExportVerificationKey,
-    exportSolidityVerifier: exportSolidityVerifier
+    exportSolidityVerifier: exportSolidityVerifier,
+    exportJavaVerifier: exportJavaVerifier
 });
 
 /*
