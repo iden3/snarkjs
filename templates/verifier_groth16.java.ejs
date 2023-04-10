@@ -77,12 +77,12 @@ public class SnarkJSVerifier {
         }
 
         public P1 add(P1 other) {
-            byte[] res = Context.ecAdd("bls12-381", concat(this.to_bytes(), other.to_bytes()), false);
+            byte[] res = Context.ecAdd("bls12-381-g1", concat(this.to_bytes(), other.to_bytes()), false);
             return P1.from_bytes(res);
         }
 
         public P1 scalarMul(BigInteger scalar) {
-            byte[] res = Context.ecScalarMul("bls12-381", scalar.toByteArray(), this.to_bytes(), false);
+            byte[] res = Context.ecScalarMul("bls12-381-g1", scalar.toByteArray(), this.to_bytes(), false);
             return P1.from_bytes(res);
         }
 
@@ -158,12 +158,12 @@ public class SnarkJSVerifier {
         }
 
         public P2 add(P2 other) {
-            byte[] res = Context.ecAdd("bls12-381-G2", concat(this.to_bytes(), other.to_bytes()), false);
+            byte[] res = Context.ecAdd("bls12-381-g2", concat(this.to_bytes(), other.to_bytes()), false);
             return P2.from_bytes(res);
         }
 
         public P2 scalarMul(BigInteger scalar) {
-            byte[] res = Context.ecScalarMul("bls12-381-G2", scalar.toByteArray(), this.to_bytes(), false);
+            byte[] res = Context.ecScalarMul("bls12-381-g2", scalar.toByteArray(), this.to_bytes(), false);
             return P2.from_bytes(res);
         }
 
