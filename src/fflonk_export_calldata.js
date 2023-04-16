@@ -29,7 +29,7 @@ function i2hex(i) {
 function p256(n) {
     let nstr = n.toString(16);
     while (nstr.length < 64) nstr = "0" + nstr;
-    nstr = `"0x${nstr}"`;
+    nstr = `0x${nstr}`;
     return nstr;
 }
 
@@ -47,30 +47,15 @@ export default async function fflonkExportCallData(_pub, _proof, logger) {
         inputs = inputs + p256(pub[i]);
     }
 
-    const proofBuff = new Uint8Array(G1.F.n8 * 2 * 4 + Fr.n8 * 16);
-
-    G1.toRprUncompressed(proofBuff, 0, G1.e(proof.polynomials.C1));
-    G1.toRprUncompressed(proofBuff, G1.F.n8 * 2, G1.e(proof.polynomials.C2));
-    G1.toRprUncompressed(proofBuff, G1.F.n8 * 4, G1.e(proof.polynomials.W1));
-    G1.toRprUncompressed(proofBuff, G1.F.n8 * 6, G1.e(proof.polynomials.W2));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8, Fr.e(proof.evaluations.ql));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8, Fr.e(proof.evaluations.qr));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 2, Fr.e(proof.evaluations.qm));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 3, Fr.e(proof.evaluations.qo));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 4, Fr.e(proof.evaluations.qc));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 5, Fr.e(proof.evaluations.s1));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 6, Fr.e(proof.evaluations.s2));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 7, Fr.e(proof.evaluations.s3));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 8, Fr.e(proof.evaluations.a));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 9, Fr.e(proof.evaluations.b));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 10, Fr.e(proof.evaluations.c));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 11, Fr.e(proof.evaluations.z));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 12, Fr.e(proof.evaluations.zw));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 13, Fr.e(proof.evaluations.t1w));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 14, Fr.e(proof.evaluations.t2w));
-    Fr.toRprBE(proofBuff, G1.F.n8 * 8 + Fr.n8 * 15, Fr.e(proof.evaluations.inv));
-
-    const proofHex = Array.from(proofBuff).map(i2hex).join("");
-
-    return `0x${proofHex},[${inputs}]`;
+    return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},` +
+    `${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},` +
+    `${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},` +
+    `${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},` +
+    `${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},` +
+    `${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},` +
+    `${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},` +
+    `${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},` +
+    `${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},` +
+    `${p256(proof.evaluations.inv)}],` +
+    `[${inputs}]`;
 }
