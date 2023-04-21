@@ -58,7 +58,10 @@ export default async function r1csInfo(r1csName, checkAdditions, logger) {
         logger.info(`  Curve: ${curve}`);
         logger.info(`  # of Wires: ${cir.nVars}`);
         logger.info(`  # of Constraints: ${cir.nConstraints}`);
-        if (checkAdditions) logger.info(`# of Additions: ${nAdditions}`);
+        if (checkAdditions) {
+            logger.info(`  # of Additions: ${nAdditions}`);
+            logger.info(`  # total constraints: ${cir.nConstraints + nAdditions}`);
+        }
         logger.info(`  # of Private Inputs: ${cir.nPrvInputs}`);
         logger.info(`  # of Public Inputs: ${cir.nPubInputs}`);
         logger.info(`  # of Labels: ${cir.nLabels}`);
