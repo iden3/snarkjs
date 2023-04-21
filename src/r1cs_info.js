@@ -18,49 +18,61 @@
 */
 
 import { Scalar } from "ffjavascript";
-import { readR1cs, readR1csFd }  from "r1csfile";
+import { readR1cs, readR1csFd } from "r1csfile";
 
 import {
     getFFlonkAdditionConstraint,
     getFFlonkConstantConstraint,
     getFFlonkMultiplicationConstraint
 } from "./plonk_equation.js";
-import {r1csConstraintProcessor} from "./r1cs_constraint_processor.js";
+import { r1csConstraintProcessor } from "./r1cs_constraint_processor.js";
 import * as binFileUtils from "@iden3/binfileutils";
 
-import {readBinFile} from "@iden3/binfileutils";
+import { readBinFile } from "@iden3/binfileutils";
 
 const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 
-export default async function r1csInfo(r1csName, logger) {
+export default async function r1csInfo(r1csName, checkAdditions, logger) {
+    const cir = await readR1cs(r1csName, false);
 
-    const cir = await readR1cs(r1csName);
-
-    const {nAdditions: additions} = await countConstraints(cir.F, r1csName, logger);
-
-    if (Scalar.eq(cir.prime, bn128r)) {
-        if (logger) logger.info("Curve: bn-128");
-    } else if (Scalar.eq(cir.prime, bls12381r)) {
-        if (logger) logger.info("Curve: bls12-381");
-    } else {
-        if (logger) logger.info(`Unknown Curve. Prime: ${Scalar.toString(cir.prime)}`);
+    let nConstraints, nAdditions;
+    if (checkAdditions) {
+        ({ nConstraints, nAdditions } = await countConstraints(cir.F, r1csName, logger));
     }
-    if (logger) logger.info(`# of Wires: ${cir.nVars}`);
-    if (logger) logger.info(`# of Constraints: ${cir.nConstraints}`);
-    if (logger) logger.info(`# of Additions: ${additions}`);
-    if (logger) logger.info(`# of Private Inputs: ${cir.nPrvInputs}`);
-    if (logger) logger.info(`# of Public Inputs: ${cir.nPubInputs}`);
-    if (logger) logger.info(`# of Labels: ${cir.nLabels}`);
-    if (logger) logger.info(`# of Outputs: ${cir.nOutputs}`);
+
+    let curve;
+    if (Scalar.eq(cir.prime, bn128r)) {
+        curve = "Curve: bn-128";
+    } else if (Scalar.eq(cir.prime, bls12381r)) {
+        curve = "Curve: bls12-381";
+    } else {
+        curve = `Unknown. Prime: ${Scalar.toString(cir.prime)}`;
+    }
+
+    if (logger) {
+        logger.info("----------------------------");
+        logger.info("  R1CS INFO");
+
+        logger.info(`  Curve: ${curve}`);
+        logger.info(`  # of Wires: ${cir.nVars}`);
+        logger.info(`  # of Constraints: ${cir.nConstraints}`);
+        if (checkAdditions) logger.info(`# of Additions: ${nAdditions}`);
+        logger.info(`  # of Private Inputs: ${cir.nPrvInputs}`);
+        logger.info(`  # of Public Inputs: ${cir.nPubInputs}`);
+        logger.info(`  # of Labels: ${cir.nLabels}`);
+        logger.info(`  # of Outputs: ${cir.nOutputs}`);
+
+        logger.info("----------------------------");
+    }
 
     return cir;
 }
 
 async function countConstraints(Fr, r1csFilename, logger) {
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
-    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
+    const { fd: fdR1cs, sections: sectionsR1cs } = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: true });
 
     // Add all constraints from r1cs file
     const r1csProcessor = new r1csConstraintProcessor(Fr, getFFlonkConstantConstraint, getFFlonkAdditionConstraint, getFFlonkMultiplicationConstraint, logger);
@@ -75,15 +87,17 @@ async function countConstraints(Fr, r1csFilename, logger) {
     let nAdditions = 0;
 
     for (let i = 0; i < r1cs.nConstraints; i++) {
+        if (i !== 0 && i % 100000 === 0) {
+            if (logger) logger.info(`Processed ${i}/${r1cs.nConstraints} constraints`);
+        }
         const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...readConstraint());
-
         nConstraints += constraints.length;
         nAdditions += additions.length;
     }
 
     await fdR1cs.close();
 
-    return {nConstraints, nAdditions};
+    return { nConstraints, nAdditions };
 
     function readConstraint() {
         const c = [];
