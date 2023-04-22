@@ -48,7 +48,8 @@
     "ffjavascript": "0.2.57",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.45"
+    "r1csfile": "0.0.45",
+    "shplonkjs": "^0.0.1"
   },
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.2",
