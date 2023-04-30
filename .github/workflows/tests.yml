@@ -32,12 +32,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Run hardhat tests
-        working-directory: smart_contract_tests
-        run: |
-          npm ci
-          npm test
-
   test-contracts:
     name: Test verifier contracts
     runs-on: ${{ matrix.os }}
