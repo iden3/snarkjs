@@ -38,6 +38,38 @@ jobs:
           npm ci
           npm test
 
+  test-contracts:
+    name: Test verifier contracts
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node-version: ["16", "18", "20"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          check-latest: true
+          cache: "npm"
+
+      - name: Install circom
+        run: npm install -g circom@latest
+
+      - name: Install hardhat dependencies
+        working-directory: smart_contract_tests
+        run: npm ci
+
+      - name: Run hardhat tests
+        working-directory: smart_contract_tests
+        run: npm test
+
   testv12:
     name: Testv12
     runs-on: ${{ matrix.os }}

@@ -24,7 +24,7 @@ describe("Smart contracts test suite", function () {
     let curve;
 
     before(async () => {
-        await fs.promises.mkdir("contracts");
+        await fs.promises.mkdir("contracts", {recursive: true});
         curve = await buildBn128();
     });
 
