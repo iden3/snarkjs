@@ -75,20 +75,20 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     const sDomain = zkey.domainSize * n8r;
 
     if (logger) {
-        logger.info("----------------------------");
-        logger.info("  PLONK PROVE SETTINGS");
-        logger.info(`  Curve:         ${curve.name}`);
-        logger.info(`  Circuit power: ${zkey.power}`);
-        logger.info(`  Domain size:   ${zkey.domainSize}`);
-        logger.info(`  Vars:          ${zkey.nVars}`);
-        logger.info(`  Public vars:   ${zkey.nPublic}`);
-        logger.info(`  Constraints:   ${zkey.nConstraints}`);
-        logger.info(`  Additions:     ${zkey.nAdditions}`);
-        logger.info("----------------------------");
+        logger.debug("----------------------------");
+        logger.debug("  PLONK PROVE SETTINGS");
+        logger.debug(`  Curve:         ${curve.name}`);
+        logger.debug(`  Circuit power: ${zkey.power}`);
+        logger.debug(`  Domain size:   ${zkey.domainSize}`);
+        logger.debug(`  Vars:          ${zkey.nVars}`);
+        logger.debug(`  Public vars:   ${zkey.nPublic}`);
+        logger.debug(`  Constraints:   ${zkey.nConstraints}`);
+        logger.debug(`  Additions:     ${zkey.nAdditions}`);
+        logger.debug("----------------------------");
     }
 
     //Read witness data
-    if (logger) logger.info("> Reading witness file data");
+    if (logger) logger.debug("> Reading witness file data");
     const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
 
     // First element in plonk is not used and can be any value. (But always the same).
@@ -104,11 +104,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     let proof = new Proof(curve, logger);
     const transcript = new Keccak256Transcript(curve);
 
-    if (logger) logger.info(`> Reading Section ${ZKEY_PL_ADDITIONS_SECTION}. Additions`);
+    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_ADDITIONS_SECTION}. Additions`);
     await calculateAdditions();
 
-    if (logger) logger.info(`> Reading Section ${ZKEY_PL_SIGMA_SECTION}. Sigma1, Sigma2 & Sigma 3`);
-    if (logger) logger.info("··· Reading Sigma polynomials ");
+    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_SIGMA_SECTION}. Sigma1, Sigma2 & Sigma 3`);
+    if (logger) logger.debug("··· Reading Sigma polynomials ");
     polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), curve, logger);
     polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), curve, logger);
     polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), curve, logger);
@@ -117,7 +117,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 5 * sDomain);
     await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 10 * sDomain);
 
-    if (logger) logger.info("··· Reading Sigma evaluations");
+    if (logger) logger.debug("··· Reading Sigma evaluations");
     evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
     evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
     evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
@@ -126,13 +126,23 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 6 * sDomain);
     await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 11 * sDomain);
 
-    if (logger) logger.info(`> Reading Section ${ZKEY_PL_PTAU_SECTION}. Powers of Tau`);
+    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_PTAU_SECTION}. Powers of Tau`);
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_PTAU_SECTION);
 
+    if (logger) logger.debug("");
+    if (logger) logger.debug("> ROUND 1");
     await round1();
+
+    if (logger) logger.debug("> ROUND 2");
     await round2();
+
+    if (logger) logger.debug("> ROUND 3");
     await round3();
+
+    if (logger) logger.debug("> ROUND 4");
     await round4();
+
+    if (logger) logger.debug("> ROUND 5");
     await round5();
 
     ///////////////////////
@@ -154,13 +164,15 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     _proof.protocol = "plonk";
     _proof.curve = curve.name;
     
+    if (logger) logger.debug("PLONK PROVER FINISHED");
+
     return {
         proof: stringifyBigInts(_proof),
         publicSignals: stringifyBigInts(publicSignals)
     };
 
     async function calculateAdditions() {
-        if (logger) logger.info("··· Computing additions");
+        if (logger) logger.debug("··· Computing additions");
         const additionsBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_ADDITIONS_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
@@ -168,7 +180,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         const sSum = 8 + n8r * 2;
 
         for (let i = 0; i < zkey.nAdditions; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    addition ${i}/${zkey.nAdditions}`);
+            if (logger && (0 !== i) && (i % 100000 === 0)) logger.debug(`    addition ${i}/${zkey.nAdditions}`);
 
             // Read addition values
             let offset = i * sSum;
@@ -214,7 +226,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
-        if (logger) logger.info("> Computing A, B, C wire polynomials");
+        if (logger) logger.debug("> Computing A, B, C wire polynomials");
         await computeWirePolynomials();
 
         // The first output of the prover is ([A]_1, [B]_1, [C]_1)
@@ -230,7 +242,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function computeWirePolynomials() {
-        if (logger) logger.info("··· Reading data from zkey file");
+        if (logger) logger.debug("··· Reading data from zkey file");
         // Build A, B and C evaluations buffer from zkey and witness files
         buffers.A = new BigBuffer(sDomain);
         buffers.B = new BigBuffer(sDomain);
@@ -263,19 +275,19 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         buffers.C = await Fr.batchToMontgomery(buffers.C);
 
         // Compute the coefficients of the wire polynomials a(X), b(X) and c(X) from A,B & C buffers
-        if (logger) logger.info("··· Computing A ifft");
+        if (logger) logger.debug("··· Computing A ifft");
         polynomials.A = await Polynomial.fromEvaluations(buffers.A, curve, logger);
-        if (logger) logger.info("··· Computing B ifft");
+        if (logger) logger.debug("··· Computing B ifft");
         polynomials.B = await Polynomial.fromEvaluations(buffers.B, curve, logger);
-        if (logger) logger.info("··· Computing C ifft");
+        if (logger) logger.debug("··· Computing C ifft");
         polynomials.C = await Polynomial.fromEvaluations(buffers.C, curve, logger);
 
         // Compute extended evaluations of a(X), b(X) and c(X) polynomials
-        if (logger) logger.info("··· Computing A fft");
+        if (logger) logger.debug("··· Computing A fft");
         evaluations.A = await Evaluations.fromPolynomial(polynomials.A, 4, curve, logger);
-        if (logger) logger.info("··· Computing B fft");
+        if (logger) logger.debug("··· Computing B fft");
         evaluations.B = await Evaluations.fromPolynomial(polynomials.B, 4, curve, logger);
-        if (logger) logger.info("··· Computing C fft");
+        if (logger) logger.debug("··· Computing C fft");
         evaluations.C = await Evaluations.fromPolynomial(polynomials.C, 4, curve, logger);
 
         // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
@@ -324,7 +336,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("··· challenges.gamma: " + Fr.toString(challenges.gamma));
     
         // STEP 2.2 - Compute permutation polynomial z(X)
-        if (logger) logger.info("> Computing Z polynomial");
+        if (logger) logger.debug("> Computing Z polynomial");
         await computeZ();
 
         // The second output of the prover is ([Z]_1)
@@ -334,7 +346,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function computeZ() {
-        if (logger) logger.info("··· Computing Z evaluations");
+        if (logger) logger.debug("··· Computing Z evaluations");
 
         let numArr = new BigBuffer(sDomain);
         let denArr = new BigBuffer(sDomain);
@@ -411,11 +423,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         }
 
         // Compute polynomial coefficients z(X) from buffers.Z
-        if (logger) logger.info("··· Computing Z ifft");
+        if (logger) logger.debug("··· Computing Z ifft");
         polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, curve, logger);
 
         // Compute extended evaluations of z(X) polynomial
-        if (logger) logger.info("··· Computing Z fft");
+        if (logger) logger.debug("··· Computing Z fft");
         evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, 4, curve, logger);
 
         // Blind z(X) polynomial coefficients with blinding scalars b
@@ -439,7 +451,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         challenges.alpha2 = Fr.square(challenges.alpha);
         if (logger) logger.debug("··· challenges.alpha: " + Fr.toString(challenges.alpha));
 
-        if (logger) logger.info(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
+        if (logger) logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
         `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
         // Reserve memory for Q's evaluations
         evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
@@ -467,7 +479,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         let w = Fr.one;
         for (let i=0; i<zkey.domainSize*4; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T evaluation ${i}/${zkey.domainSize * 4}`);
+            if (logger && (0 !== i) && (i % 100000 === 0)) logger.debug(`      T evaluation ${i}/${zkey.domainSize * 4}`);
 
             const a = evaluations.A.getEvaluation(i);
             const b = evaluations.B.getEvaluation(i);
@@ -494,14 +506,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             const wW2 = Fr.square(wW);
             const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], wW2), Fr.mul(challenges.b[8], wW)), challenges.b[9]);
 
-            let pl = Fr.zero;
+            let pi = Fr.zero;
             for (let j=0; j<zkey.nPublic; j++) {
                 const offset = (j * 4 * zkey.domainSize) + i;
 
                 const lPol = evaluations.Lagrange.getEvaluation(offset);
                 const aVal = buffers.A.slice(j * n8r, (j + 1) * n8r);
 
-                pl = Fr.sub(pl, Fr.mul(lPol, aVal));
+                pi = Fr.sub(pi, Fr.mul(lPol, aVal));
             }
 
             let [e1, e1z] = MulZ.mul2(a, b, ap, bp, i%4, Fr);
@@ -517,7 +529,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             e1 = Fr.add(e1, Fr.mul(c, qo));
             e1z = Fr.add(e1z, Fr.mul(cp, qo));
 
-            e1 = Fr.add(e1, pl);
+            e1 = Fr.add(e1, pi);
             e1 = Fr.add(e1, qc);
 
             const betaw = Fr.mul(challenges.beta, w);
@@ -574,15 +586,15 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         }
 
         // Compute the coefficients of the polynomial T0(X) from buffers.T0
-        if (logger) logger.info("··· Computing T ifft");
+        if (logger) logger.debug("··· Computing T ifft");
         polynomials.T = await Polynomial.fromEvaluations(buffers.T, curve, logger);
         
         // Divide the polynomial T0 by Z_H(X)
-        if (logger) logger.info("··· Computing T / ZH");
+        if (logger) logger.debug("··· Computing T / ZH");
         polynomials.T.divZh(zkey.domainSize, 4);
 
         // Compute the coefficients of the polynomial Tz(X) from buffers.Tz
-        if (logger) logger.info("··· Computing Tz ifft");
+        if (logger) logger.debug("··· Computing Tz ifft");
         polynomials.Tz = await Polynomial.fromEvaluations(buffers.Tz, curve, logger);
 
         // Add the polynomial T1z to T1 to get the final polynomial T1
@@ -743,17 +755,17 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         challenges.v = [];
         challenges.v[1] = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.v: " + Fr.toString(challenges.v));
+        if (logger) logger.debug("··· challenges.v: " + Fr.toString(challenges.v[1]));
 
-        for (let i=2; i<=6; i++ ) challenges.v[i] = Fr.mul(challenges.v[i-1], challenges.v[1]);
+        for (let i=2; i<=6; i++ ) {
+            challenges.v[i] = Fr.mul(challenges.v[i-1], challenges.v[1]);
+        }
         
         polynomials.Wxi = new Polynomial(new BigBuffer(sDomain + 6 * n8r), curve, logger);
 
-        const xi2m = Fr.mul(challenges.xim, challenges.xim);
-
         polynomials.Wxi.add(polynomials.T1);
         polynomials.Wxi.add(polynomials.T2, challenges.xim);
-        polynomials.Wxi.add(polynomials.T3, xi2m);
+        polynomials.Wxi.add(polynomials.T3, Fr.square(challenges.xim));
         polynomials.Wxi.add(polynomials.R, challenges.v[1]);
         polynomials.Wxi.add(polynomials.A, challenges.v[2]);
         polynomials.Wxi.add(polynomials.B, challenges.v[3]);
