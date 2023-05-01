@@ -50,7 +50,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 import {FFLONK_PROTOCOL_ID, GROTH16_PROTOCOL_ID, PLONK_PROTOCOL_ID} from "./zkey_constants.js";
-import {ZKEY_FF_HEADER_SECTION} from "./fflonk.js";
+import {ZKEY_FF_HEADER_SECTION} from "./fflonk_constants.js";
 
 export async function writeHeader(fd, zkey) {
 

@@ -113,7 +113,7 @@ describe("Full process", function ()  {
     });
 
     it ("checks witness complies with r1cs", async () => {
-        await snarkjs.wtnsCmds.wtnsCheckCmd(path.join("test", "circuit", "circuit.r1cs"), wtns);
+        await snarkjs.wtns.check(path.join("test", "circuit", "circuit.r1cs"), wtns);
     });
 
     it ("groth16 proof", async () => {
