@@ -28,21 +28,21 @@ import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { MulZ } from "./mul_z.js";
 import {  ZKEY_PL_HEADER_SECTION,
-     ZKEY_PL_ADDITIONS_SECTION,
-     ZKEY_PL_A_MAP_SECTION,
-     ZKEY_PL_B_MAP_SECTION,
-     ZKEY_PL_C_MAP_SECTION,
-     ZKEY_PL_QM_SECTION,
-     ZKEY_PL_QL_SECTION,
-     ZKEY_PL_QR_SECTION,
-     ZKEY_PL_QO_SECTION,
-     ZKEY_PL_QC_SECTION,
-     ZKEY_PL_SIGMA_SECTION,
-     ZKEY_PL_LAGRANGE_SECTION,
-     ZKEY_PL_PTAU_SECTION,
-    } from "./plonk.js";
-    import { Polynomial } from "./polynomial/polynomial.js";
-    import { Evaluations } from "./polynomial/evaluations.js";
+    ZKEY_PL_ADDITIONS_SECTION,
+    ZKEY_PL_A_MAP_SECTION,
+    ZKEY_PL_B_MAP_SECTION,
+    ZKEY_PL_C_MAP_SECTION,
+    ZKEY_PL_QM_SECTION,
+    ZKEY_PL_QL_SECTION,
+    ZKEY_PL_QR_SECTION,
+    ZKEY_PL_QO_SECTION,
+    ZKEY_PL_QC_SECTION,
+    ZKEY_PL_SIGMA_SECTION,
+    ZKEY_PL_LAGRANGE_SECTION,
+    ZKEY_PL_PTAU_SECTION,
+} from "./plonk.js";
+import { Polynomial } from "./polynomial/polynomial.js";
+import { Evaluations } from "./polynomial/evaluations.js";
     
 export default async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -220,6 +220,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     }
 
     async function round1() {
+        // STEP 1.1 - Generate random blinding scalars (b1, ..., b11) ∈ F
         challenges.b = [];
         for (let i=1; i<=11; i++) {
             challenges.b[i] = curve.Fr.random();
@@ -229,11 +230,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("> Computing A, B, C wire polynomials");
         await computeWirePolynomials();
 
-        // The first output of the prover is ([A]_1, [B]_1, [C]_1)
+        // STEP 1.3 - Compute [a]_1, [b]_1, [c]_1
+        if (logger) logger.debug("> Computing A, B, C MSM");
         let commitA = await polynomials.A.multiExponentiation(PTau, "A");
         let commitB = await polynomials.B.multiExponentiation(PTau, "B");
         let commitC = await polynomials.C.multiExponentiation(PTau, "C");
 
+        // First output of the prover is ([A]_1, [B]_1, [C]_1)
         proof.addPolynomial("A", commitA);
         proof.addPolynomial("B", commitB);
         proof.addPolynomial("C", commitC);
@@ -243,11 +246,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function computeWirePolynomials() {
         if (logger) logger.debug("··· Reading data from zkey file");
+
         // Build A, B and C evaluations buffer from zkey and witness files
         buffers.A = new BigBuffer(sDomain);
         buffers.B = new BigBuffer(sDomain);
         buffers.C = new BigBuffer(sDomain);
 
+        // Read zkey file to the buffers
         const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_A_MAP_SECTION);
         const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_B_MAP_SECTION);
         const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_C_MAP_SECTION);
@@ -295,7 +300,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         polynomials.B.blindCoefficients([challenges.b[4], challenges.b[3]]);
         polynomials.C.blindCoefficients([challenges.b[6], challenges.b[5]]);
 
-        // // Check degrees
+        // Check degrees
         if (polynomials.A.degree() >= zkey.domainSize + 2) {
             throw new Error("A Polynomial is not well calculated");
         }
@@ -313,8 +318,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("> Computing challenges beta and gamma");
         transcript.reset();
 
-        // TODO Add circuit dependent commitment to the transcript!!!!!
-        //transcript.addPolCommitment(zkey.?????);
+        transcript.addPolCommitment(zkey.Qm);
+        transcript.addPolCommitment(zkey.Ql);
+        transcript.addPolCommitment(zkey.Qr);
+        transcript.addPolCommitment(zkey.Qo);
+        transcript.addPolCommitment(zkey.Ql);
+        transcript.addPolCommitment(zkey.S1);
+        transcript.addPolCommitment(zkey.S2);
+        transcript.addPolCommitment(zkey.S3);
 
         // Add A to the transcript
         for (let i = 0; i < zkey.nPublic; i++) {
@@ -339,9 +350,11 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("> Computing Z polynomial");
         await computeZ();
 
-        // The second output of the prover is ([Z]_1)
+        // STEP 2.3 - Compute permutation [z]_1
+        if (logger) logger.debug("> Computing Z MSM");
         let commitZ = await polynomials.Z.multiExponentiation(PTau, "Z");
 
+        // Second output of the prover is ([Z]_1)
         proof.addPolynomial("Z", commitZ);
     }
 
@@ -443,16 +456,37 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function round3() {
         if (logger) logger.debug("> Computing challenge alpha");
-        // STEP 3.1 - Compute evaluation challenge xi ∈ S
+
+        // STEP 3.1 - Compute evaluation challenge alpha ∈ F
         transcript.reset();
+        transcript.addScalar(challenges.beta);
+        transcript.addScalar(challenges.gamma);
         transcript.addPolCommitment(proof.getPolynomial("Z"));
 
         challenges.alpha = transcript.getChallenge();
         challenges.alpha2 = Fr.square(challenges.alpha);
         if (logger) logger.debug("··· challenges.alpha: " + Fr.toString(challenges.alpha, 16));
 
-        if (logger) logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
-        `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
+        // Compute quotient polynomial T(X)
+        if (logger) logger.debug("> Computing T polynomial");
+        await computeT();
+
+        // Compute [T1]_1, [T2]_1, [T3]_1
+        if (logger) logger.debug("> Computing T MSM");
+        let commitT1 = await polynomials.T1.multiExponentiation(PTau, "T1");
+        let commitT2 = await polynomials.T2.multiExponentiation(PTau, "T2");
+        let commitT3 = await polynomials.T3.multiExponentiation(PTau, "T3");
+
+        // Third output of the prover is ([T1]_1, [T2]_1, [T3]_1)
+        proof.addPolynomial("T1", commitT1);
+        proof.addPolynomial("T2", commitT2);
+        proof.addPolynomial("T3", commitT3);        
+    }
+
+    async function computeT() {
+        if (logger)
+            logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
+                `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
         // Reserve memory for Q's evaluations
         evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
         evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
@@ -477,9 +511,12 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         buffers.T = new BigBuffer(sDomain * 4);
         buffers.Tz = new BigBuffer(sDomain * 4);
 
+        if (logger) logger.debug("··· Computing T evaluations");
+
         let w = Fr.one;
-        for (let i=0; i<zkey.domainSize*4; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.debug(`      T evaluation ${i}/${zkey.domainSize * 4}`);
+        for (let i = 0; i < zkey.domainSize * 4; i++) {
+            if (logger && (0 !== i) && (i % 100000 === 0))
+                logger.debug(`      T evaluation ${i}/${zkey.domainSize * 4}`);
 
             const a = evaluations.A.getEvaluation(i);
             const b = evaluations.B.getEvaluation(i);
@@ -507,7 +544,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], wW2), Fr.mul(challenges.b[8], wW)), challenges.b[9]);
 
             let pi = Fr.zero;
-            for (let j=0; j<zkey.nPublic; j++) {
+            for (let j = 0; j < zkey.nPublic; j++) {
                 const offset = (j * 4 * zkey.domainSize) + i;
 
                 const lPol = evaluations.Lagrange.getEvaluation(offset);
@@ -516,7 +553,8 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
                 pi = Fr.sub(pi, Fr.mul(lPol, aVal));
             }
 
-            let [e1, e1z] = MulZ.mul2(a, b, ap, bp, i%4, Fr);
+            // e1 := a(X)b(X)qM(X) + a(X)qL(X) + b(X)qR(X) + c(X)qO(X) + PI(X) + qC(X)
+            let [e1, e1z] = MulZ.mul2(a, b, ap, bp, i % 4, Fr);
             e1 = Fr.mul(e1, qm);
             e1z = Fr.mul(e1z, qm);
 
@@ -532,69 +570,76 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             e1 = Fr.add(e1, pi);
             e1 = Fr.add(e1, qc);
 
+            // e2 := α[(a(X) + βX + γ)(b(X) + βk1X + γ)(c(X) + βk2X + γ)z(X)]
             const betaw = Fr.mul(challenges.beta, w);
-            let e2a =a;
+            let e2a = a;
             e2a = Fr.add(e2a, betaw);
             e2a = Fr.add(e2a, challenges.gamma);
 
-            let e2b =b;
+            let e2b = b;
             e2b = Fr.add(e2b, Fr.mul(betaw, zkey.k1));
             e2b = Fr.add(e2b, challenges.gamma);
 
-            let e2c =c;
+            let e2c = c;
             e2c = Fr.add(e2c, Fr.mul(betaw, zkey.k2));
             e2c = Fr.add(e2c, challenges.gamma);
 
             let e2d = z;
 
-            let [e2, e2z] = MulZ.mul4(e2a, e2b, e2c, e2d, ap, bp, cp, zp, i%4, Fr);
+            let [e2, e2z] = MulZ.mul4(e2a, e2b, e2c, e2d, ap, bp, cp, zp, i % 4, Fr);
             e2 = Fr.mul(e2, challenges.alpha);
             e2z = Fr.mul(e2z, challenges.alpha);
 
+            // e3 := α[(a(X) + βSσ1(X) + γ)(b(X) + βSσ2(X) + γ)(c(X) + βSσ3(X) + γ)z(Xω)]
             let e3a = a;
             e3a = Fr.add(e3a, Fr.mul(challenges.beta, s1));
             e3a = Fr.add(e3a, challenges.gamma);
 
             let e3b = b;
-            e3b = Fr.add(e3b, Fr.mul(challenges.beta,s2));
+            e3b = Fr.add(e3b, Fr.mul(challenges.beta, s2));
             e3b = Fr.add(e3b, challenges.gamma);
 
             let e3c = c;
-            e3c = Fr.add(e3c, Fr.mul(challenges.beta,s3));
+            e3c = Fr.add(e3c, Fr.mul(challenges.beta, s3));
             e3c = Fr.add(e3c, challenges.gamma);
 
             let e3d = zw;
-            let [e3, e3z] = MulZ.mul4(e3a, e3b, e3c, e3d, ap, bp, cp, zWp, i%4, Fr);
+            let [e3, e3z] = MulZ.mul4(e3a, e3b, e3c, e3d, ap, bp, cp, zWp, i % 4, Fr);
 
             e3 = Fr.mul(e3, challenges.alpha);
             e3z = Fr.mul(e3z, challenges.alpha);
 
+            // e4 := α^2(z(X)−1)L1(X)
             let e4 = Fr.sub(z, Fr.one);
             e4 = Fr.mul(e4, evaluations.Lagrange.getEvaluation(i));
             e4 = Fr.mul(e4, challenges.alpha2);
 
-            let e4z = Fr.mul(zp,  evaluations.Lagrange.getEvaluation(i));
+            let e4z = Fr.mul(zp, evaluations.Lagrange.getEvaluation(i));
             e4z = Fr.mul(e4z, challenges.alpha2);
 
-            let e = Fr.add(Fr.sub(Fr.add(e1, e2), e3), e4);
-            let ez = Fr.add(Fr.sub(Fr.add(e1z, e2z), e3z), e4z);
 
-            buffers.T.set(e, i*n8r);
-            buffers.Tz.set(ez, i*n8r);
+            let t = Fr.add(Fr.sub(Fr.add(e1, e2), e3), e4);
+            let tz = Fr.add(Fr.sub(Fr.add(e1z, e2z), e3z), e4z);
 
-            w = Fr.mul(w, Fr.w[zkey.power+2]);
+            buffers.T.set(t, i * n8r);
+            buffers.Tz.set(tz, i * n8r);
+
+            w = Fr.mul(w, Fr.w[zkey.power + 2]);
         }
 
         // Compute the coefficients of the polynomial T0(X) from buffers.T0
-        if (logger) logger.debug("··· Computing T ifft");
+        if (logger)
+            logger.debug("··· Computing T ifft");
         polynomials.T = await Polynomial.fromEvaluations(buffers.T, curve, logger);
-        
+
         // Divide the polynomial T0 by Z_H(X)
-        if (logger) logger.debug("··· Computing T / ZH");
+        if (logger)
+            logger.debug("··· Computing T / ZH");
         polynomials.T.divZh(zkey.domainSize, 4);
 
         // Compute the coefficients of the polynomial Tz(X) from buffers.Tz
-        if (logger) logger.debug("··· Computing Tz ifft");
+        if (logger)
+            logger.debug("··· Computing Tz ifft");
         polynomials.Tz = await Polynomial.fromEvaluations(buffers.Tz, curve, logger);
 
         // Add the polynomial T1z to T1 to get the final polynomial T1
@@ -604,7 +649,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         if (polynomials.T.degree() >= zkey.domainSize * 3 + 6) {
             throw new Error("T Polynomial is not well calculated");
         }
-        
+
         // t(x) has degree 3n + 5, we are going to split t(x) into three smaller polynomials:
         // T1' and T2'  with a degree < n and T3' with a degree n+5
         // such that t(x) = T1'(X) + X^n T2'(X) + X^{2n} T3'(X)
@@ -614,7 +659,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         // T3(X) = T3'(X) - b_11
         // such that
         // t(X) = T1(X) + X^n T2(X) + X^2n T3(X)
-
+        logger.debug("··· Computing T1, T2, T3 polynomials");
         polynomials.T1 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
         polynomials.T2 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
         polynomials.T3 = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
@@ -636,22 +681,14 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         //Subtract blinding scalar b_11 to the lowest coefficient of t_high
         const lowestHigh = Fr.sub(polynomials.T3.getCoef(0), challenges.b[11]);
         polynomials.T3.setCoef(0, lowestHigh);
-
-        // Third output of the prover is ([T1]_1, [T2]_1, [T3]_1)
-        let commitT1 = await polynomials.T1.multiExponentiation(PTau, "T1");
-        let commitT2 = await polynomials.T2.multiExponentiation(PTau, "T2");
-        let commitT3 = await polynomials.T3.multiExponentiation(PTau, "T3");
-
-        proof.addPolynomial("T1", commitT1);
-        proof.addPolynomial("T2", commitT2);
-        proof.addPolynomial("T3", commitT3);        
     }
 
     async function round4() {
         if (logger) logger.debug("> Computing challenge xi");
 
-        // STEP 3.1 - Compute evaluation challenge xi ∈ S
+        // STEP 4.1 - Compute evaluation challenge xi ∈ F
         transcript.reset();
+        transcript.addScalar(challenges.alpha);
         transcript.addPolCommitment(proof.getPolynomial("T1"));
         transcript.addPolCommitment(proof.getPolynomial("T2"));
         transcript.addPolCommitment(proof.getPolynomial("T3"));
@@ -672,8 +709,10 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function round5() {
         if (logger) logger.debug("> Computing challenge v");
-
+        
+        // STEP 5.1 - Compute evaluation challenge v ∈ F
         transcript.reset();
+        transcript.addScalar(challenges.xi);
         transcript.addScalar(proof.getEvaluation("eval_a"));
         transcript.addScalar(proof.getEvaluation("eval_b"));
         transcript.addScalar(proof.getEvaluation("eval_c"));
@@ -689,17 +728,23 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
             challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[1]);
         }
 
+        // STEP 5.2 Compute linearisation polynomial r(X)
+        if (logger) logger.debug("> Computing linearisation polynomial R(X)");
         await computeR();
 
+        //STEP 5.3 Compute opening proof polynomial Wxi(X)
+        if (logger) logger.debug("> Computing opening proof polynomial Wxi(X) polynomial");
         computeWxi();
 
-        // Compute opening proof polynomial Wxiω(X)
+        //STEP 5.4 Compute opening proof polynomial Wxiw(X)
+        if (logger) logger.debug("> Computing opening proof polynomial Wxiw(X) polynomial");
         computeWxiw();
 
-        // Fifth output of the prover is ([Wxi]_1, [Wxiw]_1)
+        if (logger) logger.debug("> Computing Wxi, Wxiw MSM");
         let commitWxi = await polynomials.Wxi.multiExponentiation(PTau, "Wxi");
         let commitWxiw = await polynomials.Wxiw.multiExponentiation(PTau, "Wxiw");
 
+        // Fifth output of the prover is ([Wxi]_1, [Wxiw]_1)
         proof.addPolynomial("Wxi", commitWxi);
         proof.addPolynomial("Wxiw", commitWxiw);
     }

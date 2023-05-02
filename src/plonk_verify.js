@@ -18,12 +18,10 @@
 */
 
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
-import { Scalar } from "ffjavascript";
 import * as curves from "./curves.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
-import jsSha3 from "js-sha3";
-const { keccak256 } = jsSha3;
+import { Keccak256Transcript } from "./Keccak256Transcript.js";
 
 
 
@@ -51,7 +49,8 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         logger.error("Invalid number of public inputs");
         return false;
     }
-    const challenges = calculatechallenges(curve, proof, publicSignals);
+    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
+    
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -169,53 +168,69 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
-function calculatechallenges(curve, proof, publicSignals) {
-    const G1 = curve.G1;
+function calculatechallenges(curve, proof, publicSignals, vk) {
     const Fr = curve.Fr;
-    const n8r = curve.Fr.n8;
     const res = {};
+    const transcript = new Keccak256Transcript(curve);
 
-    const transcript1 = new Uint8Array(publicSignals.length*n8r + G1.F.n8*2*3);
-    for (let i=0; i<publicSignals.length; i++) {
-        Fr.toRprBE(transcript1, i*n8r, Fr.e(publicSignals[i]));
+    // Challenge round 2: beta and gamma
+    transcript.addPolCommitment(vk.Qm);
+    transcript.addPolCommitment(vk.Ql);
+    transcript.addPolCommitment(vk.Qr);
+    transcript.addPolCommitment(vk.Qo);
+    transcript.addPolCommitment(vk.Ql);
+    transcript.addPolCommitment(vk.S1);
+    transcript.addPolCommitment(vk.S2);
+    transcript.addPolCommitment(vk.S3);
+
+    for (let i = 0; i < publicSignals.length; i++) {
+        transcript.addScalar(Fr.e(publicSignals[i]));
     }
 
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + 0, proof.A);
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*2, proof.B);
-    G1.toRprUncompressed(transcript1, publicSignals.length*n8r + G1.F.n8*4, proof.C);
+    transcript.addPolCommitment(proof.A);
+    transcript.addPolCommitment(proof.B);
+    transcript.addPolCommitment(proof.C);
 
-    res.beta = hashToFr(curve, transcript1);
+    res.beta = transcript.getChallenge();
 
-    const transcript2 = new Uint8Array(n8r);
-    Fr.toRprBE(transcript2, 0, res.beta);
-    res.gamma = hashToFr(curve, transcript2);
+    transcript.reset();
+    transcript.addScalar(res.beta);
+    res.gamma = transcript.getChallenge();
 
-    const transcript3 = new Uint8Array(G1.F.n8*2);
-    G1.toRprUncompressed(transcript3, 0, proof.Z);
-    res.alpha = hashToFr(curve, transcript3);
+    // Challenge round 3: alpha
+    transcript.reset();
+    transcript.addScalar(res.beta);
+    transcript.addScalar(res.gamma);
+    transcript.addPolCommitment(proof.Z);
+    res.alpha = transcript.getChallenge();
 
-    const transcript4 = new Uint8Array(G1.F.n8*2*3);
-    G1.toRprUncompressed(transcript4, 0, proof.T1);
-    G1.toRprUncompressed(transcript4, G1.F.n8*2, proof.T2);
-    G1.toRprUncompressed(transcript4, G1.F.n8*4, proof.T3);
-    res.xi = hashToFr(curve, transcript4);
-
-    const transcript5 = new Uint8Array(n8r*6);
-    Fr.toRprBE(transcript5, 0, proof.eval_a);
-    Fr.toRprBE(transcript5, n8r, proof.eval_b);
-    Fr.toRprBE(transcript5, n8r*2, proof.eval_c);
-    Fr.toRprBE(transcript5, n8r*3, proof.eval_s1);
-    Fr.toRprBE(transcript5, n8r*4, proof.eval_s2);
-    Fr.toRprBE(transcript5, n8r*5, proof.eval_zw);
+    // Challenge round 4: xi
+    transcript.reset();
+    transcript.addScalar(res.alpha);
+    transcript.addPolCommitment(proof.T1);
+    transcript.addPolCommitment(proof.T2);
+    transcript.addPolCommitment(proof.T3);
+    res.xi = transcript.getChallenge();
+    
+    // Challenge round 5: v
+    transcript.reset();
+    transcript.addScalar(res.xi);
+    transcript.addScalar(proof.eval_a);
+    transcript.addScalar(proof.eval_b);
+    transcript.addScalar(proof.eval_c);
+    transcript.addScalar(proof.eval_s1);
+    transcript.addScalar(proof.eval_s2);
+    transcript.addScalar(proof.eval_zw);
     res.v = [];
-    res.v[1] = hashToFr(curve, transcript5);
+    res.v[1] = transcript.getChallenge();
 
     for (let i=2; i<6; i++ ) res.v[i] = Fr.mul(res.v[i-1], res.v[1]);
 
-    const transcript6 = new Uint8Array(G1.F.n8*2*2);
-    G1.toRprUncompressed(transcript6, 0, proof.Wxi);
-    G1.toRprUncompressed(transcript6, G1.F.n8*2, proof.Wxiw);
-    res.u = hashToFr(curve, transcript6);
+    // Challenge: u
+    transcript.reset();
+    transcript.addPolCommitment(proof.Wxi);
+    transcript.addPolCommitment(proof.Wxiw);
+    res.u = transcript.getChallenge();
 
     return res;
 }
@@ -243,11 +258,6 @@ function calculateLagrangeEvaluations(curve, challenges, vk) {
     }
 
     return L;
-}
-
-function hashToFr(curve, transcript) {
-    const v = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(transcript)));
-    return curve.Fr.e(v);
 }
 
 function calculatePI(curve, publicSignals, L) {
