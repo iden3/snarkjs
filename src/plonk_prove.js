@@ -129,6 +129,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     if (logger) logger.debug(`> Reading Section ${ZKEY_PL_PTAU_SECTION}. Powers of Tau`);
     const PTau = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_PL_PTAU_SECTION);
 
+    let publicSignals = [];
+
+    for (let i=1; i<= zkey.nPublic; i++) {
+        const pub = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
+        publicSignals.push(Scalar.fromRprLE(pub));
+    }
+
     if (logger) logger.debug("");
     if (logger) logger.debug("> ROUND 1");
     await round1();
@@ -151,13 +158,6 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     await fdZKey.close();
     await fdWtns.close();
-
-    let publicSignals = [];
-
-    for (let i=1; i<= zkey.nPublic; i++) {
-        const pub = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
-        publicSignals.push(Scalar.fromRprLE(pub));
-    }
 
     // Prepare proof
     let _proof = proof.toObjectProof(false);
@@ -222,7 +222,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     async function round1() {
         challenges.b = [];
         for (let i=1; i<=11; i++) {
-            challenges.b[i] = curve.Fr.one;//curve.Fr.random();
+            challenges.b[i] = curve.Fr.random();
         }
 
         // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
@@ -327,13 +327,13 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         transcript.addPolCommitment(proof.getPolynomial("C"));
 
         challenges.beta = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.beta: " + Fr.toString(challenges.beta));
+        if (logger) logger.debug("··· challenges.beta: " + Fr.toString(challenges.beta, 16));
 
         // Compute permutation challenge gamma
         transcript.reset();
         transcript.addScalar(challenges.beta);
         challenges.gamma = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.gamma: " + Fr.toString(challenges.gamma));
+        if (logger) logger.debug("··· challenges.gamma: " + Fr.toString(challenges.gamma, 16));
     
         // STEP 2.2 - Compute permutation polynomial z(X)
         if (logger) logger.debug("> Computing Z polynomial");
@@ -449,7 +449,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         challenges.alpha = transcript.getChallenge();
         challenges.alpha2 = Fr.square(challenges.alpha);
-        if (logger) logger.debug("··· challenges.alpha: " + Fr.toString(challenges.alpha));
+        if (logger) logger.debug("··· challenges.alpha: " + Fr.toString(challenges.alpha, 16));
 
         if (logger) logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
         `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
@@ -637,7 +637,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         const lowestHigh = Fr.sub(polynomials.T3.getCoef(0), challenges.b[11]);
         polynomials.T3.setCoef(0, lowestHigh);
 
-        // The third output of the prover is ([T1]_1, [T2]_1, [T3]_1)
+        // Third output of the prover is ([T1]_1, [T2]_1, [T3]_1)
         let commitT1 = await polynomials.T1.multiExponentiation(PTau, "T1");
         let commitT2 = await polynomials.T2.multiExponentiation(PTau, "T2");
         let commitT3 = await polynomials.T3.multiExponentiation(PTau, "T3");
@@ -649,6 +649,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     async function round4() {
         if (logger) logger.debug("> Computing challenge xi");
+
         // STEP 3.1 - Compute evaluation challenge xi ∈ S
         transcript.reset();
         transcript.addPolCommitment(proof.getPolynomial("T1"));
@@ -657,88 +658,16 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
         challenges.xi = transcript.getChallenge();
         challenges.xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        if (logger) logger.debug("··· challenges.xi: " + Fr.toString(challenges.xi));
+        
+        if (logger) logger.debug("··· challenges.xi: " + Fr.toString(challenges.xi, 16));  
 
-        // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-        // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_PL_QL_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_PL_QR_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_PL_QM_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_PL_QO_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_PL_QC_SECTION][0].p);     
-
+        // Fourth output of the prover is ( a(xi), b(xi), c(xi), s1(xi), s2(xi), z(xiw) )
         proof.addEvaluation("eval_a", polynomials.A.evaluate(challenges.xi));
         proof.addEvaluation("eval_b", polynomials.B.evaluate(challenges.xi));
         proof.addEvaluation("eval_c", polynomials.C.evaluate(challenges.xi));
         proof.addEvaluation("eval_s1", polynomials.Sigma1.evaluate(challenges.xi));
         proof.addEvaluation("eval_s2", polynomials.Sigma2.evaluate(challenges.xi));
-        proof.addEvaluation("eval_t", polynomials.T.evaluate(challenges.xi));
         proof.addEvaluation("eval_zw", polynomials.Z.evaluate(challenges.xiw));
-
-        const coef_ab = Fr.mul(proof.evaluations.eval_a, proof.evaluations.eval_b);
-        
-        let e2a = proof.evaluations.eval_a;
-        const betaxi = Fr.mul(challenges.beta, challenges.xi);
-        e2a = Fr.add( e2a, betaxi);
-        e2a = Fr.add( e2a, challenges.gamma);
-
-        let e2b = proof.evaluations.eval_b;
-        e2b = Fr.add( e2b, Fr.mul(betaxi, zkey.k1));
-        e2b = Fr.add( e2b, challenges.gamma);
-
-        let e2c = proof.evaluations.eval_c;
-        e2c = Fr.add( e2c, Fr.mul(betaxi, zkey.k2));
-        e2c = Fr.add( e2c, challenges.gamma);
-
-        const e2 = Fr.mul(Fr.mul(Fr.mul(e2a, e2b), e2c), challenges.alpha);
-
-        let e3a = proof.evaluations.eval_a;
-        e3a = Fr.add( e3a, Fr.mul(challenges.beta, proof.evaluations.eval_s1));
-        e3a = Fr.add( e3a, challenges.gamma);
-
-        let e3b = proof.evaluations.eval_b;
-        e3b = Fr.add( e3b, Fr.mul(challenges.beta, proof.evaluations.eval_s2));
-        e3b = Fr.add( e3b, challenges.gamma);
-
-        let e3 = Fr.mul(e3a, e3b);
-        e3 = Fr.mul(e3, challenges.beta);
-        e3 = Fr.mul(e3, proof.evaluations.eval_zw);
-        e3 = Fr.mul(e3, challenges.alpha);
-
-        challenges.xim= challenges.xi;
-        for (let i=0; i<zkey.power; i++) challenges.xim = Fr.mul(challenges.xim, challenges.xim);
-        const eval_l1 = Fr.div(
-            Fr.sub(challenges.xim, Fr.one),
-            Fr.mul(Fr.sub(challenges.xi, Fr.one), Fr.e(zkey.domainSize))
-        );
-
-        const e4 = Fr.mul(eval_l1, challenges.alpha2);
-
-        const coefs3 = e3;
-        const coefz = Fr.add(e2, e4);
-
-        polynomials.R = new Polynomial(new BigBuffer((zkey.domainSize+3)*n8r), curve, logger);
-
-        for (let i = 0; i<zkey.domainSize+3; i++) {
-            let v = Fr.mul(coefz, polynomials.Z.getCoef(i));
-            if (i<zkey.domainSize) {
-                v = Fr.add(v, Fr.mul(coef_ab, polynomials.QM.getCoef(i)));
-                v = Fr.add(v, Fr.mul(proof.evaluations.eval_a, polynomials.QL.getCoef(i)));
-                v = Fr.add(v, Fr.mul(proof.evaluations.eval_b, polynomials.QR.getCoef(i)));
-                v = Fr.add(v, Fr.mul(proof.evaluations.eval_c, polynomials.QO.getCoef(i)));
-                v = Fr.add(v, polynomials.QC.getCoef(i));
-                v = Fr.sub(v, Fr.mul(coefs3, polynomials.Sigma3.getCoef(i)));
-            }
-            polynomials.R.setCoef(i, v);
-        }
-
-        proof.addEvaluation("eval_r", polynomials.R.evaluate(challenges.xi));
     }
 
     async function round5() {
@@ -751,49 +680,165 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         transcript.addScalar(proof.getEvaluation("eval_s1"));
         transcript.addScalar(proof.getEvaluation("eval_s2"));
         transcript.addScalar(proof.getEvaluation("eval_zw"));
-        transcript.addScalar(proof.getEvaluation("eval_r"));
 
         challenges.v = [];
         challenges.v[1] = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.v: " + Fr.toString(challenges.v[1]));
+        if (logger) logger.debug("··· challenges.v: " + Fr.toString(challenges.v[1], 16));
 
-        for (let i=2; i<=6; i++ ) {
-            challenges.v[i] = Fr.mul(challenges.v[i-1], challenges.v[1]);
+        for (let i = 2; i < 6; i++) {
+            challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[1]);
         }
-        
-        polynomials.Wxi = new Polynomial(new BigBuffer(sDomain + 6 * n8r), curve, logger);
 
-        polynomials.Wxi.add(polynomials.T1);
-        polynomials.Wxi.add(polynomials.T2, challenges.xim);
-        polynomials.Wxi.add(polynomials.T3, Fr.square(challenges.xim));
-        polynomials.Wxi.add(polynomials.R, challenges.v[1]);
-        polynomials.Wxi.add(polynomials.A, challenges.v[2]);
-        polynomials.Wxi.add(polynomials.B, challenges.v[3]);
-        polynomials.Wxi.add(polynomials.C, challenges.v[4]);
-        polynomials.Wxi.add(polynomials.Sigma1, challenges.v[5]);
-        polynomials.Wxi.add(polynomials.Sigma2, challenges.v[6]);
+        await computeR();
 
-        polynomials.Wxi.subScalar(proof.evaluations.eval_t);
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.eval_r));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.eval_a));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.eval_b));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.eval_c));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[5], proof.evaluations.eval_s1));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[6], proof.evaluations.eval_s2));
-
-        polynomials.Wxi.divByZerofier(1, challenges.xi);
+        computeWxi();
 
         // Compute opening proof polynomial Wxiω(X)
-        polynomials.Wxiw = Polynomial.fromPolynomial(polynomials.Z, curve, logger);
-        polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
+        computeWxiw();
 
-        polynomials.Wxiw.divByZerofier(1, challenges.xiw);
-
-        // The fifth output of the prover is ([Wxi]_1, [Wxiw]_1)
+        // Fifth output of the prover is ([Wxi]_1, [Wxiw]_1)
         let commitWxi = await polynomials.Wxi.multiExponentiation(PTau, "Wxi");
         let commitWxiw = await polynomials.Wxiw.multiExponentiation(PTau, "Wxiw");
 
         proof.addPolynomial("Wxi", commitWxi);
         proof.addPolynomial("Wxiw", commitWxiw);
+    }
+
+    async function computeR() {
+        const Fr = curve.Fr;
+    
+        // Reserve memory for Q's polynomials
+        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
+
+        // Read Q's evaluations from zkey file
+        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_PL_QL_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_PL_QR_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_PL_QM_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_PL_QO_SECTION][0].p);
+        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_PL_QC_SECTION][0].p);   
+        
+        challenges.xin = challenges.xi;
+        for (let i = 0; i < zkey.power; i++) {
+            challenges.xin = Fr.square(challenges.xin);
+        }
+
+        challenges.zh = Fr.sub(challenges.xin, Fr.one);
+
+        const L = [];
+
+        const n = Fr.e(zkey.domainSize);
+        let w = Fr.one;
+        for (let i = 1; i <= Math.max(1, zkey.nPublic); i++) {
+            L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
+            w = Fr.mul(w, Fr.w[zkey.power]);
+        }
+
+        const eval_l1 = Fr.div(
+            Fr.sub(challenges.xin, Fr.one),
+            Fr.mul(n, Fr.sub(challenges.xi, Fr.one))
+        );
+
+        if (logger) {
+            logger.debug("Lagrange Evaluations: ");
+            for (let i=1; i<L.length; i++) {
+                logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));    
+            }
+        }
+
+        let eval_pi = Fr.zero;
+        for (let i=0; i<publicSignals.length; i++) {
+            const w = Fr.e(publicSignals[i]);
+            eval_pi = Fr.sub(eval_pi, Fr.mul(w, L[i+1]));
+        }
+
+        if (logger) logger.debug("PI: " + Fr.toString(eval_pi, 16));
+
+        // Compute constant parts of R(X)
+        const coef_ab = Fr.mul(proof.evaluations.eval_a, proof.evaluations.eval_b);
+
+        let e2a = proof.evaluations.eval_a;
+        const betaxi = Fr.mul(challenges.beta, challenges.xi);
+        e2a = Fr.add(e2a, betaxi);
+        e2a = Fr.add(e2a, challenges.gamma);
+
+        let e2b = proof.evaluations.eval_b;
+        e2b = Fr.add(e2b, Fr.mul(betaxi, zkey.k1));
+        e2b = Fr.add(e2b, challenges.gamma);
+
+        let e2c = proof.evaluations.eval_c;
+        e2c = Fr.add(e2c, Fr.mul(betaxi, zkey.k2));
+        e2c = Fr.add(e2c, challenges.gamma);
+
+        const e2 = Fr.mul(Fr.mul(Fr.mul(e2a, e2b), e2c), challenges.alpha);
+
+        let e3a = proof.evaluations.eval_a;
+        e3a = Fr.add(e3a, Fr.mul(challenges.beta, proof.evaluations.eval_s1));
+        e3a = Fr.add(e3a, challenges.gamma);
+
+        let e3b = proof.evaluations.eval_b;
+        e3b = Fr.add(e3b, Fr.mul(challenges.beta, proof.evaluations.eval_s2));
+        e3b = Fr.add(e3b, challenges.gamma);
+
+        let e3 = Fr.mul(e3a, e3b);
+        e3 = Fr.mul(e3, proof.evaluations.eval_zw);
+        e3 = Fr.mul(e3, challenges.alpha);
+
+        const e4 = Fr.mul(eval_l1, challenges.alpha2);
+
+        polynomials.R = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
+
+        polynomials.R.add(polynomials.QM, coef_ab);
+        polynomials.R.add(polynomials.QL, proof.evaluations.eval_a);
+        polynomials.R.add(polynomials.QR, proof.evaluations.eval_b);
+        polynomials.R.add(polynomials.QO, proof.evaluations.eval_c);
+        polynomials.R.add(polynomials.QC);
+        polynomials.R.add(polynomials.Z, e2);
+        polynomials.R.sub(polynomials.Sigma3, Fr.mul(e3, challenges.beta));
+        polynomials.R.add(polynomials.Z, e4);
+
+        let tmp = Polynomial.fromPolynomial(polynomials.T3, curve, logger);
+        tmp.mulScalar(Fr.square(challenges.xin));
+        tmp.add(polynomials.T2, challenges.xin);
+        tmp.add(polynomials.T1);
+        tmp.mulScalar(challenges.zh);
+
+        polynomials.R.sub(tmp);
+
+        let r0 = Fr.sub(eval_pi, Fr.mul(e3, Fr.add(proof.evaluations.eval_c, challenges.gamma)));
+        r0 = Fr.sub(r0, e4);
+
+        logger.debug("r0: " + Fr.toString(r0, 16));
+
+        polynomials.R.addScalar(r0);
+    }
+
+    function computeWxi() {
+        polynomials.Wxi = new Polynomial(new BigBuffer(sDomain + 6 * n8r), curve, logger);
+
+        polynomials.Wxi.add(polynomials.R);
+        polynomials.Wxi.add(polynomials.A, challenges.v[1]);
+        polynomials.Wxi.add(polynomials.B, challenges.v[2]);
+        polynomials.Wxi.add(polynomials.C, challenges.v[3]);
+        polynomials.Wxi.add(polynomials.Sigma1, challenges.v[4]);
+        polynomials.Wxi.add(polynomials.Sigma2, challenges.v[5]);
+
+        polynomials.Wxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.eval_a));
+        polynomials.Wxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.eval_b));
+        polynomials.Wxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.eval_c));
+        polynomials.Wxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.eval_s1));
+        polynomials.Wxi.subScalar(Fr.mul(challenges.v[5], proof.evaluations.eval_s2));
+
+        polynomials.Wxi.divByZerofier(1, challenges.xi);
+    }
+
+    async function computeWxiw() {
+        polynomials.Wxiw = Polynomial.fromPolynomial(polynomials.Z, curve, logger);
+        polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
+
+        polynomials.Wxiw.divByZerofier(1, challenges.xiw);
     }
 }
