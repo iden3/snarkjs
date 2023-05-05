@@ -25,10 +25,10 @@ module.exports = {
         ]
     },
     paths: {
-        sources: "./test/smart_contracts/contracts",
+        sources: "./contracts",
         tests: "./test",
-        cache: "./test/smart_contracts/cache",
-        artifacts: "./test/smart_contracts/artifacts"
+        cache: "./cache",
+        artifacts: "./artifacts"
     },
     // gasReporter: {
     //     enabled: !!process.env.REPORT_GAS,

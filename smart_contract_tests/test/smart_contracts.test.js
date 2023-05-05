@@ -1,32 +1,31 @@
 import { expect } from "chai";
 
-import { getCurveFromName } from "../src/curves.js";
+import { buildBn128 } from "ffjavascript";
 import path from "path";
 import hardhat from "hardhat";
 const { ethers, run } = hardhat;
 
-import * as zkey from "../src/zkey.js";
-
-import * as snarkjs from "../main.js";
+import * as snarkjs from "snarkjs";
 
 import fs from "fs";
 
 describe("Smart contracts test suite", function () {
     this.timeout(1000000000);
 
-    const ptauFilename = path.join("test", "plonk_circuit", "powersOfTau15_final.ptau");
+    const ptauFilename = path.join("../test", "plonk_circuit", "powersOfTau15_final.ptau");
 
     // Load templates
     const templates = {};
-    templates.groth16 = fs.readFileSync(path.join("templates", "verifier_groth16.sol.ejs"), "utf8");
-    templates.plonk = fs.readFileSync(path.join("templates", "verifier_plonk.sol.ejs"), "utf8");
-    templates.fflonk = fs.readFileSync(path.join("templates", "verifier_fflonk.sol.ejs"), "utf8");
+    templates.groth16 = fs.readFileSync(path.join("../templates", "verifier_groth16.sol.ejs"), "utf8");
+    templates.plonk = fs.readFileSync(path.join("../templates", "verifier_plonk.sol.ejs"), "utf8");
+    templates.fflonk = fs.readFileSync(path.join("../templates", "verifier_fflonk.sol.ejs"), "utf8");
 
     let verifierContract;
     let curve;
 
     before(async () => {
-        curve = await getCurveFromName("bn128");
+        await fs.promises.mkdir("contracts", {recursive: true});
+        curve = await buildBn128();
     });
 
     after(async () => {
@@ -34,10 +33,10 @@ describe("Smart contracts test suite", function () {
     });
 
     it("Groth16 smart contract", async () => {
-        const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "groth16.sol");
+        const solidityVerifierFilename = path.join("contracts", "groth16.sol");
 
-        const r1csFilename = path.join("test", "groth16", "circuit.r1cs");
-        const wtnsFilename = path.join("test", "groth16", "witness.wtns");
+        const r1csFilename = path.join("../test", "groth16", "circuit.r1cs");
+        const wtnsFilename = path.join("../test", "groth16", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.zKey.newZKey(r1csFilename, ptauFilename, zkeyFilename);
@@ -48,7 +47,7 @@ describe("Smart contracts test suite", function () {
         const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
         // Generate groth16 verifier solidity file from groth16 template + zkey
-        const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the groth16 verifier smart contract
@@ -63,17 +62,17 @@ describe("Smart contracts test suite", function () {
     });
 
     it("plonk smart contract", async () => {
-        const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "plonk.sol");
+        const solidityVerifierFilename = path.join("contracts", "plonk.sol");
 
-        const r1csFilename = path.join("test", "plonk_circuit", "circuit.r1cs");
-        const wtnsFilename = path.join("test", "plonk_circuit", "witness.wtns");
+        const r1csFilename = path.join("../test", "plonk_circuit", "circuit.r1cs");
+        const wtnsFilename = path.join("../test", "plonk_circuit", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.plonk.setup(r1csFilename, ptauFilename, zkeyFilename);
         const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.plonk.prove(zkeyFilename, wtnsFilename);
 
         // Generate plonk verifier solidity file from plonk template + zkey
-        const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the plonk verifier smart contract
@@ -121,17 +120,17 @@ describe("Smart contracts test suite", function () {
     });
 
     it("fflonk smart contract", async () => {
-        const solidityVerifierFilename = path.join("test", "smart_contracts", "contracts", "fflonk.sol");
+        const solidityVerifierFilename = path.join("contracts", "fflonk.sol");
 
-        const r1csFilename = path.join("test", "fflonk", "circuit.r1cs");
-        const wtnsFilename = path.join("test", "fflonk", "witness.wtns");
+        const r1csFilename = path.join("../test", "fflonk", "circuit.r1cs");
+        const wtnsFilename = path.join("../test", "fflonk", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename);
         const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.fflonk.fflonkProveCmd(zkeyFilename, wtnsFilename);
 
         // Generate fflonk verifier solidity file from fflonk template + zkey
-        const verifierCode = await zkey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the fflonk verifier smart contract

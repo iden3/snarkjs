@@ -1,16 +1,17 @@
 name: Continuous Integration
-on: [ push, pull_request ]
+on: [push, pull_request]
 
 jobs:
   test:
     name: Test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-        node-version: [ "14", "16", "18" ]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ["14", "16", "18"]
 
     steps:
       - name: Checkout project
@@ -21,30 +22,24 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           check-latest: true
-          cache: 'npm'
-
-      - name: Install circom
-        run: npm install -g circom@latest
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      # Install hardhat dependencies for smart contracts tests
-      - name: Install hardhat dependencies
-        run: npm install hardhat @nomiclabs/hardhat-ethers @nomiclabs/hardhat-waffle
-
       - name: Run tests
-        run: npm run test
-  
-  testv12:
-    name: Testv12
+        run: npm test
+
+  test-contracts:
+    name: Test verifier contracts
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-        node-version: [ "12" ]
+        os: [ubuntu-latest]
+        node-version: ["16", "18", "20"]
 
     steps:
       - name: Checkout project
@@ -55,10 +50,40 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           check-latest: true
-          cache: 'npm'
+          cache: "npm"
 
-      - name: Install circom
-        run: npm install -g circom@latest
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install hardhat dependencies
+        working-directory: smart_contract_tests
+        run: npm ci
+
+      - name: Run hardhat tests
+        working-directory: smart_contract_tests
+        run: npm test
+
+  testv12:
+    name: Testv12
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ["12"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          check-latest: true
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
