@@ -126,8 +126,8 @@ describe("Smart contracts test suite", function () {
         const wtnsFilename = path.join("../test", "fflonk", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
-        await snarkjs.fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename);
-        const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.fflonk.fflonkProveCmd(zkeyFilename, wtnsFilename);
+        await snarkjs.fflonk.setup(r1csFilename, ptauFilename, zkeyFilename);
+        const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.fflonk.prove(zkeyFilename, wtnsFilename);
 
         // Generate fflonk verifier solidity file from fflonk template + zkey
         const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);

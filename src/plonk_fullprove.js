@@ -19,7 +19,7 @@
 
 import plonk_prove from "./plonk_prove.js";
 import wtns_calculate from "./wtns_calculate.js";
-import {utils} from 'ffjavascript';
+import {utils} from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
 export default async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
