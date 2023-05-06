@@ -61,15 +61,23 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     // STEP 1 - Validate that all polynomial commitments ∈ G_1
     if (logger) logger.info("> Checking commitments belong to G1");
     if (!commitmentsBelongToG1(curve, proof, vk)) {
-        logger.error("Proof is not well constructed");
+        if (logger) logger.error("Proof commitments are not valid");
         return false;
     }
 
-    // TODO
     // STEP 2 - Validate that all evaluations ∈ F
+    if (logger) logger.info("> Checking evaluations belong to F");
+    if (!evaluationsAreValid(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid.");
+        return false;
+    }
 
-    // TODO
     // STEP 3 - Validate that w_i ∈ F for i ∈ [l]
+    if (logger) logger.info("> Checking public inputs belong to F");
+    if (!publicInputsAreValid(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
 
     // STEP 4 - Compute the challenges: beta, gamma, xi, alpha and y ∈ F
     // as in prover description, from the common preprocessed inputs, public inputs and elements of π_SNARK
@@ -149,6 +157,41 @@ function commitmentsBelongToG1(curve, proof, vk) {
         && G1.isValid(proof.polynomials.W1)
         && G1.isValid(proof.polynomials.W2)
         && G1.isValid(vk.C0);
+}
+
+function checkValueBelongToField(curve, value) {
+    return Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid(curve, evaluation) {
+    return checkValueBelongToField(curve, Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid(curve, proof) {
+    return checkEvaluationIsValid(curve, proof.evaluations.ql)
+        && checkEvaluationIsValid(curve, proof.evaluations.qr)
+        && checkEvaluationIsValid(curve, proof.evaluations.qm)
+        && checkEvaluationIsValid(curve, proof.evaluations.qo)
+        && checkEvaluationIsValid(curve, proof.evaluations.qc)
+        && checkEvaluationIsValid(curve, proof.evaluations.s1)
+        && checkEvaluationIsValid(curve, proof.evaluations.s2)
+        && checkEvaluationIsValid(curve, proof.evaluations.s3)
+        && checkEvaluationIsValid(curve, proof.evaluations.a)
+        && checkEvaluationIsValid(curve, proof.evaluations.b)
+        && checkEvaluationIsValid(curve, proof.evaluations.c)
+        && checkEvaluationIsValid(curve, proof.evaluations.z)
+        && checkEvaluationIsValid(curve, proof.evaluations.zw)
+        && checkEvaluationIsValid(curve, proof.evaluations.t1w)
+        && checkEvaluationIsValid(curve, proof.evaluations.t2w);
+}
+
+function publicInputsAreValid(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField(curve, publicInputs[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function computeChallenges(curve, proof, vk, publicSignals, logger) {
