@@ -197,7 +197,52 @@ contract PlonkVerifier {
                 }
             }
             
+            function checkPointBelongsToBN128Curve(p) {
+                let x := calldataload(p)
+                let y := calldataload(add(p, 32))
+
+                // Check that the point is on the curve
+                // y^2 = x^3 + 3
+                let x3_3 := addmod(mulmod(x, mulmod(x, x, qf), qf), 3, qf)
+                let y2 := mulmod(y, y, qf)
+
+                if iszero(eq(x3_3, y2)) {
+                    mstore(0, 0)
+                    return(0, 0x20)
+                }
+            }  
+
             function checkInput() {
+                // Check proof commitments fulfill bn128 curve equation Y^2 = X^3 + 3
+                checkPointBelongsToBN128Curve(pA)
+                checkPointBelongsToBN128Curve(pB)
+                checkPointBelongsToBN128Curve(pC)
+                checkPointBelongsToBN128Curve(pZ)
+                checkPointBelongsToBN128Curve(pT1)
+                checkPointBelongsToBN128Curve(pT2)
+                checkPointBelongsToBN128Curve(pT3)
+                checkPointBelongsToBN128Curve(pWxi)
+                checkPointBelongsToBN128Curve(pWxiw)
+
+                checkField(calldataload(pA))
+                checkField(calldataload(add(pA, 32)))
+                checkField(calldataload(pB))
+                checkField(calldataload(add(pB, 32)))
+                checkField(calldataload(pC))
+                checkField(calldataload(add(pC, 32)))
+                checkField(calldataload(pZ))
+                checkField(calldataload(add(pZ, 32)))
+                checkField(calldataload(pT1))
+                checkField(calldataload(add(pT1, 32)))
+                checkField(calldataload(pT2))
+                checkField(calldataload(add(pT2, 32)))
+                checkField(calldataload(pT3))
+                checkField(calldataload(add(pT3, 32)))
+                checkField(calldataload(pWxi))
+                checkField(calldataload(add(pWxi, 32)))
+                checkField(calldataload(pWxiw))
+                checkField(calldataload(add(pWxiw, 32)))
+
                 checkField(calldataload(pEval_a))
                 checkField(calldataload(pEval_b))
                 checkField(calldataload(pEval_c))

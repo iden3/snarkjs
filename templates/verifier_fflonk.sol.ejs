@@ -234,6 +234,15 @@ contract FflonkVerifier {
                 checkPointBelongsToBN128Curve(pW1)
                 checkPointBelongsToBN128Curve(pW2)
 
+                checkField(calldataload(pC1))
+                checkField(calldataload(add(pC1, 32)))
+                checkField(calldataload(pC2))
+                checkField(calldataload(add(pC2, 32)))
+                checkField(calldataload(pW1))
+                checkField(calldataload(add(pW1, 32)))
+                checkField(calldataload(pW2))
+                checkField(calldataload(add(pW2, 32)))
+
                 checkField(calldataload(pEval_ql))
                 checkField(calldataload(pEval_qr))
                 checkField(calldataload(pEval_qm))
@@ -250,8 +259,6 @@ contract FflonkVerifier {
                 checkField(calldataload(pEval_t1w))
                 checkField(calldataload(pEval_t2w))
                 checkField(calldataload(pEval_inv))
-
-                // Points are checked in the point operations precompiled smart contracts
             }
 
             function computeChallenges(pMem, pPublic) {

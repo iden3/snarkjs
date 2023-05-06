@@ -18,12 +18,13 @@
 */
 
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
+
 import * as curves from "./curves.js";
-import {  utils }   from "ffjavascript";
-const {unstringifyBigInts} = utils;
+import { utils }   from "ffjavascript";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { Scalar } from "ffjavascript";
 
-
+const { unstringifyBigInts } = utils;
 
 export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     let vk_verifier = unstringifyBigInts(_vk_verifier);
@@ -41,16 +42,26 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     vk_verifier = fromObjectVk(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof is not well constructed");
+        logger.error("Proof commitments are not valid.");
         return false;
     }
 
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Invalid number of public inputs");
+        if (logger) logger.error("Invalid number of public inputs");
         return false;
     }
+
+    if (!evaluationsAreValid(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid");
+        return false;
+    }
+
+    if (!publicInputsAreValid(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
+
     const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
-    
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -168,7 +179,34 @@ function isWellConstructed(curve, proof) {
     return true;
 }
 
+function checkValueBelongToField(curve, value) {
+    return Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid(curve, evaluation) {
+    return checkValueBelongToField(curve, Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid(curve, proof) {
+    return checkEvaluationIsValid(curve, proof.eval_a)
+        && checkEvaluationIsValid(curve, proof.eval_b)
+        && checkEvaluationIsValid(curve, proof.eval_c)
+        && checkEvaluationIsValid(curve, proof.eval_s1)
+        && checkEvaluationIsValid(curve, proof.eval_s2)
+        && checkEvaluationIsValid(curve, proof.eval_zw);
+}
+
+function publicInputsAreValid(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField(curve, publicInputs[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function calculatechallenges(curve, proof, publicSignals, vk) {
+    const G1 = curve.G1;
     const Fr = curve.Fr;
     const res = {};
     const transcript = new Keccak256Transcript(curve);
