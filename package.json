@@ -6,14 +6,19 @@
   "main": "./build/main.cjs",
   "module": "./main.js",
   "exports": {
-    "import": "./main.js",
-    "require": "./build/main.cjs"
+    "node": {
+      "import": "./main.js",
+      "require": "./build/main.cjs"
+    },
+    "default": "./build/snarkjs.js"
   },
   "scripts": {
     "test": "mocha",
     "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
     "build": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
+    "buildesm": "rollup -c config/rollup.esm.config.js",
+    "buildbrowser": "BROWSER=true rollup -c config/rollup.browser.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
     "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js"
   },
