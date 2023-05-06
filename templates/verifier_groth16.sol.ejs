@@ -162,6 +162,9 @@ library Pairing {
     }
 }
 contract Verifier {
+    uint256 constant p_bn128 = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 constant q_bn128 = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+
     using Pairing for *;
     struct VerifyingKey {
         Pairing.G1Point alfa1;
@@ -175,6 +178,33 @@ contract Verifier {
         Pairing.G2Point B;
         Pairing.G1Point C;
     }
+
+    function checkField(uint v) internal pure returns (uint) {
+        assembly {
+            if iszero(lt(v, p_bn128)) {
+                mstore(0, 0)
+                return(0, 0x20)
+            }
+        }
+    }
+
+    function checkPointBelongsToBN128Curve(Pairing.G1Point memory p) internal pure returns (uint) {
+        assembly {
+            let x := mload(p)
+            let y := mload(add(p,0x20))
+
+            // Check that the point is on the curve
+            // y^2 = x^3 + 3
+            let x3_3 := addmod(mulmod(x, mulmod(x, x, q_bn128), q_bn128), 3, q_bn128)
+            let y2 := mulmod(y, y, q_bn128)
+
+            if iszero(eq(x3_3, y2)) {
+                mstore(0, 0)
+                return(0, 0x20)
+            }
+        }
+    }  
+
     function verifyingKey() internal pure returns (VerifyingKey memory vk) {
         vk.alfa1 = Pairing.G1Point(
             <%=vk_alpha_1[0]%>,
@@ -238,9 +268,26 @@ contract Verifier {
         proof.B = Pairing.G2Point([b[0][0], b[0][1]], [b[1][0], b[1][1]]);
         proof.C = Pairing.G1Point(c[0], c[1]);
         uint[] memory inputValues = new uint[](input.length);
+
+        // Check public inputs belong to field
         for(uint i = 0; i < input.length; i++){
             inputValues[i] = input[i];
+            checkField(inputValues[i]);
         }
+
+        // Check G1 points coordinates belong to field
+        checkField(a[0]);
+        checkField(a[1]);
+        checkField(b[0][0]);
+        checkField(b[0][1]);
+        checkField(b[1][0]);
+        checkField(b[1][1]);
+        checkField(c[0]);
+        checkField(c[1]);
+
+        checkPointBelongsToBN128Curve(proof.A);
+        checkPointBelongsToBN128Curve(proof.C);
+
         if (verify(inputValues, proof) == 0) {
             return true;
         } else {
