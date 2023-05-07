@@ -12076,7 +12076,7 @@ function p256(n) {
     return nstr;
 }
 
-async function fflonkExportCallData(_pub, _proof, logger) {
+async function fflonkExportCallData(_pub, _proof) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
