@@ -94,7 +94,7 @@ describe("Smart contracts test suite", function () {
         await run("compile");
 
         // Deploy mock groth16 verifier
-        const VerifierFactory = await ethers.getContractFactory("Verifier");
+        const VerifierFactory = await ethers.getContractFactory("Groth16Verifier");
         verifierContract = await VerifierFactory.deploy();
 
         return await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs);
