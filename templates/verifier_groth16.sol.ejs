@@ -48,12 +48,6 @@ contract Groth16Verifier {
     uint256 constant IC<%=i%>x = <%=IC[i][0]%>;
     uint256 constant IC<%=i%>y = <%=IC[i][1]%>;
     <% } %>
-
-    // Proof calldata
-    // Byte offset of every parameter of the calldata
-    uint16 constant pA = <%=4 + 0%>;     // [A]_1
-    uint16 constant pB = <%=4 + 32*2%>;  // [B]_2
-    uint16 constant pC = <%=4 + 32*6%>;  // [C]_1
  
     // Memory data
     uint16 constant pVk = 0;
@@ -61,7 +55,7 @@ contract Groth16Verifier {
 
     uint16 constant pLastMem = 896;
 
-    function verifyProof(bytes32[8] calldata _proof, bytes32[<%=IC.length-1%>] calldata _pubSignals) public view returns (bool) {
+    function verifyProof(uint[2] calldata _pA, uint[2][2] calldata _pB, uint[2] calldata _pC, uint[<%=IC.length-1%>] calldata _pubSignals) public view returns (bool) {
         assembly {
             function checkField(v) {
                 if iszero(lt(v, q)) {
@@ -96,7 +90,7 @@ contract Groth16Verifier {
                 }
             }
 
-            function checkPairing(proof, pubSignals, pMem) -> isOk {
+            function checkPairing(pA, pB, pC, pubSignals, pMem) -> isOk {
                 let _pPairing := add(pMem, pPairing)
                 let _pVk := add(pMem, pVk)
 
@@ -164,7 +158,7 @@ contract Groth16Verifier {
             <% } %>
 
             // Validate all evaluations
-            let isValid := checkPairing(_proof, _pubSignals, pMem)
+            let isValid := checkPairing(_pA, _pB, _pC, _pubSignals, pMem)
 
             mstore(0, isValid)
              return(0, 0x20)
