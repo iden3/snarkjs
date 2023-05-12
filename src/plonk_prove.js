@@ -659,7 +659,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         // T3(X) = T3'(X) - b_11
         // such that
         // t(X) = T1(X) + X^n T2(X) + X^2n T3(X)
-        logger.debug("··· Computing T1, T2, T3 polynomials");
+        if (logger) logger.debug("··· Computing T1, T2, T3 polynomials");
         polynomials.T1 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
         polynomials.T2 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
         polynomials.T3 = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
@@ -856,7 +856,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         let r0 = Fr.sub(eval_pi, Fr.mul(e3, Fr.add(proof.evaluations.eval_c, challenges.gamma)));
         r0 = Fr.sub(r0, e4);
 
-        logger.debug("r0: " + Fr.toString(r0, 16));
+        if (logger) logger.debug("r0: " + Fr.toString(r0, 16));
 
         polynomials.R.addScalar(r0);
     }

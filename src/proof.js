@@ -73,7 +73,7 @@ export class Proof {
         Object.keys(this.evaluations).forEach(key => {
             const value = this.curve.Fr.toObject(this.evaluations[key]);
             if(splitFields) {
-                res.polynomials[key] = value;
+                res.evaluations[key] = value;
             } else {
                 res[key] = value;
             }
