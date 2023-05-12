@@ -322,7 +322,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         transcript.addPolCommitment(zkey.Ql);
         transcript.addPolCommitment(zkey.Qr);
         transcript.addPolCommitment(zkey.Qo);
-        transcript.addPolCommitment(zkey.Ql);
+        transcript.addPolCommitment(zkey.Qc);
         transcript.addPolCommitment(zkey.S1);
         transcript.addPolCommitment(zkey.S2);
         transcript.addPolCommitment(zkey.S3);
