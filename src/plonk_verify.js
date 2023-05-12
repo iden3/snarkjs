@@ -178,7 +178,7 @@ function calculatechallenges(curve, proof, publicSignals, vk) {
     transcript.addPolCommitment(vk.Ql);
     transcript.addPolCommitment(vk.Qr);
     transcript.addPolCommitment(vk.Qo);
-    transcript.addPolCommitment(vk.Ql);
+    transcript.addPolCommitment(vk.Qc);
     transcript.addPolCommitment(vk.S1);
     transcript.addPolCommitment(vk.S2);
     transcript.addPolCommitment(vk.S3);
