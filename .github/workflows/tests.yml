@@ -91,3 +91,33 @@ jobs:
 
       - name: Run tests
         run: npm run testv12
+
+  test-browser:
+    name: Test browser
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node-version: ["18"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v2
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          check-latest: true
+          cache: "npm"
+
+      - name: Install browser dependencies
+        working-directory: browser_tests
+        run: npm ci
+
+      - name: Run browser tests
+        working-directory: browser_tests
+        run: npm test

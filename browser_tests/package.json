@@ -1,0 +1,12 @@
+{
+  "name": "snarkjs-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/launch-groth16.js"
+  },
+  "devDependencies": {
+    "puppeteer": "20.2.0",
+    "st": "3.0.0"
+  }
+}

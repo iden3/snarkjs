@@ -1,0 +1,40 @@
+<head>
+    <script src="/build/snarkjs.js"></script>
+</head>
+
+<body>
+    <script type="module">
+        const ptau_final = "https://hermez.s3-eu-west-1.amazonaws.com/powersOfTau28_hez_final_10.ptau";
+        const r1cs = "/test/circuit/circuit.r1cs";
+        const wasm = "/test/circuit/circuit.wasm";
+        const zkey_0 = { type: "mem" };
+        const zkey_1 = { type: "mem" };
+        const zkey_final = { type: "mem" };
+        const wtns = { type: "mem" };
+
+        await snarkjs.zKey.newZKey(r1cs, ptau_final, zkey_0);
+
+        await snarkjs.zKey.contribute(zkey_0, zkey_1, "p2_C1", "pa_Entropy1");
+
+        await snarkjs.zKey.beacon(zkey_1, zkey_final, "B3", "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 10);
+
+        const verifyFromR1csResult = await snarkjs.zKey.verifyFromR1cs(r1cs, ptau_final, zkey_final);
+        console.assert(verifyFromR1csResult);
+
+        const verifyFromInit = await snarkjs.zKey.verifyFromInit(zkey_0, ptau_final, zkey_final);
+        console.assert(verifyFromInit);
+
+        const vKey = await snarkjs.zKey.exportVerificationKey(zkey_final);
+
+        await snarkjs.wtns.calculate({ a: 11, b: 2 }, wasm, wtns);
+
+        await snarkjs.wtns.check(r1cs, wtns);
+
+        const { proof, publicSignals } = await snarkjs.groth16.prove(zkey_final, wtns);
+
+        const verified = await snarkjs.groth16.verify(vKey, publicSignals, proof);
+        console.assert(verified);
+
+        shutdown();
+    </script>
+</body>
