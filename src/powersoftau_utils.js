@@ -359,9 +359,9 @@ export function calculateFirstChallengeHash(curve, power, logger) {
 }
 
 
-export function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
+export async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
 
-    const rng = misc.rngFromBeaconParams(beaconHash, numIterationsExp);
+    const rng = await misc.rngFromBeaconParams(beaconHash, numIterationsExp);
 
     const key = keyPair.createPTauKey(curve, challengeHash, rng);
 

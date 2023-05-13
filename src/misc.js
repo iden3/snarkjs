@@ -114,26 +114,53 @@ export function askEntropy() {
     }
 }
 
+export function getRandomBytes(n) {
+    let array = new Uint8Array(n);
+    if (typeof globalThis.crypto !== "undefined") { // Supported
+        globalThis.crypto.getRandomValues(array);
+    } else { // NodeJS
+        crypto.randomFillSync(array);
+    }
+    return array;
+}
+
+export async function sha256digest(data) {
+    if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.subtle !== "undefined") { // Supported
+        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
+        return new Uint8Array(buffer);
+    } else { // NodeJS
+        return crypto.createHash("sha256").update(data).digest();
+    }
+}
+
+/**
+ * @param {Uint8Array} data
+ * @param {number} offset
+ */
+export function readUInt32BE(data, offset) {
+    return new DataView(data.buffer).getUint32(offset, false);
+}
+
 export async function getRandomRng(entropy) {
     // Generate a random Rng
     while (!entropy) {
         entropy = await askEntropy();
     }
     const hasher = Blake2b(64);
-    hasher.update(crypto.randomBytes(64));
+    hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
-    const hash = Buffer.from(hasher.digest());
+    const hash = hasher.digest();
 
     const seed = [];
     for (let i=0;i<8;i++) {
-        seed[i] = hash.readUInt32BE(i*4);
+        seed[i] = readUInt32BE(hash, i*4);
     }
     const rng = new ChaCha(seed);
     return rng;
 }
 
-export function rngFromBeaconParams(beaconHash, numIterationsExp) {
+export async function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let nIterationsInner;
     let nIterationsOuter;
     if (numIterationsExp<32) {
@@ -147,7 +174,7 @@ export function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let curHash = beaconHash;
     for (let i=0; i<nIterationsOuter; i++) {
         for (let j=0; j<nIterationsInner; j++) {
-            curHash = crypto.createHash("sha256").update(curHash).digest();
+            curHash = await sha256digest(curHash);
         }
     }
 
