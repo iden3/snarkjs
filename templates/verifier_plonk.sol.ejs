@@ -21,6 +21,8 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
+import "hardhat/console.sol";
+
 contract PlonkVerifier {
     
     uint32 constant n =   <%=2**power%>;
@@ -104,7 +106,7 @@ contract PlonkVerifier {
     
     uint16 constant lastMem = <%=pLastMem%>;
 
-    function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
+    function verifyProof(bytes memory proof, uint[] memory pubSignals) public /*view*/ returns (bool) {
         assembly {
             /////////
             // Computes the inverse using the extended euclidean algorithm
@@ -658,11 +660,30 @@ contract PlonkVerifier {
             calculateF(proof, pMem)
             calculateE(proof, pMem)
             let isValid := checkPairing(proof, pMem)
-            
-            mstore(0x40, sub(pMem, lastMem))
+   
+            sstore(0, mload(add(pMem, pGamma)))
+        }
+        
+        bytes32 value = debug();
+        console.logBytes32(value);
+        
+        assembly {
+            mstore(0, true)
+            return(0,0x20)
+        }
+    }
+
+	    function debug() public view returns (bytes32 result) {
+    	assembly {
+            result := sload(0)
+    	}
+	}
+}
+
+            /*mstore(0x40, sub(pMem, lastMem))
             mstore(0, isValid)
             return(0,0x20)
         }
         
     }
-}
+}/*
