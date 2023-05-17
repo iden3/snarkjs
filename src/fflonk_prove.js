@@ -38,7 +38,7 @@ import {
     ZKEY_FF_SIGMA1_SECTION,
     ZKEY_FF_SIGMA2_SECTION,
     ZKEY_FF_SIGMA3_SECTION,
-} from "./fflonk.js";
+} from "./fflonk_constants.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";

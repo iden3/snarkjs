@@ -1,4 +1,4 @@
-import * as fflonk from "../src/cmds/fflonk_cmds.js";
+import * as fflonk from "../src/fflonk.js";
 import zkeyExportVerificationKey from "../src/zkey_export_verificationkey.js";
 import { getCurveFromName } from "../src/curves.js";
 import path from "path";
@@ -32,17 +32,17 @@ describe("Fflonk test suite", function () {
 
     it("fflonk full prove", async () => {
         // fflonk setup
-        await fflonk.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename);
+        await fflonk.setup(r1csFilename, ptauFilename, zkeyFilename);
 
         // flonk prove
-        await fflonk.fflonkProveCmd(zkeyFilename, wtnsFilename, publicInputsFilename, proofFilename);
+        const {proof, publicSignals} = await fflonk.prove(zkeyFilename, wtnsFilename);
 
         // export verification key
         const vKey = await zkeyExportVerificationKey(zkeyFilename);
         await bfj.write(vkeyFilename, stringifyBigInts(vKey), { space: 1 });
 
         // Verify the proof
-        const isValid = await fflonk.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename);
+        const isValid = await fflonk.verify(vKey, publicSignals, proof);
 
         assert(isValid);
     });

@@ -17,28 +17,9 @@
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-// FFlonk constants
-export const FF_T_POL_DEG_MIN = 3;
-
-// FFlonk A
-export const A = 12;
-
-// ZKEY constants
-export const ZKEY_FF_NSECTIONS = 17;
-
-export const ZKEY_FF_HEADER_SECTION = 2;
-export const ZKEY_FF_ADDITIONS_SECTION = 3;
-export const ZKEY_FF_A_MAP_SECTION = 4;
-export const ZKEY_FF_B_MAP_SECTION = 5;
-export const ZKEY_FF_C_MAP_SECTION = 6;
-export const ZKEY_FF_QL_SECTION = 7;
-export const ZKEY_FF_QR_SECTION = 8;
-export const ZKEY_FF_QM_SECTION = 9;
-export const ZKEY_FF_QO_SECTION = 10;
-export const ZKEY_FF_QC_SECTION = 11;
-export const ZKEY_FF_SIGMA1_SECTION = 12;
-export const ZKEY_FF_SIGMA2_SECTION = 13;
-export const ZKEY_FF_SIGMA3_SECTION = 14;
-export const ZKEY_FF_LAGRANGE_SECTION = 15;
-export const ZKEY_FF_PTAU_SECTION = 16;
-export const ZKEY_FF_C0_SECTION = 17;
+export { default as setup } from "./fflonk_setup.js";
+export { default as prove } from "./fflonk_prove.js";
+export { default as fullProve } from "./fflonk_full_prove.js";
+export { default as verify } from "./fflonk_verify.js";
+export { default as exportSolidityVerifier } from "./fflonk_export_solidity_verifier.js";
+export { default as exportSolidityCallData } from "./fflonk_export_calldata.js";
