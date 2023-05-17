@@ -1202,8 +1202,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         let w = Fr.one;
         for (let i = 0; i < size; i++) {
             toInverse["Li_" + (i + 1)] = Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challenges.xi, w));
-
-            w = Fr.mul(w, zkey.w);
+            w = Fr.mul(w, Fr.w[zkey.power]);
         }
 
         let mulAccumulator = Fr.one;
