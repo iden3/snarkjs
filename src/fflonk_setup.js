@@ -42,7 +42,7 @@ import {
     FF_T_POL_DEG_MIN,
     ZKEY_FF_NSECTIONS,
     ZKEY_FF_C0_SECTION,
-} from "./fflonk.js";
+} from "./fflonk_constants.js";
 import {FFLONK_PROTOCOL_ID, HEADER_ZKEY_SECTION} from "./zkey_constants.js";
 import {
     getFFlonkAdditionConstraint,

@@ -38,8 +38,7 @@ const {stringifyBigInts} = utils;
 import * as zkey from "./src/zkey.js";
 import * as groth16 from "./src/groth16.js";
 import * as plonk from "./src/plonk.js";
-import * as fflonkCmd from "./src/cmds/fflonk_cmds.js";
-import * as wtnsCmd from "./src/cmds/wtns_cmds.js";
+import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
@@ -488,7 +487,13 @@ async function wtnsCheck(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await wtnsCmd.wtnsCheckCmd(r1csFilename, wtnsFilename, logger);
+    const isValid = await wtns.check(r1csFilename, wtnsFilename, logger);
+
+    if (isValid) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
 
 
@@ -676,7 +681,7 @@ async function zkeyExportSolidityCalldata(params, options) {
     } else if (proof.protocol == "plonk") {
         res = await plonk.exportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
-        res = await fflonkCmd.fflonkExportCallDataCmd(pub, proof, logger);
+        res = await fflonk.exportSolidityCallData(pub, proof);
     } else {
         throw new Error("Invalid Protocol");
     }
@@ -1162,7 +1167,7 @@ async function fflonkSetup(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkSetupCmd(r1csFilename, ptauFilename, zkeyFilename, logger);
+    return await fflonk.setup(r1csFilename, ptauFilename, zkeyFilename, logger);
 }
 
 
@@ -1174,7 +1179,15 @@ async function fflonkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkProveCmd(zkeyFilename, witnessFilename, publicInputsFilename, proofFilename, logger);
+    const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger);
+
+    if(undefined !== proofFilename && undefined !== publicInputsFilename) {
+        // Write the proof and the publig signals in each file
+        await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
+        await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
+    }
+
+    return 0;
 }
 
 async function fflonkFullProve(params, options) {
@@ -1187,7 +1200,15 @@ async function fflonkFullProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await fflonkCmd.fflonkFullProveCmd(zkeyFilename, witnessInputsFilename, wasmFilename, publicInputsFilename, proofFilename, logger);
+    const input = JSON.parse(await fs.promises.readFile(witnessInputsFilename, "utf8"));
+
+    const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger);
+
+    // Write the proof and the publig signals in each file
+    await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
+    await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
+
+    return 0;
 }
 
 async function fflonkVerify(params, options) {
@@ -1197,7 +1218,11 @@ async function fflonkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid = await fflonkCmd.fflonkVerifyCmd(vkeyFilename, publicInputsFilename, proofFilename, logger);
+    const vkey = JSON.parse(fs.readFileSync(vkeyFilename, "utf8"));
+    const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
+
+    const isValid = await fflonk.verify(vkey, publicInputs, proof, logger);
 
     return isValid ? 0 : 1;
 }

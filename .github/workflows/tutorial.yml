@@ -97,6 +97,7 @@ jobs:
         {"a": 3, "b": 11}
         EOT
         snarkjs wtns calculate circuit.wasm input.json witness.wtns
+        snarkjs wtns check circuit.r1cs witness.wtns
     - name: 23. Debug the final witness calculation
       run: snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
     - name: 24. Create the proof
