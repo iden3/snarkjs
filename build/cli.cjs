@@ -12913,7 +12913,10 @@ async function powersOfTauNew(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await newAccumulator(curve, power, ptauName, logger);
+    // Discard firstChallengeHash
+    await newAccumulator(curve, power, ptauName, logger);
+
+    return 0;
 }
 
 async function powersOfTauExportChallenge(params, options) {
@@ -12930,7 +12933,10 @@ async function powersOfTauExportChallenge(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await exportChallenge(ptauName, challengeName, logger);
+    // Discard curChallengeHash
+    await exportChallenge(ptauName, challengeName, logger);
+
+    return 0;
 }
 
 // powersoftau challenge contribute <curve> <challenge> [response]
@@ -12950,7 +12956,9 @@ async function powersOfTauChallengeContribute(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+    await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+
+    return 0;
 }
 
 
@@ -12972,6 +12980,7 @@ async function powersOfTauImport(params, options) {
 
     const res = await importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
+    // TODO: This seems wrong
     if (res) return res;
     if (!doCheck) return;
 
@@ -13006,7 +13015,10 @@ async function powersOfTauBeacon(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await beacon$1(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
+    // Discard hashResponse
+    await beacon$1(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
+
+    return 0;
 }
 
 async function powersOfTauContribute(params, options) {
@@ -13018,7 +13030,10 @@ async function powersOfTauContribute(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
+    // Discard hashResponse
+    await contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
+
+    return 0;
 }
 
 async function powersOfTauPreparePhase2(params, options) {
@@ -13030,7 +13045,9 @@ async function powersOfTauPreparePhase2(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await preparePhase2(oldPtauName, newPtauName, logger);
+    await preparePhase2(oldPtauName, newPtauName, logger);
+
+    return 0;
 }
 
 async function powersOfTauConvert(params, options) {
@@ -13042,7 +13059,9 @@ async function powersOfTauConvert(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await convert(oldPtauName, newPtauName, logger);
+    await convert(oldPtauName, newPtauName, logger);
+
+    return 0;
 }
 
 
@@ -13058,7 +13077,10 @@ async function powersOfTauTruncate(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await truncate(ptauName, template, logger);
+    // Discard `true`
+    await truncate(ptauName, template, logger);
+
+    return 0;
 }
 
 // powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
@@ -13103,7 +13125,10 @@ async function zkeyNew(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return newZKey(r1csName, ptauName, zkeyName, logger);
+    // Discard csHash
+    await newZKey(r1csName, ptauName, zkeyName, logger);
+
+    return 0;
 }
 
 // zkey export bellman [circuit_0000.zkey] [circuit.mpcparams]
@@ -13121,8 +13146,9 @@ async function zkeyExportBellman(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return phase2exportMPCParams(zkeyName, mpcparamsName, logger);
+    await phase2exportMPCParams(zkeyName, mpcparamsName, logger);
 
+    return 0;
 }
 
 
@@ -13225,7 +13251,10 @@ async function zkeyContribute(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
+    // Discard contribuionHash
+    await phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
+
+    return 0;
 }
 
 // zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>
@@ -13242,7 +13271,10 @@ async function zkeyBeacon(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return await beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
+    // Discard contribuionHash
+    await beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
+
+    return 0;
 }
 
 
@@ -13263,7 +13295,10 @@ async function zkeyBellmanContribute(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    return bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
+    // Discard contributionHash
+    await bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
+
+    return 0;
 }
 
 
@@ -13293,6 +13328,7 @@ async function plonkSetup(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
+    // TODO: Make plonk.setup reject instead of returning -1 or null
     return plonkSetup$1(r1csName, ptauName, zkeyName, logger);
 }
 
@@ -13367,6 +13403,7 @@ async function fflonkSetup(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
+    // TODO: Make fflonk.setup return valuable information or nothing at all
     return await fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger);
 }
 

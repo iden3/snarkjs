@@ -712,7 +712,10 @@ async function powersOfTauNew(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.newAccumulator(curve, power, ptauName, logger);
+    // Discard firstChallengeHash
+    await powersOfTau.newAccumulator(curve, power, ptauName, logger);
+
+    return 0;
 }
 
 async function powersOfTauExportChallenge(params, options) {
@@ -729,7 +732,10 @@ async function powersOfTauExportChallenge(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.exportChallenge(ptauName, challengeName, logger);
+    // Discard curChallengeHash
+    await powersOfTau.exportChallenge(ptauName, challengeName, logger);
+
+    return 0;
 }
 
 // powersoftau challenge contribute <curve> <challenge> [response]
@@ -749,7 +755,9 @@ async function powersOfTauChallengeContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+    await powersOfTau.challengeContribute(curve, challengeName, responseName, options.entropy, logger);
+
+    return 0;
 }
 
 
@@ -771,6 +779,7 @@ async function powersOfTauImport(params, options) {
 
     const res = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
+    // TODO: This seems wrong
     if (res) return res;
     if (!doCheck) return;
 
@@ -805,7 +814,10 @@ async function powersOfTauBeacon(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.beacon(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
+    // Discard hashResponse
+    await powersOfTau.beacon(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
+
+    return 0;
 }
 
 async function powersOfTauContribute(params, options) {
@@ -817,7 +829,10 @@ async function powersOfTauContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
+    // Discard hashResponse
+    await powersOfTau.contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
+
+    return 0;
 }
 
 async function powersOfTauPreparePhase2(params, options) {
@@ -829,7 +844,9 @@ async function powersOfTauPreparePhase2(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.preparePhase2(oldPtauName, newPtauName, logger);
+    await powersOfTau.preparePhase2(oldPtauName, newPtauName, logger);
+
+    return 0;
 }
 
 async function powersOfTauConvert(params, options) {
@@ -841,7 +858,9 @@ async function powersOfTauConvert(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.convert(oldPtauName, newPtauName, logger);
+    await powersOfTau.convert(oldPtauName, newPtauName, logger);
+
+    return 0;
 }
 
 
@@ -857,7 +876,10 @@ async function powersOfTauTruncate(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await powersOfTau.truncate(ptauName, template, logger);
+    // Discard `true`
+    await powersOfTau.truncate(ptauName, template, logger);
+
+    return 0;
 }
 
 // powersoftau export json <powersoftau_0000.ptau> <powersoftau_0000.json>",
@@ -902,7 +924,10 @@ async function zkeyNew(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.newZKey(r1csName, ptauName, zkeyName, logger);
+    // Discard csHash
+    await zkey.newZKey(r1csName, ptauName, zkeyName, logger);
+
+    return 0;
 }
 
 // zkey export bellman [circuit_0000.zkey] [circuit.mpcparams]
@@ -920,8 +945,9 @@ async function zkeyExportBellman(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.exportBellman(zkeyName, mpcparamsName, logger);
+    await zkey.exportBellman(zkeyName, mpcparamsName, logger);
 
+    return 0;
 }
 
 
@@ -1024,7 +1050,10 @@ async function zkeyContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
+    // Discard contribuionHash
+    await zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
+
+    return 0;
 }
 
 // zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>
@@ -1041,7 +1070,10 @@ async function zkeyBeacon(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return await zkey.beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
+    // Discard contribuionHash
+    await zkey.beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
+
+    return 0;
 }
 
 
@@ -1062,7 +1094,10 @@ async function zkeyBellmanContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    return zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
+    // Discard contributionHash
+    await zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
+
+    return 0;
 }
 
 
@@ -1092,6 +1127,7 @@ async function plonkSetup(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
+    // TODO: Make plonk.setup reject instead of returning -1 or null
     return plonk.setup(r1csName, ptauName, zkeyName, logger);
 }
 
@@ -1166,6 +1202,7 @@ async function fflonkSetup(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
+    // TODO: Make fflonk.setup return valuable information or nothing at all
     return await fflonk.setup(r1csFilename, ptauFilename, zkeyFilename, logger);
 }
 
