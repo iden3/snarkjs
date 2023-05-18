@@ -1190,17 +1190,11 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         //     toInverse.denH1 & toInverse.denH2  -> Computed in round5, computeL()
 
         //   · denominator needed in the verifier when computing L_i^{S0}(X), L_i^{S1}(X) and L_i^{S2}(X)
-        for (let i = 0; i < 8; i++) {
-            toInverse["LiS0_" + (i + 1)] = computeLiS0(i);
-        }
+        computeLiS0(toInverse, roots.S0.h0w8, challenges.y, curve);
 
-        for (let i = 0; i < 4; i++) {
-            toInverse["LiS1_" + (i + 1)] = computeLiS1(i);
-        }
+        computeLiS1(toInverse, roots.S1.h1w4, challenges.y, curve);
 
-        for (let i = 0; i < 6; i++) {
-            toInverse["LiS2_" + (i + 1)] = computeLiS2(i);
-        }
+        computeLiS2(toInverse, roots.S2.h2w3, roots.S2.h3w3, challenges.y, challenges.xi, challenges.xiw, curve);
 
         //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
         const size = Math.max(1, zkey.nPublic);
@@ -1208,52 +1202,84 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         let w = Fr.one;
         for (let i = 0; i < size; i++) {
             toInverse["Li_" + (i + 1)] = Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challenges.xi, w));
-
-            w = Fr.mul(w, zkey.w);
+            w = Fr.mul(w, Fr.w[zkey.power]);
         }
 
         let mulAccumulator = Fr.one;
         for (const element of Object.values(toInverse)) {
-            mulAccumulator = Fr.mul(mulAccumulator, element);
+            if(Array.isArray(element)) {
+                for (const subElement of element) {
+                    mulAccumulator = Fr.mul(mulAccumulator, subElement);
+                }
+            } else {
+                mulAccumulator = Fr.mul(mulAccumulator, element);
+            }
         }
         return Fr.inv(mulAccumulator);
 
-        function computeLiS0(i) {
-            // Compute L_i^{(S0)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 7; j++) {
-                idx = (idx + 1) % 8;
-
-                den = Fr.mul(den, Fr.sub(roots.S0.h0w8[i], roots.S0.h0w8[idx]));
+        
+        function computeLiS0(toInverse, roots, x, curve) {
+            const Fr = curve.Fr;
+            const len = roots.length;
+        
+            const den1 = Fr.mul(Fr.e(len), Fr.exp(roots[0], len - 2));
+        
+            const Li = [];
+            for (let i = 0; i < len; i++) {
+                const den2 = roots[((len - 1) * i) % len];
+                const den3 = Fr.sub(x, roots[i]);
+        
+                toInverse[["LiS0_" + (i + 1)]] = Fr.mul(Fr.mul(den1, den2), den3);
             }
-            return den;
+        
+            return Li;
         }
 
-        function computeLiS1(i) {
-            // Compute L_i^{(S1)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 3; j++) {
-                idx = (idx + 1) % 4;
+        function computeLiS1(toInverse, roots, x, curve) {
+            const Fr = curve.Fr;
+            const len = roots.length;
+        
+            const den1 = Fr.mul(Fr.e(len), Fr.exp(roots[0], len - 2));
+        
+            const Li = [];
+            for (let i = 0; i < len; i++) {
+                const den2 = roots[((len - 1) * i) % len];
+                const den3 = Fr.sub(x, roots[i]);
+        
+                toInverse[["LiS1_" + (i + 1)]] = Fr.mul(Fr.mul(den1, den2), den3);
 
-                den = Fr.mul(den, Fr.sub(roots.S1.h1w4[i], roots.S1.h1w4[idx]));
             }
-            return den;
+        
+            return Li;
         }
 
-        function computeLiS2(i) {
-            // Compute L_i^{(S1)}(y)
-            let idx = i;
-            let den = Fr.one;
-            for (let j = 0; j < 5; j++) {
-                idx = (idx + 1) % 6;
-
-                const root1 = i < 3 ? roots.S2.h2w3[i] : roots.S2.h3w3[i - 3];
-                const root2 = idx < 3 ? roots.S2.h2w3[idx] : roots.S2.h3w3[idx - 3];
-                den = Fr.mul(den, Fr.sub(root1, root2));
+        function computeLiS2(toInverse, S2, S2p, value, xi, xiw, curve) {
+            const Fr = curve.Fr;
+        
+            const Li = [];
+        
+            const _3h2 = Fr.mul(Fr.e(3), S2[0]);
+            const xisubxiw = Fr.sub(xi, xiw);
+            let den1 = Fr.mul(_3h2, xisubxiw);
+            for (let i = 0; i < 3; i++) {
+                const den2 = S2[2 * i % 3];
+                const den3 = Fr.sub(value, S2[i]);
+        
+                toInverse[["LiS2_" + (i + 1)]] = Fr.mul(den1,Fr.mul(den2, den3));
+                
             }
-            return den;
+        
+            const _3h3 = Fr.mul(Fr.e(3), S2p[0]);
+            const xiwsubxi = Fr.sub(xiw, xi);
+            den1 = Fr.mul(_3h3, xiwsubxi);
+            for (let i = 0; i < 3; i++) {
+                const den2 = S2p[2 * i % 3];
+                const den3 = Fr.sub(value, S2p[i]);
+        
+                toInverse[["LiS2_" + (i + 1 + 3)]] = Fr.mul(den1,Fr.mul(den2, den3));    
+            }
+        
+            return Li;
         }
     }
 }
