@@ -247,4 +247,10 @@ contract Verifier {
             return false;
         }
     }
+
+    /// @notice Function to get the number of public signals of the circom circuit
+    /// @return number of public signals
+    function getInputsNumber() public pure returns (uint256) {
+        return <%=IC.length-1%>;
+    }
 }
