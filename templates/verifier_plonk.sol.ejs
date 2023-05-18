@@ -182,11 +182,46 @@ contract PlonkVerifier {
                 }
             }
             
+            function checkPointBelongsToBN128Curve(p) {
+                let x := mload(p)
+                let y := mload(add(p, 32))
+
+                // Check that the point is on the curve
+                // y^2 = x^3 + 3
+                let x3_3 := addmod(mulmod(x, mulmod(x, x, qf), qf), 3, qf)
+                let y2 := mulmod(y, y, qf)
+
+                if iszero(eq(x3_3, y2)) {
+                    mstore(0, 0)
+                    return(0, 0x20)
+                }
+            }  
+
             function checkInput(pProof) {
                 if iszero(eq(mload(pProof), 800 )) {
                     mstore(0, 0)
                     return(0,0x20)
                 }
+
+                checkField(mload(add(pProof, pA)))
+                checkField(mload(add(pProof, add(pA, 32))))
+                checkField(mload(add(pProof, pB)))
+                checkField(mload(add(pProof, add(pB, 32))))
+                checkField(mload(add(pProof, pC)))
+                checkField(mload(add(pProof, add(pC, 32))))
+                checkField(mload(add(pProof, pZ)))
+                checkField(mload(add(pProof, add(pZ, 32))))
+                checkField(mload(add(pProof, pT1)))
+                checkField(mload(add(pProof, add(pT1, 32))))
+                checkField(mload(add(pProof, pT2)))
+                checkField(mload(add(pProof, add(pT2, 32))))
+                checkField(mload(add(pProof, pT3)))
+                checkField(mload(add(pProof, add(pT3, 32))))
+                checkField(mload(add(pProof, pWxi)))
+                checkField(mload(add(pProof, add(pWxi, 32))))
+                checkField(mload(add(pProof, pWxiw)))
+                checkField(mload(add(pProof, add(pWxiw, 32))))
+
                 checkField(mload(add(pProof, pEval_a)))
                 checkField(mload(add(pProof, pEval_b)))
                 checkField(mload(add(pProof, pEval_c)))
@@ -194,8 +229,6 @@ contract PlonkVerifier {
                 checkField(mload(add(pProof, pEval_s2)))
                 checkField(mload(add(pProof, pEval_zw)))
                 checkField(mload(add(pProof, pEval_r)))
-
-                // Points are checked in the point operations precompiled smart contracts
             }
             
             function calculateChallanges(pProof, pMem, pPublic) {

@@ -39,13 +39,24 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     proof = fromObjectProof(curve,proof);
     vk_verifier = fromObjectVk(curve, vk_verifier);
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof is not well constructed");
+        logger.error("Proof commitments are not valid.");
         return false;
     }
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Invalid number of public inputs");
+        if (logger) logger.error("Invalid number of public inputs");
         return false;
     }
+
+    if (!evaluationsAreValid(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid");
+        return false;
+    }
+
+    if (!publicInputsAreValid(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
+
     const challanges = calculateChallanges(curve, proof, publicSignals);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challanges.beta, 16));    
@@ -163,6 +174,33 @@ function isWellConstructed(curve, proof) {
     if (!G1.isValid(proof.T3)) return false;
     if (!G1.isValid(proof.Wxi)) return false;
     if (!G1.isValid(proof.Wxiw)) return false;
+    return true;
+}
+
+function checkValueBelongToField(curve, value) {
+    return Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid(curve, evaluation) {
+    return checkValueBelongToField(curve, Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid(curve, proof) {
+    return checkEvaluationIsValid(curve, proof.eval_a)
+        && checkEvaluationIsValid(curve, proof.eval_b)
+        && checkEvaluationIsValid(curve, proof.eval_c)
+        && checkEvaluationIsValid(curve, proof.eval_zw)
+        && checkEvaluationIsValid(curve, proof.eval_s1)
+        && checkEvaluationIsValid(curve, proof.eval_s2)
+        && checkEvaluationIsValid(curve, proof.eval_r);
+}
+
+function publicInputsAreValid(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField(curve, publicInputs[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
