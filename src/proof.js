@@ -58,15 +58,25 @@ export class Proof {
         return this.evaluations[key];
     }
 
-    toObjectProof() {
-        let res = {polynomials: {}, evaluations: {}};
+    toObjectProof(splitFields = true) {
+        let res = splitFields ? {polynomials: {}, evaluations: {}} : {};
 
         Object.keys(this.polynomials).forEach(key => {
-            res.polynomials[key] = this.curve.G1.toObject(this.polynomials[key]);
+            const value = this.curve.G1.toObject(this.polynomials[key]);
+            if(splitFields) {
+                res.polynomials[key] = value;
+            } else {
+                res[key] = value;
+            }
         });
 
         Object.keys(this.evaluations).forEach(key => {
-            res.evaluations[key] = this.curve.Fr.toObject(this.evaluations[key]);
+            const value = this.curve.Fr.toObject(this.evaluations[key]);
+            if(splitFields) {
+                res.evaluations[key] = value;
+            } else {
+                res[key] = value;
+            }
         });
 
         return res;

@@ -137,6 +137,7 @@ const commands = [
         cmd: "r1cs info [circuit.r1cs]",
         description: "Print statistiscs of a circuit",
         alias: ["ri", "info -r|r1cs:circuit.r1cs"],
+        options: "-checkadditions|ca",
         action: r1csInfo
     },
     {
@@ -389,11 +390,11 @@ function changeExt(fileName, newExt) {
 // r1cs export circomJSON [circuit.r1cs] [circuit.json]
 async function r1csInfo(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
+    let checkAdditions = false;
 
-    if (options.verbose) Logger.setLogLevel("DEBUG");
+    if (options.checkadditions) checkAdditions = true;
 
-    await r1cs.info(r1csName, logger);
-
+    await r1cs.info(r1csName, checkAdditions, logger);
 
     return 0;
 }

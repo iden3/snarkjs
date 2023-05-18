@@ -32,11 +32,51 @@ describe("Smart contracts test suite", function () {
         await curve.terminate();
     });
 
-    it("Groth16 smart contract", async () => {
+    it("Groth16 smart contract 1 input", async () => {
+        expect(await groth16Verify(
+            path.join("../test", "groth16", "circuit.r1cs"),
+            path.join("../test", "groth16", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    it("Groth16 smart contract 3 inputs", async () => {
+        expect(await groth16Verify(
+            path.join("../test", "circuit2", "circuit.r1cs"),
+            path.join("../test", "circuit2", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    it("Plonk smart contract 1 input", async () => {
+        expect(await plonkVerify(
+            path.join("../test", "plonk_circuit", "circuit.r1cs"),
+            path.join("../test", "plonk_circuit", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    it("Plonk smart contract 3 inputs", async () => {
+        expect(await plonkVerify(
+            path.join("../test", "circuit2", "circuit.r1cs"),
+            path.join("../test", "circuit2", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    it("Fflonk smart contract 1 input", async () => {
+        expect(await fflonkVerify(
+            path.join("../test", "fflonk", "circuit.r1cs"),
+            path.join("../test", "fflonk", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    it("Fflonk smart contract 3 inputs", async () => {
+        expect(await fflonkVerify(
+            path.join("../test", "circuit2", "circuit.r1cs"),
+            path.join("../test", "circuit2", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
+    async function groth16Verify(r1csFilename, wtnsFilename) {
         const solidityVerifierFilename = path.join("contracts", "groth16.sol");
 
-        const r1csFilename = path.join("../test", "groth16", "circuit.r1cs");
-        const wtnsFilename = path.join("../test", "groth16", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.zKey.newZKey(r1csFilename, ptauFilename, zkeyFilename);
@@ -54,18 +94,15 @@ describe("Smart contracts test suite", function () {
         await run("compile");
 
         // Deploy mock groth16 verifier
-        const VerifierFactory = await ethers.getContractFactory("Verifier");
+        const VerifierFactory = await ethers.getContractFactory("Groth16Verifier");
         verifierContract = await VerifierFactory.deploy();
 
-        // Verifiy the proof in the smart contract
-        expect(await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs)).to.be.equal(true);
-    });
+        return await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs);
+    }
 
-    it("plonk smart contract", async () => {
+    async function plonkVerify(r1csFilename, wtnsFilename) {
         const solidityVerifierFilename = path.join("contracts", "plonk.sol");
 
-        const r1csFilename = path.join("../test", "plonk_circuit", "circuit.r1cs");
-        const wtnsFilename = path.join("../test", "plonk_circuit", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.plonk.setup(r1csFilename, ptauFilename, zkeyFilename);
@@ -83,9 +120,7 @@ describe("Smart contracts test suite", function () {
         verifierContract = await VerifierFactory.deploy();
 
         // Verifiy the proof in the smart contract
-        const arrayStrings = Array(25).fill("bytes32");
-        const proof = ethers.utils.defaultAbiCoder.encode(
-            arrayStrings,
+        const proof =
             [
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.A[0]).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.A[1]).toHexString(), 32),
@@ -112,18 +147,14 @@ describe("Smart contracts test suite", function () {
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.eval_s1).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.eval_s2).toHexString(), 32),
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.eval_zw).toHexString(), 32),
-                ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.eval_r).toHexString(), 32),
-            ],
-        );
+            ];
 
-        expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
-    });
+        return await verifierContract.verifyProof(proof, publicInputs);
+    };
 
-    it("fflonk smart contract", async () => {
+    async function fflonkVerify(r1csFilename, wtnsFilename) {
         const solidityVerifierFilename = path.join("contracts", "fflonk.sol");
 
-        const r1csFilename = path.join("../test", "fflonk", "circuit.r1cs");
-        const wtnsFilename = path.join("../test", "fflonk", "witness.wtns");
         const zkeyFilename = { type: "mem" };
 
         await snarkjs.fflonk.setup(r1csFilename, ptauFilename, zkeyFilename);
@@ -171,6 +202,6 @@ describe("Smart contracts test suite", function () {
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(evaluations.inv).toHexString(), 32),
             ];
 
-        expect(await verifierContract.verifyProof(proof, publicInputs)).to.be.equal(true);
-    });
+        return await verifierContract.verifyProof(proof, publicInputs);
+    };
 });

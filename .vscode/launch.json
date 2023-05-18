@@ -13,6 +13,97 @@
             ],
             "type": "node"
         },
+                {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 setup",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "groth16", "setup",
+                "test/groth16/circuit.r1cs",
+                "test/plonk_circuit/powersOfTau15_final.ptau",
+                "test/groth16/circuit.zkey"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 prove",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "groth16", "prove",
+                "test/groth16/circuit.zkey",
+                "test/groth16/witness.wtns",
+                "test/groth16/proof.json",
+                "test/groth16/public.json",
+                "-v"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 export vk",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkev",
+                "test/groth16/circuit.zkey",
+                "test/groth16/verification_key.json",
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 verify",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "groth16", "verify",
+                "test/groth16/verification_key.json",
+                "test/groth16/public.json",
+                "test/groth16/proof.json",
+                "-v"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 solidity verifier",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkesv",
+                "test/groth16/circuit.zkey",
+                "test/groth16/verifier.sol",
+            ]
+        },
+
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "groth16 solidity calldata",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "cli.js",
+            "args": [
+                "zkesc",
+                "test/groth16/public.json",
+                "test/groth16/proof.json",
+            ]
+        },
         {
             "type": "node",
             "request": "launch",
