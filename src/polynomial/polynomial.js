@@ -595,7 +595,8 @@ export class Polynomial {
             this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
         }
 
-        for (let i = domainSize; i < domainSize * extensions; i++) {
+        const upperBound = this.coef.byteLength / this.Fr.n8;
+        for (let i = domainSize; i < upperBound; i++) {
             const i_n8 = i * this.Fr.n8;
 
             const a = this.Fr.sub(

@@ -46,27 +46,20 @@ export default async function plonkExportSolidityCallData(_proof, _pub) {
         inputs = inputs + p256(pub[i]);
     }
 
-    const proofBuff = new Uint8Array(G1.F.n8*2*9 + Fr.n8*7);
-    G1.toRprUncompressed(proofBuff, 0, G1.e(proof.A));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*2, G1.e(proof.B));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*4, G1.e(proof.C));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*6, G1.e(proof.Z));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*8, G1.e(proof.T1));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*10, G1.e(proof.T2));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*12, G1.e(proof.T3));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*14, G1.e(proof.Wxi));
-    G1.toRprUncompressed(proofBuff, G1.F.n8*16, G1.e(proof.Wxiw));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 , Fr.e(proof.eval_a));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8, Fr.e(proof.eval_b));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8*2, Fr.e(proof.eval_c));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8*3, Fr.e(proof.eval_s1));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8*4, Fr.e(proof.eval_s2));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8*5, Fr.e(proof.eval_zw));
-    Fr.toRprBE(proofBuff, G1.F.n8*18 + Fr.n8*6, Fr.e(proof.eval_r));
-
-    const proofHex = Array.from(proofBuff).map(i2hex).join("");
-
-    const S="0x"+proofHex+",["+inputs+"]";
-
-    return S;
+    return `[${p256(proof.A[0])}, ${p256(proof.A[1])},` +
+    `${p256(proof.B[0])},${p256(proof.B[1])},` +
+    `${p256(proof.C[0])},${p256(proof.C[1])},` +
+    `${p256(proof.Z[0])},${p256(proof.Z[1])},` +
+    `${p256(proof.T1[0])},${p256(proof.T1[1])},` +
+    `${p256(proof.T2[0])},${p256(proof.T2[1])},` +
+    `${p256(proof.T3[0])},${p256(proof.T3[1])},` +
+    `${p256(proof.Wxi[0])},${p256(proof.Wxi[1])},` +
+    `${p256(proof.Wxiw[0])},${p256(proof.Wxiw[1])},` +
+    `${p256(proof.eval_a)},` + 
+    `${p256(proof.eval_b)},` + 
+    `${p256(proof.eval_c)},` + 
+    `${p256(proof.eval_s1)},` + 
+    `${p256(proof.eval_s2)},` + 
+    `${p256(proof.eval_zw)}]` + 
+    `[${inputs}]`;
 }

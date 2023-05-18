@@ -11,7 +11,7 @@
     "chai": "^4.3.7",
     "ethereum-waffle": "^4.0.10",
     "ethers": "^5.7.2",
-    "ffjavascript": "0.2.57",
+    "ffjavascript": "0.2.59",
     "hardhat": "^2.14.0",
     "mocha": "^10.2.0",
     "snarkjs": "file:.."

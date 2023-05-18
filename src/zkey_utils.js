@@ -279,7 +279,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     zkey.domainSize = await fd.readULE32();
     zkey.power = log2(zkey.domainSize);
     zkey.nAdditions = await fd.readULE32();
-    zkey.nConstrains = await fd.readULE32();
+    zkey.nConstraints = await fd.readULE32();
     zkey.k1 = await fd.read(n8r);
     zkey.k2 = await fd.read(n8r);
 
