@@ -22,14 +22,13 @@ describe("Full process", function ()  {
     const bellman_1 = {type: "mem"};
     const bellman_2 = {type: "mem"};
     let vKey;
-    let vKeyPlonk;
     const wtns = {type: "mem"};
     let proof;
     let publicSignals;
 
     before( async () => {
         curve = await getCurveFromName("bn128");
-//        curve.Fr.s = 10;
+        // curve.Fr.s = 10;
     });
     after( async () => {
         await curve.terminate();

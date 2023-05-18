@@ -69,7 +69,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
         lastChallengeHash = utils.calculateFirstChallengeHash(curve, power, logger);
     }
 
-    curContribution.key = utils.keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
+    curContribution.key = await utils.keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
     const responseHasher = new Blake2b(64);
     responseHasher.update(lastChallengeHash);

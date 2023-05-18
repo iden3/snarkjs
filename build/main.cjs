@@ -174,26 +174,53 @@ function askEntropy() {
     }
 }
 
+function getRandomBytes(n) {
+    let array = new Uint8Array(n);
+    if (typeof globalThis.crypto !== "undefined") { // Supported
+        globalThis.crypto.getRandomValues(array);
+    } else { // NodeJS
+        crypto__default["default"].randomFillSync(array);
+    }
+    return array;
+}
+
+async function sha256digest(data) {
+    if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.subtle !== "undefined") { // Supported
+        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
+        return new Uint8Array(buffer);
+    } else { // NodeJS
+        return crypto__default["default"].createHash("sha256").update(data).digest();
+    }
+}
+
+/**
+ * @param {Uint8Array} data
+ * @param {number} offset
+ */
+function readUInt32BE(data, offset) {
+    return new DataView(data.buffer).getUint32(offset, false);
+}
+
 async function getRandomRng(entropy) {
     // Generate a random Rng
     while (!entropy) {
         entropy = await askEntropy();
     }
     const hasher = Blake2b__default["default"](64);
-    hasher.update(crypto__default["default"].randomBytes(64));
+    hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
-    const hash = Buffer.from(hasher.digest());
+    const hash = hasher.digest();
 
     const seed = [];
     for (let i=0;i<8;i++) {
-        seed[i] = hash.readUInt32BE(i*4);
+        seed[i] = readUInt32BE(hash, i*4);
     }
     const rng = new ffjavascript.ChaCha(seed);
     return rng;
 }
 
-function rngFromBeaconParams(beaconHash, numIterationsExp) {
+async function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let nIterationsInner;
     let nIterationsOuter;
     if (numIterationsExp<32) {
@@ -207,7 +234,7 @@ function rngFromBeaconParams(beaconHash, numIterationsExp) {
     let curHash = beaconHash;
     for (let i=0; i<nIterationsOuter; i++) {
         for (let j=0; j<nIterationsInner; j++) {
-            curHash = crypto__default["default"].createHash("sha256").update(curHash).digest();
+            curHash = await sha256digest(curHash);
         }
     }
 
@@ -1847,9 +1874,9 @@ function calculateFirstChallengeHash(curve, power, logger) {
 }
 
 
-function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
+async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
 
-    const rng = rngFromBeaconParams(beaconHash, numIterationsExp);
+    const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
     const key = createPTauKey(curve, challengeHash, rng);
 
@@ -2269,7 +2296,7 @@ const sameRatio$1 = sameRatio$2;
 async function verifyContribution(curve, cur, prev, logger) {
     let sr;
     if (cur.type == 1) {    // Verify the beacon.
-        const beaconKey = keyFromBeacon(curve, prev.nextChallenge, cur.beaconHash, cur.numIterationsExp);
+        const beaconKey = await keyFromBeacon(curve, prev.nextChallenge, cur.beaconHash, cur.numIterationsExp);
 
         if (!curve.G1.eq(cur.key.tau.g1_s, beaconKey.tau.g1_s)) {
             if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
@@ -2601,13 +2628,11 @@ async function verify(tauFilename, logger) {
             const basesU = await G.batchLEMtoU(bases);
             nextContributionHasher.update(basesU);
 
-            const scalars = new Uint8Array(4*(n-1));
-            crypto__default["default"].randomFillSync(scalars);
-
+            const scalars = getRandomBytes(4*(n-1));
 
             if (i>0) {
                 const firstBase = G.fromRprLEM(bases, 0);
-                const r = crypto__default["default"].randomBytes(4).readUInt32BE(0, true);
+                const r = readUInt32BE(getRandomBytes(4), 0);
 
                 R1 = G.add(R1, G.timesScalar(lastBase, r));
                 R2 = G.add(R2, G.timesScalar(firstBase, r));
@@ -2648,7 +2673,7 @@ async function verify(tauFilename, logger) {
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
-            seed[i] = crypto__default["default"].randomBytes(4).readUInt32BE(0, true);
+            seed[i] = readUInt32BE(getRandomBytes(4), 0);
         }
 
         for (let p=0; p<= power; p ++) {
@@ -2970,7 +2995,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
         lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
     }
 
-    curContribution.key = keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
+    curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
     const responseHasher = new Blake2b__default["default"](64);
     responseHasher.update(lastChallengeHash);
@@ -5283,7 +5308,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         }
 
         if (c.type == 1) {
-            const rng = rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
+            const rng = await rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
             const expected_prvKey = curve.Fr.fromRng(rng);
             const expected_g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
             const expected_g1_sx = curve.G1.toAffine(curve.G1.timesFr(expected_g1_s, expected_prvKey));
@@ -5459,9 +5484,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
             const bases1 = await fd1.read(n*sG);
             const bases2 = await fd2.read(n*sG);
 
-            const scalars = new Uint8Array(4*n);
-            crypto__default["default"].randomFillSync(scalars);
-
+            const scalars = getRandomBytes(4*n);
 
             const r1 = await G.multiExpAffine(bases1, scalars);
             const r2 = await G.multiExpAffine(bases2, scalars);
@@ -5492,7 +5515,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
-            seed[i] = crypto__default["default"].randomBytes(4).readUInt32BE(0, true);
+            seed[i] = readUInt32BE(getRandomBytes(4), 0);
         }
         const rng = new ffjavascript.ChaCha(seed);
         for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero

@@ -24,7 +24,6 @@ import Blake2b from "blake2b-wasm";
 import * as misc from "./misc.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 const sameRatio = misc.sameRatio;
-import crypto from "crypto";
 import {hashG1, hashPubKey} from "./zkey_utils.js";
 import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
@@ -76,7 +75,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         }
 
         if (c.type == 1) {
-            const rng = misc.rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
+            const rng = await misc.rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
             const expected_prvKey = curve.Fr.fromRng(rng);
             const expected_g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
             const expected_g1_sx = curve.G1.toAffine(curve.G1.timesFr(expected_g1_s, expected_prvKey));
@@ -252,9 +251,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
             const bases1 = await fd1.read(n*sG);
             const bases2 = await fd2.read(n*sG);
 
-            const scalars = new Uint8Array(4*n);
-            crypto.randomFillSync(scalars);
-
+            const scalars = misc.getRandomBytes(4*n);
 
             const r1 = await G.multiExpAffine(bases1, scalars);
             const r2 = await G.multiExpAffine(bases2, scalars);
@@ -285,7 +282,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
-            seed[i] = crypto.randomBytes(4).readUInt32BE(0, true);
+            seed[i] = misc.readUInt32BE(misc.getRandomBytes(4), 0);
         }
         const rng = new ChaCha(seed);
         for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero
