@@ -21,6 +21,7 @@ import * as curves from "./curves.js";
 import { BigBuffer, utils } from "ffjavascript";
 import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
+
 import { Scalar } from "ffjavascript";
 
 const { unstringifyBigInts } = utils;
