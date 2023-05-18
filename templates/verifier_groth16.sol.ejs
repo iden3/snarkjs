@@ -107,10 +107,9 @@ library Pairing {
         uint[1] memory out;
         bool success;
         // solium-disable-next-line security/no-inline-assembly
+        // precompiled bn128 curve pairing as per EIP197 - defined as contract "8"
         assembly {
             success := staticcall(sub(gas(), 2000), 8, add(input, 0x20), mul(inputSize, 0x20), out, 0x20)
-            // Use "invalid" to make gas estimation work
-            switch success case 0 { invalid() }
         }
         require(success,"pairing-opcode-failed");
         return out[0] != 0;
