@@ -40,7 +40,7 @@ import {  ZKEY_PL_HEADER_SECTION,
     ZKEY_PL_SIGMA_SECTION,
     ZKEY_PL_LAGRANGE_SECTION,
     ZKEY_PL_PTAU_SECTION,
-} from "./plonk.js";
+} from "./plonk_constants.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
     
