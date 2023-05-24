@@ -48,7 +48,7 @@
     "ffjavascript": "0.2.59",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.45"
+    "r1csfile": "0.0.46"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^22.0.0",
