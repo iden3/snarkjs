@@ -98,9 +98,10 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     if (logger) logger.info("> Computing polynomial identities PI(X)");
     const pi = calculatePI(curve, publicSignals, lagrangeEvals);
 
-    // STEP 8 - Compute polynomial r0 ∈ F_{<4}[X]
+    // STEP 8 - Compute polynomial r0 ∈ F_{<8}[X]
     if (logger) logger.info("> Computing r0(y)");
     const r0 = computeR0(proof, challenges, roots, curve, logger);
+    const r0p = await computeR0p(proof, challenges, roots, curve, logger);
 
     // STEP 9 - Compute polynomial r1 ∈ F_{<4}[X]
     if (logger) logger.info("> Computing r1(y)");
@@ -384,6 +385,64 @@ function computeR0(proof, challenges, roots, curve, logger) {
     }
 
     return res;
+}
+
+async function computeR0p(proof, challenges, roots, curve, logger) {
+    const n = 8;
+    const Fr = curve.Fr;
+    const c = roots.S0.h0w8[0];
+    const invN = Fr.inv(n);
+
+    if (logger) logger.info("··· Computing r0(y)");
+
+    // 1. y' = y / c
+    const yp = Fr.div(challenges.y, c);
+
+    // 2. (y')^n - 1 / n
+    let ypN = Fr.exp(yp, n);
+
+    const e1 = Fr.mul(Fr.sub(ypN, Fr.one), invN);
+
+    // 3. {r_i w^i}_i=0^7
+    // Prepare c's
+    let cs = [];
+    cs[0] = Fr.one;
+    for (let i = 1; i < 8; i++) {
+        cs[i] = Fr.mul(cs[i - 1], c);
+    }
+
+    // Prepare f's
+    let fs = [];
+    fs[0] = proof.evaluations.ql;
+    fs[1] = proof.evaluations.qr;
+    fs[2] = proof.evaluations.qo;
+    fs[3] = proof.evaluations.qm;
+    fs[4] = proof.evaluations.qc;
+    fs[5] = proof.evaluations.s1;
+    fs[6] = proof.evaluations.s2;
+    fs[7] = proof.evaluations.s3;
+
+    // Prepare the coefficients to be FFT-ed
+    let coeffs = new Uint8Array(n * Fr.n8);
+    for (let i = 0; i < 8; i++) {
+        const index = (7 + i) % 8;
+        const val = Fr.mul(cs[index], fs[index])
+        coeffs.set(val, i * Fr.n8);
+    }
+
+    let evals = await Fr.fft(coeffs);
+
+    let e2 = Fr.zero;
+    for (let i = 0; i < 8; i++) {
+        const num = evals.slice(i * Fr.n8, (i + 1) * Fr.n8);
+
+        // 4. {1/(y' - w^i)}_i=0^7
+        const den = Fr.inv(Fr.sub(yp, roots.S0.h0w8[i]));
+
+        e2 = Fr.add(e2, Fr.mul(num, den));
+    }
+
+    return Fr.mul(e1, e2);
 }
 
 function computeR1(proof, challenges, roots, pi, curve, logger) {
