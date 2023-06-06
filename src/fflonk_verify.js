@@ -424,8 +424,8 @@ async function computeR0p(proof, challenges, roots, curve, logger) {
 
     // Prepare the coefficients to be FFT-ed
     let coeffs = new Uint8Array(n * Fr.n8);
-    for (let i = 0; i < 8; i++) {
-        const index = (7 + i) % 8;
+    for (let i = 0; i < n; i++) {
+        const index = (7 + i) % n;
         const val = Fr.mul(cs[index], fs[index])
         coeffs.set(val, i * Fr.n8);
     }
@@ -433,7 +433,7 @@ async function computeR0p(proof, challenges, roots, curve, logger) {
     let evals = await Fr.fft(coeffs);
 
     let e2 = Fr.zero;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < n; i++) {
         const num = evals.slice(i * Fr.n8, (i + 1) * Fr.n8);
 
         // 4. {1/(y' - w^i)}_i=0^7
