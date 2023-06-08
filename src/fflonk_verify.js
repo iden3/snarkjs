@@ -134,6 +134,31 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     if (logger) logger.info("> Computing r2(y)");
     const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
 
+    let t1 = Fr.sub(proof.evaluations.z, Fr.one);
+    t1 = Fr.mul(t1, lagrangeEvals[1]);
+    t1 = Fr.mul(t1, challenges.invzh);
+
+    // Compute T2(xi)
+    if (logger) logger.info("··· Computing T2(xi)");
+    const betaxi = Fr.mul(challenges.beta, challenges.xi);
+    const t211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
+    const t212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
+    const t213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
+    const t21 = Fr.mul(t211, Fr.mul(t212, Fr.mul(t213, proof.evaluations.z)));
+
+    const t221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
+    const t222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
+    const t223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
+    const t22 = Fr.mul(t221, Fr.mul(t222, Fr.mul(t223, proof.evaluations.zw)));
+
+    let t2 = Fr.sub(t21, t22);
+    t2 = Fr.mul(t2, challenges.invzh);
+
+    const fs1 = [proof.evaluations.z, t1, t2];
+    const fs2 = [proof.evaluations.zw, proof.evaluations.t1w, proof.evaluations.t2w];
+
+    //const r2p = await computeR2Coset(challenges.y, roots.S2.h2w3, roots.S2.h3w3, fs1, fs2, curve);
+
     if (logger) logger.info("> Computing F");
     const F = computeF(curve, proof, vk, challenges, roots);
 
@@ -426,132 +451,84 @@ async function computeR1Coset(y, roots, fs, curve) {
     return Fr.mul(e1, e2);
 }
 
-async function computeR0(proof, challenges, roots, curve, logger) {
-    const n = 8;
-    const Fr = curve.Fr;
-    const c = roots.S0.h0w8[0];
+async function computeR2Coset(y, roots1, roots2, f1s, f2s, curve) {
+    const n = roots1.length;
+    if(n !== roots2.length) throw new Error("roots1 and roots2 must have the same length");
 
-    if (logger) logger.info("··· Computing r0(y)");
+    const power = Math.ceil(Math.log2(n))
+    const domain = 2 ** power;
+    const Fr = curve.Fr;
+    const c1 = roots1[0];
+    const c2 = roots2[0];
 
     // 1. y' = y / c
-    const yp = Fr.div(challenges.y, c);
+    const y1p = Fr.div(y, c1);
+    const y2p = Fr.div(y, c2);
 
     // 2. (y')^n - 1 / n
-    let ypN = Fr.exp(yp, n);
+    let y1pN = Fr.exp(y1p, n);
+    let y2pN = Fr.exp(y2p, n);
 
-    const e1 = Fr.div(Fr.sub(ypN, Fr.one), Fr.e(n));
+    const e1 = Fr.div(Fr.mul(Fr.sub(y1pN, Fr.one), Fr.sub(y2pN, Fr.one)), Fr.e(n));
+
+    const s1 = Fr.sub(Fr.exp(Fr.div(c1, c2), n), Fr.one);
+    const s2 = Fr.sub(Fr.exp(Fr.div(c2, c1), n), Fr.one);
+
+    const invS1 = Fr.inv(s1);
+    const invS2 = Fr.inv(s2);
 
     // 3. {r_i w^i}_i=0^7
     // Prepare c's
-    let cs = [];
-    cs[0] = Fr.one;
+    let c1s = [];
+    let c2s = [];
+    c1s[0] = Fr.one;
+    c2s[0] = Fr.one;
     for (let i = 1; i < n; i++) {
-        cs[i] = Fr.mul(cs[i - 1], c);
+        c1s[i] = Fr.mul(c1s[i - 1], c1);
+        c2s[i] = Fr.mul(c2s[i - 1], c2);
     }
-
-    // Prepare f's
-    let fs = [];
-    fs[0] = proof.evaluations.ql;
-    fs[1] = proof.evaluations.qr;
-    fs[2] = proof.evaluations.qo;
-    fs[3] = proof.evaluations.qm;
-    fs[4] = proof.evaluations.qc;
-    fs[5] = proof.evaluations.s1;
-    fs[6] = proof.evaluations.s2;
-    fs[7] = proof.evaluations.s3;
 
     // Prepare the coefficients to be FFT-ed
-    let coeffs = new Uint8Array(n * Fr.n8);
+    let coeffs1 = new Uint8Array(domain * Fr.n8);
+    let coeffs2 = new Uint8Array(domain * Fr.n8);
     for (let i = 0; i < n; i++) {
         const index = (n - 1 + i) % n;
-        const val = Fr.mul(cs[index], fs[index])
-        coeffs.set(val, i * Fr.n8);
+        const val1 = Fr.mul(c1s[index], f1s[index]);
+        const val2 = Fr.mul(c2s[index], f2s[index]);
+
+        coeffs1.set(val1, i * Fr.n8);
+        coeffs2.set(val2, i * Fr.n8);
     }
 
-    let evals = await Fr.fft(coeffs);
+    let evals1 = await Fr.fft(coeffs1);
+    let evals2 = await Fr.fft(coeffs2);
 
-    let e2 = Fr.zero;
+    let e21 = Fr.zero;
+    let e22 = Fr.zero;
     let w = Fr.one;
+    let wi = Fr.w[power];
     for (let i = 0; i < n; i++) {
-        const num = evals.slice(i * Fr.n8, (i + 1) * Fr.n8);
+        const num1 = evals1.slice(i * Fr.n8, (i + 1) * Fr.n8);
+        const num2 = evals2.slice(i * Fr.n8, (i + 1) * Fr.n8);
 
         // 4. {1/(y' - w^i)}_i=0^7
-        const den = Fr.inv(Fr.sub(yp, w));
+        const den1 = Fr.inv(Fr.sub(y1p, w));
+        const den2 = Fr.inv(Fr.sub(y2p, w));
 
-        e2 = Fr.add(e2, Fr.mul(num, den));
+        e21 = Fr.add(e21, Fr.mul(num1, den1));
+        e22 = Fr.add(e22, Fr.mul(num2, den2));
 
-        w = Fr.mul(w, Fr.w[3]);
+        w = Fr.mul(w, wi);
     }
+
+    e21 = Fr.mul(e21, invS1);
+    e22 = Fr.mul(e22, invS2);
+
+    const e2 = Fr.add(e21, e22);
 
     return Fr.mul(e1, e2);
 }
 
-async function computeR1(proof, challenges, roots, pi, curve, logger) {
-    const n = 4;
-    const Fr = curve.Fr;
-    const c = roots.S1.h1w4[0];
-
-    if (logger) logger.info("··· Computing r1(y)");
-
-    // 1. y' = y / c
-    const yp = Fr.div(challenges.y, c);
-
-    // 2. (y')^n - 1 / n
-    let ypN = Fr.exp(yp, n);
-
-    const e1 = Fr.div(Fr.sub(ypN, Fr.one), Fr.e(n));
-
-    // 3. {r_i w^i}_i=0^3
-    // Prepare c's
-    let cs = [];
-    cs[0] = Fr.one;
-    for (let i = 1; i < 4; i++) {
-        cs[i] = Fr.mul(cs[i - 1], c);
-    }
-
-    // TODO extract from here, 
-    // Compute T0(xi)
-    if (logger) logger.info("··· Computing T0(xi)");
-    let t0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
-    t0 = Fr.add(t0, proof.evaluations.qc);
-    t0 = Fr.add(t0, pi);
-    t0 = Fr.mul(t0, challenges.invzh);
-
-    // Prepare f's
-    let fs = [];
-    fs[0] = proof.evaluations.a;
-    fs[1] = proof.evaluations.b;
-    fs[2] = proof.evaluations.c;
-    fs[3] = t0;
-
-    // Prepare the coefficients to be FFT-ed
-    let coeffs = new Uint8Array(n * Fr.n8);
-    for (let i = 0; i < n; i++) {
-        const index = (n - 1 + i) % n;
-        const val = Fr.mul(cs[index], fs[index])
-        coeffs.set(val, i * Fr.n8);
-    }
-
-    let evals = await Fr.fft(coeffs);
-
-    let e2 = Fr.zero;
-    let w = Fr.one;
-    for (let i = 0; i < n; i++) {
-        const num = evals.slice(i * Fr.n8, (i + 1) * Fr.n8);
-
-        // 4. {1/(y' - w^i)}_i=0^7
-        const den = Fr.inv(Fr.sub(yp, w));
-
-        e2 = Fr.add(e2, Fr.mul(num, den));
-
-        w = Fr.mul(w, Fr.w[2]);
-    }
-
-    return Fr.mul(e1, e2);
-}
 
 function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
     const Fr = curve.Fr;
