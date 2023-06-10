@@ -51,7 +51,7 @@
     "r1csfile": "0.0.46"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^22.0.0",
+    "@rollup/plugin-commonjs": "^25.0.1",
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^14.0.0",
     "@rollup/plugin-replace": "^4.0.0",
