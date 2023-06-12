@@ -150,6 +150,16 @@ contract Groth16Verifier {
             let pMem := mload(0x40)
             mstore(0x40, add(pMem, pLastMem))
 
+            // Validat A, B, C ∈ F
+            checkField(calldataload(_pA))
+            checkField(calldataload(add(_pA, 32)))
+            checkField(calldataload(_pB))
+            checkField(calldataload(add(_pB, 32)))
+            checkField(calldataload(add(_pB, 64)))
+            checkField(calldataload(add(_pB, 96)))
+            checkField(calldataload(_pC))
+            checkField(calldataload(add(_pC, 32)))
+
             // Validate that all evaluations ∈ F
             <% for (let i=0; i<IC.length; i++) { %>
             checkField(calldataload(add(_pubSignals, <%=i*32%>)))
