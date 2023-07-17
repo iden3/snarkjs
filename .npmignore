@@ -1,0 +1,12 @@
+# ignore everything first
+*
+
+# only include those that are needed
+!COPYING
+!README.md
+!package.json
+!templates
+
+!build
+!main.js
+!cli.js
