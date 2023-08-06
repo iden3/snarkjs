@@ -777,11 +777,10 @@ async function powersOfTauImport(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const res = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
+    const nextChallenge = await powersOfTau.importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
-    // TODO: This seems wrong
-    if (res) return res;
-    if (!doCheck) return;
+    if (nextChallenge) return 0;
+    if (!doCheck) return 0;
 
     // TODO Verify
 }
