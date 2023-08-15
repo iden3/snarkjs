@@ -1,8 +1,7 @@
 import exportVerificationKey from "./zkey_export_verificationkey.js";
 
-export default async function exportVerifier(zKeyName, pluginName, logger) {
-    const { verifiers } = await import(pluginName);
+export default async function exportVerifier(zKeyName, funcs, logger) {
     const verificationKey = await exportVerificationKey(zKeyName, logger);
 
-    return verifiers[verificationKey.protocol](verificationKey, logger);
+    return funcs[verificationKey.protocol](verificationKey, logger);
 }
