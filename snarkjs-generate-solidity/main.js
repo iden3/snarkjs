@@ -1,0 +1,75 @@
+import ejs from "ejs";
+import fs from "fs";
+import path from "path";
+import { buildBn128, buildBls12381, utils } from "ffjavascript";
+
+const {unstringifyBigInts, stringifyBigInts} = utils;
+
+async function getCurveFromName(name) {
+    let curve;
+    const normName = normalizeName(name);
+    if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
+        curve = await buildBn128();
+    } else if (["BLS12381"].indexOf(normName) >= 0) {
+        curve = await buildBls12381();
+    } else {
+        throw new Error(`Curve not supported: ${name}`);
+    }
+    return curve;
+
+    function normalizeName(n) {
+        return n.toUpperCase().match(/[A-Za-z0-9]+/g).join("");
+    }
+}
+
+
+async function groth16(verificationKey, _logger) {
+    const template = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
+    return ejs.render(template, verificationKey);
+}
+
+async function plonk(verificationKey, _logger) {
+    const template = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
+    return ejs.render(template, verificationKey);
+}
+
+async function fflonk(vk, logger) {
+
+    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
+
+    const curve = await getCurveFromName(vk.curve);
+
+    // Precompute w3_2, w4_2 and w4_3
+    let w3 = fromVkey(vk.w3);
+    vk.w3_2 = toVkey(curve.Fr.square(w3));
+
+    let w4 = fromVkey(vk.w4);
+    vk.w4_2 = toVkey(curve.Fr.square(w4));
+    vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
+
+    let w8 = fromVkey(vk.w8);
+    let acc = curve.Fr.one;
+
+    for (let i = 1; i < 8; i++) {
+        acc = curve.Fr.mul(acc, w8);
+        vk["w8_" + i] = toVkey(acc);
+    }
+
+    let template = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonk.sol.ejs"), "utf8");
+
+    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
+
+    return ejs.render(template, vk);
+
+    function fromVkey(str) {
+        const val = unstringifyBigInts(str);
+        return curve.Fr.fromObject(val);
+    }
+
+    function toVkey(val) {
+        const str = curve.Fr.toObject(val);
+        return stringifyBigInts(str);
+    }
+}
+
+export const verifiers = { groth16, plonk, fflonk };

@@ -245,6 +245,7 @@ const commands = [
         cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
         description: "Creates a verifier in solidity",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        options: "-plugin",
         action: zkeyExportSolidityVerifier
     },
     {
@@ -607,12 +608,6 @@ async function zkeyExportJson(params, options) {
     await bfj.write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
-async function fileExists(file) {
-    return fs.promises.access(file, fs.constants.F_OK)
-        .then(() => true)
-        .catch(() => false);
-}
-
 // solidity genverifier [circuit_final.zkey] [verifier.sol]
 async function zkeyExportSolidityVerifier(params, options) {
     let zkeyName;
@@ -632,19 +627,8 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const templates = {};
-
-    if (await fileExists(path.join(__dirname, "templates"))) {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    } else {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    }
-
-    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
+    const plugin = options.plugin || "snarkjs-generate-solidity";
+    const verifierCode = await zkey.exportVerifier(zkeyName, plugin, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 

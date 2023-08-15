@@ -21,5 +21,4 @@ export { default as setup } from "./fflonk_setup.js";
 export { default as prove } from "./fflonk_prove.js";
 export { default as fullProve } from "./fflonk_full_prove.js";
 export { default as verify } from "./fflonk_verify.js";
-export { default as exportSolidityVerifier } from "./fflonk_export_solidity_verifier.js";
 export { default as exportSolidityCallData } from "./fflonk_export_calldata.js";

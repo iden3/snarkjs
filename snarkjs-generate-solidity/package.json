@@ -1,0 +1,39 @@
+{
+  "name": "snarkjs-generate-solidity",
+  "type": "module",
+  "version": "0.7.0",
+  "description": "zkSNARKs implementation in JavaScript",
+  "main": "./build/main.cjs",
+  "module": "./main.js",
+  "exports": {
+    "import": "./main.js",
+    "require": "./build/main.cjs"
+  },
+  "scripts": {
+    "test": "mocha",
+    "build": "rollup -c config/rollup.cjs.config.js"
+  },
+  "directories": {
+    "templates": "templates"
+  },
+  "keywords": [
+    "zksnark",
+    "zcash",
+    "ethereum",
+    "zero",
+    "knowlage",
+    "cryptography",
+    "circuit"
+  ],
+  "author": "Jordi Baylina",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iden3/snarkjs.git"
+  },
+  "dependencies": {    
+    "ejs": "^3.1.6",
+    "ffjavascript": "0.2.59"
+  },
+  "devDependencies": {}
+}

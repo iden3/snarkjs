@@ -43,12 +43,12 @@
     "bfj": "^7.0.2",
     "blake2b-wasm": "^2.4.0",
     "circom_runtime": "0.1.23",
-    "ejs": "^3.1.6",
     "fastfile": "0.0.20",
     "ffjavascript": "0.2.59",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.46"
+    "r1csfile": "0.0.46",
+    "snarkjs-generate-solidity": "./snarkjs-generate-solidity"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^22.0.0",
