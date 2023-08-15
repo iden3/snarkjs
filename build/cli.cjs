@@ -12,7 +12,6 @@ var readline = require('readline');
 var crypto = require('crypto');
 var path = require('path');
 var binFileUtils = require('@iden3/binfileutils');
-var ejs = require('ejs');
 var circom_runtime = require('circom_runtime');
 var jsSha3 = require('js-sha3');
 var bfj = require('bfj');
@@ -46,7 +45,6 @@ var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
-var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
 var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
 var bfj__default = /*#__PURE__*/_interopDefaultLegacy(bfj);
 var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
@@ -436,13 +434,13 @@ async function r1csExportJson(r1csFileName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const __dirname$2 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$1 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 let pkgS;
 try {
-    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$2, "package.json"));
+    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$1, "package.json"));
 } catch (err) {
-    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$2, "..","package.json"));
+    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$1, "..","package.json"));
 }
 
 const pkg = JSON.parse(pkgS);
@@ -5389,7 +5387,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {stringifyBigInts: stringifyBigInts$5} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
     if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
@@ -5449,7 +5447,7 @@ async function groth16Vk(zkey, fd, sections) {
     }
     await binFileUtils__namespace.endReadSection(fd);
 
-    vKey = stringifyBigInts$5(vKey);
+    vKey = stringifyBigInts$4(vKey);
 
     return vKey;
 }
@@ -5481,7 +5479,7 @@ async function plonkVk(zkey) {
         w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
 
-    vKey = stringifyBigInts$5(vKey);
+    vKey = stringifyBigInts$4(vKey);
 
     return vKey;
 }
@@ -5510,82 +5508,14 @@ async function exportFFlonkVk(zkey, logger) {
         C0: curve.G1.toObject(zkey.C0),
     };
 
-    return stringifyBigInts$5(vKey);
+    return stringifyBigInts$4(vKey);
 }
 
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$b, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
-
-async function fflonkExportSolidityVerifier(vk, templates, logger) {
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
-
-    const curve = await getCurveFromName(vk.curve);
-
-    // Precompute w3_2, w4_2 and w4_3
-    let w3 = fromVkey(vk.w3);
-    vk.w3_2 = toVkey(curve.Fr.square(w3));
-
-    let w4 = fromVkey(vk.w4);
-    vk.w4_2 = toVkey(curve.Fr.square(w4));
-    vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
-
-    let w8 = fromVkey(vk.w8);
-    let acc = curve.Fr.one;
-
-    for (let i = 1; i < 8; i++) {
-        acc = curve.Fr.mul(acc, w8);
-        vk["w8_" + i] = toVkey(acc);
-    }
-
-    let template = templates[vk.protocol];
-
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-
-    return ejs__default["default"].render(template, vk);
-
-    function fromVkey(str) {
-        const val = unstringifyBigInts$b(str);
-        return curve.Fr.fromObject(val);
-    }
-
-    function toVkey(val) {
-        const str = curve.Fr.toObject(val);
-        return stringifyBigInts$4(str);
-    }
-}
-
-// Not ready yet
-// module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
-
-async function exportSolidityVerifier(zKeyName, templates, logger) {
-
+async function exportVerifier(zKeyName, pluginName, logger) {
+    const { verifiers } = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
     const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
 
-    if ("fflonk" === verificationKey.protocol) {
-        return fflonkExportSolidityVerifier(verificationKey, templates, logger);
-    }
-
-    let template = templates[verificationKey.protocol];
-
-    return ejs__default["default"].render(template, verificationKey);
+    return verifiers[verificationKey.protocol](verificationKey, logger);
 }
 
 /*
@@ -12492,7 +12422,7 @@ const {stringifyBigInts} = ffjavascript.utils;
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp: false});
 Logger__default["default"].setLogLevel("INFO");
 
-const __dirname$1 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 const commands = [
     {
@@ -12687,6 +12617,7 @@ const commands = [
         cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
         description: "Creates a verifier in solidity",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        options: "-plugin",
         action: zkeyExportSolidityVerifier
     },
     {
@@ -13049,12 +12980,6 @@ async function zkeyExportJson(params, options) {
     await bfj__default["default"].write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
-async function fileExists(file) {
-    return fs__default["default"].promises.access(file, fs__default["default"].constants.F_OK)
-        .then(() => true)
-        .catch(() => false);
-}
-
 // solidity genverifier [circuit_final.zkey] [verifier.sol]
 async function zkeyExportSolidityVerifier(params, options) {
     let zkeyName;
@@ -13074,19 +12999,8 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const templates = {};
-
-    if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
-        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    } else {
-        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    }
-
-    const verifierCode = await exportSolidityVerifier(zkeyName, templates, logger);
+    const plugin = options.plugin || "snarkjs-generate-solidity";
+    const verifierCode = await exportVerifier(zkeyName, plugin, logger);
 
     fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
 
