@@ -5511,11 +5511,14 @@ async function exportFFlonkVk(zkey, logger) {
     return stringifyBigInts$4(vKey);
 }
 
-async function exportVerifier(zKeyName, pluginName, logger) {
-    const { verifiers } = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
+async function exportVerifier(zKeyName, funcs, logger) {
     const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
 
-    return verifiers[verificationKey.protocol](verificationKey, logger);
+    return funcs[verificationKey.protocol](verificationKey, logger);
+}
+
+async function exportCalldata(proof, pub, funcs, logger) {
+    return funcs[proof.protocol](proof, pub, logger);
 }
 
 /*
@@ -5992,10 +5995,10 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
 
 async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$a(_input);
+    const input = unstringifyBigInts$7(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -6037,10 +6040,10 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
 async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
-    const input = unstringifyBigInts$9(_input);
+    const input = unstringifyBigInts$6(_input);
 
     const wtns= {
         type: "mem"
@@ -6067,7 +6070,7 @@ async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
 
 async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -6077,9 +6080,9 @@ async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
     }
 */
 
-    const vk_verifier = unstringifyBigInts$8(_vk_verifier);
-    const proof = unstringifyBigInts$8(_proof);
-    const publicSignals = unstringifyBigInts$8(_publicSignals);
+    const vk_verifier = unstringifyBigInts$5(_vk_verifier);
+    const proof = unstringifyBigInts$5(_proof);
+    const publicSignals = unstringifyBigInts$5(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -6148,52 +6151,6 @@ function publicInputsAreValid$1(curve, publicInputs) {
         }
     }
     return true;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
-
-function p256$2(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0"+nstr;
-    nstr = `"0x${nstr}"`;
-    return nstr;
-}
-
-async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$7(_proof);
-    const pub = unstringifyBigInts$7(_pub);
-
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256$2(pub[i]);
-    }
-
-    let S;
-    S=`[${p256$2(proof.pi_a[0])}, ${p256$2(proof.pi_a[1])}],` +
-        `[[${p256$2(proof.pi_b[0][1])}, ${p256$2(proof.pi_b[0][0])}],[${p256$2(proof.pi_b[1][1])}, ${p256$2(proof.pi_b[1][0])}]],` +
-        `[${p256$2(proof.pi_c[0])}, ${p256$2(proof.pi_c[1])}],` +
-        `[${inputs}]`;
-
-    return S;
 }
 
 /*
@@ -8932,10 +8889,10 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
 
 async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger) {
-    const input = unstringifyBigInts$6(_input);
+    const input = unstringifyBigInts$4(_input);
 
     const wtns= {
         type: "mem"
@@ -8962,14 +8919,14 @@ async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
 
 
 async function plonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
-    let vk_verifier = unstringifyBigInts$5(_vk_verifier);
-    _proof = unstringifyBigInts$5(_proof);
-    let publicSignals = unstringifyBigInts$5(_publicSignals);
+    let vk_verifier = unstringifyBigInts$3(_vk_verifier);
+    _proof = unstringifyBigInts$3(_proof);
+    let publicSignals = unstringifyBigInts$3(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -9322,65 +9279,6 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
     );
 
     return res;
-}
-
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-const { unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
-
-function p256$1(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0"+nstr;
-    nstr = `"0x${nstr}"`;
-    return nstr;
-}
-
-async function plonkExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$4(_proof);
-    const pub = unstringifyBigInts$4(_pub);
-
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
-
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256$1(pub[i]);
-    }
-
-    return `[${p256$1(proof.A[0])}, ${p256$1(proof.A[1])},` +
-    `${p256$1(proof.B[0])},${p256$1(proof.B[1])},` +
-    `${p256$1(proof.C[0])},${p256$1(proof.C[1])},` +
-    `${p256$1(proof.Z[0])},${p256$1(proof.Z[1])},` +
-    `${p256$1(proof.T1[0])},${p256$1(proof.T1[1])},` +
-    `${p256$1(proof.T2[0])},${p256$1(proof.T2[1])},` +
-    `${p256$1(proof.T3[0])},${p256$1(proof.T3[1])},` +
-    `${p256$1(proof.Wxi[0])},${p256$1(proof.Wxi[1])},` +
-    `${p256$1(proof.Wxiw[0])},${p256$1(proof.Wxiw[1])},` +
-    `${p256$1(proof.eval_a)},` + 
-    `${p256$1(proof.eval_b)},` + 
-    `${p256$1(proof.eval_c)},` + 
-    `${p256$1(proof.eval_s1)},` + 
-    `${p256$1(proof.eval_s2)},` + 
-    `${p256$1(proof.eval_zw)}]` + 
-    `[${inputs}]`;
 }
 
 /*
@@ -11497,10 +11395,10 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
 
 async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger) {
-    const input = unstringifyBigInts$3(_input);
+    const input = unstringifyBigInts$2(_input);
 
     const wtns= {type: "mem"};
 
@@ -11530,13 +11428,13 @@ async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const { unstringifyBigInts: unstringifyBigInts$2 } = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$1 } = ffjavascript.utils;
 
 async function fflonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
     if (logger) logger.info("FFLONK VERIFIER STARTED");
 
-    _vk_verifier = unstringifyBigInts$2(_vk_verifier);
-    _proof = unstringifyBigInts$2(_proof);
+    _vk_verifier = unstringifyBigInts$1(_vk_verifier);
+    _proof = unstringifyBigInts$1(_proof);
 
     const curve = await getCurveFromName(_vk_verifier.curve);
 
@@ -11547,7 +11445,7 @@ async function fflonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
-    const publicSignals = unstringifyBigInts$2(_publicSignals);
+    const publicSignals = unstringifyBigInts$1(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
         logger.error("Number of public signals does not match with vk");
@@ -12104,61 +12002,6 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
 }
 
 /*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
-
-function p256(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0" + nstr;
-    nstr = `0x${nstr}`;
-    return nstr;
-}
-
-async function fflonkExportCallData(_pub, _proof) {
-    const proof = unstringifyBigInts$1(_proof);
-    const pub = unstringifyBigInts$1(_pub);
-
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
-
-    let inputs = "";
-    for (let i = 0; i < pub.length; i++) {
-        if (inputs !== "") inputs = inputs + ",";
-        inputs = inputs + p256(pub[i]);
-    }
-
-    return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},` +
-    `${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},` +
-    `${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},` +
-    `${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},` +
-    `${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},` +
-    `${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},` +
-    `${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},` +
-    `${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},` +
-    `${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},` +
-    `${p256(proof.evaluations.inv)}],` +
-    `[${inputs}]`;
-}
-
-/*
     Copyright 2018 0KIMS association.
 
     This file is part of snarkJS.
@@ -12614,17 +12457,18 @@ const commands = [
         action: zkeyExportJson
     },
     {
-        cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
-        description: "Creates a verifier in solidity",
+        cmd: "zkey export verifier [circuit_final.zkey] [verifier.sol]",
+        description: "Creates a verifier",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
         options: "-plugin",
-        action: zkeyExportSolidityVerifier
+        action: zkeyExportVerifier
     },
     {
-        cmd: "zkey export soliditycalldata [public.json] [proof.json]",
+        cmd: "zkey export calldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
-        action: zkeyExportSolidityCalldata
+        options: "-plugin",
+        action: zkeyExportCalldata
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -12980,8 +12824,8 @@ async function zkeyExportJson(params, options) {
     await bfj__default["default"].write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
-// solidity genverifier [circuit_final.zkey] [verifier.sol]
-async function zkeyExportSolidityVerifier(params, options) {
+// zkey export verifier [circuit_final.zkey] [verifier.sol]
+async function zkeyExportVerifier(params, options) {
     let zkeyName;
     let verifierName;
 
@@ -12999,7 +12843,9 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const plugin = options.plugin || "snarkjs-generate-solidity";
+    const pluginName = options.plugin || "snarkjs-generate-solidity";
+    const plugin = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
+
     const verifierCode = await exportVerifier(zkeyName, plugin, logger);
 
     fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
@@ -13008,8 +12854,8 @@ async function zkeyExportSolidityVerifier(params, options) {
 }
 
 
-// solidity gencall <public.json> <proof.json>
-async function zkeyExportSolidityCalldata(params, options) {
+// zkey export calldata <public.json> <proof.json>
+async function zkeyExportCalldata(params, options) {
     let publicName;
     let proofName;
 
@@ -13030,16 +12876,10 @@ async function zkeyExportSolidityCalldata(params, options) {
     const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
     const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
 
-    let res;
-    if (proof.protocol == "groth16") {
-        res = await groth16ExportSolidityCallData(proof, pub);
-    } else if (proof.protocol == "plonk") {
-        res = await plonkExportSolidityCallData(proof, pub);
-    } else if (proof.protocol === "fflonk") {
-        res = await fflonkExportCallData(pub, proof);
-    } else {
-        throw new Error("Invalid Protocol");
-    }
+    const pluginName = options.plugin || "snarkjs-generate-solidity";
+    const plugin = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
+
+    const res = await exportCalldata(proof, pub, plugin, logger);
     console.log(res);
 
     return 0;
