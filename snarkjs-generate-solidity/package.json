@@ -3,11 +3,11 @@
   "type": "module",
   "version": "0.7.0",
   "description": "zkSNARKs implementation in JavaScript",
-  "main": "./build/main.cjs",
+  "main": "./main.cjs",
   "module": "./main.js",
   "exports": {
     "import": "./main.js",
-    "require": "./build/main.cjs"
+    "require": "./main.cjs"
   },
   "scripts": {
     "test": "mocha",
