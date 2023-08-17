@@ -33,12 +33,12 @@ async function getCurveFromName(name) {
 }
 
 
-async function groth16SolidityVerifier(verificationKey, _logger) {
+async function groth16SolidityVerifier(verificationKey, logger) {
     const template = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
     return ejs__default["default"].render(template, verificationKey);
 }
 
-async function plonkSolidityVerifier(verificationKey, _logger) {
+async function plonkSolidityVerifier(verificationKey, logger) {
     const template = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
     return ejs__default["default"].render(template, verificationKey);
 }
@@ -95,7 +95,7 @@ function p256(n) {
     return nstr;
 }
 
-async function groth16SolidityCallData(_proof, _pub) {
+async function groth16SolidityCallData(_proof, _pub, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
@@ -114,7 +114,7 @@ async function groth16SolidityCallData(_proof, _pub) {
     return S;
 }
 
-async function plonkSolidityCallData(_proof, _pub) {
+async function plonkSolidityCallData(_proof, _pub, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
@@ -142,7 +142,7 @@ async function plonkSolidityCallData(_proof, _pub) {
     `[${inputs}]`;
 }
 
-async function fflonkSolidityCallData(_pub, _proof) {
+async function fflonkSolidityCallData(_proof, _pub, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 

@@ -132,7 +132,7 @@ async function plonkSolidityCallData(_proof, _pub, logger) {
     `[${inputs}]`;
 }
 
-async function fflonkSolidityCallData(_pub, _proof, logger) {
+async function fflonkSolidityCallData(_proof, _pub, logger) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
