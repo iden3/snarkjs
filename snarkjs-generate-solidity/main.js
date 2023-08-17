@@ -1,9 +1,13 @@
-import ejs from "ejs";
 import fs from "fs";
+import url from "url";
 import path from "path";
+
+import ejs from "ejs";
 import { buildBn128, buildBls12381, utils } from "ffjavascript";
 
 const {unstringifyBigInts, stringifyBigInts} = utils;
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 async function getCurveFromName(name) {
     let curve;

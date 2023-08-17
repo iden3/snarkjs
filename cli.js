@@ -20,7 +20,6 @@
 /* eslint-disable no-console */
 
 import fs from "fs";
-import url from "url";
 
 import {readR1cs} from "r1csfile";
 
@@ -41,7 +40,6 @@ import * as plonk from "./src/plonk.js";
 import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
-import path from "path";
 import bfj from "bfj";
 
 import Logger from "logplease";
@@ -49,8 +47,6 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
-
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const commands = [
     {
