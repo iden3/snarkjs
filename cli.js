@@ -628,10 +628,10 @@ async function zkeyExportVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const pluginName = options.plugin || "snarkjs-generate-solidity";
-    const plugin = await import(pluginName);
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { verifiers } = await import(generator);
 
-    const verifierCode = await zkey.exportVerifier(zkeyName, plugin, logger);
+    const verifierCode = await zkey.exportVerifier(zkeyName, verifiers, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
@@ -661,10 +661,10 @@ async function zkeyExportCalldata(params, options) {
     const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
-    const pluginName = options.plugin || "snarkjs-generate-solidity";
-    const plugin = await import(pluginName);
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { calldata } = await import(generator);
 
-    const res = await zkey.exportCalldata(proof, pub, plugin, logger);
+    const res = await zkey.exportCalldata(proof, pub, calldata, logger);
     console.log(res);
 
     return 0;
