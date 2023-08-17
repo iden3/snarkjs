@@ -12843,10 +12843,10 @@ async function zkeyExportVerifier(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const pluginName = options.plugin || "snarkjs-generate-solidity";
-    const plugin = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { verifiers } = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(generator);
 
-    const verifierCode = await exportVerifier(zkeyName, plugin, logger);
+    const verifierCode = await exportVerifier(zkeyName, verifiers, logger);
 
     fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
 
@@ -12876,10 +12876,10 @@ async function zkeyExportCalldata(params, options) {
     const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
     const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
 
-    const pluginName = options.plugin || "snarkjs-generate-solidity";
-    const plugin = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(pluginName);
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { calldata } = await (function (t) { return Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require(t)); }); })(generator);
 
-    const res = await exportCalldata(proof, pub, plugin, logger);
+    const res = await exportCalldata(proof, pub, calldata, logger);
     console.log(res);
 
     return 0;
