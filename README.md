@@ -67,7 +67,7 @@ snarkjs g16p --help
 
 ### Debugging tip
 
-If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked.
+If you feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked.
 
 ### Install circom
 
