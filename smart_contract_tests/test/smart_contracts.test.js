@@ -4,6 +4,7 @@ import { buildBn128 } from "ffjavascript";
 import path from "path";
 import hardhat from "hardhat";
 const { ethers, run } = hardhat;
+import { verifiers } from "snarkjs-generate-solidity";
 
 import * as snarkjs from "snarkjs";
 
@@ -13,12 +14,6 @@ describe("Smart contracts test suite", function () {
     this.timeout(1000000000);
 
     const ptauFilename = path.join("../test", "plonk_circuit", "powersOfTau15_final.ptau");
-
-    // Load templates
-    const templates = {};
-    templates.groth16 = fs.readFileSync(path.join("../templates", "verifier_groth16.sol.ejs"), "utf8");
-    templates.plonk = fs.readFileSync(path.join("../templates", "verifier_plonk.sol.ejs"), "utf8");
-    templates.fflonk = fs.readFileSync(path.join("../templates", "verifier_fflonk.sol.ejs"), "utf8");
 
     let verifierContract;
     let curve;
@@ -87,7 +82,7 @@ describe("Smart contracts test suite", function () {
         const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
         // Generate groth16 verifier solidity file from groth16 template + zkey
-        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportVerifier(zkeyFilename, verifiers);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the groth16 verifier smart contract
@@ -109,7 +104,7 @@ describe("Smart contracts test suite", function () {
         const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.plonk.prove(zkeyFilename, wtnsFilename);
 
         // Generate plonk verifier solidity file from plonk template + zkey
-        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportVerifier(zkeyFilename, verifiers);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the plonk verifier smart contract
@@ -150,7 +145,7 @@ describe("Smart contracts test suite", function () {
             ];
 
         return await verifierContract.verifyProof(proof, publicInputs);
-    };
+    }
 
     async function fflonkVerify(r1csFilename, wtnsFilename) {
         const solidityVerifierFilename = path.join("contracts", "fflonk.sol");
@@ -161,7 +156,7 @@ describe("Smart contracts test suite", function () {
         const { proof: proofJson, publicSignals: publicInputs } = await snarkjs.fflonk.prove(zkeyFilename, wtnsFilename);
 
         // Generate fflonk verifier solidity file from fflonk template + zkey
-        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
+        const verifierCode = await snarkjs.zKey.exportVerifier(zkeyFilename, verifiers);
         fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
 
         // Compile the fflonk verifier smart contract
@@ -203,5 +198,5 @@ describe("Smart contracts test suite", function () {
             ];
 
         return await verifierContract.verifyProof(proof, publicInputs);
-    };
+    }
 });
