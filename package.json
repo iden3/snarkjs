@@ -9,6 +9,15 @@
     "import": "./main.js",
     "require": "./build/main.cjs"
   },
+  "files": [
+    "COPYING",
+    "README.md",
+    "build/",
+    "cli.js",
+    "main.js",
+    "src/",
+    "templates/"
+  ],
   "scripts": {
     "test": "mocha",
     "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
