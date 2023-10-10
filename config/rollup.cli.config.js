@@ -3,6 +3,11 @@ import { builtinModules as builtin } from "module";
 
 const pkg = JSON.parse(fs.readFileSync("./package.json"));
 
+let externals = [
+    ...Object.keys(pkg.dependencies),
+    ...builtin,
+];
+
 export default {
     input: "cli.js",
     output: {
@@ -10,8 +15,5 @@ export default {
         format: "cjs",
         banner: "#! /usr/bin/env node\n",
     },
-    external: [
-        ...Object.keys(pkg.dependencies),
-        ...builtin,
-    ]
+    external: (id) => externals.some((pkg) => id.startsWith(pkg))
 };
