@@ -116,7 +116,7 @@ export function askEntropy() {
 
 export function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (typeof globalThis.crypto !== "undefined") { // Supported
+    if (process.browser) { // Supported
         globalThis.crypto.getRandomValues(array);
     } else { // NodeJS
         crypto.randomFillSync(array);
@@ -125,7 +125,7 @@ export function getRandomBytes(n) {
 }
 
 export async function sha256digest(data) {
-    if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.subtle !== "undefined") { // Supported
+    if (process.browser) { // Supported
         const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
         return new Uint8Array(buffer);
     } else { // NodeJS
