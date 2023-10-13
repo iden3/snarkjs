@@ -11,7 +11,7 @@
         "import": "./main.js",
         "require": "./build/main.cjs"
       },
-      "browser": "./build/esm.js",
+      "browser": "./build/browser.esm.js",
       "umd": "./build/snarkjs.min.js"
     }
   },

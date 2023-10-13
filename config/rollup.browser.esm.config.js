@@ -18,7 +18,7 @@ export const O_RDONLY = ${O_RDONLY}
 export default {
     input: "main.js",
     output: {
-        file: "build/esm.js",
+        file: "build/browser.esm.js",
         format: "es",
     },
     external: ["ffjavascript"],
