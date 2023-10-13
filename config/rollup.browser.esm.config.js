@@ -2,7 +2,6 @@ import { nodeResolve } from "@rollup/plugin-node-resolve";
 import commonJS from "@rollup/plugin-commonjs";
 import virtual from "@rollup/plugin-virtual";
 import replace from "@rollup/plugin-replace";
-import visualizer from "rollup-plugin-visualizer";
 // Needed by fastfile
 import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
@@ -20,14 +19,14 @@ export default {
     input: "main.js",
     output: {
         file: "build/esm.js",
-        format: "es"
+        format: "es",
     },
-    external: ['ffjavascript'],
+    external: ["ffjavascript"],
     plugins: [
         replace({
             // The current default is false, but they are changing it next version
             preventAssignment: false,
-            "process.browser": true
+            "process.browser": true,
         }),
         virtual({
             fs: empty,
@@ -43,13 +42,11 @@ export default {
         nodeResolve({
             browser: true,
             preferBuiltins: false,
-            exportConditions: ["module"]
+            exportConditions: ["module"],
         }),
         commonJS(),
-        // terser(),
-        visualizer(),
     ],
     treeshake: {
         preset: "smallest",
-    }
+    },
 };
