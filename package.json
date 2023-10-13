@@ -18,7 +18,6 @@
   "files": [
     "COPYING",
     "README.md",
-    "config",
     "build/",
     "cli.js",
     "main.js",
@@ -26,7 +25,6 @@
     "templates/"
   ],
   "scripts": {
-    "prepare": "npm run build:browser:esm",
     "test": "mocha",
     "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
     "build": "rollup -c config/rollup.cjs.config.js",
