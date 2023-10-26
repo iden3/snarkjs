@@ -7,6 +7,7 @@
   },
   "devDependencies": {
     "puppeteer": "20.2.0",
+    "ffjavascript": "^0.2.62",
     "st": "3.0.0"
   }
 }
