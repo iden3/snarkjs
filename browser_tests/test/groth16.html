@@ -67,7 +67,7 @@
       }
 
       await testBrowserBuilds(snarkjs);
-      const esmBuild = await import("/build/esm.js");
+      const esmBuild = await import("/build/browser.esm.js");
       await testBrowserBuilds(esmBuild);
       shutdown();
     </script>

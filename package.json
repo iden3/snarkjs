@@ -27,11 +27,12 @@
   "scripts": {
     "test": "mocha",
     "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
-    "build": "rollup -c config/rollup.cjs.config.js",
+    "build": "npm run buildcjs && npm run buildcli && npm run buildiife && npm run buildiifemin && npm run buildesm",
+    "buildcjs": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
     "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
-    "build:browser:esm": "BROWSER=true rollup -c config/rollup.browser.esm.config"
+    "buildesm": "BROWSER=true rollup -c config/rollup.browser.esm.config"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -61,7 +62,7 @@
     "circom_runtime": "0.1.24",
     "ejs": "^3.1.6",
     "fastfile": "0.0.20",
-    "ffjavascript": "https://github.com/iden3/ffjavascript.git#chore/esm-patch",
+    "ffjavascript": "0.2.62",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
     "r1csfile": "0.0.47"
