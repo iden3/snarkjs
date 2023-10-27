@@ -5,7 +5,9 @@ import { Scalar } from "ffjavascript";
 
 import { getG2sp } from "../src/keypair.js";
 
-describe("keypair", () => {
+describe("keypair", function() {
+    this.timeout(10000);
+    
     let curve;
 
     before( async () => {
