@@ -1,21 +1,38 @@
 {
   "name": "snarkjs",
   "type": "module",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
   "module": "./main.js",
   "exports": {
-    "import": "./main.js",
-    "require": "./build/main.cjs"
+    ".": {
+      "node": {
+        "import": "./main.js",
+        "require": "./build/main.cjs"
+      },
+      "browser": "./build/browser.esm.js",
+      "umd": "./build/snarkjs.min.js"
+    }
   },
+  "files": [
+    "COPYING",
+    "README.md",
+    "build/",
+    "cli.js",
+    "main.js",
+    "src/",
+    "templates/"
+  ],
   "scripts": {
     "test": "mocha",
     "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
-    "build": "rollup -c config/rollup.cjs.config.js",
+    "build": "npm run buildcjs && npm run buildcli && npm run buildiife && npm run buildiifemin && npm run buildesm",
+    "buildcjs": "rollup -c config/rollup.cjs.config.js",
     "buildcli": "rollup -c config/rollup.cli.config.js",
     "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
-    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js"
+    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
+    "buildesm": "BROWSER=true rollup -c config/rollup.browser.esm.config"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -42,12 +59,12 @@
     "@iden3/binfileutils": "0.0.11",
     "bfj": "^7.0.2",
     "blake2b-wasm": "^2.4.0",
-    "circom_runtime": "0.1.23",
+    "circom_runtime": "0.1.24",
     "fastfile": "0.0.20",
-    "ffjavascript": "0.2.59",
+    "ffjavascript": "0.2.62",
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.46",
+    "r1csfile": "0.0.47",
     "snarkjs-generate-solidity": "github:iden3/snarkjs-generate-solidity"
   },
   "devDependencies": {
