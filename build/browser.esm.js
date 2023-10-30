@@ -1,70 +1,1114 @@
-'use strict';
+import { Scalar, BigBuffer, buildBn128, buildBls12381, ChaCha, F1Field, utils, getCurveFromR as getCurveFromR$1 } from 'ffjavascript';
 
-Object.defineProperty(exports, '__esModule', { value: true });
+var fs = {};
 
-var binFileUtils = require('@iden3/binfileutils');
-var ffjavascript = require('ffjavascript');
-var Blake2b = require('blake2b-wasm');
-var readline = require('readline');
-var crypto = require('crypto');
-var fastFile = require('fastfile');
-var circom_runtime = require('circom_runtime');
-var r1csfile = require('r1csfile');
-var jsSha3 = require('js-sha3');
+async function open(fileName, openFlags, cacheSize, pageSize) {
+    cacheSize = cacheSize || 4096*64;
+    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
+        throw new Error("Invalid open option");
+    const fd =await fs.promises.open(fileName, openFlags);
 
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
+    const stats = await fd.stat();
 
-function _interopNamespace(e) {
-    if (e && e.__esModule) return e;
-    var n = Object.create(null);
-    if (e) {
-        Object.keys(e).forEach(function (k) {
-            if (k !== 'default') {
-                var d = Object.getOwnPropertyDescriptor(e, k);
-                Object.defineProperty(n, k, d.get ? d : {
-                    enumerable: true,
-                    get: function () { return e[k]; }
-                });
-            }
-        });
-    }
-    n["default"] = e;
-    return Object.freeze(n);
+    return  new FastFile(fd, stats, cacheSize, pageSize, fileName);
 }
 
-var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
-var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
-var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
-var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
-var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
-var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
 
-const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+class FastFile {
 
-const bls12381q = ffjavascript.Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
-const bn128q = ffjavascript.Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+    constructor(fd, stats, cacheSize, pageSize, fileName) {
+        this.fileName = fileName;
+        this.fd = fd;
+        this.pos = 0;
+        this.pageSize = pageSize || (1 << 8);
+        while (this.pageSize < stats.blksize) {
+            this.pageSize *= 2;
+        }
+        this.totalSize = stats.size;
+        this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
+        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
+        this.pages = {};
+        this.pendingLoads = [];
+        this.writing = false;
+        this.reading = false;
+        this.avBuffs = [];
+        this.history = {};
+    }
+
+    _loadPage(p) {
+        const self = this;
+        const P = new Promise((resolve, reject)=> {
+            self.pendingLoads.push({
+                page: p,
+                resolve: resolve,
+                reject: reject
+            });
+        });
+        self.__statusPage("After Load request: ", p);
+        return P;
+    }
+
+    __statusPage(s, p) {
+        const logEntry = [];
+        const self=this;
+        if (!self.logHistory) return;
+        logEntry.push("==" + s+ " " +p);
+        let S = "";
+        for (let i=0; i<self.pendingLoads.length; i++) {
+            if (self.pendingLoads[i].page == p) S = S + " " + i;
+        }
+        if (S) logEntry.push("Pending loads:"+S);
+        if (typeof self.pages[p] != "undefined") {
+            const page = self.pages[p];
+            logEntry.push("Loaded");
+            logEntry.push("pendingOps: "+page.pendingOps);
+            if (page.loading) logEntry.push("loading: "+page.loading);
+            if (page.writing) logEntry.push("writing");
+            if (page.dirty) logEntry.push("dirty");
+        }
+        logEntry.push("==");
+
+        if (!self.history[p]) self.history[p] = [];
+        self.history[p].push(logEntry);
+    }
+
+    __printHistory(p) {
+        const self = this;
+        if (!self.history[p]) console.log("Empty History ", p);
+        console.log("History "+p);
+        for (let i=0; i<self.history[p].length; i++) {
+            for (let j=0; j<self.history[p][i].length; j++) {
+                console.log("-> " + self.history[p][i][j]);
+            }
+        }
+    }
+
+
+
+    _triggerLoad() {
+        const self = this;
+
+        if (self.reading) return;
+        if (self.pendingLoads.length==0) return;
+
+        const pageIdxs = Object.keys(self.pages);
+
+        const deletablePages = [];
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if ((page.dirty == false)&&(page.pendingOps==0)&&(!page.writing)&&(!page.loading)) deletablePages.push(parseInt(pageIdxs[i]));
+        }
+
+        let freePages = self.maxPagesLoaded - pageIdxs.length;
+
+        const ops = [];
+
+        // while pending loads and
+        //     the page is loaded or I can recover one.
+        while (
+            (self.pendingLoads.length>0) &&
+            (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
+              ||(  (freePages>0)
+                 ||(deletablePages.length>0)))) {
+            const load = self.pendingLoads.shift();
+            if (typeof self.pages[load.page] != "undefined") {
+                self.pages[load.page].pendingOps ++;
+                const idx = deletablePages.indexOf(load.page);
+                if (idx>=0) deletablePages.splice(idx, 1);
+                if (self.pages[load.page].loading) {
+                    self.pages[load.page].loading.push(load);
+                } else {
+                    load.resolve();
+                }
+                self.__statusPage("After Load (cached): ", load.page);
+
+            } else {
+                if (freePages) {
+                    freePages--;
+                } else {
+                    const fp = deletablePages.shift();
+                    self.__statusPage("Before Unload: ", fp);
+                    self.avBuffs.unshift(self.pages[fp]);
+                    delete self.pages[fp];
+                    self.__statusPage("After Unload: ", fp);
+                }
+
+                if (load.page>=self.totalPages) {
+                    self.pages[load.page] = getNewPage();
+                    load.resolve();
+                    self.__statusPage("After Load (new): ", load.page);
+                } else {
+                    self.reading = true;
+                    self.pages[load.page] = getNewPage();
+                    self.pages[load.page].loading = [load];
+                    ops.push(self.fd.read(self.pages[load.page].buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
+                        self.pages[load.page].size = res.bytesRead;
+                        const loading = self.pages[load.page].loading;
+                        delete self.pages[load.page].loading;
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].resolve();
+                        }
+                        self.__statusPage("After Load (loaded): ", load.page);
+                        return res;
+                    }, (err) => {
+                        load.reject(err);
+                    }));
+                    self.__statusPage("After Load (loading): ", load.page);
+                }
+            }
+        }
+        // if (ops.length>1) console.log(ops.length);
+
+        Promise.all(ops).then( () => {
+            self.reading = false;
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            self._tryClose();
+        });
+
+        function getNewPage() {
+            if (self.avBuffs.length>0) {
+                const p = self.avBuffs.shift();
+                p.dirty = false;
+                p.pendingOps = 1;
+                p.size =0;
+                return p;
+            } else {
+                return {
+                    dirty: false,
+                    buff: new Uint8Array(self.pageSize),
+                    pendingOps: 1,
+                    size: 0
+                };
+            }
+        }
+
+    }
+
+
+    _triggerWrite() {
+        const self = this;
+        if (self.writing) return;
+
+        const pageIdxs = Object.keys(self.pages);
+
+        const ops = [];
+
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if (page.dirty) {
+                page.dirty = false;
+                page.writing = true;
+                self.writing = true;
+                ops.push( self.fd.write(page.buff, 0, page.size, parseInt(pageIdxs[i])*self.pageSize).then(() => {
+                    page.writing = false;
+                    return;
+                }, (err) => {
+                    console.log("ERROR Writing: "+err);
+                    self.error = err;
+                    self._tryClose();
+                }));
+            }
+        }
+
+        if (self.writing) {
+            Promise.all(ops).then( () => {
+                self.writing = false;
+                setImmediate(self._triggerWrite.bind(self));
+                self._tryClose();
+                if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            });
+        }
+    }
+
+    _getDirtyPage() {
+        for (let p in this.pages) {
+            if (this.pages[p].dirty) return p;
+        }
+        return -1;
+    }
+
+    async write(buff, pos) {
+        if (buff.byteLength == 0) return;
+        const self = this;
+/*
+        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(buff.byteLength * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+*/
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+buff.byteLength;
+        if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
+        if (self.pendingClose)
+            throw new Error("Writing a closing file");
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
+
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+        self._triggerLoad();
+
+        let p = firstPage;
+        let o = pos % self.pageSize;
+        let r = buff.byteLength;
+        while (r>0) {
+            await pagePromises[p-firstPage];
+            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
+            const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
+            const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
+            dstView.set(srcView);
+            self.pages[p].dirty = true;
+            self.pages[p].pendingOps --;
+            self.pages[p].size = Math.max(o+l, self.pages[p].size);
+            if (p>=self.totalPages) {
+                self.totalPages = p+1;
+            }
+            r = r-l;
+            p ++;
+            o = 0;
+            if (!self.writing) setImmediate(self._triggerWrite.bind(self));
+        }
+    }
+
+    async read(len, pos) {
+        const self = this;
+        let buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
+        if (len == 0) {
+            return;
+        }
+        const self = this;
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+len;
+        if (self.pendingClose)
+            throw new Error("Reading a closing file");
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + len -1) / self.pageSize);
+
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+
+        self._triggerLoad();
+
+        let p = firstPage;
+        let o = pos % self.pageSize;
+        // Remaining bytes to read
+        let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
+        while (r>0) {
+            await pagePromises[p - firstPage];
+            self.__statusPage("After Await (read): ", p);
+
+            // bytes to copy from this page
+            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
+            const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
+            buffDst.set(srcView, offset+len-r);
+            self.pages[p].pendingOps --;
+
+            self.__statusPage("After Op done: ", p);
+
+            r = r-l;
+            p ++;
+            o = 0;
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+        }
+
+        this.pos = pos + len;
+
+    }
+
+
+    _tryClose() {
+        const self = this;
+        if (!self.pendingClose) return;
+        if (self.error) {
+            self.pendingCloseReject(self.error);
+        }
+        const p = self._getDirtyPage();
+        if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
+        self.pendingClose();
+    }
+
+    close() {
+        const self = this;
+        if (self.pendingClose)
+            throw new Error("Closing the file twice");
+        return new Promise((resolve, reject) => {
+            self.pendingClose = resolve;
+            self.pendingCloseReject = reject;
+            self._tryClose();
+        }).then(()=> {
+            self.fd.close();
+        }, (err) => {
+            self.fd.close();
+            throw (err);
+        });
+    }
+
+    async discard() {
+        const self = this;
+        await self.close();
+        await fs.promises.unlink(this.fileName);
+    }
+
+    async writeULE32(v, pos) {
+        const self = this;
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
+
+        tmpBuff32v.setUint32(0, v, true);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
+
+        tmpBuff32v.setUint32(0, v, false);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        const tmpBuff64 = new Uint8Array(8);
+        const tmpBuff64v = new DataView(tmpBuff64.buffer);
+
+        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64, pos);
+    }
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+
+        if (self.pendingClose) {
+            throw new Error("Reading a closing file");
+        }
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+        let currentPage = Math.floor(currentPosition / self.pageSize);
+
+        let endOfStringFound = false;
+        let str = "";
+
+        while (!endOfStringFound) {
+            //Read page
+            let pagePromise = self._loadPage(currentPage);
+            self._triggerLoad();
+            await pagePromise;
+            self.__statusPage("After Await (read): ", currentPage);
+
+            let offsetOnPage = currentPosition % self.pageSize;
+
+            const dataArray = new Uint8Array(
+                self.pages[currentPage].buff.buffer,
+                self.pages[currentPage].buff.byteOffset + offsetOnPage,
+                self.pageSize - offsetOnPage
+            );
+
+            let indexEndOfString = dataArray.findIndex(element => element === 0);
+            endOfStringFound = indexEndOfString !== -1;
+
+            if (endOfStringFound) {
+                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+                self.pos = currentPage * this.pageSize + offsetOnPage + indexEndOfString + 1;
+            } else {
+                str += new TextDecoder().decode(dataArray);
+                self.pos = currentPage * this.pageSize + offsetOnPage + dataArray.length;
+            }
+
+            self.pages[currentPage].pendingOps--;
+            self.__statusPage("After Op done: ", currentPage);
+
+            currentPosition = self.pos;
+            currentPage++;
+
+            if (self.pendingLoads.length > 0) setImmediate(self._triggerLoad.bind(self));
+        }
+
+        return str;
+    }
+}
+
+function createNew$1(o) {
+    const initialSize = o.initialSize || 1<<20;
+    const fd = new MemFile();
+    fd.o = o;
+    fd.o.data = new Uint8Array(initialSize);
+    fd.allocSize = initialSize;
+    fd.totalSize = 0;
+    fd.readOnly = false;
+    fd.pos = 0;
+    return fd;
+}
+
+function readExisting$2(o) {
+    const fd = new MemFile();
+    fd.o = o;
+    fd.allocSize = o.data.byteLength;
+    fd.totalSize = o.data.byteLength;
+    fd.readOnly = true;
+    fd.pos = 0;
+    return fd;
+}
+
+const tmpBuff32$1 = new Uint8Array(4);
+const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
+const tmpBuff64$1 = new Uint8Array(8);
+const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
+
+class MemFile {
+
+    constructor() {
+        this.pageSize = 1 << 14;  // for compatibility
+    }
+
+    _resizeIfNeeded(newLen) {
+        if (newLen > this.allocSize) {
+            const newAllocSize = Math.max(
+                this.allocSize + (1 << 20),
+                Math.floor(this.allocSize * 1.1),
+                newLen
+            );
+            const newData = new Uint8Array(newAllocSize);
+            newData.set(this.o.data);
+            this.o.data = newData;
+            this.allocSize = newAllocSize;
+        }
+    }
+
+    async write(buff, pos) {
+        const self =this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) throw new Error("Writing a read only file");
+
+        this._resizeIfNeeded(pos + buff.byteLength);
+
+        this.o.data.set(buff.slice(), pos);
+
+        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
+
+        this.pos = pos + buff.byteLength;
+    }
+
+    async readToBuffer(buffDest, offset, len, pos) {
+        const self = this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) {
+            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
+        }
+        this._resizeIfNeeded(pos + len);
+
+        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
+
+        buffDest.set(buffSrc, offset);
+
+        this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    close() {
+        if (this.o.data.byteLength != this.totalSize) {
+            this.o.data = this.o.data.slice(0, this.totalSize);
+        }
+    }
+
+    async discard() {
+    }
+
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$1.setUint32(0, v, true);
+
+        await self.write(tmpBuff32$1, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$1.setUint32(0, v, false);
+
+        await self.write(tmpBuff32$1, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64$1, pos);
+    }
+
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+
+        if (currentPosition > this.totalSize) {
+            if (this.readOnly) {
+                throw new Error("Reading out of bounds");
+            }
+            this._resizeIfNeeded(pos);
+        }
+        const dataArray = new Uint8Array(
+            self.o.data.buffer,
+            currentPosition,
+            this.totalSize - currentPosition
+        );
+
+        let indexEndOfString = dataArray.findIndex(element => element === 0);
+        let endOfStringFound = indexEndOfString !== -1;
+
+        let str = "";
+        if (endOfStringFound) {
+            str = new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+            self.pos = currentPosition + indexEndOfString + 1;
+        } else {
+            self.pos = currentPosition;
+        }
+        return str;
+    }
+}
+
+const PAGE_SIZE = 1<<22;
+
+function createNew(o) {
+    const initialSize = o.initialSize || 0;
+    const fd = new BigMemFile();
+    fd.o = o;
+    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE)+1 : 0;
+    fd.o.data = [];
+    for (let i=0; i<nPages-1; i++) {
+        fd.o.data.push( new Uint8Array(PAGE_SIZE));
+    }
+    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE*(nPages-1)));
+    fd.totalSize = 0;
+    fd.readOnly = false;
+    fd.pos = 0;
+    return fd;
+}
+
+function readExisting$1(o) {
+    const fd = new BigMemFile();
+    fd.o = o;
+    fd.totalSize = (o.data.length-1)* PAGE_SIZE + o.data[o.data.length-1].byteLength;
+    fd.readOnly = true;
+    fd.pos = 0;
+    return fd;
+}
+
+const tmpBuff32 = new Uint8Array(4);
+const tmpBuff32v = new DataView(tmpBuff32.buffer);
+const tmpBuff64 = new Uint8Array(8);
+const tmpBuff64v = new DataView(tmpBuff64.buffer);
+
+class BigMemFile {
+
+    constructor() {
+        this.pageSize = 1 << 14;  // for compatibility
+    }
+
+    _resizeIfNeeded(newLen) {
+
+        if (newLen <= this.totalSize) return;
+
+        if (this.readOnly) throw new Error("Reading out of file bounds");
+
+        const nPages = Math.floor((newLen - 1) / PAGE_SIZE)+1;
+        for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
+            const newSize = i<nPages-1 ? PAGE_SIZE : newLen - (nPages-1)*PAGE_SIZE;
+            const p = new Uint8Array(newSize);
+            if (i == this.o.data.length-1) p.set(this.o.data[i]);
+            this.o.data[i] = p;
+        }
+        this.totalSize = newLen;
+    }
+
+    async write(buff, pos) {
+        const self =this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) throw new Error("Writing a read only file");
+
+        this._resizeIfNeeded(pos + buff.byteLength);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE);
+
+        let p = firstPage;
+        let o = pos % PAGE_SIZE;
+        let r = buff.byteLength;
+        while (r>0) {
+            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
+            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
+            const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
+            dstView.set(srcView);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + buff.byteLength;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
+        const self = this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) {
+            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
+        }
+        this._resizeIfNeeded(pos + len);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE);
+
+        let p = firstPage;
+        let o = pos % PAGE_SIZE;
+        // Remaining bytes to read
+        let r = len;
+        while (r>0) {
+            // bytes to copy from this page
+            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
+            const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
+            buffDst.set(srcView, offset+len-r);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        const buff = new Uint8Array(len);
+
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    close() {
+    }
+
+    async discard() {
+    }
+
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v.setUint32(0, v, true);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v.setUint32(0, v, false);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64, pos);
+    }
+
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+        const fixedSize = 2048;
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+
+        if (currentPosition > this.totalSize) {
+            if (this.readOnly) {
+                throw new Error("Reading out of bounds");
+            }
+            this._resizeIfNeeded(pos);
+        }
+
+        let endOfStringFound = false;
+        let str = "";
+
+        while (!endOfStringFound) {
+            let currentPage = Math.floor(currentPosition / PAGE_SIZE);
+            let offsetOnPage = currentPosition % PAGE_SIZE;
+
+            if (self.o.data[currentPage] === undefined) {
+                throw new Error("ERROR");
+            }
+
+            let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
+            const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
+
+            let indexEndOfString = dataArray.findIndex(element => element === 0);
+            endOfStringFound = indexEndOfString !== -1;
+
+            if (endOfStringFound) {
+                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+                self.pos = currentPage * PAGE_SIZE + offsetOnPage + indexEndOfString + 1;
+            } else {
+                str += new TextDecoder().decode(dataArray);
+                self.pos = currentPage * PAGE_SIZE + offsetOnPage + dataArray.length;
+            }
+
+            currentPosition = self.pos;
+        }
+        return str;
+    }
+}
+
+const O_TRUNC = 512;
+const O_CREAT = 64;
+const O_RDWR = 2;
+const O_RDONLY = 0;
+
+/* global fetch */
+
+const DEFAULT_CACHE_SIZE = (1 << 16);
+const DEFAULT_PAGE_SIZE = (1 << 13);
+
+
+async function createOverride(o, b, c) {
+    if (typeof o === "string") {
+        o = {
+            type: "file",
+            fileName: o,
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
+        };
+    }
+    if (o.type == "file") {
+        return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
+    } else if (o.type == "mem") {
+        return createNew$1(o);
+    } else if (o.type == "bigMem") {
+        return createNew(o);
+    } else {
+        throw new Error("Invalid FastFile type: "+o.type);
+    }
+}
+
+async function readExisting(o, b, c) {
+    if (o instanceof Uint8Array) {
+        o = {
+            type: "mem",
+            data: o
+        };
+    }
+    {
+        if (typeof o === "string") {
+            const buff = await fetch(o).then( function(res) {
+                return res.arrayBuffer();
+            }).then(function (ab) {
+                return new Uint8Array(ab);
+            });
+            o = {
+                type: "mem",
+                data: buff
+            };
+        }
+    }
+    if (o.type == "file") {
+        return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
+    } else if (o.type == "mem") {
+        return await readExisting$2(o);
+    } else if (o.type == "bigMem") {
+        return await readExisting$1(o);
+    } else {
+        throw new Error("Invalid FastFile type: "+o.type);
+    }
+}
+
+async function readBinFile(fileName, type, maxVersion, cacheSize, pageSize) {
+
+    const fd = await readExisting(fileName);
+
+    const b = await fd.read(4);
+    let readedType = "";
+    for (let i=0; i<4; i++) readedType += String.fromCharCode(b[i]);
+
+    if (readedType != type) throw new Error(fileName + ": Invalid File format");
+
+    let v = await fd.readULE32();
+
+    if (v>maxVersion) throw new Error("Version not supported");
+
+    const nSections = await fd.readULE32();
+
+    // Scan sections
+    let sections = [];
+    for (let i=0; i<nSections; i++) {
+        let ht = await fd.readULE32();
+        let hl = await fd.readULE64();
+        if (typeof sections[ht] == "undefined") sections[ht] = [];
+        sections[ht].push({
+            p: fd.pos,
+            size: hl
+        });
+        fd.pos += hl;
+    }
+
+    return {fd, sections};
+}
+
+async function createBinFile(fileName, type, version, nSections, cacheSize, pageSize) {
+
+    const fd = await createOverride(fileName, cacheSize, pageSize);
+
+    const buff = new Uint8Array(4);
+    for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
+    await fd.write(buff, 0); // Magic "r1cs"
+
+    await fd.writeULE32(version); // Version
+    await fd.writeULE32(nSections); // Number of Sections
+
+    return fd;
+}
+
+async function startWriteSection(fd, idSection) {
+    if (typeof fd.writingSection !== "undefined") throw new Error("Already writing a section");
+    await fd.writeULE32(idSection); // Header type
+    fd.writingSection = {
+        pSectionSize: fd.pos
+    };
+    await fd.writeULE64(0); // Temporally set to 0 length
+}
+
+async function endWriteSection(fd) {
+    if (typeof fd.writingSection === "undefined") throw new Error("Not writing a section");
+
+    const sectionSize = fd.pos - fd.writingSection.pSectionSize - 8;
+    const oldPos = fd.pos;
+    fd.pos = fd.writingSection.pSectionSize;
+    await fd.writeULE64(sectionSize);
+    fd.pos = oldPos;
+    delete fd.writingSection;
+}
+
+async function startReadUniqueSection(fd, sections, idSection) {
+    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
+    if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
+    if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
+
+    fd.pos = sections[idSection][0].p;
+
+    fd.readingSection = sections[idSection][0];
+}
+
+async function endReadSection(fd, noCheck) {
+    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
+    if (!noCheck) {
+        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
+    }
+    delete fd.readingSection;
+}
+
+async function writeBigInt(fd, n, n8, pos) {
+    const buff = new Uint8Array(n8);
+    Scalar.toRprLE(buff, 0, n, n8);
+    await fd.write(buff, pos);
+}
+
+async function readBigInt(fd, n8, pos) {
+    const buff = await fd.read(n8, pos);
+    return Scalar.fromRprLE(buff, 0, n8);
+}
+
+async function copySection(fdFrom, sections, fdTo, sectionId, size) {
+    if (typeof size === "undefined") {
+        size = sections[sectionId][0].size;
+    }
+    const chunkSize = fdFrom.pageSize;
+    await startReadUniqueSection(fdFrom, sections, sectionId);
+    await startWriteSection(fdTo, sectionId);
+    for (let p=0; p<size; p+=chunkSize) {
+        const l = Math.min(size -p, chunkSize);
+        const buff = await fdFrom.read(l);
+        await fdTo.write(buff);
+    }
+    await endWriteSection(fdTo);
+    await endReadSection(fdFrom, size != sections[sectionId][0].size);
+
+}
+
+async function readSection(fd, sections, idSection, offset, length) {
+
+    offset = (typeof offset === "undefined") ? 0 : offset;
+    length = (typeof length === "undefined") ? sections[idSection][0].size - offset : length;
+
+    if (offset + length > sections[idSection][0].size) {
+        throw new Error("Reading out of the range of the section");
+    }
+
+    let buff;
+    if (length < (1 << 30) ) {
+        buff = new Uint8Array(length);
+    } else {
+        buff = new BigBuffer(length);
+    }
+
+    await fd.readToBuffer(buff, 0, length, sections[idSection][0].p + offset);
+    return buff;
+}
+
+async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
+    const MAX_BUFF_SIZE = fd1.pageSize * 16;
+    await startReadUniqueSection(fd1, sections1, idSection);
+    await startReadUniqueSection(fd2, sections2, idSection);
+    if (sections1[idSection][0].size != sections2[idSection][0].size) return false;
+    const totalBytes=sections1[idSection][0].size;
+    for (let i=0; i<totalBytes; i+= MAX_BUFF_SIZE) {
+        const n = Math.min(totalBytes-i, MAX_BUFF_SIZE);
+        const buff1 = await fd1.read(n);
+        const buff2 = await fd2.read(n);
+        for (let j=0; j<n; j++) if (buff1[j] != buff2[j]) return false;
+    }
+    await endReadSection(fd1);
+    await endReadSection(fd2);
+    return true;
+}
+
+const bls12381r$1 = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+const bn128r$1 = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+
+const bls12381q = Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
+const bn128q = Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 
 async function getCurveFromR(r) {
     let curve;
-    if (ffjavascript.Scalar.eq(r, bn128r$1)) {
-        curve = await ffjavascript.buildBn128();
-    } else if (ffjavascript.Scalar.eq(r, bls12381r$1)) {
-        curve = await ffjavascript.buildBls12381();
+    if (Scalar.eq(r, bn128r$1)) {
+        curve = await buildBn128();
+    } else if (Scalar.eq(r, bls12381r$1)) {
+        curve = await buildBls12381();
     } else {
-        throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(r)}`);
+        throw new Error(`Curve not supported: ${Scalar.toString(r)}`);
     }
     return curve;
 }
 
 async function getCurveFromQ(q) {
     let curve;
-    if (ffjavascript.Scalar.eq(q, bn128q)) {
-        curve = await ffjavascript.buildBn128();
-    } else if (ffjavascript.Scalar.eq(q, bls12381q)) {
-        curve = await ffjavascript.buildBls12381();
+    if (Scalar.eq(q, bn128q)) {
+        curve = await buildBn128();
+    } else if (Scalar.eq(q, bls12381q)) {
+        curve = await buildBls12381();
     } else {
-        throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(q)}`);
+        throw new Error(`Curve not supported: ${Scalar.toString(q)}`);
     }
     return curve;
 }
@@ -73,9 +1117,9 @@ async function getCurveFromName(name) {
     let curve;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBn128();
+        curve = await buildBn128();
     } else if (["BLS12381"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await buildBls12381();
     } else {
         throw new Error(`Curve not supported: ${name}`);
     }
@@ -86,6 +1130,1043 @@ async function getCurveFromName(name) {
     }
 
 }
+
+var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
+
+var blake2bWasm = {exports: {}};
+
+var nanoassert = assert$1;
+
+class AssertionError extends Error {}
+AssertionError.prototype.name = 'AssertionError';
+
+/**
+ * Minimal assert function
+ * @param  {any} t Value to check if falsy
+ * @param  {string=} m Optional assertion error message
+ * @throws {AssertionError}
+ */
+function assert$1 (t, m) {
+  if (!t) {
+    var err = new AssertionError(m);
+    if (Error.captureStackTrace) Error.captureStackTrace(err, assert$1);
+    throw err
+  }
+}
+
+var browser = {exports: {}};
+
+function byteLength$4 (string) {
+  return string.length
+}
+
+function toString$4 (buffer) {
+  const len = buffer.byteLength;
+
+  let result = '';
+
+  for (let i = 0; i < len; i++) {
+    result += String.fromCharCode(buffer[i]);
+  }
+
+  return result
+}
+
+function write$5 (buffer, string, offset = 0, length = byteLength$4(string)) {
+  const len = Math.min(length, buffer.byteLength - offset);
+
+  for (let i = 0; i < len; i++) {
+    buffer[offset + i] = string.charCodeAt(i);
+  }
+
+  return len
+}
+
+var ascii = {
+  byteLength: byteLength$4,
+  toString: toString$4,
+  write: write$5
+};
+
+const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+const codes = new Uint8Array(256);
+
+for (let i = 0; i < alphabet.length; i++) {
+  codes[alphabet.charCodeAt(i)] = i;
+}
+
+codes[/* - */ 0x2d] = 62;
+codes[/* _ */ 0x5f] = 63;
+
+function byteLength$3 (string) {
+  let len = string.length;
+
+  if (string.charCodeAt(len - 1) === 0x3d) len--;
+  if (len > 1 && string.charCodeAt(len - 1) === 0x3d) len--;
+
+  return (len * 3) >>> 2
+}
+
+function toString$3 (buffer) {
+  const len = buffer.byteLength;
+
+  let result = '';
+
+  for (let i = 0; i < len; i += 3) {
+    result += (
+      alphabet[buffer[i] >> 2] +
+      alphabet[((buffer[i] & 3) << 4) | (buffer[i + 1] >> 4)] +
+      alphabet[((buffer[i + 1] & 15) << 2) | (buffer[i + 2] >> 6)] +
+      alphabet[buffer[i + 2] & 63]
+    );
+  }
+
+  if (len % 3 === 2) {
+    result = result.substring(0, result.length - 1) + '=';
+  } else if (len % 3 === 1) {
+    result = result.substring(0, result.length - 2) + '==';
+  }
+
+  return result
+}
+function write$4 (buffer, string, offset = 0, length = byteLength$3(string)) {
+  const len = Math.min(length, buffer.byteLength - offset);
+
+  for (let i = 0, j = 0; j < len; i += 4) {
+    const a = codes[string.charCodeAt(i)];
+    const b = codes[string.charCodeAt(i + 1)];
+    const c = codes[string.charCodeAt(i + 2)];
+    const d = codes[string.charCodeAt(i + 3)];
+
+    buffer[j++] = (a << 2) | (b >> 4);
+    buffer[j++] = ((b & 15) << 4) | (c >> 2);
+    buffer[j++] = ((c & 3) << 6) | (d & 63);
+  }
+
+  return len
+}
+var base64 = {
+  byteLength: byteLength$3,
+  toString: toString$3,
+  write: write$4
+};
+
+function byteLength$2 (string) {
+  return string.length >>> 1
+}
+
+function toString$2 (buffer) {
+  const len = buffer.byteLength;
+
+  buffer = new DataView(buffer.buffer, buffer.byteOffset, len);
+
+  let result = '';
+  let i = 0;
+
+  for (let n = len - (len % 4); i < n; i += 4) {
+    result += buffer.getUint32(i).toString(16).padStart(8, '0');
+  }
+
+  for (; i < len; i++) {
+    result += buffer.getUint8(i).toString(16).padStart(2, '0');
+  }
+
+  return result
+}
+
+function write$3 (buffer, string, offset = 0, length = byteLength$2(string)) {
+  const len = Math.min(length, buffer.byteLength - offset);
+
+  for (let i = 0; i < len; i++) {
+    const a = hexValue(string.charCodeAt(i * 2));
+    const b = hexValue(string.charCodeAt(i * 2 + 1));
+
+    if (a === undefined || b === undefined) {
+      return buffer.subarray(0, i)
+    }
+
+    buffer[offset + i] = (a << 4) | b;
+  }
+
+  return len
+}
+
+var hex = {
+  byteLength: byteLength$2,
+  toString: toString$2,
+  write: write$3
+};
+
+function hexValue (char) {
+  if (char >= 0x30 && char <= 0x39) return char - 0x30
+  if (char >= 0x41 && char <= 0x46) return char - 0x41 + 10
+  if (char >= 0x61 && char <= 0x66) return char - 0x61 + 10
+}
+
+function byteLength$1 (string) {
+  let length = 0;
+
+  for (let i = 0, n = string.length; i < n; i++) {
+    const code = string.charCodeAt(i);
+
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < n) {
+      const code = string.charCodeAt(i + 1);
+
+      if (code >= 0xdc00 && code <= 0xdfff) {
+        length += 4;
+        i++;
+        continue
+      }
+    }
+
+    if (code <= 0x7f) length += 1;
+    else if (code <= 0x7ff) length += 2;
+    else length += 3;
+  }
+
+  return length
+}
+
+let toString$1;
+
+if (typeof TextDecoder !== 'undefined') {
+  const decoder = new TextDecoder();
+
+  toString$1 = function toString (buffer) {
+    return decoder.decode(buffer)
+  };
+} else {
+  toString$1 = function toString (buffer) {
+    const len = buffer.byteLength;
+
+    let output = '';
+    let i = 0;
+
+    while (i < len) {
+      let byte = buffer[i];
+
+      if (byte <= 0x7f) {
+        output += String.fromCharCode(byte);
+        i++;
+        continue
+      }
+
+      let bytesNeeded = 0;
+      let codePoint = 0;
+
+      if (byte <= 0xdf) {
+        bytesNeeded = 1;
+        codePoint = byte & 0x1f;
+      } else if (byte <= 0xef) {
+        bytesNeeded = 2;
+        codePoint = byte & 0x0f;
+      } else if (byte <= 0xf4) {
+        bytesNeeded = 3;
+        codePoint = byte & 0x07;
+      }
+
+      if (len - i - bytesNeeded > 0) {
+        let k = 0;
+
+        while (k < bytesNeeded) {
+          byte = buffer[i + k + 1];
+          codePoint = (codePoint << 6) | (byte & 0x3f);
+          k += 1;
+        }
+      } else {
+        codePoint = 0xfffd;
+        bytesNeeded = len - i;
+      }
+
+      output += String.fromCodePoint(codePoint);
+      i += bytesNeeded + 1;
+    }
+
+    return output
+  };
+}
+
+let write$2;
+
+if (typeof TextEncoder !== 'undefined') {
+  const encoder = new TextEncoder();
+
+  write$2 = function write (buffer, string, offset = 0, length = byteLength$1(string)) {
+    const len = Math.min(length, buffer.byteLength - offset);
+    encoder.encodeInto(string, buffer.subarray(offset, offset + len));
+    return len
+  };
+} else {
+  write$2 = function write (buffer, string, offset = 0, length = byteLength$1(string)) {
+    const len = Math.min(length, buffer.byteLength - offset);
+
+    buffer = buffer.subarray(offset, offset + len);
+
+    let i = 0;
+    let j = 0;
+
+    while (i < string.length) {
+      const code = string.codePointAt(i);
+
+      if (code <= 0x7f) {
+        buffer[j++] = code;
+        i++;
+        continue
+      }
+
+      let count = 0;
+      let bits = 0;
+
+      if (code <= 0x7ff) {
+        count = 6;
+        bits = 0xc0;
+      } else if (code <= 0xffff) {
+        count = 12;
+        bits = 0xe0;
+      } else if (code <= 0x1fffff) {
+        count = 18;
+        bits = 0xf0;
+      }
+
+      buffer[j++] = bits | (code >> count);
+      count -= 6;
+
+      while (count >= 0) {
+        buffer[j++] = 0x80 | ((code >> count) & 0x3f);
+        count -= 6;
+      }
+
+      i += code >= 0x10000 ? 2 : 1;
+    }
+
+    return len
+  };
+}
+
+var utf8 = {
+  byteLength: byteLength$1,
+  toString: toString$1,
+  write: write$2
+};
+
+function byteLength (string) {
+  return string.length * 2
+}
+
+function toString (buffer) {
+  const len = buffer.byteLength;
+
+  let result = '';
+
+  for (let i = 0; i < len - 1; i += 2) {
+    result += String.fromCharCode(buffer[i] + (buffer[i + 1] * 256));
+  }
+
+  return result
+}
+
+function write$1 (buffer, string, offset = 0, length = byteLength(string)) {
+  const len = Math.min(length, buffer.byteLength - offset);
+
+  let units = len;
+
+  for (let i = 0; i < string.length; ++i) {
+    if ((units -= 2) < 0) break
+
+    const c = string.charCodeAt(i);
+    const hi = c >> 8;
+    const lo = c % 256;
+
+    buffer[offset + i * 2] = lo;
+    buffer[offset + i * 2 + 1] = hi;
+  }
+
+  return len
+}
+
+var utf16le = {
+  byteLength,
+  toString,
+  write: write$1
+};
+
+(function (module, exports) {
+	const ascii$1 = ascii;
+	const base64$1 = base64;
+	const hex$1 = hex;
+	const utf8$1 = utf8;
+	const utf16le$1 = utf16le;
+
+	const LE = new Uint8Array(Uint16Array.of(0xff).buffer)[0] === 0xff;
+
+	function codecFor (encoding) {
+	  switch (encoding) {
+	    case 'ascii':
+	      return ascii$1
+	    case 'base64':
+	      return base64$1
+	    case 'hex':
+	      return hex$1
+	    case 'utf8':
+	    case 'utf-8':
+	    case undefined:
+	      return utf8$1
+	    case 'ucs2':
+	    case 'ucs-2':
+	    case 'utf16le':
+	    case 'utf-16le':
+	      return utf16le$1
+	    default:
+	      throw new Error(`Unknown encoding: ${encoding}`)
+	  }
+	}
+
+	function isBuffer (value) {
+	  return value instanceof Uint8Array
+	}
+
+	function isEncoding (encoding) {
+	  try {
+	    codecFor(encoding);
+	    return true
+	  } catch {
+	    return false
+	  }
+	}
+
+	function alloc (size, fill, encoding) {
+	  const buffer = new Uint8Array(size);
+	  if (fill !== undefined) exports.fill(buffer, fill, 0, buffer.byteLength, encoding);
+	  return buffer
+	}
+
+	function allocUnsafe (size) {
+	  return new Uint8Array(size)
+	}
+
+	function allocUnsafeSlow (size) {
+	  return new Uint8Array(size)
+	}
+
+	function byteLength (string, encoding) {
+	  return codecFor(encoding).byteLength(string)
+	}
+
+	function compare (a, b) {
+	  if (a === b) return 0
+
+	  const len = Math.min(a.byteLength, b.byteLength);
+
+	  a = new DataView(a.buffer, a.byteOffset, a.byteLength);
+	  b = new DataView(b.buffer, b.byteOffset, b.byteLength);
+
+	  let i = 0;
+
+	  for (let n = len - (len % 4); i < n; i += 4) {
+	    const x = a.getUint32(i, LE);
+	    const y = b.getUint32(i, LE);
+	    if (x !== y) break
+	  }
+
+	  for (; i < len; i++) {
+	    const x = a.getUint8(i);
+	    const y = b.getUint8(i);
+	    if (x < y) return -1
+	    if (x > y) return 1
+	  }
+
+	  return a.byteLength > b.byteLength ? 1 : a.byteLength < b.byteLength ? -1 : 0
+	}
+
+	function concat (buffers, totalLength) {
+	  if (totalLength === undefined) {
+	    totalLength = buffers.reduce((len, buffer) => len + buffer.byteLength, 0);
+	  }
+
+	  const result = new Uint8Array(totalLength);
+
+	  buffers.reduce(
+	    (offset, buffer) => {
+	      result.set(buffer, offset);
+	      return offset + buffer.byteLength
+	    },
+	    0
+	  );
+
+	  return result
+	}
+
+	function copy (source, target, targetStart = 0, start = 0, end = source.byteLength) {
+	  if (end > 0 && end < start) return 0
+	  if (end === start) return 0
+	  if (source.byteLength === 0 || target.byteLength === 0) return 0
+
+	  if (targetStart < 0) throw new RangeError('targetStart is out of range')
+	  if (start < 0 || start >= source.byteLength) throw new RangeError('sourceStart is out of range')
+	  if (end < 0) throw new RangeError('sourceEnd is out of range')
+
+	  if (targetStart >= target.byteLength) targetStart = target.byteLength;
+	  if (end > source.byteLength) end = source.byteLength;
+	  if (target.byteLength - targetStart < end - start) {
+	    end = target.length - targetStart + start;
+	  }
+
+	  const len = end - start;
+
+	  if (source === target) {
+	    target.copyWithin(targetStart, start, end);
+	  } else {
+	    target.set(source.subarray(start, end), targetStart);
+	  }
+
+	  return len
+	}
+
+	function equals (a, b) {
+	  if (a === b) return true
+	  if (a.byteLength !== b.byteLength) return false
+
+	  const len = a.byteLength;
+
+	  a = new DataView(a.buffer, a.byteOffset, a.byteLength);
+	  b = new DataView(b.buffer, b.byteOffset, b.byteLength);
+
+	  let i = 0;
+
+	  for (let n = len - (len % 4); i < n; i += 4) {
+	    if (a.getUint32(i, LE) !== b.getUint32(i, LE)) return false
+	  }
+
+	  for (; i < len; i++) {
+	    if (a.getUint8(i) !== b.getUint8(i)) return false
+	  }
+
+	  return true
+	}
+
+	function fill (buffer, value, offset, end, encoding) {
+	  if (typeof value === 'string') {
+	    // fill(buffer, string, encoding)
+	    if (typeof offset === 'string') {
+	      encoding = offset;
+	      offset = 0;
+	      end = buffer.byteLength;
+
+	    // fill(buffer, string, offset, encoding)
+	    } else if (typeof end === 'string') {
+	      encoding = end;
+	      end = buffer.byteLength;
+	    }
+	  } else if (typeof val === 'number') {
+	    value = value & 0xff;
+	  } else if (typeof val === 'boolean') {
+	    value = +value;
+	  }
+
+	  if (offset < 0 || buffer.byteLength < offset || buffer.byteLength < end) {
+	    throw new RangeError('Out of range index')
+	  }
+
+	  if (offset === undefined) offset = 0;
+	  if (end === undefined) end = buffer.byteLength;
+
+	  if (end <= offset) return buffer
+
+	  if (!value) value = 0;
+
+	  if (typeof value === 'number') {
+	    for (let i = offset; i < end; ++i) {
+	      buffer[i] = value;
+	    }
+	  } else {
+	    value = isBuffer(value) ? value : from(value, encoding);
+
+	    const len = value.byteLength;
+
+	    for (let i = 0; i < end - offset; ++i) {
+	      buffer[i + offset] = value[i % len];
+	    }
+	  }
+
+	  return buffer
+	}
+
+	function from (value, encodingOrOffset, length) {
+	  // from(string, encoding)
+	  if (typeof value === 'string') return fromString(value, encodingOrOffset)
+
+	  // from(array)
+	  if (Array.isArray(value)) return fromArray(value)
+
+	  // from(buffer)
+	  if (ArrayBuffer.isView(value)) return fromBuffer(value)
+
+	  // from(arrayBuffer[, byteOffset[, length]])
+	  return fromArrayBuffer(value, encodingOrOffset, length)
+	}
+
+	function fromString (string, encoding) {
+	  const codec = codecFor(encoding);
+	  const buffer = new Uint8Array(codec.byteLength(string));
+	  codec.write(buffer, string, 0, buffer.byteLength);
+	  return buffer
+	}
+
+	function fromArray (array) {
+	  const buffer = new Uint8Array(array.length);
+	  buffer.set(array);
+	  return buffer
+	}
+
+	function fromBuffer (buffer) {
+	  const copy = new Uint8Array(buffer.byteLength);
+	  copy.set(buffer);
+	  return copy
+	}
+
+	function fromArrayBuffer (arrayBuffer, byteOffset, length) {
+	  return new Uint8Array(arrayBuffer, byteOffset, length)
+	}
+
+	function includes (buffer, value, byteOffset, encoding) {
+	  return indexOf(buffer, value, byteOffset, encoding) !== -1
+	}
+
+	function bidirectionalIndexOf (buffer, value, byteOffset, encoding, first) {
+	  if (buffer.byteLength === 0) return -1
+
+	  if (typeof byteOffset === 'string') {
+	    encoding = byteOffset;
+	    byteOffset = 0;
+	  } else if (byteOffset === undefined) {
+	    byteOffset = first ? 0 : (buffer.length - 1);
+	  } else if (byteOffset < 0) {
+	    byteOffset += buffer.byteLength;
+	  }
+
+	  if (byteOffset >= buffer.byteLength) {
+	    if (first) return -1
+	    else byteOffset = buffer.byteLength - 1;
+	  } else if (byteOffset < 0) {
+	    if (first) byteOffset = 0;
+	    else return -1
+	  }
+
+	  if (typeof value === 'string') {
+	    value = from(value, encoding);
+	  } else if (typeof value === 'number') {
+	    value = value & 0xff;
+
+	    if (first) {
+	      return buffer.indexOf(value, byteOffset)
+	    } else {
+	      return buffer.lastIndexOf(value, byteOffset)
+	    }
+	  }
+
+	  if (value.byteLength === 0) return -1
+
+	  if (first) {
+	    let foundIndex = -1;
+
+	    for (let i = byteOffset; i < buffer.byteLength; i++) {
+	      if (buffer[i] === value[foundIndex === -1 ? 0 : i - foundIndex]) {
+	        if (foundIndex === -1) foundIndex = i;
+	        if (i - foundIndex + 1 === value.byteLength) return foundIndex
+	      } else {
+	        if (foundIndex !== -1) i -= i - foundIndex;
+	        foundIndex = -1;
+	      }
+	    }
+	  } else {
+	    if (byteOffset + value.byteLength > buffer.byteLength) {
+	      byteOffset = buffer.byteLength - value.byteLength;
+	    }
+
+	    for (let i = byteOffset; i >= 0; i--) {
+	      let found = true;
+
+	      for (let j = 0; j < value.byteLength; j++) {
+	        if (buffer[i + j] !== value[j]) {
+	          found = false;
+	          break
+	        }
+	      }
+
+	      if (found) return i
+	    }
+	  }
+
+	  return -1
+	}
+
+	function indexOf (buffer, value, byteOffset, encoding) {
+	  return bidirectionalIndexOf(buffer, value, byteOffset, encoding, true /* first */)
+	}
+
+	function lastIndexOf (buffer, value, byteOffset, encoding) {
+	  return bidirectionalIndexOf(buffer, value, byteOffset, encoding, false /* last */)
+	}
+
+	function swap (buffer, n, m) {
+	  const i = buffer[n];
+	  buffer[n] = buffer[m];
+	  buffer[m] = i;
+	}
+
+	function swap16 (buffer) {
+	  const len = buffer.byteLength;
+
+	  if (len % 2 !== 0) throw new RangeError('Buffer size must be a multiple of 16-bits')
+
+	  for (let i = 0; i < len; i += 2) swap(buffer, i, i + 1);
+
+	  return buffer
+	}
+
+	function swap32 (buffer) {
+	  const len = buffer.byteLength;
+
+	  if (len % 4 !== 0) throw new RangeError('Buffer size must be a multiple of 32-bits')
+
+	  for (let i = 0; i < len; i += 4) {
+	    swap(buffer, i, i + 3);
+	    swap(buffer, i + 1, i + 2);
+	  }
+
+	  return buffer
+	}
+
+	function swap64 (buffer) {
+	  const len = buffer.byteLength;
+
+	  if (len % 8 !== 0) throw new RangeError('Buffer size must be a multiple of 64-bits')
+
+	  for (let i = 0; i < len; i += 8) {
+	    swap(buffer, i, i + 7);
+	    swap(buffer, i + 1, i + 6);
+	    swap(buffer, i + 2, i + 5);
+	    swap(buffer, i + 3, i + 4);
+	  }
+
+	  return buffer
+	}
+
+	function toBuffer (buffer) {
+	  return buffer
+	}
+
+	function toString (buffer, encoding, start = 0, end = buffer.byteLength) {
+	  const len = buffer.byteLength;
+
+	  if (start >= len) return ''
+	  if (end <= start) return ''
+	  if (start < 0) start = 0;
+	  if (end > len) end = len;
+
+	  if (start !== 0 || end < len) buffer = buffer.subarray(start, end);
+
+	  return codecFor(encoding).toString(buffer)
+	}
+
+	function write (buffer, string, offset, length, encoding) {
+	  // write(buffer, string)
+	  if (offset === undefined) {
+	    encoding = 'utf8';
+
+	  // write(buffer, string, encoding)
+	  } else if (length === undefined && typeof offset === 'string') {
+	    encoding = offset;
+	    offset = undefined;
+
+	  // write(buffer, string, offset, encoding)
+	  } else if (encoding === undefined && typeof length === 'string') {
+	    encoding = length;
+	    length = undefined;
+	  }
+
+	  return codecFor(encoding).write(buffer, string, offset, length)
+	}
+
+	function writeDoubleLE (buffer, value, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+	  view.setFloat64(offset, value, true);
+
+	  return offset + 8
+	}
+
+	function writeFloatLE (buffer, value, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+	  view.setFloat32(offset, value, true);
+
+	  return offset + 4
+	}
+
+	function writeUInt32LE (buffer, value, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+	  view.setUint32(offset, value, true);
+
+	  return offset + 4
+	}
+
+	function writeInt32LE (buffer, value, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+	  view.setInt32(offset, value, true);
+
+	  return offset + 4
+	}
+
+	function readDoubleLE (buffer, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+	  return view.getFloat64(offset, true)
+	}
+
+	function readFloatLE (buffer, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+	  return view.getFloat32(offset, true)
+	}
+
+	function readUInt32LE (buffer, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+	  return view.getUint32(offset, true)
+	}
+
+	function readInt32LE (buffer, offset) {
+	  if (offset === undefined) offset = 0;
+
+	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+	  return view.getInt32(offset, true)
+	}
+
+	module.exports = exports = {
+	  isBuffer,
+	  isEncoding,
+	  alloc,
+	  allocUnsafe,
+	  allocUnsafeSlow,
+	  byteLength,
+	  compare,
+	  concat,
+	  copy,
+	  equals,
+	  fill,
+	  from,
+	  includes,
+	  indexOf,
+	  lastIndexOf,
+	  swap16,
+	  swap32,
+	  swap64,
+	  toBuffer,
+	  toString,
+	  write,
+	  writeDoubleLE,
+	  writeFloatLE,
+	  writeUInt32LE,
+	  writeInt32LE,
+	  readDoubleLE,
+	  readFloatLE,
+	  readUInt32LE,
+	  readInt32LE
+	};
+} (browser, browser.exports));
+
+var blake2b;
+var hasRequiredBlake2b;
+
+function requireBlake2b () {
+	if (hasRequiredBlake2b) return blake2b;
+	hasRequiredBlake2b = 1;
+	var __commonJS = (cb, mod) => function __require() {
+	  return mod || (0, cb[Object.keys(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+	};
+	var __toBinary = /* @__PURE__ */ (() => {
+	  var table = new Uint8Array(128);
+	  for (var i = 0; i < 64; i++)
+	    table[i < 26 ? i + 65 : i < 52 ? i + 71 : i < 62 ? i - 4 : i * 4 - 205] = i;
+	  return (base64) => {
+	    var n = base64.length, bytes2 = new Uint8Array((n - (base64[n - 1] == "=") - (base64[n - 2] == "=")) * 3 / 4 | 0);
+	    for (var i2 = 0, j = 0; i2 < n; ) {
+	      var c0 = table[base64.charCodeAt(i2++)], c1 = table[base64.charCodeAt(i2++)];
+	      var c2 = table[base64.charCodeAt(i2++)], c3 = table[base64.charCodeAt(i2++)];
+	      bytes2[j++] = c0 << 2 | c1 >> 4;
+	      bytes2[j++] = c1 << 4 | c2 >> 2;
+	      bytes2[j++] = c2 << 6 | c3;
+	    }
+	    return bytes2;
+	  };
+	})();
+
+	// wasm-binary:./blake2b.wat
+	var require_blake2b = __commonJS({
+	  "wasm-binary:./blake2b.wat"(exports2, module2) {
+	    module2.exports = __toBinary("AGFzbQEAAAABEANgAn9/AGADf39/AGABfwADBQQAAQICBQUBAQroBwdNBQZtZW1vcnkCAAxibGFrZTJiX2luaXQAAA5ibGFrZTJiX3VwZGF0ZQABDWJsYWtlMmJfZmluYWwAAhBibGFrZTJiX2NvbXByZXNzAAMKvz8EwAIAIABCADcDACAAQgA3AwggAEIANwMQIABCADcDGCAAQgA3AyAgAEIANwMoIABCADcDMCAAQgA3AzggAEIANwNAIABCADcDSCAAQgA3A1AgAEIANwNYIABCADcDYCAAQgA3A2ggAEIANwNwIABCADcDeCAAQoiS853/zPmE6gBBACkDAIU3A4ABIABCu86qptjQ67O7f0EIKQMAhTcDiAEgAEKr8NP0r+68tzxBECkDAIU3A5ABIABC8e30+KWn/aelf0EYKQMAhTcDmAEgAELRhZrv+s+Uh9EAQSApAwCFNwOgASAAQp/Y+dnCkdqCm39BKCkDAIU3A6gBIABC6/qG2r+19sEfQTApAwCFNwOwASAAQvnC+JuRo7Pw2wBBOCkDAIU3A7gBIABCADcDwAEgAEIANwPIASAAQgA3A9ABC20BA38gAEHAAWohAyAAQcgBaiEEIAQpAwCnIQUCQANAIAEgAkYNASAFQYABRgRAIAMgAykDACAFrXw3AwBBACEFIAAQAwsgACAFaiABLQAAOgAAIAVBAWohBSABQQFqIQEMAAsLIAQgBa03AwALYQEDfyAAQcABaiEBIABByAFqIQIgASABKQMAIAIpAwB8NwMAIABCfzcD0AEgAikDAKchAwJAA0AgA0GAAUYNASAAIANqQQA6AAAgA0EBaiEDDAALCyACIAOtNwMAIAAQAwuqOwIgfgl/IABBgAFqISEgAEGIAWohIiAAQZABaiEjIABBmAFqISQgAEGgAWohJSAAQagBaiEmIABBsAFqIScgAEG4AWohKCAhKQMAIQEgIikDACECICMpAwAhAyAkKQMAIQQgJSkDACEFICYpAwAhBiAnKQMAIQcgKCkDACEIQoiS853/zPmE6gAhCUK7zqqm2NDrs7t/IQpCq/DT9K/uvLc8IQtC8e30+KWn/aelfyEMQtGFmu/6z5SH0QAhDUKf2PnZwpHagpt/IQ5C6/qG2r+19sEfIQ9C+cL4m5Gjs/DbACEQIAApAwAhESAAKQMIIRIgACkDECETIAApAxghFCAAKQMgIRUgACkDKCEWIAApAzAhFyAAKQM4IRggACkDQCEZIAApA0ghGiAAKQNQIRsgACkDWCEcIAApA2AhHSAAKQNoIR4gACkDcCEfIAApA3ghICANIAApA8ABhSENIA8gACkD0AGFIQ8gASAFIBF8fCEBIA0gAYVCIIohDSAJIA18IQkgBSAJhUIYiiEFIAEgBSASfHwhASANIAGFQhCKIQ0gCSANfCEJIAUgCYVCP4ohBSACIAYgE3x8IQIgDiAChUIgiiEOIAogDnwhCiAGIAqFQhiKIQYgAiAGIBR8fCECIA4gAoVCEIohDiAKIA58IQogBiAKhUI/iiEGIAMgByAVfHwhAyAPIAOFQiCKIQ8gCyAPfCELIAcgC4VCGIohByADIAcgFnx8IQMgDyADhUIQiiEPIAsgD3whCyAHIAuFQj+KIQcgBCAIIBd8fCEEIBAgBIVCIIohECAMIBB8IQwgCCAMhUIYiiEIIAQgCCAYfHwhBCAQIASFQhCKIRAgDCAQfCEMIAggDIVCP4ohCCABIAYgGXx8IQEgECABhUIgiiEQIAsgEHwhCyAGIAuFQhiKIQYgASAGIBp8fCEBIBAgAYVCEIohECALIBB8IQsgBiALhUI/iiEGIAIgByAbfHwhAiANIAKFQiCKIQ0gDCANfCEMIAcgDIVCGIohByACIAcgHHx8IQIgDSAChUIQiiENIAwgDXwhDCAHIAyFQj+KIQcgAyAIIB18fCEDIA4gA4VCIIohDiAJIA58IQkgCCAJhUIYiiEIIAMgCCAefHwhAyAOIAOFQhCKIQ4gCSAOfCEJIAggCYVCP4ohCCAEIAUgH3x8IQQgDyAEhUIgiiEPIAogD3whCiAFIAqFQhiKIQUgBCAFICB8fCEEIA8gBIVCEIohDyAKIA98IQogBSAKhUI/iiEFIAEgBSAffHwhASANIAGFQiCKIQ0gCSANfCEJIAUgCYVCGIohBSABIAUgG3x8IQEgDSABhUIQiiENIAkgDXwhCSAFIAmFQj+KIQUgAiAGIBV8fCECIA4gAoVCIIohDiAKIA58IQogBiAKhUIYiiEGIAIgBiAZfHwhAiAOIAKFQhCKIQ4gCiAOfCEKIAYgCoVCP4ohBiADIAcgGnx8IQMgDyADhUIgiiEPIAsgD3whCyAHIAuFQhiKIQcgAyAHICB8fCEDIA8gA4VCEIohDyALIA98IQsgByALhUI/iiEHIAQgCCAefHwhBCAQIASFQiCKIRAgDCAQfCEMIAggDIVCGIohCCAEIAggF3x8IQQgECAEhUIQiiEQIAwgEHwhDCAIIAyFQj+KIQggASAGIBJ8fCEBIBAgAYVCIIohECALIBB8IQsgBiALhUIYiiEGIAEgBiAdfHwhASAQIAGFQhCKIRAgCyAQfCELIAYgC4VCP4ohBiACIAcgEXx8IQIgDSAChUIgiiENIAwgDXwhDCAHIAyFQhiKIQcgAiAHIBN8fCECIA0gAoVCEIohDSAMIA18IQwgByAMhUI/iiEHIAMgCCAcfHwhAyAOIAOFQiCKIQ4gCSAOfCEJIAggCYVCGIohCCADIAggGHx8IQMgDiADhUIQiiEOIAkgDnwhCSAIIAmFQj+KIQggBCAFIBZ8fCEEIA8gBIVCIIohDyAKIA98IQogBSAKhUIYiiEFIAQgBSAUfHwhBCAPIASFQhCKIQ8gCiAPfCEKIAUgCoVCP4ohBSABIAUgHHx8IQEgDSABhUIgiiENIAkgDXwhCSAFIAmFQhiKIQUgASAFIBl8fCEBIA0gAYVCEIohDSAJIA18IQkgBSAJhUI/iiEFIAIgBiAdfHwhAiAOIAKFQiCKIQ4gCiAOfCEKIAYgCoVCGIohBiACIAYgEXx8IQIgDiAChUIQiiEOIAogDnwhCiAGIAqFQj+KIQYgAyAHIBZ8fCEDIA8gA4VCIIohDyALIA98IQsgByALhUIYiiEHIAMgByATfHwhAyAPIAOFQhCKIQ8gCyAPfCELIAcgC4VCP4ohByAEIAggIHx8IQQgECAEhUIgiiEQIAwgEHwhDCAIIAyFQhiKIQggBCAIIB58fCEEIBAgBIVCEIohECAMIBB8IQwgCCAMhUI/iiEIIAEgBiAbfHwhASAQIAGFQiCKIRAgCyAQfCELIAYgC4VCGIohBiABIAYgH3x8IQEgECABhUIQiiEQIAsgEHwhCyAGIAuFQj+KIQYgAiAHIBR8fCECIA0gAoVCIIohDSAMIA18IQwgByAMhUIYiiEHIAIgByAXfHwhAiANIAKFQhCKIQ0gDCANfCEMIAcgDIVCP4ohByADIAggGHx8IQMgDiADhUIgiiEOIAkgDnwhCSAIIAmFQhiKIQggAyAIIBJ8fCEDIA4gA4VCEIohDiAJIA58IQkgCCAJhUI/iiEIIAQgBSAafHwhBCAPIASFQiCKIQ8gCiAPfCEKIAUgCoVCGIohBSAEIAUgFXx8IQQgDyAEhUIQiiEPIAogD3whCiAFIAqFQj+KIQUgASAFIBh8fCEBIA0gAYVCIIohDSAJIA18IQkgBSAJhUIYiiEFIAEgBSAafHwhASANIAGFQhCKIQ0gCSANfCEJIAUgCYVCP4ohBSACIAYgFHx8IQIgDiAChUIgiiEOIAogDnwhCiAGIAqFQhiKIQYgAiAGIBJ8fCECIA4gAoVCEIohDiAKIA58IQogBiAKhUI/iiEGIAMgByAefHwhAyAPIAOFQiCKIQ8gCyAPfCELIAcgC4VCGIohByADIAcgHXx8IQMgDyADhUIQiiEPIAsgD3whCyAHIAuFQj+KIQcgBCAIIBx8fCEEIBAgBIVCIIohECAMIBB8IQwgCCAMhUIYiiEIIAQgCCAffHwhBCAQIASFQhCKIRAgDCAQfCEMIAggDIVCP4ohCCABIAYgE3x8IQEgECABhUIgiiEQIAsgEHwhCyAGIAuFQhiKIQYgASAGIBd8fCEBIBAgAYVCEIohECALIBB8IQsgBiALhUI/iiEGIAIgByAWfHwhAiANIAKFQiCKIQ0gDCANfCEMIAcgDIVCGIohByACIAcgG3x8IQIgDSAChUIQiiENIAwgDXwhDCAHIAyFQj+KIQcgAyAIIBV8fCEDIA4gA4VCIIohDiAJIA58IQkgCCAJhUIYiiEIIAMgCCARfHwhAyAOIAOFQhCKIQ4gCSAOfCEJIAggCYVCP4ohCCAEIAUgIHx8IQQgDyAEhUIgiiEPIAogD3whCiAFIAqFQhiKIQUgBCAFIBl8fCEEIA8gBIVCEIohDyAKIA98IQogBSAKhUI/iiEFIAEgBSAafHwhASANIAGFQiCKIQ0gCSANfCEJIAUgCYVCGIohBSABIAUgEXx8IQEgDSABhUIQiiENIAkgDXwhCSAFIAmFQj+KIQUgAiAGIBZ8fCECIA4gAoVCIIohDiAKIA58IQogBiAKhUIYiiEGIAIgBiAYfHwhAiAOIAKFQhCKIQ4gCiAOfCEKIAYgCoVCP4ohBiADIAcgE3x8IQMgDyADhUIgiiEPIAsgD3whCyAHIAuFQhiKIQcgAyAHIBV8fCEDIA8gA4VCEIohDyALIA98IQsgByALhUI/iiEHIAQgCCAbfHwhBCAQIASFQiCKIRAgDCAQfCEMIAggDIVCGIohCCAEIAggIHx8IQQgECAEhUIQiiEQIAwgEHwhDCAIIAyFQj+KIQggASAGIB98fCEBIBAgAYVCIIohECALIBB8IQsgBiALhUIYiiEGIAEgBiASfHwhASAQIAGFQhCKIRAgCyAQfCELIAYgC4VCP4ohBiACIAcgHHx8IQIgDSAChUIgiiENIAwgDXwhDCAHIAyFQhiKIQcgAiAHIB18fCECIA0gAoVCEIohDSAMIA18IQwgByAMhUI/iiEHIAMgCCAXfHwhAyAOIAOFQiCKIQ4gCSAOfCEJIAggCYVCGIohCCADIAggGXx8IQMgDiADhUIQiiEOIAkgDnwhCSAIIAmFQj+KIQggBCAFIBR8fCEEIA8gBIVCIIohDyAKIA98IQogBSAKhUIYiiEFIAQgBSAefHwhBCAPIASFQhCKIQ8gCiAPfCEKIAUgCoVCP4ohBSABIAUgE3x8IQEgDSABhUIgiiENIAkgDXwhCSAFIAmFQhiKIQUgASAFIB18fCEBIA0gAYVCEIohDSAJIA18IQkgBSAJhUI/iiEFIAIgBiAXfHwhAiAOIAKFQiCKIQ4gCiAOfCEKIAYgCoVCGIohBiACIAYgG3x8IQIgDiAChUIQiiEOIAogDnwhCiAGIAqFQj+KIQYgAyAHIBF8fCEDIA8gA4VCIIohDyALIA98IQsgByALhUIYiiEHIAMgByAcfHwhAyAPIAOFQhCKIQ8gCyAPfCELIAcgC4VCP4ohByAEIAggGXx8IQQgECAEhUIgiiEQIAwgEHwhDCAIIAyFQhiKIQggBCAIIBR8fCEEIBAgBIVCEIohECAMIBB8IQwgCCAMhUI/iiEIIAEgBiAVfHwhASAQIAGFQiCKIRAgCyAQfCELIAYgC4VCGIohBiABIAYgHnx8IQEgECABhUIQiiEQIAsgEHwhCyAGIAuFQj+KIQYgAiAHIBh8fCECIA0gAoVCIIohDSAMIA18IQwgByAMhUIYiiEHIAIgByAWfHwhAiANIAKFQhCKIQ0gDCANfCEMIAcgDIVCP4ohByADIAggIHx8IQMgDiADhUIgiiEOIAkgDnwhCSAIIAmFQhiKIQggAyAIIB98fCEDIA4gA4VCEIohDiAJIA58IQkgCCAJhUI/iiEIIAQgBSASfHwhBCAPIASFQiCKIQ8gCiAPfCEKIAUgCoVCGIohBSAEIAUgGnx8IQQgDyAEhUIQiiEPIAogD3whCiAFIAqFQj+KIQUgASAFIB18fCEBIA0gAYVCIIohDSAJIA18IQkgBSAJhUIYiiEFIAEgBSAWfHwhASANIAGFQhCKIQ0gCSANfCEJIAUgCYVCP4ohBSACIAYgEnx8IQIgDiAChUIgiiEOIAogDnwhCiAGIAqFQhiKIQYgAiAGICB8fCECIA4gAoVCEIohDiAKIA58IQogBiAKhUI/iiEGIAMgByAffHwhAyAPIAOFQiCKIQ8gCyAPfCELIAcgC4VCGIohByADIAcgHnx8IQMgDyADhUIQiiEPIAsgD3whCyAHIAuFQj+KIQcgBCAIIBV8fCEEIBAgBIVCIIohECAMIBB8IQwgCCAMhUIYiiEIIAQgCCAbfHwhBCAQIASFQhCKIRAgDCAQfCEMIAggDIVCP4ohCCABIAYgEXx8IQEgECABhUIgiiEQIAsgEHwhCyAGIAuFQhiKIQYgASAGIBh8fCEBIBAgAYVCEIohECALIBB8IQsgBiALhUI/iiEGIAIgByAXfHwhAiANIAKFQiCKIQ0gDCANfCEMIAcgDIVCGIohByACIAcgFHx8IQIgDSAChUIQiiENIAwgDXwhDCAHIAyFQj+KIQcgAyAIIBp8fCEDIA4gA4VCIIohDiAJIA58IQkgCCAJhUIYiiEIIAMgCCATfHwhAyAOIAOFQhCKIQ4gCSAOfCEJIAggCYVCP4ohCCAEIAUgGXx8IQQgDyAEhUIgiiEPIAogD3whCiAFIAqFQhiKIQUgBCAFIBx8fCEEIA8gBIVCEIohDyAKIA98IQogBSAKhUI/iiEFIAEgBSAefHwhASANIAGFQiCKIQ0gCSANfCEJIAUgCYVCGIohBSABIAUgHHx8IQEgDSABhUIQiiENIAkgDXwhCSAFIAmFQj+KIQUgAiAGIBh8fCECIA4gAoVCIIohDiAKIA58IQogBiAKhUIYiiEGIAIgBiAffHwhAiAOIAKFQhCKIQ4gCiAOfCEKIAYgCoVCP4ohBiADIAcgHXx8IQMgDyADhUIgiiEPIAsgD3whCyAHIAuFQhiKIQcgAyAHIBJ8fCEDIA8gA4VCEIohDyALIA98IQsgByALhUI/iiEHIAQgCCAUfHwhBCAQIASFQiCKIRAgDCAQfCEMIAggDIVCGIohCCAEIAggGnx8IQQgECAEhUIQiiEQIAwgEHwhDCAIIAyFQj+KIQggASAGIBZ8fCEBIBAgAYVCIIohECALIBB8IQsgBiALhUIYiiEGIAEgBiARfHwhASAQIAGFQhCKIRAgCyAQfCELIAYgC4VCP4ohBiACIAcgIHx8IQIgDSAChUIgiiENIAwgDXwhDCAHIAyFQhiKIQcgAiAHIBV8fCECIA0gAoVCEIohDSAMIA18IQwgByAMhUI/iiEHIAMgCCAZfHwhAyAOIAOFQiCKIQ4gCSAOfCEJIAggCYVCGIohCCADIAggF3x8IQMgDiADhUIQiiEOIAkgDnwhCSAIIAmFQj+KIQggBCAFIBN8fCEEIA8gBIVCIIohDyAKIA98IQogBSAKhUIYiiEFIAQgBSAbfHwhBCAPIASFQhCKIQ8gCiAPfCEKIAUgCoVCP4ohBSABIAUgF3x8IQEgDSABhUIgiiENIAkgDXwhCSAFIAmFQhiKIQUgASAFICB8fCEBIA0gAYVCEIohDSAJIA18IQkgBSAJhUI/iiEFIAIgBiAffHwhAiAOIAKFQiCKIQ4gCiAOfCEKIAYgCoVCGIohBiACIAYgGnx8IQIgDiAChUIQiiEOIAogDnwhCiAGIAqFQj+KIQYgAyAHIBx8fCEDIA8gA4VCIIohDyALIA98IQsgByALhUIYiiEHIAMgByAUfHwhAyAPIAOFQhCKIQ8gCyAPfCELIAcgC4VCP4ohByAEIAggEXx8IQQgECAEhUIgiiEQIAwgEHwhDCAIIAyFQhiKIQggBCAIIBl8fCEEIBAgBIVCEIohECAMIBB8IQwgCCAMhUI/iiEIIAEgBiAdfHwhASAQIAGFQiCKIRAgCyAQfCELIAYgC4VCGIohBiABIAYgE3x8IQEgECABhUIQiiEQIAsgEHwhCyAGIAuFQj+KIQYgAiAHIB58fCECIA0gAoVCIIohDSAMIA18IQwgByAMhUIYiiEHIAIgByAYfHwhAiANIAKFQhCKIQ0gDCANfCEMIAcgDIVCP4ohByADIAggEnx8IQMgDiADhUIgiiEOIAkgDnwhCSAIIAmFQhiKIQggAyAIIBV8fCEDIA4gA4VCEIohDiAJIA58IQkgCCAJhUI/iiEIIAQgBSAbfHwhBCAPIASFQiCKIQ8gCiAPfCEKIAUgCoVCGIohBSAEIAUgFnx8IQQgDyAEhUIQiiEPIAogD3whCiAFIAqFQj+KIQUgASAFIBt8fCEBIA0gAYVCIIohDSAJIA18IQkgBSAJhUIYiiEFIAEgBSATfHwhASANIAGFQhCKIQ0gCSANfCEJIAUgCYVCP4ohBSACIAYgGXx8IQIgDiAChUIgiiEOIAogDnwhCiAGIAqFQhiKIQYgAiAGIBV8fCECIA4gAoVCEIohDiAKIA58IQogBiAKhUI/iiEGIAMgByAYfHwhAyAPIAOFQiCKIQ8gCyAPfCELIAcgC4VCGIohByADIAcgF3x8IQMgDyADhUIQiiEPIAsgD3whCyAHIAuFQj+KIQcgBCAIIBJ8fCEEIBAgBIVCIIohECAMIBB8IQwgCCAMhUIYiiEIIAQgCCAWfHwhBCAQIASFQhCKIRAgDCAQfCEMIAggDIVCP4ohCCABIAYgIHx8IQEgECABhUIgiiEQIAsgEHwhCyAGIAuFQhiKIQYgASAGIBx8fCEBIBAgAYVCEIohECALIBB8IQsgBiALhUI/iiEGIAIgByAafHwhAiANIAKFQiCKIQ0gDCANfCEMIAcgDIVCGIohByACIAcgH3x8IQIgDSAChUIQiiENIAwgDXwhDCAHIAyFQj+KIQcgAyAIIBR8fCEDIA4gA4VCIIohDiAJIA58IQkgCCAJhUIYiiEIIAMgCCAdfHwhAyAOIAOFQhCKIQ4gCSAOfCEJIAggCYVCP4ohCCAEIAUgHnx8IQQgDyAEhUIgiiEPIAogD3whCiAFIAqFQhiKIQUgBCAFIBF8fCEEIA8gBIVCEIohDyAKIA98IQogBSAKhUI/iiEFIAEgBSARfHwhASANIAGFQiCKIQ0gCSANfCEJIAUgCYVCGIohBSABIAUgEnx8IQEgDSABhUIQiiENIAkgDXwhCSAFIAmFQj+KIQUgAiAGIBN8fCECIA4gAoVCIIohDiAKIA58IQogBiAKhUIYiiEGIAIgBiAUfHwhAiAOIAKFQhCKIQ4gCiAOfCEKIAYgCoVCP4ohBiADIAcgFXx8IQMgDyADhUIgiiEPIAsgD3whCyAHIAuFQhiKIQcgAyAHIBZ8fCEDIA8gA4VCEIohDyALIA98IQsgByALhUI/iiEHIAQgCCAXfHwhBCAQIASFQiCKIRAgDCAQfCEMIAggDIVCGIohCCAEIAggGHx8IQQgECAEhUIQiiEQIAwgEHwhDCAIIAyFQj+KIQggASAGIBl8fCEBIBAgAYVCIIohECALIBB8IQsgBiALhUIYiiEGIAEgBiAafHwhASAQIAGFQhCKIRAgCyAQfCELIAYgC4VCP4ohBiACIAcgG3x8IQIgDSAChUIgiiENIAwgDXwhDCAHIAyFQhiKIQcgAiAHIBx8fCECIA0gAoVCEIohDSAMIA18IQwgByAMhUI/iiEHIAMgCCAdfHwhAyAOIAOFQiCKIQ4gCSAOfCEJIAggCYVCGIohCCADIAggHnx8IQMgDiADhUIQiiEOIAkgDnwhCSAIIAmFQj+KIQggBCAFIB98fCEEIA8gBIVCIIohDyAKIA98IQogBSAKhUIYiiEFIAQgBSAgfHwhBCAPIASFQhCKIQ8gCiAPfCEKIAUgCoVCP4ohBSABIAUgH3x8IQEgDSABhUIgiiENIAkgDXwhCSAFIAmFQhiKIQUgASAFIBt8fCEBIA0gAYVCEIohDSAJIA18IQkgBSAJhUI/iiEFIAIgBiAVfHwhAiAOIAKFQiCKIQ4gCiAOfCEKIAYgCoVCGIohBiACIAYgGXx8IQIgDiAChUIQiiEOIAogDnwhCiAGIAqFQj+KIQYgAyAHIBp8fCEDIA8gA4VCIIohDyALIA98IQsgByALhUIYiiEHIAMgByAgfHwhAyAPIAOFQhCKIQ8gCyAPfCELIAcgC4VCP4ohByAEIAggHnx8IQQgECAEhUIgiiEQIAwgEHwhDCAIIAyFQhiKIQggBCAIIBd8fCEEIBAgBIVCEIohECAMIBB8IQwgCCAMhUI/iiEIIAEgBiASfHwhASAQIAGFQiCKIRAgCyAQfCELIAYgC4VCGIohBiABIAYgHXx8IQEgECABhUIQiiEQIAsgEHwhCyAGIAuFQj+KIQYgAiAHIBF8fCECIA0gAoVCIIohDSAMIA18IQwgByAMhUIYiiEHIAIgByATfHwhAiANIAKFQhCKIQ0gDCANfCEMIAcgDIVCP4ohByADIAggHHx8IQMgDiADhUIgiiEOIAkgDnwhCSAIIAmFQhiKIQggAyAIIBh8fCEDIA4gA4VCEIohDiAJIA58IQkgCCAJhUI/iiEIIAQgBSAWfHwhBCAPIASFQiCKIQ8gCiAPfCEKIAUgCoVCGIohBSAEIAUgFHx8IQQgDyAEhUIQiiEPIAogD3whCiAFIAqFQj+KIQUgISAhKQMAIAEgCYWFNwMAICIgIikDACACIAqFhTcDACAjICMpAwAgAyALhYU3AwAgJCAkKQMAIAQgDIWFNwMAICUgJSkDACAFIA2FhTcDACAmICYpAwAgBiAOhYU3AwAgJyAnKQMAIAcgD4WFNwMAICggKCkDACAIIBCFhTcDAAs=");
+	  }
+	});
+
+	// wasm-module:./blake2b.wat
+	var bytes = require_blake2b();
+	var compiled = WebAssembly.compile(bytes);
+	blake2b = async (imports) => {
+	  const instance = await WebAssembly.instantiate(await compiled, imports);
+	  return instance.exports;
+	};
+	return blake2b;
+}
+
+var assert = nanoassert;
+var b4a = browser.exports;
+
+var wasm = null;
+var wasmPromise = typeof WebAssembly !== "undefined" && requireBlake2b()().then(mod => {
+  wasm = mod;
+});
+
+var head = 64;
+var freeList = [];
+
+blake2bWasm.exports = Blake2b;
+var BYTES_MIN = blake2bWasm.exports.BYTES_MIN = 16;
+var BYTES_MAX = blake2bWasm.exports.BYTES_MAX = 64;
+blake2bWasm.exports.BYTES = 32;
+var KEYBYTES_MIN = blake2bWasm.exports.KEYBYTES_MIN = 16;
+var KEYBYTES_MAX = blake2bWasm.exports.KEYBYTES_MAX = 64;
+blake2bWasm.exports.KEYBYTES = 32;
+var SALTBYTES = blake2bWasm.exports.SALTBYTES = 16;
+var PERSONALBYTES = blake2bWasm.exports.PERSONALBYTES = 16;
+
+function Blake2b (digestLength, key, salt, personal, noAssert) {
+  if (!(this instanceof Blake2b)) return new Blake2b(digestLength, key, salt, personal, noAssert)
+  if (!wasm) throw new Error('WASM not loaded. Wait for Blake2b.ready(cb)')
+  if (!digestLength) digestLength = 32;
+
+  if (noAssert !== true) {
+    assert(digestLength >= BYTES_MIN, 'digestLength must be at least ' + BYTES_MIN + ', was given ' + digestLength);
+    assert(digestLength <= BYTES_MAX, 'digestLength must be at most ' + BYTES_MAX + ', was given ' + digestLength);
+    if (key != null) {
+      assert(key instanceof Uint8Array, 'key must be Uint8Array or Buffer');
+      assert(key.length >= KEYBYTES_MIN, 'key must be at least ' + KEYBYTES_MIN + ', was given ' + key.length);
+      assert(key.length <= KEYBYTES_MAX, 'key must be at least ' + KEYBYTES_MAX + ', was given ' + key.length);
+    }
+    if (salt != null) {
+      assert(salt instanceof Uint8Array, 'salt must be Uint8Array or Buffer');
+      assert(salt.length === SALTBYTES, 'salt must be exactly ' + SALTBYTES + ', was given ' + salt.length);
+    }
+    if (personal != null) {
+      assert(personal instanceof Uint8Array, 'personal must be Uint8Array or Buffer');
+      assert(personal.length === PERSONALBYTES, 'personal must be exactly ' + PERSONALBYTES + ', was given ' + personal.length);
+    }
+  }
+
+  if (!freeList.length) {
+    freeList.push(head);
+    head += 216;
+  }
+
+  this.digestLength = digestLength;
+  this.finalized = false;
+  this.pointer = freeList.pop();
+  this._memory = new Uint8Array(wasm.memory.buffer);
+
+  this._memory.fill(0, 0, 64);
+  this._memory[0] = this.digestLength;
+  this._memory[1] = key ? key.length : 0;
+  this._memory[2] = 1; // fanout
+  this._memory[3] = 1; // depth
+
+  if (salt) this._memory.set(salt, 32);
+  if (personal) this._memory.set(personal, 48);
+
+  if (this.pointer + 216 > this._memory.length) this._realloc(this.pointer + 216); // we need 216 bytes for the state
+  wasm.blake2b_init(this.pointer, this.digestLength);
+
+  if (key) {
+    this.update(key);
+    this._memory.fill(0, head, head + key.length); // whiteout key
+    this._memory[this.pointer + 200] = 128;
+  }
+}
+
+Blake2b.prototype._realloc = function (size) {
+  wasm.memory.grow(Math.max(0, Math.ceil(Math.abs(size - this._memory.length) / 65536)));
+  this._memory = new Uint8Array(wasm.memory.buffer);
+};
+
+Blake2b.prototype.update = function (input) {
+  assert(this.finalized === false, 'Hash instance finalized');
+  assert(input instanceof Uint8Array, 'input must be Uint8Array or Buffer');
+
+  if (head + input.length > this._memory.length) this._realloc(head + input.length);
+  this._memory.set(input, head);
+  wasm.blake2b_update(this.pointer, head, head + input.length);
+  return this
+};
+
+Blake2b.prototype.digest = function (enc) {
+  assert(this.finalized === false, 'Hash instance finalized');
+  this.finalized = true;
+
+  freeList.push(this.pointer);
+  wasm.blake2b_final(this.pointer);
+
+  if (!enc || enc === 'binary') {
+    return this._memory.slice(this.pointer + 128, this.pointer + 128 + this.digestLength)
+  }
+
+  if (typeof enc === 'string') {
+    return b4a.toString(this._memory, enc, this.pointer + 128, this.pointer + 128 + this.digestLength)
+  }
+
+  assert(enc instanceof Uint8Array && enc.length >= this.digestLength, 'input must be Uint8Array or Buffer');
+  for (var i = 0; i < this.digestLength; i++) {
+    enc[i] = this._memory[this.pointer + 128 + i];
+  }
+
+  return enc
+};
+
+// libsodium compat
+Blake2b.prototype.final = Blake2b.prototype.digest;
+
+Blake2b.WASM = wasm;
+Blake2b.SUPPORTED = typeof WebAssembly !== 'undefined';
+
+Blake2b.ready = function (cb) {
+  if (!cb) cb = noop;
+  if (!wasmPromise) return cb(new Error('WebAssembly not supported'))
+  return wasmPromise.then(() => cb(), cb)
+};
+
+Blake2b.prototype.ready = Blake2b.ready;
+
+Blake2b.prototype.getPartialHash = function () {
+  return this._memory.slice(this.pointer, this.pointer + 216);
+};
+
+Blake2b.prototype.setPartialHash = function (ph) {
+  this._memory.set(ph, this.pointer);
+};
+
+function noop () {}
 
 /*
     Copyright 2018 0KIMS association.
@@ -141,7 +2222,7 @@ function hashIsEqual(h1, h2) {
 
 function cloneHasher(h) {
     const ph = h.getPartialHash();
-    const res = Blake2b__default["default"](64);
+    const res = blake2bWasm.exports(64);
     res.setPartialHash(ph);
     return res;
 }
@@ -158,36 +2239,23 @@ async function sameRatio$2(curve, g1s, g1sx, g2s, g2sx) {
 
 
 function askEntropy() {
-    if (process.browser) {
+    {
         return window.prompt("Enter a random text. (Entropy): ", "");
-    } else {
-        const rl = readline__default["default"].createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-
-        return new Promise((resolve) => {
-            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-        });
     }
 }
 
 function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (process.browser) { // Supported
+    { // Supported
         globalThis.crypto.getRandomValues(array);
-    } else { // NodeJS
-        crypto__default["default"].randomFillSync(array);
     }
     return array;
 }
 
 async function sha256digest(data) {
-    if (process.browser) { // Supported
+    { // Supported
         const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
         return new Uint8Array(buffer);
-    } else { // NodeJS
-        return crypto__default["default"].createHash("sha256").update(data).digest();
     }
 }
 
@@ -204,7 +2272,7 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = Blake2b__default["default"](64);
+    const hasher = blake2bWasm.exports(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
@@ -214,7 +2282,7 @@ async function getRandomRng(entropy) {
     for (let i=0;i<8;i++) {
         seed[i] = readUInt32BE(hash, i*4);
     }
-    const rng = new ffjavascript.ChaCha(seed);
+    const rng = new ChaCha(seed);
     return rng;
 }
 
@@ -242,7 +2310,7 @@ async function rngFromBeaconParams(beaconHash, numIterationsExp) {
         seed[i] = curHashV.getUint32(i*4, false);
     }
 
-    const rng = new ffjavascript.ChaCha(seed);
+    const rng = new ChaCha(seed);
 
     return rng;
 }
@@ -351,26 +2419,26 @@ async function writeHeader(fd, zkey) {
 
     // Write the header
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 1);
+    await startWriteSection(fd, 1);
     await fd.writeULE32(1); // Groth
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Write the Groth header section
     ///////////
 
     const curve = await getCurveFromQ(zkey.q);
 
-    await binFileUtils__namespace.startWriteSection(fd, 2);
+    await startWriteSection(fd, 2);
     const primeQ = curve.q;
-    const n8q = (Math.floor( (ffjavascript.Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
     const primeR = curve.r;
-    const n8r = (Math.floor( (ffjavascript.Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
 
     await fd.writeULE32(n8q);
-    await binFileUtils__namespace.writeBigInt(fd, primeQ, n8q);
+    await writeBigInt(fd, primeQ, n8q);
     await fd.writeULE32(n8r);
-    await binFileUtils__namespace.writeBigInt(fd, primeR, n8r);
+    await writeBigInt(fd, primeR, n8r);
     await fd.writeULE32(zkey.nVars);                         // Total number of bars
     await fd.writeULE32(zkey.nPublic);                       // Total number of public vars (not including ONE)
     await fd.writeULE32(zkey.domainSize);                  // domainSize
@@ -381,7 +2449,7 @@ async function writeHeader(fd, zkey) {
     await writeG1(fd, curve, zkey.vk_delta_1);
     await writeG2(fd, curve, zkey.vk_delta_2);
 
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
 
 }
@@ -414,9 +2482,9 @@ async function readG2(fd, curve, toObject) {
 async function readHeader$1(fd, sections, toObject) {
     // Read Header
     /////////////////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 1);
+    await startReadUniqueSection(fd, sections, 1);
     const protocolId = await fd.readULE32();
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     if (protocolId === GROTH16_PROTOCOL_ID) {
         return await readHeaderGroth16(fd, sections, toObject);
@@ -439,14 +2507,14 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
     // Read Groth Header
     /////////////////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 2);
+    await startReadUniqueSection(fd, sections, 2);
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
-    zkey.q = await binFileUtils__namespace.readBigInt(fd, n8q);
+    zkey.q = await readBigInt(fd, n8q);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
-    zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
+    zkey.r = await readBigInt(fd, n8r);
     zkey.curve = await getCurveFromQ(zkey.q);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
@@ -458,7 +2526,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
     zkey.vk_gamma_2 = await readG2(fd, zkey.curve, toObject);
     zkey.vk_delta_1 = await readG1(fd, zkey.curve, toObject);
     zkey.vk_delta_2 = await readG2(fd, zkey.curve, toObject);
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     return zkey;
 
@@ -471,14 +2539,14 @@ async function readHeaderPlonk(fd, sections, toObject) {
 
     // Read Plonk Header
     /////////////////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 2);
+    await startReadUniqueSection(fd, sections, 2);
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
-    zkey.q = await binFileUtils__namespace.readBigInt(fd, n8q);
+    zkey.q = await readBigInt(fd, n8q);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
-    zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
+    zkey.r = await readBigInt(fd, n8r);
     zkey.curve = await getCurveFromQ(zkey.q);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
@@ -499,7 +2567,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     zkey.S3 = await readG1(fd, zkey.curve, toObject);
     zkey.X_2 = await readG2(fd, zkey.curve, toObject);
 
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     return zkey;
 }
@@ -510,15 +2578,15 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     zkey.protocol = "fflonk";
     zkey.protocolId = FFLONK_PROTOCOL_ID;
 
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, ZKEY_FF_HEADER_SECTION);
+    await startReadUniqueSection(fd, sections, ZKEY_FF_HEADER_SECTION);
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
-    zkey.q = await binFileUtils__namespace.readBigInt(fd, n8q);
+    zkey.q = await readBigInt(fd, n8q);
     zkey.curve = await getCurveFromQ(zkey.q);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
-    zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
+    zkey.r = await readBigInt(fd, n8r);
 
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
@@ -539,18 +2607,18 @@ async function readHeaderFFlonk(fd, sections, toObject) {
 
     zkey.C0 = await readG1(fd, zkey.curve, toObject);
 
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     return zkey;
 }
 
 async function readZKey(fileName, toObject) {
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(fileName, "zkey", 1);
+    const {fd, sections} = await readBinFile(fileName, "zkey", 1);
 
     const zkey = await readHeader$1(fd, sections, toObject);
 
-    const Fr = new ffjavascript.F1Field(zkey.r);
-    const Rr = ffjavascript.Scalar.mod(ffjavascript.Scalar.shl(1, zkey.n8r*8), zkey.r);
+    const Fr = new F1Field(zkey.r);
+    const Rr = Scalar.mod(Scalar.shl(1, zkey.n8r*8), zkey.r);
     const Rri = Fr.inv(Rr);
     const Rri2 = Fr.mul(Rri, Rri);
 
@@ -558,18 +2626,18 @@ async function readZKey(fileName, toObject) {
 
     // Read IC Section
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 3);
+    await startReadUniqueSection(fd, sections, 3);
     zkey.IC = [];
     for (let i=0; i<= zkey.nPublic; i++) {
         const P = await readG1(fd, curve, toObject);
         zkey.IC.push(P);
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
 
     // Read Coefs
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 4);
+    await startReadUniqueSection(fd, sections, 4);
     const nCCoefs = await fd.readULE32();
     zkey.ccoefs = [];
     for (let i=0; i<nCCoefs; i++) {
@@ -584,70 +2652,70 @@ async function readZKey(fileName, toObject) {
             value: v
         });
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     // Read A points
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 5);
+    await startReadUniqueSection(fd, sections, 5);
     zkey.A = [];
     for (let i=0; i<zkey.nVars; i++) {
         const A = await readG1(fd, curve, toObject);
         zkey.A[i] = A;
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
 
     // Read B1
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 6);
+    await startReadUniqueSection(fd, sections, 6);
     zkey.B1 = [];
     for (let i=0; i<zkey.nVars; i++) {
         const B1 = await readG1(fd, curve, toObject);
 
         zkey.B1[i] = B1;
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
 
     // Read B2 points
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 7);
+    await startReadUniqueSection(fd, sections, 7);
     zkey.B2 = [];
     for (let i=0; i<zkey.nVars; i++) {
         const B2 = await readG2(fd, curve, toObject);
         zkey.B2[i] = B2;
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
 
     // Read C points
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 8);
+    await startReadUniqueSection(fd, sections, 8);
     zkey.C = [];
     for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
         const C = await readG1(fd, curve, toObject);
 
         zkey.C[i] = C;
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
 
     // Read H points
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 9);
+    await startReadUniqueSection(fd, sections, 9);
     zkey.hExps = [];
     for (let i=0; i<zkey.domainSize; i++) {
         const H = await readG1(fd, curve, toObject);
         zkey.hExps.push(H);
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     await fd.close();
 
     return zkey;
 
     async function readFr2(/* toObject */) {
-        const n = await binFileUtils__namespace.readBigInt(fd, zkey.n8r);
+        const n = await readBigInt(fd, zkey.n8r);
         return Fr.mul(n, Rri2);
     }
 
@@ -693,7 +2761,7 @@ async function readContribution$1(fd, curve, toObject) {
 
 
 async function readMPCParams(fd, curve, sections) {
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 10);
+    await startReadUniqueSection(fd, sections, 10);
     const res = { contributions: []};
     res.csHash = await fd.read(64);
     const n = await fd.readULE32();
@@ -701,7 +2769,7 @@ async function readMPCParams(fd, curve, sections) {
         const c = await readContribution$1(fd, curve);
         res.contributions.push(c);
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     return res;
 }
@@ -740,13 +2808,13 @@ async function writeContribution$1(fd, curve, c) {
 }
 
 async function writeMPCParams(fd, curve, mpcParams) {
-    await binFileUtils__namespace.startWriteSection(fd, 10);
+    await startWriteSection(fd, 10);
     await fd.write(mpcParams.csHash);
     await fd.writeULE32(mpcParams.contributions.length);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         await writeContribution$1(fd, curve,mpcParams.contributions[i]);
     }
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 }
 
 function hashG1(hasher, curve, p) {
@@ -791,48 +2859,48 @@ function hashPubKey(hasher, curve, c) {
 
 async function write(fd, witness, prime) {
 
-    await binFileUtils__namespace.startWriteSection(fd, 1);
-    const n8 = (Math.floor( (ffjavascript.Scalar.bitLength(prime) - 1) / 64) +1)*8;
+    await startWriteSection(fd, 1);
+    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
     await fd.writeULE32(n8);
-    await binFileUtils__namespace.writeBigInt(fd, prime, n8);
+    await writeBigInt(fd, prime, n8);
     await fd.writeULE32(witness.length);
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
-    await binFileUtils__namespace.startWriteSection(fd, 2);
+    await startWriteSection(fd, 2);
     for (let i=0; i<witness.length; i++) {
-        await binFileUtils__namespace.writeBigInt(fd, witness[i], n8);
+        await writeBigInt(fd, witness[i], n8);
     }
-    await binFileUtils__namespace.endWriteSection(fd, 2);
+    await endWriteSection(fd);
 
 
 }
 
 async function writeBin(fd, witnessBin, prime) {
 
-    await binFileUtils__namespace.startWriteSection(fd, 1);
-    const n8 = (Math.floor( (ffjavascript.Scalar.bitLength(prime) - 1) / 64) +1)*8;
+    await startWriteSection(fd, 1);
+    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
     await fd.writeULE32(n8);
-    await binFileUtils__namespace.writeBigInt(fd, prime, n8);
+    await writeBigInt(fd, prime, n8);
     if (witnessBin.byteLength % n8 != 0) {
         throw new Error("Invalid witness length");
     }
     await fd.writeULE32(witnessBin.byteLength / n8);
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
 
-    await binFileUtils__namespace.startWriteSection(fd, 2);
+    await startWriteSection(fd, 2);
     await fd.write(witnessBin);
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
 }
 
 async function readHeader(fd, sections) {
 
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 1);
+    await startReadUniqueSection(fd, sections, 1);
     const n8 = await fd.readULE32();
-    const q = await binFileUtils__namespace.readBigInt(fd, n8);
+    const q = await readBigInt(fd, n8);
     const nWitness = await fd.readULE32();
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     return {n8, q, nWitness};
 
@@ -840,17 +2908,17 @@ async function readHeader(fd, sections) {
 
 async function read(fileName) {
 
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(fileName, "wtns", 2);
+    const {fd, sections} = await readBinFile(fileName, "wtns", 2);
 
     const {n8, nWitness} = await readHeader(fd, sections);
 
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 2);
+    await startReadUniqueSection(fd, sections, 2);
     const res = [];
     for (let i=0; i<nWitness; i++) {
-        const v = await binFileUtils__namespace.readBigInt(fd, n8);
+        const v = await readBigInt(fd, n8);
         res.push(v);
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     await fd.close();
 
@@ -875,14 +2943,14 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$3} = utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger) {
-    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
+    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile(witnessFileName, "wtns", 2);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
 
-    const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile(zkeyFileName, "zkey", 2);
 
     const zkey = await readHeader$1(fdZKey, sectionsZKey);
 
@@ -890,7 +2958,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
         throw new Error("zkey file is not groth16");
     }
 
-    if (!ffjavascript.Scalar.eq(zkey.r,  wtns.q)) {
+    if (!Scalar.eq(zkey.r,  wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
     }
 
@@ -906,9 +2974,9 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     const power = log2(zkey.domainSize);
 
     if (logger) logger.debug("Reading Wtns");
-    const buffWitness = await binFileUtils__namespace.readSection(fdWtns, sectionsWtns, 2);
+    const buffWitness = await readSection(fdWtns, sectionsWtns, 2);
     if (logger) logger.debug("Reading Coeffs");
-    const buffCoeffs = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 4);
+    const buffCoeffs = await readSection(fdZKey, sectionsZKey, 4);
 
     if (logger) logger.debug("Building ABC");
     const [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
@@ -933,23 +3001,23 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
     let proof = {};
 
     if (logger) logger.debug("Reading A Points");
-    const buffBasesA = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 5);
+    const buffBasesA = await readSection(fdZKey, sectionsZKey, 5);
     proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
 
     if (logger) logger.debug("Reading B1 Points");
-    const buffBasesB1 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 6);
+    const buffBasesB1 = await readSection(fdZKey, sectionsZKey, 6);
     let pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
 
     if (logger) logger.debug("Reading B2 Points");
-    const buffBasesB2 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 7);
+    const buffBasesB2 = await readSection(fdZKey, sectionsZKey, 7);
     proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
 
     if (logger) logger.debug("Reading C Points");
-    const buffBasesC = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 8);
+    const buffBasesC = await readSection(fdZKey, sectionsZKey, 8);
     proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
 
     if (logger) logger.debug("Reading H Points");
-    const buffBasesH = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 9);
+    const buffBasesH = await readSection(fdZKey, sectionsZKey, 9);
     const resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
 
     const r = curve.Fr.random();
@@ -976,7 +3044,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger) {
 
     for (let i=1; i<= zkey.nPublic; i++) {
         const b = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
-        publicSignals.push(ffjavascript.Scalar.fromRprLE(b));
+        publicSignals.push(Scalar.fromRprLE(b));
     }
 
     proof.pi_a = G1.toObject(G1.toAffine(proof.pi_a));
@@ -1001,9 +3069,9 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
     const sCoef = 4*3 + zkey.n8r;
     const nCoef = (coeffs.byteLength-4) / sCoef;
 
-    const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * n8);
-    const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * n8);
-    const outBuffC = new ffjavascript.BigBuffer(zkey.domainSize * n8);
+    const outBuffA = new BigBuffer(zkey.domainSize * n8);
+    const outBuffB = new BigBuffer(zkey.domainSize * n8);
+    const outBuffC = new BigBuffer(zkey.domainSize * n8);
 
     const outBuf = [ outBuffA, outBuffB ];
     for (let i=0; i<nCoef; i++) {
@@ -1210,8 +3278,8 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     const result = await Promise.all(promises);
 
     let outBuff;
-    if (a instanceof ffjavascript.BigBuffer) {
-        outBuff = new ffjavascript.BigBuffer(a.byteLength);
+    if (a instanceof BigBuffer) {
+        outBuff = new BigBuffer(a.byteLength);
     } else {
         outBuff = new Uint8Array(a.byteLength);
     }
@@ -1223,6 +3291,578 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     }
 
     return outBuff;
+}
+
+/*
+
+Copyright 2020 0KIMS association.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+*/
+
+function flatArray(a) {
+    var res = [];
+    fillArray(res, a);
+    return res;
+
+    function fillArray(res, a) {
+        if (Array.isArray(a)) {
+            for (let i=0; i<a.length; i++) {
+                fillArray(res, a[i]);
+            }
+        } else {
+            res.push(a);
+        }
+    }
+}
+
+function fnvHash(str) {
+    const uint64_max = BigInt(2) ** BigInt(64);
+    let hash = BigInt("0xCBF29CE484222325");
+    for (var i = 0; i < str.length; i++) {
+    hash ^= BigInt(str[i].charCodeAt());
+    hash *= BigInt(0x100000001B3);
+    hash %= uint64_max;
+    }
+    let shash = hash.toString(16);
+    let n = 16 - shash.length;
+    shash = '0'.repeat(n).concat(shash);
+    return shash;
+}
+
+// Note that this pads zeros
+function toArray32(s,size) {
+    const res = []; //new Uint32Array(size); //has no unshift
+    let rem = BigInt(s);
+    const radix = BigInt(0x100000000);
+    while (rem) {
+        res.unshift( Number(rem % radix));
+        rem = rem / radix;
+    }
+    if (size) {
+    var i = size - res.length;
+    while (i>0) {
+        res.unshift(0);
+        i--;
+    }
+    }
+    return res;
+}
+
+/* globals WebAssembly */
+
+async function builder(code, options) {
+
+    options = options || {};
+
+    let memorySize = 32767;
+    let memory;
+    let memoryAllocated = false;
+    while (!memoryAllocated){
+        try{
+            memory = new WebAssembly.Memory({initial:memorySize});
+            memoryAllocated = true;
+        } catch(err){
+            if(memorySize === 1){
+                throw err;
+            }
+            console.warn("Could not allocate " + memorySize * 1024 * 64 + " bytes. This may cause severe instability. Trying with " + memorySize * 1024 * 64 / 2 + " bytes");
+            memorySize = Math.floor(memorySize/2);
+        }
+    }
+
+    const wasmModule = await WebAssembly.compile(code);
+
+    let wc;
+
+    let errStr = "";
+    let msgStr = "";
+
+    // Only circom 2 implements version lookup through exports in the WASM
+    // We default to `1` and update if we see the `getVersion` export (major version)
+    // These are updated after the instance is instantiated, assuming the functions are available
+    let majorVersion = 1;
+    // After Circom 2.0.7, Blaine added exported functions for getting minor and patch versions
+    let minorVersion = 0;
+    // If we can't lookup the patch version, assume the lowest
+    let patchVersion = 0;
+
+    const instance = await WebAssembly.instantiate(wasmModule, {
+        env: {
+            "memory": memory
+        },
+        runtime: {
+            exceptionHandler: function(code) {
+                let err;
+                if (code == 1) {
+                    err = "Signal not found. ";
+                } else if (code == 2) {
+                    err = "Too many signals set. ";
+                } else if (code == 3) {
+                    err = "Signal already set. ";
+                } else if (code == 4) {
+                    err = "Assert Failed. ";
+                } else if (code == 5) {
+                    err = "Not enough memory. ";
+                } else if (code == 6) {
+                    err = "Input signal array access exceeds the size. ";
+                } else {
+                    err = "Unknown error. ";
+                }
+                console.error("ERROR: ", code, errStr);
+                throw new Error(err + errStr);
+            },
+            // A new way of logging messages was added in Circom 2.0.7 that requires 2 new imports
+            // `printErrorMessage` and `writeBufferMessage`.
+            printErrorMessage: function() {
+                errStr += getMessage() + "\n";
+            },
+            writeBufferMessage: function() {
+                const msg = getMessage();
+                // Any calls to `log()` will always end with a `\n`, so that's when we print and reset
+                if (msg === "\n") {
+                    console.log(msgStr);
+                    msgStr = "";
+                } else {
+                    // If we've buffered other content, put a space in between the items
+                    if (msgStr !== "") {
+                        msgStr += " ";
+                    }
+                    // Then append the message to the message we are creating
+                    msgStr += msg;
+                }
+            },
+            showSharedRWMemory: function() {
+                const shared_rw_memory_size = instance.exports.getFieldNumLen32();
+                const arr = new Uint32Array(shared_rw_memory_size);
+                for (let j=0; j<shared_rw_memory_size; j++) {
+                    arr[shared_rw_memory_size-1-j] = instance.exports.readSharedRWMemory(j);
+                }
+
+                // In circom 2.0.7, they changed the log() function to allow strings and changed the
+                // output API. This smoothes over the breaking change.
+                if (majorVersion >= 2 && (minorVersion >= 1 || patchVersion >= 7)) {
+                    // If we've buffered other content, put a space in between the items
+                    if (msgStr !== "") {
+                        msgStr += " ";
+                    }
+                    // Then append the value to the message we are creating
+                    const msg = (Scalar.fromArray(arr, 0x100000000).toString());
+                    msgStr += msg;
+                } else {
+                    console.log(Scalar.fromArray(arr, 0x100000000));
+                }
+            },
+            error: function(code, pstr, a,b,c,d) {
+                let errStr;
+                if (code == 7) {
+                    errStr=p2str(pstr) + " " + wc.getFr(b).toString() + " != " + wc.getFr(c).toString() + " " +p2str(d);
+                } else if (code == 9) {
+                    errStr=p2str(pstr) + " " + wc.getFr(b).toString() + " " +p2str(c);
+                } else if ((code == 5)&&(options.sym)) {
+                    errStr=p2str(pstr)+ " " + options.sym.labelIdx2Name[c];
+                } else {
+                    errStr=p2str(pstr)+ " " + a + " " + b + " " + c + " " + d;
+                }
+                console.log("ERROR: ", code, errStr);
+                throw new Error(errStr);
+            },
+            log: function(a) {
+                console.log(wc.getFr(a).toString());
+            },
+            logGetSignal: function(signal, pVal) {
+                if (options.logGetSignal) {
+                    options.logGetSignal(signal, wc.getFr(pVal) );
+                }
+            },
+            logSetSignal: function(signal, pVal) {
+                if (options.logSetSignal) {
+                    options.logSetSignal(signal, wc.getFr(pVal) );
+                }
+            },
+            logStartComponent: function(cIdx) {
+                if (options.logStartComponent) {
+                    options.logStartComponent(cIdx);
+                }
+            },
+            logFinishComponent: function(cIdx) {
+                if (options.logFinishComponent) {
+                    options.logFinishComponent(cIdx);
+                }
+            }
+        }
+    });
+
+    if (typeof instance.exports.getVersion == 'function') {
+        majorVersion = instance.exports.getVersion();
+    }
+    if (typeof instance.exports.getMinorVersion == 'function') {
+        minorVersion = instance.exports.getMinorVersion();
+    }
+    if (typeof instance.exports.getPatchVersion == 'function') {
+        patchVersion = instance.exports.getPatchVersion();
+    }
+
+    const sanityCheck =
+        options &&
+        (
+            options.sanityCheck ||
+            options.logGetSignal ||
+            options.logSetSignal ||
+            options.logStartComponent ||
+            options.logFinishComponent
+        );
+
+    // We explicitly check for major version 2 in case there's a circom v3 in the future
+    if (majorVersion === 2) {
+        wc = new WitnessCalculatorCircom2(instance, sanityCheck);
+    } else {
+        // TODO: Maybe we want to check for the explicit version 1 before choosing this?
+        wc = new WitnessCalculatorCircom1(memory, instance, sanityCheck);
+    }
+    return wc;
+
+    function getMessage() {
+        var message = "";
+        var c = instance.exports.getMessageChar();
+        while ( c != 0 ) {
+            message += String.fromCharCode(c);
+            c = instance.exports.getMessageChar();
+        }
+        return message;
+    }
+
+    function p2str(p) {
+        const i8 = new Uint8Array(memory.buffer);
+
+        const bytes = [];
+
+        for (let i=0; i8[p+i]>0; i++)  bytes.push(i8[p+i]);
+
+        return String.fromCharCode.apply(null, bytes);
+    }
+}
+class WitnessCalculatorCircom1 {
+    constructor(memory, instance, sanityCheck) {
+        this.memory = memory;
+        this.i32 = new Uint32Array(memory.buffer);
+        this.instance = instance;
+
+        this.n32 = (this.instance.exports.getFrLen() >> 2) - 2;
+        const pRawPrime = this.instance.exports.getPRawPrime();
+
+        const arr = new Array(this.n32);
+        for (let i=0; i<this.n32; i++) {
+            arr[this.n32-1-i] = this.i32[(pRawPrime >> 2) + i];
+        }
+
+        this.prime = Scalar.fromArray(arr, 0x100000000);
+
+        this.Fr = new F1Field(this.prime);
+
+        this.mask32 = Scalar.fromString("FFFFFFFF", 16);
+        this.NVars = this.instance.exports.getNVars();
+        this.n64 = Math.floor((this.Fr.bitLength - 1) / 64)+1;
+        this.R = this.Fr.e( Scalar.shiftLeft(1 , this.n64*64));
+        this.RInv = this.Fr.inv(this.R);
+        this.sanityCheck = sanityCheck;
+    }
+
+    circom_version() {
+        return 1;
+    }
+
+    async _doCalculateWitness(input, sanityCheck) {
+        this.instance.exports.init((this.sanityCheck || sanityCheck) ? 1 : 0);
+        const pSigOffset = this.allocInt();
+        const pFr = this.allocFr();
+        const keys = Object.keys(input);
+        keys.forEach( (k) => {
+            const h = fnvHash(k);
+            const hMSB = parseInt(h.slice(0,8), 16);
+            const hLSB = parseInt(h.slice(8,16), 16);
+            try {
+                this.instance.exports.getSignalOffset32(pSigOffset, 0, hMSB, hLSB);
+            } catch (err) {
+                throw new Error(`Signal ${k} is not an input of the circuit.`);
+            }
+            const sigOffset = this.getInt(pSigOffset);
+            const fArr = flatArray(input[k]);
+            for (let i=0; i<fArr.length; i++) {
+                this.setFr(pFr, fArr[i]);
+                this.instance.exports.setSignal(0, 0, sigOffset + i, pFr);
+            }
+        });
+    }
+
+    async calculateWitness(input, sanityCheck) {
+        const self = this;
+
+        const old0 = self.i32[0];
+        const w = [];
+
+        await self._doCalculateWitness(input, sanityCheck);
+
+        for (let i=0; i<self.NVars; i++) {
+            const pWitness = self.instance.exports.getPWitness(i);
+            w.push(self.getFr(pWitness));
+        }
+
+        self.i32[0] = old0;
+        return w;
+    }
+
+    async calculateBinWitness(input, sanityCheck) {
+        const self = this;
+
+        const old0 = self.i32[0];
+
+        await self._doCalculateWitness(input, sanityCheck);
+
+        const pWitnessBuffer = self.instance.exports.getWitnessBuffer();
+
+        self.i32[0] = old0;
+
+        const buff = self.memory.buffer.slice(pWitnessBuffer, pWitnessBuffer + (self.NVars * self.n64 * 8));
+        return new Uint8Array(buff);
+    }
+
+    allocInt() {
+        const p = this.i32[0];
+        this.i32[0] = p+8;
+        return p;
+    }
+
+    allocFr() {
+        const p = this.i32[0];
+        this.i32[0] = p+this.n32*4 + 8;
+        return p;
+    }
+
+    getInt(p) {
+        return this.i32[p>>2];
+    }
+
+    setInt(p, v) {
+        this.i32[p>>2] = v;
+    }
+
+    getFr(p) {
+        const self = this;
+        const idx = (p>>2);
+
+        if (self.i32[idx + 1] & 0x80000000) {
+            const arr = new Array(self.n32);
+            for (let i=0; i<self.n32; i++) {
+                arr[self.n32-1-i] = self.i32[idx+2+i];
+            }
+            const res = self.Fr.e(Scalar.fromArray(arr, 0x100000000));
+            if (self.i32[idx + 1] & 0x40000000) {
+                return fromMontgomery(res);
+            } else {
+                return res;
+            }
+
+        } else {
+            if (self.i32[idx] & 0x80000000) {
+                return self.Fr.e( self.i32[idx] - 0x100000000);
+            } else {
+                return self.Fr.e(self.i32[idx]);
+            }
+        }
+
+        function fromMontgomery(n) {
+            return self.Fr.mul(self.RInv, n);
+        }
+
+    }
+
+
+    setFr(p, v) {
+        const self = this;
+
+        v = self.Fr.e(v);
+
+        const minShort = self.Fr.neg(self.Fr.e("80000000", 16));
+        const maxShort = self.Fr.e("7FFFFFFF", 16);
+
+        if (  (self.Fr.geq(v, minShort))
+            &&(self.Fr.leq(v, maxShort)))
+        {
+            let a;
+            if (self.Fr.geq(v, self.Fr.zero)) {
+                a = Scalar.toNumber(v);
+            } else {
+                a = Scalar.toNumber( self.Fr.sub(v, minShort));
+                a = a - 0x80000000;
+                a = 0x100000000 + a;
+            }
+            self.i32[(p >> 2)] = a;
+            self.i32[(p >> 2) + 1] = 0;
+            return;
+        }
+
+        self.i32[(p >> 2)] = 0;
+        self.i32[(p >> 2) + 1] = 0x80000000;
+        const arr = Scalar.toArray(v, 0x100000000);
+        for (let i=0; i<self.n32; i++) {
+            const idx = arr.length-1-i;
+
+            if ( idx >=0) {
+                self.i32[(p >> 2) + 2 + i] = arr[idx];
+            } else {
+                self.i32[(p >> 2) + 2 + i] = 0;
+            }
+        }
+    }
+}
+
+class WitnessCalculatorCircom2 {
+    constructor(instance, sanityCheck) {
+        this.instance = instance;
+
+        this.version = this.instance.exports.getVersion();
+        this.n32 = this.instance.exports.getFieldNumLen32();
+
+        this.instance.exports.getRawPrime();
+        const arr = new Array(this.n32);
+        for (let i=0; i<this.n32; i++) {
+            arr[this.n32-1-i] = this.instance.exports.readSharedRWMemory(i);
+        }
+        this.prime = Scalar.fromArray(arr, 0x100000000);
+
+        this.witnessSize = this.instance.exports.getWitnessSize();
+
+        this.sanityCheck = sanityCheck;
+    }
+
+    circom_version() {
+        return this.instance.exports.getVersion();
+    }
+
+    async _doCalculateWitness(input, sanityCheck) {
+        //input is assumed to be a map from signals to arrays of bigints
+        this.instance.exports.init((this.sanityCheck || sanityCheck) ? 1 : 0);
+        const keys = Object.keys(input);
+        var input_counter = 0;
+        keys.forEach( (k) => {
+            const h = fnvHash(k);
+            const hMSB = parseInt(h.slice(0,8), 16);
+            const hLSB = parseInt(h.slice(8,16), 16);
+            const fArr = flatArray(input[k]);
+            for (let i=0; i<fArr.length; i++) {
+        const arrFr = toArray32(fArr[i],this.n32);
+        for (let j=0; j<this.n32; j++) {
+            this.instance.exports.writeSharedRWMemory(j,arrFr[this.n32-1-j]);
+        }
+        try {
+                    this.instance.exports.setInputSignal(hMSB, hLSB,i);
+            input_counter++;
+        } catch (err) {
+            // console.log(`After adding signal ${i} of ${k}`)
+                    throw new Error(err);
+        }
+            }
+
+        });
+        if (input_counter < this.instance.exports.getInputSize()) {
+            throw new Error(`Not all inputs have been set. Only ${input_counter} out of ${this.instance.exports.getInputSize()}`);
+        }
+    }
+
+    async calculateWitness(input, sanityCheck) {
+        const w = [];
+
+        await this._doCalculateWitness(input, sanityCheck);
+
+        for (let i=0; i<this.witnessSize; i++) {
+            this.instance.exports.getWitness(i);
+        const arr = new Uint32Array(this.n32);
+            for (let j=0; j<this.n32; j++) {
+            arr[this.n32-1-j] = this.instance.exports.readSharedRWMemory(j);
+            }
+            w.push(Scalar.fromArray(arr, 0x100000000));
+        }
+
+        return w;
+    }
+
+    async calculateWTNSBin(input, sanityCheck) {
+        const buff32 = new Uint32Array(this.witnessSize*this.n32+this.n32+11);
+        const buff = new  Uint8Array( buff32.buffer);
+        await this._doCalculateWitness(input, sanityCheck);
+
+        //"wtns"
+        buff[0] = "w".charCodeAt(0);
+        buff[1] = "t".charCodeAt(0);
+        buff[2] = "n".charCodeAt(0);
+        buff[3] = "s".charCodeAt(0);
+
+        //version 2
+        buff32[1] = 2;
+
+        //number of sections: 2
+        buff32[2] = 2;
+
+        //id section 1
+        buff32[3] = 1;
+
+        const n8 = this.n32*4;
+        //id section 1 length in 64bytes
+        const idSection1length = 8 + n8;
+        const idSection1lengthHex = idSection1length.toString(16);
+            buff32[4] = parseInt(idSection1lengthHex.slice(0,8), 16);
+            buff32[5] = parseInt(idSection1lengthHex.slice(8,16), 16);
+
+        //this.n32
+        buff32[6] = n8;
+
+        //prime number
+        this.instance.exports.getRawPrime();
+
+        var pos = 7;
+        for (let j=0; j<this.n32; j++) {
+            buff32[pos+j] = this.instance.exports.readSharedRWMemory(j);
+        }
+        pos += this.n32;
+
+        // witness size
+        buff32[pos] = this.witnessSize;
+        pos++;
+
+        //id section 2
+        buff32[pos] = 2;
+        pos++;
+
+        // section 2 length
+        const idSection2length = n8*this.witnessSize;
+        const idSection2lengthHex = idSection2length.toString(16);
+        buff32[pos] = parseInt(idSection2lengthHex.slice(0,8), 16);
+        buff32[pos+1] = parseInt(idSection2lengthHex.slice(8,16), 16);
+
+        pos += 2;
+        for (let i=0; i<this.witnessSize; i++) {
+            this.instance.exports.getWitness(i);
+            for (let j=0; j<this.n32; j++) {
+                buff32[pos+j] = this.instance.exports.readSharedRWMemory(j);
+            }
+            pos += this.n32;
+        }
+
+        return buff;
+    }
+
 }
 
 /*
@@ -1243,25 +3883,25 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$7} = utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const input = unstringifyBigInts$7(_input);
 
-    const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
+    const fdWasm = await readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
+    const wc = await builder(wasm);
     if (wc.circom_version() == 1) {
         const w = await wc.calculateBinWitness(input);
 
-        const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
+        const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
 
         await writeBin(fdWtns, w, wc.prime);
         await fdWtns.close();
     } else {
-        const fdWtns = await fastFile__namespace.createOverride(wtnsFileName);
+        const fdWtns = await createOverride(wtnsFileName);
 
         const w = await wc.calculateWTNSBin(input);
 
@@ -1288,7 +3928,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$6} = utils;
 
 async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
     const input = unstringifyBigInts$6(_input);
@@ -1318,7 +3958,7 @@ async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$5} = utils;
 
 async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -1346,7 +3986,7 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     for (let i=0; i<publicSignals.length; i++) {
         const buffP = curve.G1.fromObject(vk_verifier.IC[i+1]);
         IC.set(buffP, i*curve.G1.F.n8*2);
-        ffjavascript.Scalar.toRprLE(w, curve.Fr.n8*i, publicSignals[i], curve.Fr.n8);
+        Scalar.toRprLE(w, curve.Fr.n8*i, publicSignals[i], curve.Fr.n8);
     }
 
     let cpub = await curve.G1.multiExpAffine(IC, w);
@@ -1394,7 +4034,7 @@ function isWellConstructed$1(curve, proof) {
 
 function publicInputsAreValid$1(curve, publicInputs) {
     for(let i = 0; i < publicInputs.length; i++) {
-        if(!ffjavascript.Scalar.lt(publicInputs[i], curve.r)) {
+        if(!Scalar.lt(publicInputs[i], curve.r)) {
             return false;
         }
     }
@@ -1453,7 +4093,7 @@ function hashToG2(curve, hash) {
         seed[i] = hashV.getUint32(i*4);
     }
 
-    const rng = new ffjavascript.ChaCha(seed);
+    const rng = new ChaCha(seed);
 
     const g2_sp = curve.G2.fromRng(rng);
 
@@ -1462,7 +4102,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = Blake2b__default["default"](64);
+    const h = blake2bWasm.exports(64);
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -1529,7 +4169,7 @@ async function writePTauHeader(fd, curve, power, ceremonyPower) {
     await fd.writeULE32(curve.F1.n64*8);
 
     const buff = new Uint8Array(curve.F1.n8);
-    ffjavascript.Scalar.toRprLE(buff, 0, curve.q, curve.F1.n8);
+    Scalar.toRprLE(buff, 0, curve.q, curve.F1.n8);
     await fd.write(buff);
     await fd.writeULE32(power);                    // power
     await fd.writeULE32(ceremonyPower);               // power
@@ -1550,7 +4190,7 @@ async function readPTauHeader(fd, sections) {
     fd.pos = sections[1][0].p;
     const n8 = await fd.readULE32();
     const buff = await fd.read(n8);
-    const q = ffjavascript.Scalar.fromRprLE(buff);
+    const q = Scalar.fromRprLE(buff);
 
     const curve = await getCurveFromQ(q);
 
@@ -1670,7 +4310,7 @@ async function readContribution(fd, curve) {
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
     toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
 
-    const responseHasher = Blake2b__default["default"](64);
+    const responseHasher = blake2bWasm.exports(64);
     responseHasher.setPartialHash(c.partialHash);
     responseHasher.update(buffV);
     c.responseHash = responseHasher.digest();
@@ -1807,14 +4447,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = new Blake2b__default["default"](64);
+    const hasher = new blake2bWasm.exports(64);
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(Blake2b__default["default"](64).digest());
+    hasher.update(blake2bWasm.exports(64).digest());
 
     let n;
 
@@ -1883,9 +4523,9 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
 
 async function newAccumulator(curve, power, fileName, logger) {
 
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const fd = await binFileUtils__namespace.createBinFile(fileName, "ptau", 1, 7);
+    const fd = await createBinFile(fileName, "ptau", 1, 7);
 
     await writePTauHeader(fd, curve, power, 0);
 
@@ -1894,61 +4534,61 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     // Write tauG1
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 2);
+    await startWriteSection(fd, 2);
     const nTauG1 = (2 ** power) * 2 -1;
     for (let i=0; i< nTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG1: " + i);
     }
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Write tauG2
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 3);
+    await startWriteSection(fd, 3);
     const nTauG2 = (2 ** power);
     for (let i=0; i< nTauG2; i++) {
         await fd.write(buffG2);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG2: " + i);
     }
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Write alphaTauG1
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 4);
+    await startWriteSection(fd, 4);
     const nAlfaTauG1 = (2 ** power);
     for (let i=0; i< nAlfaTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("alphaTauG1: " + i);
     }
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Write betaTauG1
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 5);
+    await startWriteSection(fd, 5);
     const nBetaTauG1 = (2 ** power);
     for (let i=0; i< nBetaTauG1; i++) {
         await fd.write(buffG1);
         if ((logger)&&((i%100000) == 0)&&i) logger.log("betaTauG1: " + i);
     }
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Write betaG2
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 6);
+    await startWriteSection(fd, 6);
     await fd.write(buffG2);
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     // Contributions
     ///////////
-    await binFileUtils__namespace.startWriteSection(fd, 7);
+    await startWriteSection(fd, 7);
     await fd.writeULE32(0); // 0 Contributions
-    await binFileUtils__namespace.endWriteSection(fd);
+    await endWriteSection(fd);
 
     await fd.close();
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(Blake2b__default["default"](64).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(blake2bWasm.exports(64).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -1959,15 +4599,15 @@ async function newAccumulator(curve, power, fileName, logger) {
 // Format of the outpu
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    await Blake2b__default["default"].ready();
-    const {fd: fdFrom, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
+    await blake2bWasm.exports.ready();
+    const {fd: fdFrom, sections} = await readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fdFrom, sections);
 
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = Blake2b__default["default"](64).digest();
+        lastResponseHash = blake2bWasm.exports(64).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -1979,9 +4619,9 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     if (logger) logger.info(formatHash(curChallengeHash, "New Challenge Hash: "));
 
 
-    const fdTo = await fastFile__namespace.createOverride(challengeFilename);
+    const fdTo = await createOverride(challengeFilename);
 
-    const toHash = Blake2b__default["default"](64);
+    const toHash = blake2bWasm.exports(64);
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -2010,7 +4650,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
         const sG = G.F.n8*2;
         const nPointsChunk = Math.floor((1<<24)/sG);
 
-        await binFileUtils__namespace.startReadUniqueSection(fdFrom, sections, sectionId);
+        await startReadUniqueSection(fdFrom, sections, sectionId);
         for (let i=0; i< nPoints; i+= nPointsChunk) {
             if (logger) logger.debug(`Exporting ${sectionName}: ${i}/${nPoints}`);
             const n = Math.min(nPoints-i, nPointsChunk);
@@ -2020,7 +4660,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
             await fdTo.write(buff);
             toHash.update(buff);
         }
-        await binFileUtils__namespace.endReadSection(fdFrom);
+        await endReadSection(fdFrom);
     }
 
 
@@ -2047,12 +4687,12 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
     const noHash = new Uint8Array(64);
     for (let i=0; i<64; i++) noHash[i] = 0xFF;
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdOld, sections);
     const contributions = await readContributions(fdOld, curve, sections);
     const currentContribution = {};
@@ -2064,7 +4704,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const sG2 = curve.F2.n8*2;
     const scG2 = curve.F2.n8; // Compresed size
 
-    const fdResponse = await fastFile__namespace.readExisting(contributionFilename);
+    const fdResponse = await readExisting(contributionFilename);
 
     if  (fdResponse.totalSize !=
         64 +                            // Old Hash
@@ -2084,7 +4724,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
         lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
     }
 
-    const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, importPoints ? 7: 2);
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, importPoints ? 7: 2);
     await writePTauHeader(fdNew, curve, power);
 
     const contributionPreviousHash = await fdResponse.read(64);
@@ -2097,7 +4737,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. this contribution is not based on the previus hash");
 
-    const hasherResponse = new Blake2b__default["default"](64);
+    const hasherResponse = new blake2bWasm.exports(64);
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -2126,7 +4766,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = new Blake2b__default["default"](64);
+        const nextChallengeHasher = new blake2bWasm.exports(64);
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -2168,7 +4808,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
 
         const singularPoints = [];
 
-        await binFileUtils__namespace.startWriteSection(fdTo, sectionId);
+        await startWriteSection(fdTo, sectionId);
         const nPointsChunk = Math.floor((1<<24)/sG);
 
         startSections[sectionId] = fdTo.pos;
@@ -2192,7 +4832,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
             }
         }
 
-        await binFileUtils__namespace.endWriteSection(fdTo);
+        await endWriteSection(fdTo);
 
         return singularPoints;
     }
@@ -2375,9 +5015,9 @@ async function verifyContribution(curve, cur, prev, logger) {
 
 async function verify(tauFilename, logger) {
     let sr;
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(tauFilename, "ptau", 1);
+    const {fd, sections} = await readBinFile(tauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
     const contrs = await readContributions(fd, curve, sections);
 
@@ -2392,7 +5032,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: Blake2b__default["default"](64).digest()
+        responseHash: blake2bWasm.exports(64).digest()
     };
 
     if (contrs.length == 0) {
@@ -2412,7 +5052,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = Blake2b__default["default"](64);
+    const nextContributionHasher = blake2bWasm.exports(64);
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -2546,7 +5186,7 @@ async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher = Blake2b__default["default"](64);
+        const responseHasher = blake2bWasm.exports(64);
         responseHasher.setPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
@@ -2590,7 +5230,7 @@ async function verify(tauFilename, logger) {
         const MAX_CHUNK_SIZE = 1<<16;
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        await binFileUtils__namespace.startReadUniqueSection(fd, sections, idSection);
+        await startReadUniqueSection(fd, sections, idSection);
 
         const singularPoints = [];
 
@@ -2634,7 +5274,7 @@ async function verify(tauFilename, logger) {
             }
 
         }
-        await binFileUtils__namespace.endReadSection(fd);
+        await endReadSection(fd);
 
         return {
             R1: R1,
@@ -2674,7 +5314,7 @@ async function verify(tauFilename, logger) {
             let buff_r = new Uint32Array(nPoints);
             let buffG;
 
-            let rng = new ffjavascript.ChaCha(seed);
+            let rng = new ChaCha(seed);
 
             if (logger) logger.debug(`Creating random numbers Powers${p}...`);
             for (let i=0; i<nPoints; i++) {
@@ -2688,21 +5328,21 @@ async function verify(tauFilename, logger) {
             buff_r = new Uint8Array(buff_r.buffer, buff_r.byteOffset, buff_r.byteLength);
 
             if (logger) logger.debug(`reading points Powers${p}...`);
-            await binFileUtils__namespace.startReadUniqueSection(fd, sections, tauSection);
-            buffG = new ffjavascript.BigBuffer(nPoints*sG);
+            await startReadUniqueSection(fd, sections, tauSection);
+            buffG = new BigBuffer(nPoints*sG);
             if (p == power+1) {
                 await fd.readToBuffer(buffG, 0, (nPoints-1)*sG);
                 buffG.set(curve.G1.zeroAffine, (nPoints-1)*sG);
             } else {
                 await fd.readToBuffer(buffG, 0, nPoints*sG);
             }
-            await binFileUtils__namespace.endReadSection(fd, true);
+            await endReadSection(fd, true);
 
             const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);
 
-            buff_r = new ffjavascript.BigBuffer(nPoints * n8r);
+            buff_r = new BigBuffer(nPoints * n8r);
 
-            rng = new ffjavascript.ChaCha(seed);
+            rng = new ChaCha(seed);
 
             const buff4 = new Uint8Array(4);
             const buff4V = new DataView(buff4.buffer);
@@ -2723,10 +5363,10 @@ async function verify(tauFilename, logger) {
             buff_r = await curve.Fr.batchFromMontgomery(buff_r);
 
             if (logger) logger.debug(`reading points Lagrange${p}...`);
-            await binFileUtils__namespace.startReadUniqueSection(fd, sections, lagrangeSection);
+            await startReadUniqueSection(fd, sections, lagrangeSection);
             fd.pos += sG*((2 ** p)-1);
             await fd.readToBuffer(buffG, 0, nPoints*sG);
-            await binFileUtils__namespace.endReadSection(fd, true);
+            await endReadSection(fd, true);
 
             const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
 
@@ -2772,8 +5412,8 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
     const sG = G.F.n8*2;
     const nPoints = sections[idSection][0].size / sG;
 
-    await binFileUtils__namespace.startReadUniqueSection(fdOld, sections,idSection );
-    await binFileUtils__namespace.startWriteSection(fdNew, idSection);
+    await startReadUniqueSection(fdOld, sections,idSection );
+    await startWriteSection(fdNew, idSection);
 
     let t = first;
     for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
@@ -2786,8 +5426,8 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
     }
 
-    await binFileUtils__namespace.endWriteSection(fdNew);
-    await binFileUtils__namespace.endReadSection(fdOld);
+    await endWriteSection(fdNew);
+    await endReadSection(fdOld);
 }
 
 
@@ -2836,9 +5476,9 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 */
 
 async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
+    const fdFrom = await readExisting(challengeFilename);
 
 
     const sG1 = curve.F1.n64*8*2;
@@ -2856,10 +5496,10 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
 
     const rng = await getRandomRng(entropy);
 
-    const fdTo = await fastFile__namespace.createOverride(responesFileName);
+    const fdTo = await createOverride(responesFileName);
 
     // Calculate the hash
-    const challengeHasher = Blake2b__default["default"](64);
+    const challengeHasher = blake2bWasm.exports(64);
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -2885,7 +5525,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
         });
     }
 
-    const responseHasher = Blake2b__default["default"](64);
+    const responseHasher = blake2bWasm.exports(64);
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -2947,9 +5587,9 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     }
 
 
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
     if (power != ceremonyPower) {
         if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
@@ -2976,10 +5616,10 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = new Blake2b__default["default"](64);
+    const responseHasher = new blake2bWasm.exports(64);
     responseHasher.update(lastChallengeHash);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
     await writePTauHeader(fdNew, curve, power);
 
     const startSections = [];
@@ -3007,7 +5647,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b__default["default"](64);
+    const nextChallengeHasher = new blake2bWasm.exports(64);
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -3033,7 +5673,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
         const res = [];
         fdOld.pos = sections[sectionId][0].p;
 
-        await binFileUtils__namespace.startWriteSection(fdNew, sectionId);
+        await startWriteSection(fdNew, sectionId);
 
         startSections[sectionId] = fdNew.pos;
 
@@ -3065,7 +5705,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
             t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
         }
 
-        await binFileUtils__namespace.endWriteSection(fdNew);
+        await endWriteSection(fdNew);
 
         return res;
     }
@@ -3115,9 +5755,9 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 */
 
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
     if (power != ceremonyPower) {
         if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
@@ -3148,10 +5788,10 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = new Blake2b__default["default"](64);
+    const responseHasher = new blake2bWasm.exports(64);
     responseHasher.update(lastChallengeHash);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
     await writePTauHeader(fdNew, curve, power);
 
     const startSections = [];
@@ -3179,7 +5819,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b__default["default"](64);
+    const nextChallengeHasher = new blake2bWasm.exports(64);
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -3205,7 +5845,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
         const res = [];
         fdOld.pos = sections[sectionId][0].p;
 
-        await binFileUtils__namespace.startWriteSection(fdNew, sectionId);
+        await startWriteSection(fdNew, sectionId);
 
         startSections[sectionId] = fdNew.pos;
 
@@ -3237,7 +5877,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
             t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
         }
 
-        await binFileUtils__namespace.endWriteSection(fdNew);
+        await endWriteSection(fdNew);
 
         return res;
     }
@@ -3290,18 +5930,18 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
 async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdOld, sections);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 11);
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 11);
     await writePTauHeader(fdNew, curve, power);
 
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 2);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 3);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 4);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 5);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 6);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 7);
+    await copySection(fdOld, sections, fdNew, 2);
+    await copySection(fdOld, sections, fdNew, 3);
+    await copySection(fdOld, sections, fdNew, 4);
+    await copySection(fdOld, sections, fdNew, 5);
+    await copySection(fdOld, sections, fdNew, 6);
+    await copySection(fdOld, sections, fdNew, 7);
 
     await processSection(2, 12, "G1", "tauG1" );
     await processSection(3, 13, "G2", "tauG2" );
@@ -3318,7 +5958,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
     async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
         if (logger) logger.debug("Starting section: "+sectionName);
 
-        await binFileUtils__namespace.startWriteSection(fdNew, newSectionId);
+        await startWriteSection(fdNew, newSectionId);
 
         for (let p=0; p<=power; p++) {
             await processSectionPower(p);
@@ -3328,27 +5968,25 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             await processSectionPower(power+1);
         }
 
-        await binFileUtils__namespace.endWriteSection(fdNew);
+        await endWriteSection(fdNew);
 
 
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            curve.Fr;
             const sGin = G.F.n8*2;
-            G.F.n8*3;
 
             let buff;
-            buff = new ffjavascript.BigBuffer(nPoints*sGin);
+            buff = new BigBuffer(nPoints*sGin);
 
-            await binFileUtils__namespace.startReadUniqueSection(fdOld, sections, oldSectionId);
+            await startReadUniqueSection(fdOld, sections, oldSectionId);
             if ((oldSectionId == 2)&&(p==power+1)) {
                 await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
                 buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
             } else {
                 await fdOld.readToBuffer(buff, 0,nPoints*sGin );
             }
-            await binFileUtils__namespace.endReadSection(fdOld, true);
+            await endReadSection(fdOld, true);
 
 
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
@@ -3428,7 +6066,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
 async function truncate(ptauFilename, template, logger) {
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(ptauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(ptauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
 
     const sG1 = curve.G1.F.n8*2;
@@ -3449,19 +6087,19 @@ async function truncate(ptauFilename, template, logger) {
 
         if (logger) logger.debug("Writing Power: "+sP);
 
-        const fdNew = await binFileUtils__namespace.createBinFile(template + sP + ".ptau", "ptau", 1, 11);
+        const fdNew = await createBinFile(template + sP + ".ptau", "ptau", 1, 11);
         await writePTauHeader(fdNew, curve, p, ceremonyPower);
 
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 2, ((2 ** p)*2-1) * sG1 ); // tagG1
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 3, (2 ** p) * sG2); // tauG2
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 4, (2 ** p) * sG1); // alfaTauG1
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 5, (2 ** p) * sG1); // betaTauG1
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 6,  sG2); // betaTauG2
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 7); // contributions
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 12, ((2 ** (p+1))*2 -1) * sG1); // L_tauG1
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 13, ((2 ** p)*2 -1) * sG2); // L_tauG2
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 14, ((2 ** p)*2 -1) * sG1); // L_alfaTauG1
-        await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 15, ((2 ** p)*2 -1) * sG1); // L_betaTauG1
+        await copySection(fdOld, sections, fdNew, 2, ((2 ** p)*2-1) * sG1 ); // tagG1
+        await copySection(fdOld, sections, fdNew, 3, (2 ** p) * sG2); // tauG2
+        await copySection(fdOld, sections, fdNew, 4, (2 ** p) * sG1); // alfaTauG1
+        await copySection(fdOld, sections, fdNew, 5, (2 ** p) * sG1); // betaTauG1
+        await copySection(fdOld, sections, fdNew, 6,  sG2); // betaTauG2
+        await copySection(fdOld, sections, fdNew, 7); // contributions
+        await copySection(fdOld, sections, fdNew, 12, ((2 ** (p+1))*2 -1) * sG1); // L_tauG1
+        await copySection(fdOld, sections, fdNew, 13, ((2 ** p)*2 -1) * sG2); // L_tauG2
+        await copySection(fdOld, sections, fdNew, 14, ((2 ** p)*2 -1) * sG1); // L_alfaTauG1
+        await copySection(fdOld, sections, fdNew, 15, ((2 ** p)*2 -1) * sG1); // L_betaTauG1
 
         await fdNew.close();
     }
@@ -3490,25 +6128,25 @@ async function truncate(ptauFilename, template, logger) {
 
 async function convert(oldPtauFilename, newPTauFilename, logger) {
 
-    const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
+    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdOld, sections);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 11);
+    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 11);
     await writePTauHeader(fdNew, curve, power);
 
     // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
 
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 2);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 3);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 4);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 5);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 6);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 7);
+    await copySection(fdOld, sections, fdNew, 2);
+    await copySection(fdOld, sections, fdNew, 3);
+    await copySection(fdOld, sections, fdNew, 4);
+    await copySection(fdOld, sections, fdNew, 5);
+    await copySection(fdOld, sections, fdNew, 6);
+    await copySection(fdOld, sections, fdNew, 7);
 
     await processSection(2, 12, "G1", "tauG1" );
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 13);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 14);
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 15);
+    await copySection(fdOld, sections, fdNew, 13);
+    await copySection(fdOld, sections, fdNew, 14);
+    await copySection(fdOld, sections, fdNew, 15);
 
     await fdOld.close();
     await fdNew.close();
@@ -3520,23 +6158,23 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
         if (logger) logger.debug("Starting section: "+sectionName);
 
-        await binFileUtils__namespace.startWriteSection(fdNew, newSectionId);
+        await startWriteSection(fdNew, newSectionId);
 
         const size = sections[newSectionId][0].size;
         const chunkSize = fdOld.pageSize;
-        await binFileUtils__namespace.startReadUniqueSection(fdOld, sections, newSectionId);
+        await startReadUniqueSection(fdOld, sections, newSectionId);
         for (let p=0; p<size; p+=chunkSize) {
             const l = Math.min(size -p, chunkSize);
             const buff = await fdOld.read(l);
             await fdNew.write(buff);
         }
-        await binFileUtils__namespace.endReadSection(fdOld);
+        await endReadSection(fdOld);
 
         if (oldSectionId == 2) {
             await processSectionPower(power+1);
         }
 
-        await binFileUtils__namespace.endWriteSection(fdNew);
+        await endWriteSection(fdNew);
 
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
@@ -3544,16 +6182,16 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             const sGin = G.F.n8*2;
 
             let buff;
-            buff = new ffjavascript.BigBuffer(nPoints*sGin);
+            buff = new BigBuffer(nPoints*sGin);
 
-            await binFileUtils__namespace.startReadUniqueSection(fdOld, sections, oldSectionId);
+            await startReadUniqueSection(fdOld, sections, oldSectionId);
             if ((oldSectionId == 2)&&(p==power+1)) {
                 await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
                 buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
             } else {
                 await fdOld.readToBuffer(buff, 0,nPoints*sGin );
             }
-            await binFileUtils__namespace.endReadSection(fdOld, true);
+            await endReadSection(fdOld, true);
 
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
@@ -3634,7 +6272,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
 */
 
 async function exportJson(pTauFilename, verbose) {
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
+    const {fd, sections} = await readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fd, sections);
 
@@ -3665,13 +6303,13 @@ async function exportJson(pTauFilename, verbose) {
         const sG = G.F.n8*2;
 
         const res = [];
-        await binFileUtils__namespace.startReadUniqueSection(fd, sections, sectionId);
+        await startReadUniqueSection(fd, sections, sectionId);
         for (let i=0; i< nPoints; i++) {
             if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ` + i);
             const buff = await fd.read(sG);
             res.push(G.fromRprLEM(buff, 0));
         }
-        await binFileUtils__namespace.endReadSection(fd);
+        await endReadSection(fd);
 
         return res;
     }
@@ -3681,7 +6319,7 @@ async function exportJson(pTauFilename, verbose) {
         const sG = G.F.n8*2;
 
         const res = [];
-        await binFileUtils__namespace.startReadUniqueSection(fd, sections, sectionId);
+        await startReadUniqueSection(fd, sections, sectionId);
         for (let p=0; p<=power; p++) {
             if (verbose) console.log(`${sectionName}: Power: ${p}`);
             res[p] = [];
@@ -3692,7 +6330,7 @@ async function exportJson(pTauFilename, verbose) {
                 res[p].push(G.fromRprLEM(buff, 0));
             }
         }
-        await binFileUtils__namespace.endReadSection(fd, true);
+        await endReadSection(fd, true);
         return res;
     }
 
@@ -3779,6 +6417,358 @@ function r1csPrint(r1cs, syms, logger) {
 
 }
 
+const SUBARRAY_SIZE$1 = 0x40000;
+
+const BigArrayHandler$1 = {
+    get: function(obj, prop) {
+        if (!isNaN(prop)) {
+            return obj.getElement(prop);
+        } else return obj[prop];
+    },
+    set: function(obj, prop, value) {
+        if (!isNaN(prop)) {
+            return obj.setElement(prop, value);
+        } else {
+            obj[prop] = value;
+            return true;
+        }
+    }
+};
+
+class _BigArray$1 {
+    constructor (initSize) {
+        this.length = initSize || 0;
+        this.arr = new Array(SUBARRAY_SIZE$1);
+
+        for (let i=0; i<initSize; i+=SUBARRAY_SIZE$1) {
+            this.arr[i/SUBARRAY_SIZE$1] = new Array(Math.min(SUBARRAY_SIZE$1, initSize - i));
+        }
+        return this;
+    }
+    push () {
+        for (let i=0; i<arguments.length; i++) {
+            this.setElement (this.length, arguments[i]);
+        }
+    }
+
+    slice (f, t) {
+        const arr = new Array(t-f);
+        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
+        return arr;
+    }
+    getElement(idx) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE$1);
+        const idx2 = idx % SUBARRAY_SIZE$1;
+        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
+    }
+    setElement(idx, value) {
+        idx = parseInt(idx);
+        const idx1 = Math.floor(idx / SUBARRAY_SIZE$1);
+        if (!this.arr[idx1]) {
+            this.arr[idx1] = new Array(SUBARRAY_SIZE$1);
+        }
+        const idx2 = idx % SUBARRAY_SIZE$1;
+        this.arr[idx1][idx2] = value;
+        if (idx >= this.length) this.length = idx+1;
+        return true;
+    }
+    getKeys() {
+        const newA = new BigArray$2();
+        for (let i=0; i<this.arr.length; i++) {
+            if (this.arr[i]) {
+                for (let j=0; j<this.arr[i].length; j++) {
+                    if (typeof this.arr[i][j] !== "undefined") {
+                        newA.push(i*SUBARRAY_SIZE$1+j);
+                    }
+                }
+            }
+        }
+        return newA;
+    }
+}
+
+class BigArray$2 {
+    constructor( initSize ) {
+        const obj = new _BigArray$1(initSize);
+        const extObj = new Proxy(obj, BigArrayHandler$1);
+        return extObj;
+    }
+}
+
+var BigArray$3 = BigArray$2;
+
+const R1CS_FILE_CUSTOM_GATES_LIST_SECTION = 4;
+const R1CS_FILE_CUSTOM_GATES_USES_SECTION = 5;
+
+async function readR1csHeader(fd,sections,singleThread) {
+    let options;
+    if (typeof singleThread === "object") {
+        options = singleThread;
+    } else if (typeof singleThread === "undefined") {
+        options= {
+            singleThread: false,
+        };
+    } else {
+        options = {
+            singleThread: singleThread,
+        };
+    }
+
+    const res = {};
+    await startReadUniqueSection(fd, sections, 1);
+    // Read Header
+    res.n8 = await fd.readULE32();
+    res.prime = await readBigInt(fd, res.n8);
+
+    if (options.F) {
+        if (options.F.p != res.prime) throw new Error("Different Prime");
+        res.F = options.F;
+    } else if (options.getFieldFromPrime) {
+        res.F = await options.getFieldFromPrime(res.prime, options.singleThread);
+    } else if (options.getCurveFromPrime) {
+        res.curve = await options.getCurveFromPrime(res.prime, options.singleThread);
+        res.F = res.curve.Fr;
+    } else {
+        try {
+            res.curve = await getCurveFromR$1(res.prime, options.singleThread);
+            res.F = res.curve.Fr;
+        } catch (err) {
+            res.F = new F1Field(res.prime);
+        }
+    }
+
+    res.nVars = await fd.readULE32();
+    res.nOutputs = await fd.readULE32();
+    res.nPubInputs = await fd.readULE32();
+    res.nPrvInputs = await fd.readULE32();
+    res.nLabels = await fd.readULE64();
+    res.nConstraints = await fd.readULE32();
+    res.useCustomGates = typeof sections[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== "undefined" && sections[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== null
+        && typeof sections[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== "undefined" && sections[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== null;
+
+    await endReadSection(fd);
+
+    return res;
+}
+
+async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
+    let options;
+    if (typeof logger === "object") {
+        options = logger;
+    } else if (typeof logger === "undefined") {
+        options= {};
+    } else {
+        options = {
+            logger: logger,
+            loggerCtx: loggerCtx,
+        };
+    }
+
+    const bR1cs = await readSection(fd, sections, 2);
+    let bR1csPos = 0;
+    let constraints;
+    if (r1cs.nConstraints>1<<20) {
+        constraints = new BigArray$3();
+    } else {
+        constraints = [];
+    }
+    for (let i=0; i<r1cs.nConstraints; i++) {
+        if ((options.logger)&&(i%100000 == 0)) options.logger.info(`${options.loggerCtx}: Loading constraints: ${i}/${r1cs.nConstraints}`);
+        const c = readConstraint();
+        constraints.push(c);
+    }
+    return constraints;
+
+
+    function readConstraint() {
+        const c = [];
+        c[0] = readLC();
+        c[1] = readLC();
+        c[2] = readLC();
+        return c;
+    }
+
+    function readLC() {
+        const lc= {};
+
+        const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos+4);
+        bR1csPos += 4;
+        const buffUL32V = new DataView(buffUL32.buffer);
+        const nIdx = buffUL32V.getUint32(0, true);
+
+        const buff = bR1cs.slice(bR1csPos, bR1csPos + (4+r1cs.n8)*nIdx );
+        bR1csPos += (4+r1cs.n8)*nIdx;
+        const buffV = new DataView(buff.buffer);
+        for (let i=0; i<nIdx; i++) {
+            const idx = buffV.getUint32(i*(4+r1cs.n8), true);
+            const val = r1cs.F.fromRprLE(buff, i*(4+r1cs.n8)+4);
+            lc[idx] = val;
+        }
+        return lc;
+    }
+}
+
+async function readMap(fd, sections, r1cs, logger, loggerCtx) {
+    let options;
+    if (typeof logger === "object") {
+        options = logger;
+    } else if (typeof logger === "undefined") {
+        options= {};
+    } else {
+        options = {
+            logger: logger,
+            loggerCtx: loggerCtx,
+        };
+    }
+    const bMap = await readSection(fd, sections, 3);
+    let bMapPos = 0;
+    let map;
+
+    if (r1cs.nVars>1<<20) {
+        map = new BigArray$3();
+    } else {
+        map = [];
+    }
+    for (let i=0; i<r1cs.nVars; i++) {
+        if ((options.logger)&&(i%10000 == 0)) options.logger.info(`${options.loggerCtx}: Loading map: ${i}/${r1cs.nVars}`);
+        const idx = readULE64();
+        map.push(idx);
+    }
+
+    return map;
+
+    function readULE64() {
+        const buffULE64 = bMap.slice(bMapPos, bMapPos+8);
+        bMapPos += 8;
+        const buffULE64V = new DataView(buffULE64.buffer);
+        const LSB = buffULE64V.getUint32(0, true);
+        const MSB = buffULE64V.getUint32(4, true);
+
+        return MSB * 0x100000000 + LSB;
+    }
+
+}
+
+async function readR1csFd(fd, sections, options) {
+    /**
+     * Options properties:
+     *  loadConstraints: <bool> true by default
+     *  loadMap:         <bool> false by default
+     *  loadCustomGates: <bool> true by default
+     */
+
+    if(typeof options !== "object") {
+        throw new Error("readR1csFd: options must be an object");
+    }
+
+    options.loadConstraints = "loadConstraints" in options ? options.loadConstraints : true;
+    options.loadMap = "loadMap" in options ? options.loadMap : false;
+    options.loadCustomGates = "loadCustomGates" in options ? options.loadCustomGates : true;
+
+    const res = await readR1csHeader(fd, sections, options);
+
+    if (options.loadConstraints) {
+        res.constraints = await readConstraints(fd, sections, res, options);
+    }
+
+    // Read Labels
+
+    if (options.loadMap) {
+        res.map = await readMap(fd, sections, res, options);
+    }
+
+    if (options.loadCustomGates) {
+        if (res.useCustomGates) {
+            res.customGates = await readCustomGatesListSection(fd, sections, res);
+            res.customGatesUses = await readCustomGatesUsesSection(fd, sections, options);
+        } else {
+            res.customGates = [];
+            res.customGatesUses = [];
+        }
+    }
+    return res;
+}
+
+async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
+    let options;
+    if (typeof loadConstraints === "object") {
+        options = loadConstraints;
+    } else if (typeof loadConstraints === "undefined") {
+        options= {
+            loadConstraints: true,
+            loadMap: false,
+            loadCustomGates: true
+        };
+    } else {
+        options = {
+            loadConstraints: loadConstraints,
+            loadMap: loadMap,
+            singleThread: singleThread,
+            logger: logger,
+            loggerCtx: loggerCtx
+        };
+    }
+
+    const {fd, sections} = await readBinFile(fileName, "r1cs", 1);
+
+    const res = await readR1csFd(fd, sections, options);
+
+    await fd.close();
+
+    return res;
+}
+
+async function readCustomGatesListSection(fd, sections, res) {
+    await startReadUniqueSection(fd, sections, R1CS_FILE_CUSTOM_GATES_LIST_SECTION);
+
+    let num = await fd.readULE32();
+
+    let customGates = [];
+    for (let i = 0; i < num; i++) {
+        let customGate = {};
+        customGate.templateName = await fd.readString();
+        let numParameters = await fd.readULE32();
+
+        customGate.parameters = Array(numParameters);
+        let buff = await fd.read(res.n8 * numParameters);
+
+        for (let j = 0; j < numParameters; j++) {
+            customGate.parameters[j] = res.F.fromRprLE(buff, j * res.n8, res.n8);        }
+        customGates.push(customGate);
+    }
+    await endReadSection(fd);
+
+    return customGates;
+}
+
+async function readCustomGatesUsesSection(fd,sections, options) {
+    const bR1cs = await readSection(fd, sections, R1CS_FILE_CUSTOM_GATES_USES_SECTION);
+    const bR1cs32 = new Uint32Array(bR1cs.buffer, bR1cs.byteOffset, bR1cs.byteLength/4);
+    const nCustomGateUses = bR1cs32[0];
+    let bR1csPos = 1;
+    let customGatesUses;
+    if (nCustomGateUses>1<<20) {
+        customGatesUses = new BigArray$3();
+    } else {
+        customGatesUses = [];
+    }
+    for (let i=0; i<nCustomGateUses; i++) {
+        if ((options.logger)&&(i%100000 == 0)) options.logger.info(`${options.loggerCtx}: Loading custom gate uses: ${i}/${nCustomGateUses}`);
+        let c = {};
+        c.id = bR1cs32[bR1csPos++];
+        let numSignals = bR1cs32[bR1csPos++];
+        c.signals = [];
+        for (let j = 0; j < numSignals; j++) {
+            const LSB = bR1cs32[bR1csPos++];
+            const MSB = bR1cs32[bR1csPos++];
+            c.signals.push(MSB * 0x100000000 + LSB);
+        }
+        customGatesUses.push(c);
+    }
+    return customGatesUses;
+}
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -3798,19 +6788,19 @@ function r1csPrint(r1cs, syms, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const bls12381r = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-const bn128r = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 async function r1csInfo(r1csName, logger) {
 
-    const cir = await r1csfile.readR1cs(r1csName);
+    const cir = await readR1cs(r1csName);
 
-    if (ffjavascript.Scalar.eq(cir.prime, bn128r)) {
+    if (Scalar.eq(cir.prime, bn128r)) {
         if (logger) logger.info("Curve: bn-128");
-    } else if (ffjavascript.Scalar.eq(cir.prime, bls12381r)) {
+    } else if (Scalar.eq(cir.prime, bls12381r)) {
         if (logger) logger.info("Curve: bls12-381");
     } else {
-        if (logger) logger.info(`Unknown Curve. Prime: ${ffjavascript.Scalar.toString(cir.prime)}`);
+        if (logger) logger.info(`Unknown Curve. Prime: ${Scalar.toString(cir.prime)}`);
     }
     if (logger) logger.info(`# of Wires: ${cir.nVars}`);
     if (logger) logger.info(`# of Constraints: ${cir.nConstraints}`);
@@ -3844,7 +6834,7 @@ async function r1csInfo(r1csName, logger) {
 
 async function r1csExportJson(r1csFileName, logger) {
 
-    const cir = await r1csfile.readR1cs(r1csFileName, true, true, true, logger);
+    const cir = await readR1cs(r1csFileName, true, true, true, logger);
     const Fr=cir.curve.Fr;
     delete cir.curve;
     delete cir.F;
@@ -3903,7 +6893,7 @@ async function loadSymbols(symFileName) {
         varIdx2Name: [ "one" ],
         componentIdx2Name: []
     };
-    const fd = await fastFile__namespace.readExisting(symFileName);
+    const fd = await readExisting(symFileName);
     const buff = await fd.read(fd.totalSize);
     const symsStr = new TextDecoder("utf-8").decode(buff);
     const lines = symsStr.split("\n");
@@ -3950,14 +6940,14 @@ async function loadSymbols(symFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$4} = utils;
 
 
 async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, logger) {
 
     const input = unstringifyBigInts$4(_input);
 
-    const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
+    const fdWasm = await readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -3991,10 +6981,10 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     }
     wcOps.sym = sym;
 
-    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
+    const wc = await builder(wasm, wcOps);
     const w = await wc.calculateWitness(input);
 
-    const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
+    const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
 
     await write(fdWtns, w, wc.prime);
 
@@ -4055,29 +7045,29 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
     const {
         fd: fdR1cs,
         sections: sectionsR1cs
-    } = await binFileUtils__namespace.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
-    const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
+    } = await readBinFile(r1csFilename, "r1cs", 1);
+    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
 
     // Read witness file
     if (logger) logger.info("> Reading witness file");
     const {
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils__namespace.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24);
+    } = await readBinFile(wtnsFilename, "wtns", 2);
     const wtnsHeader = await readHeader(fdWtns, wtnsSections);
 
-    if (!ffjavascript.Scalar.eq(r1cs.prime, wtnsHeader.q)) {
+    if (!Scalar.eq(r1cs.prime, wtnsHeader.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
     }
 
-    const buffWitness = await binFileUtils__namespace.readSection(fdWtns, wtnsSections, 2);
+    const buffWitness = await readSection(fdWtns, wtnsSections, 2);
     await fdWtns.close();
 
     const curve = await getCurveFromR(r1cs.prime);
     const Fr = curve.Fr;
     const sFr = Fr.n8;
 
-    const bR1cs = await binFileUtils__namespace.readSection(fdR1cs, sectionsR1cs, 2);
+    const bR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
 
     if (logger) {
         logger.info("----------------------------");
@@ -4297,6 +7287,8 @@ class BigArray {
     }
 }
 
+var BigArray$1 = BigArray;
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -4323,15 +7315,15 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    await Blake2b__default["default"].ready();
-    const csHasher = Blake2b__default["default"](64);
+    await blake2bWasm.exports.ready();
+    const csHasher = blake2bWasm.exports(64);
 
-    const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
-    const r1cs = await r1csfile.readR1csHeader(fdR1cs, sectionsR1cs, false);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1);
+    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
+    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
@@ -4358,26 +7350,26 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     // Write the header
     ///////////
-    await binFileUtils.startWriteSection(fdZKey, 1);
+    await startWriteSection(fdZKey, 1);
     await fdZKey.writeULE32(1); // Groth
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
     // Write the Groth header section
     ///////////
 
-    await binFileUtils.startWriteSection(fdZKey, 2);
+    await startWriteSection(fdZKey, 2);
     const primeQ = curve.q;
-    const n8q = (Math.floor( (ffjavascript.Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
     const primeR = curve.r;
-    const n8r = (Math.floor( (ffjavascript.Scalar.bitLength(primeR) - 1) / 64) +1)*8;
-    const Rr = ffjavascript.Scalar.mod(ffjavascript.Scalar.shl(1, n8r*8), primeR);
-    const R2r = curve.Fr.e(ffjavascript.Scalar.mod(ffjavascript.Scalar.mul(Rr,Rr), primeR));
+    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+    const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
+    const R2r = curve.Fr.e(Scalar.mod(Scalar.mul(Rr,Rr), primeR));
 
     await fdZKey.writeULE32(n8q);
-    await binFileUtils.writeBigInt(fdZKey, primeQ, n8q);
+    await writeBigInt(fdZKey, primeQ, n8q);
     await fdZKey.writeULE32(n8r);
-    await binFileUtils.writeBigInt(fdZKey, primeR, n8r);
+    await writeBigInt(fdZKey, primeR, n8r);
     await fdZKey.writeULE32(r1cs.nVars);                         // Total number of bars
     await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
     await fdZKey.writeULE32(domainSize);                  // domainSize
@@ -4415,25 +7407,25 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // gamma2
     csHasher.update(bg1U);      // delta1
     csHasher.update(bg2U);      // delta2
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
     if (logger) logger.info("Reading r1cs");
-    let sR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
+    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
 
-    const A = new BigArray(r1cs.nVars);
-    const B1 = new BigArray(r1cs.nVars);
-    const B2 = new BigArray(r1cs.nVars);
-    const C = new BigArray(r1cs.nVars- nPublic -1);
+    const A = new BigArray$1(r1cs.nVars);
+    const B1 = new BigArray$1(r1cs.nVars);
+    const B2 = new BigArray$1(r1cs.nVars);
+    const C = new BigArray$1(r1cs.nVars- nPublic -1);
     const IC = new Array(nPublic+1);
 
     if (logger) logger.info("Reading tauG1");
-    let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
+    let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading tauG2");
-    let sTauG2 = await binFileUtils.readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
     if (logger) logger.info("Reading alphatauG1");
-    let sAlphaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
+    let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading betatauG1");
-    let sBetaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
+    let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
     await processConstraints();
 
@@ -4450,10 +7442,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const csHash = csHasher.digest();
     // Contributions section
-    await binFileUtils.startWriteSection(fdZKey, 10);
+    await startWriteSection(fdZKey, 10);
     await fdZKey.write(csHash);
     await fdZKey.writeULE32(0);
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
 
     if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
 
@@ -4465,10 +7457,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     return csHash;
 
     async function writeHs() {
-        await binFileUtils.startWriteSection(fdZKey, 9);
-        const buffOut = new ffjavascript.BigBuffer(domainSize*sG1);
+        await startWriteSection(fdZKey, 9);
+        const buffOut = new BigBuffer(domainSize*sG1);
         if (cirPower < curve.Fr.s) {
-            let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
+            let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
             for (let i=0; i< domainSize; i++) {
                 if ((logger)&&(i%10000 == 0)) logger.debug(`spliting buffer: ${i}/${domainSize}`);
                 const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
@@ -4482,7 +7474,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             throw new Error("Circuit too big for this curve");
         }
         await fdZKey.write(buffOut);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function processConstraints() {
@@ -4500,7 +7492,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             return buffV.getUint32(0, true);
         }
 
-        const coefs = new BigArray();
+        const coefs = new BigArray$1();
         for (let c=0; c<r1cs.nConstraints; c++) {
             if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
             const nA = r1cs_readULE32();
@@ -4585,9 +7577,9 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         }
 
 
-        await binFileUtils.startWriteSection(fdZKey, 4);
+        await startWriteSection(fdZKey, 4);
 
-        const buffSection = new ffjavascript.BigBuffer(coefs.length*(12+curve.Fr.n8) + 4);
+        const buffSection = new BigBuffer(coefs.length*(12+curve.Fr.n8) + 4);
 
         const buff4 = new Uint8Array(4);
         const buff4V = new DataView(buff4.buffer);
@@ -4600,7 +7592,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         }
 
         await fdZKey.write(buffSection);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
 
         function writeCoef(c) {
             buffCoeffV.setUint32(0, c[0], true);
@@ -4625,7 +7617,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const G = curve[groupName];
 
         hashU32(arr.length);
-        await binFileUtils.startWriteSection(fdZKey, idSection);
+        await startWriteSection(fdZKey, idSection);
 
         let opPromises = [];
 
@@ -4661,7 +7653,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             opPromises = [];
 
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
 
     }
 
@@ -4688,8 +7680,8 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         for (let i=0; i<arr.length; i++) acc += arr[i] ? arr[i].length : 0;
         let bBases, bScalars;
         if (acc> 2<<14) {
-            bBases = new ffjavascript.BigBuffer(acc*sGin);
-            bScalars = new ffjavascript.BigBuffer(acc*curve.Fr.n8);
+            bBases = new BigBuffer(acc*sGin);
+            bScalars = new BigBuffer(acc*curve.Fr.n8);
         } else {
             bBases = new Uint8Array(acc*sGin);
             bScalars = new Uint8Array(acc*curve.Fr.n8);
@@ -4872,7 +7864,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
 async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
-    const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils__namespace.readBinFile(zkeyName, "zkey", 2);
+    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile(zkeyName, "zkey", 2);
     const zkey = await readHeader$1(fdZKey, sectionsZKey);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -4884,7 +7876,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     const mpcParams = await readMPCParams(fdZKey, curve, sectionsZKey);
 
-    const fdMPCParams = await fastFile__namespace.createOverride(mpcparamsName);
+    const fdMPCParams = await createOverride(mpcparamsName);
 
     /////////////////////
     // Verification Key Section
@@ -4898,7 +7890,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     // IC
     let buffBasesIC;
-    buffBasesIC = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 3);
+    buffBasesIC = await readSection(fdZKey, sectionsZKey, 3);
     buffBasesIC = await curve.G1.batchLEMtoU(buffBasesIC);
 
     await writePointArray("G1", buffBasesIC);
@@ -4906,7 +7898,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     /////////////////////
     // h Section
     /////////////////////
-    const buffBasesH_Lodd = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 9);
+    const buffBasesH_Lodd = await readSection(fdZKey, sectionsZKey, 9);
 
     let buffBasesH_Tau;
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
@@ -4921,7 +7913,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // L section
     /////////////////////
     let buffBasesC;
-    buffBasesC = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 8);
+    buffBasesC = await readSection(fdZKey, sectionsZKey, 8);
     buffBasesC = await curve.G1.batchLEMtoU(buffBasesC);
     await writePointArray("G1", buffBasesC);
 
@@ -4929,7 +7921,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // A Section (C section)
     /////////////////////
     let buffBasesA;
-    buffBasesA = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 5);
+    buffBasesA = await readSection(fdZKey, sectionsZKey, 5);
     buffBasesA = await curve.G1.batchLEMtoU(buffBasesA);
     await writePointArray("G1", buffBasesA);
 
@@ -4937,7 +7929,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // B1 Section
     /////////////////////
     let buffBasesB1;
-    buffBasesB1 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 6);
+    buffBasesB1 = await readSection(fdZKey, sectionsZKey, 6);
     buffBasesB1 = await curve.G1.batchLEMtoU(buffBasesB1);
     await writePointArray("G1", buffBasesB1);
 
@@ -4945,7 +7937,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     // B2 Section
     /////////////////////
     let buffBasesB2;
-    buffBasesB2 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 7);
+    buffBasesB2 = await readSection(fdZKey, sectionsZKey, 7);
     buffBasesB2 = await curve.G2.batchLEMtoU(buffBasesB2);
     await writePointArray("G2", buffBasesB2);
 
@@ -5025,7 +8017,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
 async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
-    const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
+    const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await readBinFile(zkeyNameOld, "zkey", 2);
     const zkeyHeader = await readHeader$1(fdZKeyOld, sectionsZKeyOld, false);
     if (zkeyHeader.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -5038,7 +8030,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await fastFile__namespace.readExisting(mpcparamsName);
+    const fdMPCParams = await readExisting(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -5098,7 +8090,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         }
     }
 
-    const fdZKeyNew = await binFileUtils__namespace.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    const fdZKeyNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
     fdMPCParams.pos = 0;
 
     // Header
@@ -5118,10 +8110,10 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         return false;
     }
     fdMPCParams.pos += sG1*(zkeyHeader.nPublic+1);
-    await binFileUtils__namespace.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 3);
+    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 3);
 
     // Coeffs (Keep original)
-    await binFileUtils__namespace.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 4);
+    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 4);
 
     // H Section
     const nH = await fdMPCParams.readUBE32();
@@ -5140,9 +8132,9 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
     buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", logger);
     buffH = await curve.G1.ifft(buffH, "jacobian", "affine", logger);
-    await binFileUtils__namespace.startWriteSection(fdZKeyNew, 9);
+    await startWriteSection(fdZKeyNew, 9);
     await fdZKeyNew.write(buffH);
-    await binFileUtils__namespace.endWriteSection(fdZKeyNew);
+    await endWriteSection(fdZKeyNew);
 
     // C Secion (L section)
     const nL = await fdMPCParams.readUBE32();
@@ -5154,9 +8146,9 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     let buffL;
     buffL = await fdMPCParams.read(sG1*(zkeyHeader.nVars-zkeyHeader.nPublic-1));
     buffL = await curve.G1.batchUtoLEM(buffL);
-    await binFileUtils__namespace.startWriteSection(fdZKeyNew, 8);
+    await startWriteSection(fdZKeyNew, 8);
     await fdZKeyNew.write(buffL);
-    await binFileUtils__namespace.endWriteSection(fdZKeyNew);
+    await endWriteSection(fdZKeyNew);
 
     // A Section
     const nA = await fdMPCParams.readUBE32();
@@ -5166,7 +8158,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         return false;
     }
     fdMPCParams.pos += sG1*(zkeyHeader.nVars);
-    await binFileUtils__namespace.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 5);
+    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 5);
 
     // B1 Section
     const nB1 = await fdMPCParams.readUBE32();
@@ -5176,7 +8168,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         return false;
     }
     fdMPCParams.pos += sG1*(zkeyHeader.nVars);
-    await binFileUtils__namespace.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 6);
+    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 6);
 
     // B2 Section
     const nB2 = await fdMPCParams.readUBE32();
@@ -5186,7 +8178,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         return false;
     }
     fdMPCParams.pos += sG2*(zkeyHeader.nVars);
-    await binFileUtils__namespace.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 7);
+    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 7);
 
     await writeMPCParams(fdZKeyNew, curve, newMPCParams);
 
@@ -5244,9 +8236,9 @@ const sameRatio = sameRatio$2;
 async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2);
+    const {fd, sections} = await readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await readHeader$1(fd, sections, false);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -5257,7 +8249,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = Blake2b__default["default"](64);
+    const accumulatedHasher = blake2bWasm.exports(64);
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -5303,7 +8295,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = Blake2b__default["default"](64);
+        const contributionHasher = blake2bWasm.exports(64);
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -5312,15 +8304,15 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     }
 
 
-    const {fd: fdInit, sections: sectionsInit} = await binFileUtils__namespace.readBinFile(initFileName, "zkey", 2);
+    const {fd: fdInit, sections: sectionsInit} = await readBinFile(initFileName, "zkey", 2);
     const zkeyInit = await readHeader$1(fdInit, sectionsInit, false);
 
     if (zkeyInit.protocol != "groth16") {
         throw new Error("zkeyinit file is not groth16");
     }
 
-    if (  (!ffjavascript.Scalar.eq(zkeyInit.q, zkey.q))
-        ||(!ffjavascript.Scalar.eq(zkeyInit.r, zkey.r))
+    if (  (!Scalar.eq(zkeyInit.q, zkey.q))
+        ||(!Scalar.eq(zkeyInit.r, zkey.r))
         ||(zkeyInit.n8q != zkey.n8q)
         ||(zkeyInit.n8r != zkey.n8r))
     {
@@ -5380,31 +8372,31 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     }
 
     let ss;
-    ss = await binFileUtils__namespace.sectionIsEqual(fd, sections, fdInit, sectionsInit, 3);
+    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 3);
     if (!ss) {
         if (logger) logger.error("INVALID:  IC section is not identical");
         return false;
     }
 
-    ss = await binFileUtils__namespace.sectionIsEqual(fd, sections, fdInit, sectionsInit, 4);
+    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 4);
     if (!ss) {
         if (logger) logger.error("Coeffs section is not identical");
         return false;
     }
 
-    ss = await binFileUtils__namespace.sectionIsEqual(fd, sections, fdInit, sectionsInit, 5);
+    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 5);
     if (!ss) {
         if (logger) logger.error("A section is not identical");
         return false;
     }
 
-    ss = await binFileUtils__namespace.sectionIsEqual(fd, sections, fdInit, sectionsInit, 6);
+    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 6);
     if (!ss) {
         if (logger) logger.error("B1 section is not identical");
         return false;
     }
 
-    ss = await binFileUtils__namespace.sectionIsEqual(fd, sections, fdInit, sectionsInit, 7);
+    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 7);
     if (!ss) {
         if (logger) logger.error("B2 section is not identical");
         return false;
@@ -5449,8 +8441,8 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         const MAX_CHUNK_SIZE = 1<<20;
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        await binFileUtils__namespace.startReadUniqueSection(fd1, sections1, idSection);
-        await binFileUtils__namespace.startReadUniqueSection(fd2, sections2, idSection);
+        await startReadUniqueSection(fd1, sections1, idSection);
+        await startReadUniqueSection(fd2, sections2, idSection);
 
         let R1 = G.zero;
         let R2 = G.zero;
@@ -5471,8 +8463,8 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
             R1 = G.add(R1, r1);
             R2 = G.add(R2, r2);
         }
-        await binFileUtils__namespace.endReadSection(fd1);
-        await binFileUtils__namespace.endReadSection(fd2);
+        await endReadSection(fd1);
+        await endReadSection(fd2);
 
         if (nPoints == 0) return true;
 
@@ -5488,15 +8480,15 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         const Fr = curve.Fr;
         const sG = G.F.n8*2;
 
-        const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils__namespace.readBinFile(pTauFileName, "ptau", 1);
+        const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(pTauFileName, "ptau", 1);
 
-        let buff_r = new ffjavascript.BigBuffer(zkey.domainSize * zkey.n8r);
+        let buff_r = new BigBuffer(zkey.domainSize * zkey.n8r);
 
         const seed= new Array(8);
         for (let i=0; i<8; i++) {
             seed[i] = readUInt32BE(getRandomBytes(4), 0);
         }
-        const rng = new ffjavascript.ChaCha(seed);
+        const rng = new ChaCha(seed);
         for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero
             const e = Fr.fromRng(rng);
             Fr.toRprLE(buff_r, i*zkey.n8r, e);
@@ -5541,7 +8533,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         buff_r = await Fr.fft(buff_r);
         buff_r = await Fr.batchFromMontgomery(buff_r);
 
-        await binFileUtils__namespace.startReadUniqueSection(fd, sections, 9);
+        await startReadUniqueSection(fd, sections, 9);
         let R2 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
             if (logger) logger.debug(`H Verificaition(lagrange):  ${i}/${zkey.domainSize}`);
@@ -5553,7 +8545,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
             R2 = G.add(R2, r);
         }
-        await binFileUtils__namespace.endReadSection(fd);
+        await endReadSection(fd);
 
         sr = await sameRatio(curve, R1, R2, zkey.vk_delta_2, zkeyInit.vk_delta_2);
         if (sr !== true) return false;
@@ -5678,9 +8670,9 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
 */
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd: fdOld, sections: sections} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
+    const {fd: fdOld, sections: sections} = await readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await readHeader$1(fdOld, sections);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -5690,12 +8682,12 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const mpcParams = await readMPCParams(fdOld, curve, sections);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
 
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = Blake2b__default["default"](64);
+    const transcriptHasher = blake2bWasm.exports(64);
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5725,19 +8717,19 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await writeHeader(fdNew, zkey);
 
     // IC
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 3);
+    await copySection(fdOld, sections, fdNew, 3);
 
     // Coeffs (Keep original)
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 4);
+    await copySection(fdOld, sections, fdNew, 4);
 
     // A Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 5);
+    await copySection(fdOld, sections, fdNew, 5);
 
     // B1 Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 6);
+    await copySection(fdOld, sections, fdNew, 6);
 
     // B2 Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 7);
+    await copySection(fdOld, sections, fdNew, 7);
 
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
     await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
@@ -5748,7 +8740,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b__default["default"](64);
+    const contributionHasher = blake2bWasm.exports(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contribuionHash = contributionHasher.digest();
@@ -5780,7 +8772,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
     const beaconHash = hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
@@ -5801,7 +8793,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     }
 
 
-    const {fd: fdOld, sections: sections} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
+    const {fd: fdOld, sections: sections} = await readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await readHeader$1(fdOld, sections);
 
     if (zkey.protocol != "groth16") {
@@ -5813,11 +8805,11 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 
     const mpcParams = await readMPCParams(fdOld, curve, sections);
 
-    const fdNew = await binFileUtils__namespace.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = Blake2b__default["default"](64);
+    const transcriptHasher = blake2bWasm.exports(64);
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5850,19 +8842,19 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await writeHeader(fdNew, zkey);
 
     // IC
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 3);
+    await copySection(fdOld, sections, fdNew, 3);
 
     // Coeffs (Keep original)
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 4);
+    await copySection(fdOld, sections, fdNew, 4);
 
     // A Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 5);
+    await copySection(fdOld, sections, fdNew, 5);
 
     // B1 Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 6);
+    await copySection(fdOld, sections, fdNew, 6);
 
     // B2 Section
-    await binFileUtils__namespace.copySection(fdOld, sections, fdNew, 7);
+    await copySection(fdOld, sections, fdNew, 7);
 
     const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
     await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
@@ -5873,7 +8865,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b__default["default"](64);
+    const contributionHasher = blake2bWasm.exports(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contribuionHash = contributionHasher.digest();
@@ -5889,7 +8881,7 @@ async function zkeyExportJson(zkeyFileName) {
     delete zKey.curve;
     delete zKey.F;
 
-    return ffjavascript.utils.stringifyBigInts(zKey);
+    return utils.stringifyBigInts(zKey);
 }
 
 /*
@@ -5912,7 +8904,7 @@ async function zkeyExportJson(zkeyFileName) {
 */
 
 async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
     const rng = await getRandomRng(entropy);
 
@@ -5922,8 +8914,8 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
-    const fdTo = await fastFile__namespace.createOverride(responesFileName);
+    const fdFrom = await readExisting(challengeFilename);
+    const fdTo = await createOverride(responesFileName);
 
 
     await copy(sG1); // alpha1
@@ -5971,7 +8963,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = Blake2b__default["default"](64);
+    const transcriptHasher = blake2bWasm.exports(64);
 
     const mpcParams = {};
     // csHash
@@ -6022,7 +9014,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = Blake2b__default["default"](64);
+    const contributionHasher = blake2bWasm.exports(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
@@ -6087,12 +9079,12 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$2} = utils;
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
     if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
 
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(zkeyName, "zkey", 2);
+    const {fd, sections} = await readBinFile(zkeyName, "zkey", 2);
     const zkey = await readHeader$1(fd, sections);
 
     if (logger) logger.info("> Detected protocol: " + zkey.protocol);
@@ -6138,14 +9130,14 @@ async function groth16Vk(zkey, fd, sections) {
 
     // Read IC Section
     ///////////
-    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 3);
+    await startReadUniqueSection(fd, sections, 3);
     vKey.IC = [];
     for (let i = 0; i <= zkey.nPublic; i++) {
         const buff = await fd.read(sG1);
         const P = curve.G1.toObject(buff);
         vKey.IC.push(P);
     }
-    await binFileUtils__namespace.endReadSection(fd);
+    await endReadSection(fd);
 
     vKey = stringifyBigInts$2(vKey);
 
@@ -6280,13 +9272,13 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
 
-    await Blake2b__default["default"].ready();
+    await blake2bWasm.exports.ready();
 
-    const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1);
 
-    const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
+    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
     const sG1 = curve.G1.F.n8*2;
     const G1 = curve.G1;
@@ -6295,10 +9287,10 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
+    await readSection(fdR1cs, sectionsR1cs, 2);
 
-    const plonkConstraints = new BigArray();
-    const plonkAdditions = new BigArray();
+    const plonkConstraints = new BigArray$1();
+    const plonkAdditions = new BigArray$1();
     let plonkNVars = r1cs.nVars;
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
@@ -6307,7 +9299,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
+    const fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
 
 
     if (r1cs.prime != curve.r) {
@@ -6331,7 +9323,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
 
-    const LPoints = new ffjavascript.BigBuffer(domainSize*sG1);
+    const LPoints = new BigBuffer(domainSize*sG1);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) -1)*sG1;
     await fdPTau.readToBuffer(LPoints, 0, domainSize*sG1, o);
 
@@ -6366,11 +9358,11 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     // Write PTau points
     ////////////
 
-    await binFileUtils.startWriteSection(fdZKey, 14);
-    const buffOut = new ffjavascript.BigBuffer((domainSize+6)*sG1);
+    await startWriteSection(fdZKey, 14);
+    const buffOut = new BigBuffer((domainSize+6)*sG1);
     await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
     await fdZKey.write(buffOut);
-    await binFileUtils.endWriteSection(fdZKey);
+    await endWriteSection(fdZKey);
     if (globalThis.gc) {globalThis.gc();}
 
 
@@ -6545,30 +9537,30 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function writeWitnessMap(sectionNum, posConstraint, name) {
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         for (let i=0; i<plonkConstraints.length; i++) {
             await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
             if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeQMap(sectionNum, posConstraint, name) {
-        let Q = new ffjavascript.BigBuffer(domainSize*n8r);
+        let Q = new BigBuffer(domainSize*n8r);
         for (let i=0; i<plonkConstraints.length; i++) {
             Q.set(plonkConstraints[i][posConstraint], i*n8r);
             if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
         }
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         await writeP4(Q);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
         Q = await Fr.batchFromMontgomery(Q);
         vk[name]= await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp "+name);
     }
 
     async function writeP4(buff) {
         const q = await Fr.ifft(buff);
-        const q4 = new ffjavascript.BigBuffer(domainSize*n8r*4);
+        const q4 = new BigBuffer(domainSize*n8r*4);
         q4.set(q, 0);
         const Q4 = await Fr.fft(q4);
         await fdZKey.write(q);
@@ -6576,7 +9568,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function writeAdditions(sectionNum, name) {
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         const buffOut = new Uint8Array((2*4+2*n8r));
         const buffOutV = new DataView(buffOut.buffer);
         for (let i=0; i<plonkAdditions.length; i++) {
@@ -6591,13 +9583,13 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             await fdZKey.write(buffOut);
             if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkAdditions.length}`);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeSigma(sectionNum, name) {
-        const sigma = new ffjavascript.BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray(plonkNVars);
-        const firstPos = new BigArray(plonkNVars);
+        const sigma = new BigBuffer(n8r*domainSize*3);
+        const lastAparence =  new BigArray$1(plonkNVars);
+        const firstPos = new BigArray$1(plonkNVars);
         let w = Fr.one;
         for (let i=0; i<domainSize;i++) {
             if (i<plonkConstraints.length) {
@@ -6623,7 +9615,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         }
 
         if (globalThis.gc) {globalThis.gc();}
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         let S1 = sigma.slice(0, domainSize*n8r);
         await writeP4(S1);
         if (globalThis.gc) {globalThis.gc();}
@@ -6633,7 +9625,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
         await writeP4(S3);
         if (globalThis.gc) {globalThis.gc();}
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
 
         S1 = await Fr.batchFromMontgomery(S1);
         S2 = await Fr.batchFromMontgomery(S2);
@@ -6665,39 +9657,39 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     async function writeLs(sectionNum, name) {
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         const l=Math.max(nPublic, 1);
         for (let i=0; i<l; i++) {
-            let buff = new ffjavascript.BigBuffer(domainSize*n8r);
+            let buff = new BigBuffer(domainSize*n8r);
             buff.set(Fr.one, i*n8r);
             await writeP4(buff);
             if (logger) logger.debug(`writing ${name} ${i}/${l}`);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeHeaders() {
 
         // Write the header
         ///////////
-        await binFileUtils.startWriteSection(fdZKey, 1);
+        await startWriteSection(fdZKey, 1);
         await fdZKey.writeULE32(2); // Plonk
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
 
         // Write the Plonk header section
         ///////////
 
-        await binFileUtils.startWriteSection(fdZKey, 2);
+        await startWriteSection(fdZKey, 2);
         const primeQ = curve.q;
-        const n8q = (Math.floor( (ffjavascript.Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
+        const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
 
         const primeR = curve.r;
-        const n8r = (Math.floor( (ffjavascript.Scalar.bitLength(primeR) - 1) / 64) +1)*8;
+        const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
 
         await fdZKey.writeULE32(n8q);
-        await binFileUtils.writeBigInt(fdZKey, primeQ, n8q);
+        await writeBigInt(fdZKey, primeQ, n8q);
         await fdZKey.writeULE32(n8r);
-        await binFileUtils.writeBigInt(fdZKey, primeR, n8r);
+        await writeBigInt(fdZKey, primeR, n8r);
         await fdZKey.writeULE32(plonkNVars);                         // Total number of bars
         await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
         await fdZKey.writeULE32(domainSize);                  // domainSize
@@ -6721,7 +9713,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         bX_2 = await fdPTau.read(sG2, sectionsPTau[3][0].p + sG2);
         await fdZKey.write(bX_2);
 
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     function getK1K2() {
@@ -6844,6 +9836,663 @@ class Proof {
     }
 }
 
+var sha3 = {exports: {}};
+
+/**
+ * [js-sha3]{@link https://github.com/emn178/js-sha3}
+ *
+ * @version 0.8.0
+ * @author Chen, Yi-Cyuan [emn178@gmail.com]
+ * @copyright Chen, Yi-Cyuan 2015-2018
+ * @license MIT
+ */
+
+(function (module) {
+	/*jslint bitwise: true */
+	(function () {
+
+	  var INPUT_ERROR = 'input is invalid type';
+	  var FINALIZE_ERROR = 'finalize already called';
+	  var WINDOW = typeof window === 'object';
+	  var root = WINDOW ? window : {};
+	  if (root.JS_SHA3_NO_WINDOW) {
+	    WINDOW = false;
+	  }
+	  var WEB_WORKER = !WINDOW && typeof self === 'object';
+	  var NODE_JS = !root.JS_SHA3_NO_NODE_JS && typeof process === 'object' && process.versions && process.versions.node;
+	  if (NODE_JS) {
+	    root = commonjsGlobal;
+	  } else if (WEB_WORKER) {
+	    root = self;
+	  }
+	  var COMMON_JS = !root.JS_SHA3_NO_COMMON_JS && 'object' === 'object' && module.exports;
+	  var ARRAY_BUFFER = !root.JS_SHA3_NO_ARRAY_BUFFER && typeof ArrayBuffer !== 'undefined';
+	  var HEX_CHARS = '0123456789abcdef'.split('');
+	  var SHAKE_PADDING = [31, 7936, 2031616, 520093696];
+	  var CSHAKE_PADDING = [4, 1024, 262144, 67108864];
+	  var KECCAK_PADDING = [1, 256, 65536, 16777216];
+	  var PADDING = [6, 1536, 393216, 100663296];
+	  var SHIFT = [0, 8, 16, 24];
+	  var RC = [1, 0, 32898, 0, 32906, 2147483648, 2147516416, 2147483648, 32907, 0, 2147483649,
+	    0, 2147516545, 2147483648, 32777, 2147483648, 138, 0, 136, 0, 2147516425, 0,
+	    2147483658, 0, 2147516555, 0, 139, 2147483648, 32905, 2147483648, 32771,
+	    2147483648, 32770, 2147483648, 128, 2147483648, 32778, 0, 2147483658, 2147483648,
+	    2147516545, 2147483648, 32896, 2147483648, 2147483649, 0, 2147516424, 2147483648];
+	  var BITS = [224, 256, 384, 512];
+	  var SHAKE_BITS = [128, 256];
+	  var OUTPUT_TYPES = ['hex', 'buffer', 'arrayBuffer', 'array', 'digest'];
+	  var CSHAKE_BYTEPAD = {
+	    '128': 168,
+	    '256': 136
+	  };
+
+	  if (root.JS_SHA3_NO_NODE_JS || !Array.isArray) {
+	    Array.isArray = function (obj) {
+	      return Object.prototype.toString.call(obj) === '[object Array]';
+	    };
+	  }
+
+	  if (ARRAY_BUFFER && (root.JS_SHA3_NO_ARRAY_BUFFER_IS_VIEW || !ArrayBuffer.isView)) {
+	    ArrayBuffer.isView = function (obj) {
+	      return typeof obj === 'object' && obj.buffer && obj.buffer.constructor === ArrayBuffer;
+	    };
+	  }
+
+	  var createOutputMethod = function (bits, padding, outputType) {
+	    return function (message) {
+	      return new Keccak(bits, padding, bits).update(message)[outputType]();
+	    };
+	  };
+
+	  var createShakeOutputMethod = function (bits, padding, outputType) {
+	    return function (message, outputBits) {
+	      return new Keccak(bits, padding, outputBits).update(message)[outputType]();
+	    };
+	  };
+
+	  var createCshakeOutputMethod = function (bits, padding, outputType) {
+	    return function (message, outputBits, n, s) {
+	      return methods['cshake' + bits].update(message, outputBits, n, s)[outputType]();
+	    };
+	  };
+
+	  var createKmacOutputMethod = function (bits, padding, outputType) {
+	    return function (key, message, outputBits, s) {
+	      return methods['kmac' + bits].update(key, message, outputBits, s)[outputType]();
+	    };
+	  };
+
+	  var createOutputMethods = function (method, createMethod, bits, padding) {
+	    for (var i = 0; i < OUTPUT_TYPES.length; ++i) {
+	      var type = OUTPUT_TYPES[i];
+	      method[type] = createMethod(bits, padding, type);
+	    }
+	    return method;
+	  };
+
+	  var createMethod = function (bits, padding) {
+	    var method = createOutputMethod(bits, padding, 'hex');
+	    method.create = function () {
+	      return new Keccak(bits, padding, bits);
+	    };
+	    method.update = function (message) {
+	      return method.create().update(message);
+	    };
+	    return createOutputMethods(method, createOutputMethod, bits, padding);
+	  };
+
+	  var createShakeMethod = function (bits, padding) {
+	    var method = createShakeOutputMethod(bits, padding, 'hex');
+	    method.create = function (outputBits) {
+	      return new Keccak(bits, padding, outputBits);
+	    };
+	    method.update = function (message, outputBits) {
+	      return method.create(outputBits).update(message);
+	    };
+	    return createOutputMethods(method, createShakeOutputMethod, bits, padding);
+	  };
+
+	  var createCshakeMethod = function (bits, padding) {
+	    var w = CSHAKE_BYTEPAD[bits];
+	    var method = createCshakeOutputMethod(bits, padding, 'hex');
+	    method.create = function (outputBits, n, s) {
+	      if (!n && !s) {
+	        return methods['shake' + bits].create(outputBits);
+	      } else {
+	        return new Keccak(bits, padding, outputBits).bytepad([n, s], w);
+	      }
+	    };
+	    method.update = function (message, outputBits, n, s) {
+	      return method.create(outputBits, n, s).update(message);
+	    };
+	    return createOutputMethods(method, createCshakeOutputMethod, bits, padding);
+	  };
+
+	  var createKmacMethod = function (bits, padding) {
+	    var w = CSHAKE_BYTEPAD[bits];
+	    var method = createKmacOutputMethod(bits, padding, 'hex');
+	    method.create = function (key, outputBits, s) {
+	      return new Kmac(bits, padding, outputBits).bytepad(['KMAC', s], w).bytepad([key], w);
+	    };
+	    method.update = function (key, message, outputBits, s) {
+	      return method.create(key, outputBits, s).update(message);
+	    };
+	    return createOutputMethods(method, createKmacOutputMethod, bits, padding);
+	  };
+
+	  var algorithms = [
+	    { name: 'keccak', padding: KECCAK_PADDING, bits: BITS, createMethod: createMethod },
+	    { name: 'sha3', padding: PADDING, bits: BITS, createMethod: createMethod },
+	    { name: 'shake', padding: SHAKE_PADDING, bits: SHAKE_BITS, createMethod: createShakeMethod },
+	    { name: 'cshake', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createCshakeMethod },
+	    { name: 'kmac', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createKmacMethod }
+	  ];
+
+	  var methods = {}, methodNames = [];
+
+	  for (var i = 0; i < algorithms.length; ++i) {
+	    var algorithm = algorithms[i];
+	    var bits = algorithm.bits;
+	    for (var j = 0; j < bits.length; ++j) {
+	      var methodName = algorithm.name + '_' + bits[j];
+	      methodNames.push(methodName);
+	      methods[methodName] = algorithm.createMethod(bits[j], algorithm.padding);
+	      if (algorithm.name !== 'sha3') {
+	        var newMethodName = algorithm.name + bits[j];
+	        methodNames.push(newMethodName);
+	        methods[newMethodName] = methods[methodName];
+	      }
+	    }
+	  }
+
+	  function Keccak(bits, padding, outputBits) {
+	    this.blocks = [];
+	    this.s = [];
+	    this.padding = padding;
+	    this.outputBits = outputBits;
+	    this.reset = true;
+	    this.finalized = false;
+	    this.block = 0;
+	    this.start = 0;
+	    this.blockCount = (1600 - (bits << 1)) >> 5;
+	    this.byteCount = this.blockCount << 2;
+	    this.outputBlocks = outputBits >> 5;
+	    this.extraBytes = (outputBits & 31) >> 3;
+
+	    for (var i = 0; i < 50; ++i) {
+	      this.s[i] = 0;
+	    }
+	  }
+
+	  Keccak.prototype.update = function (message) {
+	    if (this.finalized) {
+	      throw new Error(FINALIZE_ERROR);
+	    }
+	    var notString, type = typeof message;
+	    if (type !== 'string') {
+	      if (type === 'object') {
+	        if (message === null) {
+	          throw new Error(INPUT_ERROR);
+	        } else if (ARRAY_BUFFER && message.constructor === ArrayBuffer) {
+	          message = new Uint8Array(message);
+	        } else if (!Array.isArray(message)) {
+	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(message)) {
+	            throw new Error(INPUT_ERROR);
+	          }
+	        }
+	      } else {
+	        throw new Error(INPUT_ERROR);
+	      }
+	      notString = true;
+	    }
+	    var blocks = this.blocks, byteCount = this.byteCount, length = message.length,
+	      blockCount = this.blockCount, index = 0, s = this.s, i, code;
+
+	    while (index < length) {
+	      if (this.reset) {
+	        this.reset = false;
+	        blocks[0] = this.block;
+	        for (i = 1; i < blockCount + 1; ++i) {
+	          blocks[i] = 0;
+	        }
+	      }
+	      if (notString) {
+	        for (i = this.start; index < length && i < byteCount; ++index) {
+	          blocks[i >> 2] |= message[index] << SHIFT[i++ & 3];
+	        }
+	      } else {
+	        for (i = this.start; index < length && i < byteCount; ++index) {
+	          code = message.charCodeAt(index);
+	          if (code < 0x80) {
+	            blocks[i >> 2] |= code << SHIFT[i++ & 3];
+	          } else if (code < 0x800) {
+	            blocks[i >> 2] |= (0xc0 | (code >> 6)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+	          } else if (code < 0xd800 || code >= 0xe000) {
+	            blocks[i >> 2] |= (0xe0 | (code >> 12)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+	          } else {
+	            code = 0x10000 + (((code & 0x3ff) << 10) | (message.charCodeAt(++index) & 0x3ff));
+	            blocks[i >> 2] |= (0xf0 | (code >> 18)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | ((code >> 12) & 0x3f)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
+	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
+	          }
+	        }
+	      }
+	      this.lastByteIndex = i;
+	      if (i >= byteCount) {
+	        this.start = i - byteCount;
+	        this.block = blocks[blockCount];
+	        for (i = 0; i < blockCount; ++i) {
+	          s[i] ^= blocks[i];
+	        }
+	        f(s);
+	        this.reset = true;
+	      } else {
+	        this.start = i;
+	      }
+	    }
+	    return this;
+	  };
+
+	  Keccak.prototype.encode = function (x, right) {
+	    var o = x & 255, n = 1;
+	    var bytes = [o];
+	    x = x >> 8;
+	    o = x & 255;
+	    while (o > 0) {
+	      bytes.unshift(o);
+	      x = x >> 8;
+	      o = x & 255;
+	      ++n;
+	    }
+	    if (right) {
+	      bytes.push(n);
+	    } else {
+	      bytes.unshift(n);
+	    }
+	    this.update(bytes);
+	    return bytes.length;
+	  };
+
+	  Keccak.prototype.encodeString = function (str) {
+	    var notString, type = typeof str;
+	    if (type !== 'string') {
+	      if (type === 'object') {
+	        if (str === null) {
+	          throw new Error(INPUT_ERROR);
+	        } else if (ARRAY_BUFFER && str.constructor === ArrayBuffer) {
+	          str = new Uint8Array(str);
+	        } else if (!Array.isArray(str)) {
+	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(str)) {
+	            throw new Error(INPUT_ERROR);
+	          }
+	        }
+	      } else {
+	        throw new Error(INPUT_ERROR);
+	      }
+	      notString = true;
+	    }
+	    var bytes = 0, length = str.length;
+	    if (notString) {
+	      bytes = length;
+	    } else {
+	      for (var i = 0; i < str.length; ++i) {
+	        var code = str.charCodeAt(i);
+	        if (code < 0x80) {
+	          bytes += 1;
+	        } else if (code < 0x800) {
+	          bytes += 2;
+	        } else if (code < 0xd800 || code >= 0xe000) {
+	          bytes += 3;
+	        } else {
+	          code = 0x10000 + (((code & 0x3ff) << 10) | (str.charCodeAt(++i) & 0x3ff));
+	          bytes += 4;
+	        }
+	      }
+	    }
+	    bytes += this.encode(bytes * 8);
+	    this.update(str);
+	    return bytes;
+	  };
+
+	  Keccak.prototype.bytepad = function (strs, w) {
+	    var bytes = this.encode(w);
+	    for (var i = 0; i < strs.length; ++i) {
+	      bytes += this.encodeString(strs[i]);
+	    }
+	    var paddingBytes = w - bytes % w;
+	    var zeros = [];
+	    zeros.length = paddingBytes;
+	    this.update(zeros);
+	    return this;
+	  };
+
+	  Keccak.prototype.finalize = function () {
+	    if (this.finalized) {
+	      return;
+	    }
+	    this.finalized = true;
+	    var blocks = this.blocks, i = this.lastByteIndex, blockCount = this.blockCount, s = this.s;
+	    blocks[i >> 2] |= this.padding[i & 3];
+	    if (this.lastByteIndex === this.byteCount) {
+	      blocks[0] = blocks[blockCount];
+	      for (i = 1; i < blockCount + 1; ++i) {
+	        blocks[i] = 0;
+	      }
+	    }
+	    blocks[blockCount - 1] |= 0x80000000;
+	    for (i = 0; i < blockCount; ++i) {
+	      s[i] ^= blocks[i];
+	    }
+	    f(s);
+	  };
+
+	  Keccak.prototype.toString = Keccak.prototype.hex = function () {
+	    this.finalize();
+
+	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
+	      extraBytes = this.extraBytes, i = 0, j = 0;
+	    var hex = '', block;
+	    while (j < outputBlocks) {
+	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
+	        block = s[i];
+	        hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F] +
+	          HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F] +
+	          HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F] +
+	          HEX_CHARS[(block >> 28) & 0x0F] + HEX_CHARS[(block >> 24) & 0x0F];
+	      }
+	      if (j % blockCount === 0) {
+	        f(s);
+	        i = 0;
+	      }
+	    }
+	    if (extraBytes) {
+	      block = s[i];
+	      hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F];
+	      if (extraBytes > 1) {
+	        hex += HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F];
+	      }
+	      if (extraBytes > 2) {
+	        hex += HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F];
+	      }
+	    }
+	    return hex;
+	  };
+
+	  Keccak.prototype.arrayBuffer = function () {
+	    this.finalize();
+
+	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
+	      extraBytes = this.extraBytes, i = 0, j = 0;
+	    var bytes = this.outputBits >> 3;
+	    var buffer;
+	    if (extraBytes) {
+	      buffer = new ArrayBuffer((outputBlocks + 1) << 2);
+	    } else {
+	      buffer = new ArrayBuffer(bytes);
+	    }
+	    var array = new Uint32Array(buffer);
+	    while (j < outputBlocks) {
+	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
+	        array[j] = s[i];
+	      }
+	      if (j % blockCount === 0) {
+	        f(s);
+	      }
+	    }
+	    if (extraBytes) {
+	      array[i] = s[i];
+	      buffer = buffer.slice(0, bytes);
+	    }
+	    return buffer;
+	  };
+
+	  Keccak.prototype.buffer = Keccak.prototype.arrayBuffer;
+
+	  Keccak.prototype.digest = Keccak.prototype.array = function () {
+	    this.finalize();
+
+	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
+	      extraBytes = this.extraBytes, i = 0, j = 0;
+	    var array = [], offset, block;
+	    while (j < outputBlocks) {
+	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
+	        offset = j << 2;
+	        block = s[i];
+	        array[offset] = block & 0xFF;
+	        array[offset + 1] = (block >> 8) & 0xFF;
+	        array[offset + 2] = (block >> 16) & 0xFF;
+	        array[offset + 3] = (block >> 24) & 0xFF;
+	      }
+	      if (j % blockCount === 0) {
+	        f(s);
+	      }
+	    }
+	    if (extraBytes) {
+	      offset = j << 2;
+	      block = s[i];
+	      array[offset] = block & 0xFF;
+	      if (extraBytes > 1) {
+	        array[offset + 1] = (block >> 8) & 0xFF;
+	      }
+	      if (extraBytes > 2) {
+	        array[offset + 2] = (block >> 16) & 0xFF;
+	      }
+	    }
+	    return array;
+	  };
+
+	  function Kmac(bits, padding, outputBits) {
+	    Keccak.call(this, bits, padding, outputBits);
+	  }
+
+	  Kmac.prototype = new Keccak();
+
+	  Kmac.prototype.finalize = function () {
+	    this.encode(this.outputBits, true);
+	    return Keccak.prototype.finalize.call(this);
+	  };
+
+	  var f = function (s) {
+	    var h, l, n, c0, c1, c2, c3, c4, c5, c6, c7, c8, c9,
+	      b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17,
+	      b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33,
+	      b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49;
+	    for (n = 0; n < 48; n += 2) {
+	      c0 = s[0] ^ s[10] ^ s[20] ^ s[30] ^ s[40];
+	      c1 = s[1] ^ s[11] ^ s[21] ^ s[31] ^ s[41];
+	      c2 = s[2] ^ s[12] ^ s[22] ^ s[32] ^ s[42];
+	      c3 = s[3] ^ s[13] ^ s[23] ^ s[33] ^ s[43];
+	      c4 = s[4] ^ s[14] ^ s[24] ^ s[34] ^ s[44];
+	      c5 = s[5] ^ s[15] ^ s[25] ^ s[35] ^ s[45];
+	      c6 = s[6] ^ s[16] ^ s[26] ^ s[36] ^ s[46];
+	      c7 = s[7] ^ s[17] ^ s[27] ^ s[37] ^ s[47];
+	      c8 = s[8] ^ s[18] ^ s[28] ^ s[38] ^ s[48];
+	      c9 = s[9] ^ s[19] ^ s[29] ^ s[39] ^ s[49];
+
+	      h = c8 ^ ((c2 << 1) | (c3 >>> 31));
+	      l = c9 ^ ((c3 << 1) | (c2 >>> 31));
+	      s[0] ^= h;
+	      s[1] ^= l;
+	      s[10] ^= h;
+	      s[11] ^= l;
+	      s[20] ^= h;
+	      s[21] ^= l;
+	      s[30] ^= h;
+	      s[31] ^= l;
+	      s[40] ^= h;
+	      s[41] ^= l;
+	      h = c0 ^ ((c4 << 1) | (c5 >>> 31));
+	      l = c1 ^ ((c5 << 1) | (c4 >>> 31));
+	      s[2] ^= h;
+	      s[3] ^= l;
+	      s[12] ^= h;
+	      s[13] ^= l;
+	      s[22] ^= h;
+	      s[23] ^= l;
+	      s[32] ^= h;
+	      s[33] ^= l;
+	      s[42] ^= h;
+	      s[43] ^= l;
+	      h = c2 ^ ((c6 << 1) | (c7 >>> 31));
+	      l = c3 ^ ((c7 << 1) | (c6 >>> 31));
+	      s[4] ^= h;
+	      s[5] ^= l;
+	      s[14] ^= h;
+	      s[15] ^= l;
+	      s[24] ^= h;
+	      s[25] ^= l;
+	      s[34] ^= h;
+	      s[35] ^= l;
+	      s[44] ^= h;
+	      s[45] ^= l;
+	      h = c4 ^ ((c8 << 1) | (c9 >>> 31));
+	      l = c5 ^ ((c9 << 1) | (c8 >>> 31));
+	      s[6] ^= h;
+	      s[7] ^= l;
+	      s[16] ^= h;
+	      s[17] ^= l;
+	      s[26] ^= h;
+	      s[27] ^= l;
+	      s[36] ^= h;
+	      s[37] ^= l;
+	      s[46] ^= h;
+	      s[47] ^= l;
+	      h = c6 ^ ((c0 << 1) | (c1 >>> 31));
+	      l = c7 ^ ((c1 << 1) | (c0 >>> 31));
+	      s[8] ^= h;
+	      s[9] ^= l;
+	      s[18] ^= h;
+	      s[19] ^= l;
+	      s[28] ^= h;
+	      s[29] ^= l;
+	      s[38] ^= h;
+	      s[39] ^= l;
+	      s[48] ^= h;
+	      s[49] ^= l;
+
+	      b0 = s[0];
+	      b1 = s[1];
+	      b32 = (s[11] << 4) | (s[10] >>> 28);
+	      b33 = (s[10] << 4) | (s[11] >>> 28);
+	      b14 = (s[20] << 3) | (s[21] >>> 29);
+	      b15 = (s[21] << 3) | (s[20] >>> 29);
+	      b46 = (s[31] << 9) | (s[30] >>> 23);
+	      b47 = (s[30] << 9) | (s[31] >>> 23);
+	      b28 = (s[40] << 18) | (s[41] >>> 14);
+	      b29 = (s[41] << 18) | (s[40] >>> 14);
+	      b20 = (s[2] << 1) | (s[3] >>> 31);
+	      b21 = (s[3] << 1) | (s[2] >>> 31);
+	      b2 = (s[13] << 12) | (s[12] >>> 20);
+	      b3 = (s[12] << 12) | (s[13] >>> 20);
+	      b34 = (s[22] << 10) | (s[23] >>> 22);
+	      b35 = (s[23] << 10) | (s[22] >>> 22);
+	      b16 = (s[33] << 13) | (s[32] >>> 19);
+	      b17 = (s[32] << 13) | (s[33] >>> 19);
+	      b48 = (s[42] << 2) | (s[43] >>> 30);
+	      b49 = (s[43] << 2) | (s[42] >>> 30);
+	      b40 = (s[5] << 30) | (s[4] >>> 2);
+	      b41 = (s[4] << 30) | (s[5] >>> 2);
+	      b22 = (s[14] << 6) | (s[15] >>> 26);
+	      b23 = (s[15] << 6) | (s[14] >>> 26);
+	      b4 = (s[25] << 11) | (s[24] >>> 21);
+	      b5 = (s[24] << 11) | (s[25] >>> 21);
+	      b36 = (s[34] << 15) | (s[35] >>> 17);
+	      b37 = (s[35] << 15) | (s[34] >>> 17);
+	      b18 = (s[45] << 29) | (s[44] >>> 3);
+	      b19 = (s[44] << 29) | (s[45] >>> 3);
+	      b10 = (s[6] << 28) | (s[7] >>> 4);
+	      b11 = (s[7] << 28) | (s[6] >>> 4);
+	      b42 = (s[17] << 23) | (s[16] >>> 9);
+	      b43 = (s[16] << 23) | (s[17] >>> 9);
+	      b24 = (s[26] << 25) | (s[27] >>> 7);
+	      b25 = (s[27] << 25) | (s[26] >>> 7);
+	      b6 = (s[36] << 21) | (s[37] >>> 11);
+	      b7 = (s[37] << 21) | (s[36] >>> 11);
+	      b38 = (s[47] << 24) | (s[46] >>> 8);
+	      b39 = (s[46] << 24) | (s[47] >>> 8);
+	      b30 = (s[8] << 27) | (s[9] >>> 5);
+	      b31 = (s[9] << 27) | (s[8] >>> 5);
+	      b12 = (s[18] << 20) | (s[19] >>> 12);
+	      b13 = (s[19] << 20) | (s[18] >>> 12);
+	      b44 = (s[29] << 7) | (s[28] >>> 25);
+	      b45 = (s[28] << 7) | (s[29] >>> 25);
+	      b26 = (s[38] << 8) | (s[39] >>> 24);
+	      b27 = (s[39] << 8) | (s[38] >>> 24);
+	      b8 = (s[48] << 14) | (s[49] >>> 18);
+	      b9 = (s[49] << 14) | (s[48] >>> 18);
+
+	      s[0] = b0 ^ (~b2 & b4);
+	      s[1] = b1 ^ (~b3 & b5);
+	      s[10] = b10 ^ (~b12 & b14);
+	      s[11] = b11 ^ (~b13 & b15);
+	      s[20] = b20 ^ (~b22 & b24);
+	      s[21] = b21 ^ (~b23 & b25);
+	      s[30] = b30 ^ (~b32 & b34);
+	      s[31] = b31 ^ (~b33 & b35);
+	      s[40] = b40 ^ (~b42 & b44);
+	      s[41] = b41 ^ (~b43 & b45);
+	      s[2] = b2 ^ (~b4 & b6);
+	      s[3] = b3 ^ (~b5 & b7);
+	      s[12] = b12 ^ (~b14 & b16);
+	      s[13] = b13 ^ (~b15 & b17);
+	      s[22] = b22 ^ (~b24 & b26);
+	      s[23] = b23 ^ (~b25 & b27);
+	      s[32] = b32 ^ (~b34 & b36);
+	      s[33] = b33 ^ (~b35 & b37);
+	      s[42] = b42 ^ (~b44 & b46);
+	      s[43] = b43 ^ (~b45 & b47);
+	      s[4] = b4 ^ (~b6 & b8);
+	      s[5] = b5 ^ (~b7 & b9);
+	      s[14] = b14 ^ (~b16 & b18);
+	      s[15] = b15 ^ (~b17 & b19);
+	      s[24] = b24 ^ (~b26 & b28);
+	      s[25] = b25 ^ (~b27 & b29);
+	      s[34] = b34 ^ (~b36 & b38);
+	      s[35] = b35 ^ (~b37 & b39);
+	      s[44] = b44 ^ (~b46 & b48);
+	      s[45] = b45 ^ (~b47 & b49);
+	      s[6] = b6 ^ (~b8 & b0);
+	      s[7] = b7 ^ (~b9 & b1);
+	      s[16] = b16 ^ (~b18 & b10);
+	      s[17] = b17 ^ (~b19 & b11);
+	      s[26] = b26 ^ (~b28 & b20);
+	      s[27] = b27 ^ (~b29 & b21);
+	      s[36] = b36 ^ (~b38 & b30);
+	      s[37] = b37 ^ (~b39 & b31);
+	      s[46] = b46 ^ (~b48 & b40);
+	      s[47] = b47 ^ (~b49 & b41);
+	      s[8] = b8 ^ (~b0 & b2);
+	      s[9] = b9 ^ (~b1 & b3);
+	      s[18] = b18 ^ (~b10 & b12);
+	      s[19] = b19 ^ (~b11 & b13);
+	      s[28] = b28 ^ (~b20 & b22);
+	      s[29] = b29 ^ (~b21 & b23);
+	      s[38] = b38 ^ (~b30 & b32);
+	      s[39] = b39 ^ (~b31 & b33);
+	      s[48] = b48 ^ (~b40 & b42);
+	      s[49] = b49 ^ (~b41 & b43);
+
+	      s[0] ^= RC[n];
+	      s[1] ^= RC[n + 1];
+	    }
+	  };
+
+	  if (COMMON_JS) {
+	    module.exports = methods;
+	  } else {
+	    for (i = 0; i < methodNames.length; ++i) {
+	      root[methodNames[i]] = methods[methodNames[i]];
+	    }
+	  }
+	})();
+} (sha3));
+
+var jsSha3 = sha3.exports;
+
 /*
     Copyright 2022 iden3 association.
 
@@ -6862,7 +10511,7 @@ class Proof {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const { keccak256 } = jsSha3__default["default"];
+const { keccak256 } = jsSha3;
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -6910,7 +10559,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
         return this.Fr.e(value);
     }
 }
@@ -7115,7 +10764,7 @@ class Polynomial {
     static fromCoefficientsArray(array, curve, logger) {
         const Fr = curve.Fr;
         let buff = array.length > 2 << 14 ?
-            new ffjavascript.BigBuffer(array.length * Fr.n8) : new Uint8Array(array.length * Fr.n8);
+            new BigBuffer(array.length * Fr.n8) : new Uint8Array(array.length * Fr.n8);
         for (let i = 0; i < array.length; i++) buff.set(array[i], i * Fr.n8);
 
         return new Polynomial(buff, curve, logger);
@@ -7126,7 +10775,7 @@ class Polynomial {
         let Fr = curve.Fr;
 
         let buff = length > 2 << 14 ?
-            new ffjavascript.BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
+            new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
         buff.set(polynomial.coef.slice(), 0);
 
         return new Polynomial(buff, curve, logger);
@@ -7147,7 +10796,7 @@ class Polynomial {
         blindingFactors = blindingFactors || [];
 
         const blindedCoefficients = (this.length() + blindingFactors.length) > 2 << 14 ?
-            new ffjavascript.BigBuffer((this.length() + blindingFactors.length) * this.Fr.n8) :
+            new BigBuffer((this.length() + blindingFactors.length) * this.Fr.n8) :
             new Uint8Array((this.length() + blindingFactors.length) * this.Fr.n8);
 
         blindedCoefficients.set(this.coef, 0);
@@ -7191,7 +10840,7 @@ class Polynomial {
         let a = await Fr.ifft(buffer);
 
         const a4 = (domainSize * 4) > 2 << 14 ?
-            new ffjavascript.BigBuffer(domainSize * 4 * Fr.n8) : new Uint8Array(domainSize * 4 * Fr.n8);
+            new BigBuffer(domainSize * 4 * Fr.n8) : new Uint8Array(domainSize * 4 * Fr.n8);
         a4.set(a, 0);
 
         const A4 = await Fr.fft(a4);
@@ -7201,7 +10850,7 @@ class Polynomial {
         }
 
         const a1 = domainSize + blindingFactors.length > 2 << 14 ?
-            new ffjavascript.BigBuffer((domainSize + blindingFactors.length) * Fr.n8) :
+            new BigBuffer((domainSize + blindingFactors.length) * Fr.n8) :
             new Uint8Array((domainSize + blindingFactors.length) * Fr.n8);
 
         a1.set(a, 0);
@@ -7377,7 +11026,7 @@ class Polynomial {
         const resize = !Fr.eq(Fr.zero, this.getCoef(this.length() - 1));
 
         const length = resize ? this.length() + 1 : this.length();
-        const buff = length > 2 << 14 ? new ffjavascript.BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
+        const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
         let pol = new Polynomial(buff, this.curve, this.logger);
 
         // Step 0: Set current coefficients to the new buffer shifted one position
@@ -7399,7 +11048,7 @@ class Polynomial {
         const resize = !(this.length() - n - 1 >= this.degree());
 
         const length = resize ? this.length() + n : this.length();
-        const buff = length > 2 << 14 ? new ffjavascript.BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
+        const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
         let pol = new Polynomial(buff, this.curve, this.logger);
 
         // Step 0: Set current coefficients to the new buffer shifted one position
@@ -7424,7 +11073,7 @@ class Polynomial {
         let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
 
         for (let i = degreeA - degreeB; i >= 0; i--) {
             this.setCoef(i, Fr.div(polR.getCoef(i + degreeB), polynomial.getCoef(degreeB)));
@@ -7443,7 +11092,7 @@ class Polynomial {
         let d = this.degree();
 
         let buffer = this.length() > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
         let quotient = new Polynomial(buffer, this.curve, this.logger);
 
         let bArr = [];
@@ -7478,7 +11127,7 @@ class Polynomial {
         let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
 
         for (let i = this.length() - 1; i >= n; i--) {
             let leadingCoef = polR.getCoef(i);
@@ -7502,7 +11151,7 @@ class Polynomial {
         let polR = new Polynomial(this.coef, this.curve, this.logger);
 
         this.coef = this.length() > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
+            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
 
         let nThreads = 3;
         let nTotal = this.length() - m;
@@ -7552,7 +11201,7 @@ class Polynomial {
 
             //In C++ implementation this buffer will be allocated only once outside the loop
             let polTmp = new Polynomial(this.length() > 2 << 14 ?
-                new ffjavascript.BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), this.curve, this.logger);
+                new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), this.curve, this.logger);
 
             let ptr = this.coef;
             this.coef = polTmp.coef;
@@ -7640,7 +11289,7 @@ class Polynomial {
     // Divide polynomial by X - value
     divByXSubValue(value) {
         const coefs = this.length() > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.length() * this.Fr.n8) : new Uint8Array(this.length() * this.Fr.n8);
+            new BigBuffer(this.length() * this.Fr.n8) : new Uint8Array(this.length() * this.Fr.n8);
 
         coefs.set(this.Fr.zero, (this.length() - 1) * this.Fr.n8);
         coefs.set(this.coef.slice((this.length() - 1) * this.Fr.n8, this.length() * this.Fr.n8), (this.length() - 2) * this.Fr.n8);
@@ -7771,7 +11420,7 @@ class Polynomial {
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
-            new ffjavascript.BigBuffer(this.coef.byteLength + this.Fr.n8) : new Uint8Array(this.coef.byteLength + this.Fr.n8);
+            new BigBuffer(this.coef.byteLength + this.Fr.n8) : new Uint8Array(this.coef.byteLength + this.Fr.n8);
         coefs.set(this.Fr.zero, 0);
         coefs.set(this.coef, this.Fr.n8);
 
@@ -7797,7 +11446,7 @@ class Polynomial {
         // if truncate === true, the highest zero coefficients (if exist) will be removed
         const length = truncate ? polynomial.degree() : (polynomial.length() - 1);
         const bufferDst = (length * n + 1) > 2 << 14 ?
-            new ffjavascript.BigBuffer((length * n + 1) * Fr.n8) : new Uint8Array((length * n + 1) * Fr.n8);
+            new BigBuffer((length * n + 1) * Fr.n8) : new Uint8Array((length * n + 1) * Fr.n8);
 
         // Copy constant coefficient as is because is not related to x
         bufferDst.set(polynomial.getCoef(0), 0);
@@ -7841,7 +11490,7 @@ class Polynomial {
             const isLast = (numPols - 1) === i;
             const byteLength = isLast ? this.coef.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
 
-            let buff = (byteLength / this.Fr.n8) > 2 << 14 ? new ffjavascript.BigBuffer(byteLength) : new Uint8Array(byteLength);
+            let buff = (byteLength / this.Fr.n8) > 2 << 14 ? new BigBuffer(byteLength) : new Uint8Array(byteLength);
             res[i] = new Polynomial(buff, this.curve, this.logger);
 
             const fr = i * chunkByteLength;
@@ -7961,7 +11610,7 @@ class Polynomial {
         const deg = this.degree();
         if (deg + 1 < this.coef.byteLength / this.Fr.n8) {
             const newCoefs = (deg + 1) > 2 << 14 ?
-                new ffjavascript.BigBuffer((deg + 1) * this.Fr.n8) : new Uint8Array((deg + 1) * this.Fr.n8);
+                new BigBuffer((deg + 1) * this.Fr.n8) : new Uint8Array((deg + 1) * this.Fr.n8);
 
             newCoefs.set(this.coef.slice(0, (deg + 1) * this.Fr.n8), 0);
             this.coef = newCoefs;
@@ -7985,7 +11634,7 @@ class Polynomial {
 
                 if (polynomial === undefined) {
                     let buff = (xArr.length) > 2 << 14 ?
-                        new ffjavascript.BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
+                        new BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
                     polynomial = new Polynomial(buff, curve);
                     polynomial.setCoef(0, Fr.neg(xArr[j]));
                     polynomial.setCoef(1, Fr.one);
@@ -8007,7 +11656,7 @@ class Polynomial {
     static zerofierPolynomial(xArr, curve) {
         const Fr = curve.Fr;
         let buff = (xArr.length + 1) > 2 << 14 ?
-            new ffjavascript.BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
+            new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
         let polynomial = new Polynomial(buff, curve);
 
         // Build a zerofier polynomial with the following form:
@@ -8080,7 +11729,7 @@ class Evaluations {
     }
 
     static async fromPolynomial(polynomial, extension, curve, logger) {
-        const coefficientsN = new ffjavascript.BigBuffer(polynomial.length() * extension * curve.Fr.n8);
+        const coefficientsN = new BigBuffer(polynomial.length() * extension * curve.Fr.n8);
         coefficientsN.set(polynomial.coef, 0);
 
         const evaluations = await curve.Fr.fft(coefficientsN);
@@ -8128,10 +11777,10 @@ class Evaluations {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$1} = utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
-    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
+    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile(witnessFileName, "wtns", 2);
 
     // Read witness file
     if (logger) logger.debug("> Reading witness file");
@@ -8139,14 +11788,14 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     // Read zkey file
     if (logger) logger.debug("> Reading zkey file");
-    const {fd: fdZKey, sections: zkeySections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+    const {fd: fdZKey, sections: zkeySections} = await readBinFile(zkeyFileName, "zkey", 2);
 
     const zkey = await readHeader$1(fdZKey, zkeySections);
     if (zkey.protocol != "plonk") {
         throw new Error("zkey file is not plonk");
     }
 
-    if (!ffjavascript.Scalar.eq(zkey.r,  wtns.q)) {
+    if (!Scalar.eq(zkey.r,  wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
     }
 
@@ -8175,12 +11824,12 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     //Read witness data
     if (logger) logger.debug("> Reading witness file data");
-    const buffWitness = await binFileUtils__namespace.readSection(fdWtns, sectionsWtns, 2);
+    const buffWitness = await readSection(fdWtns, sectionsWtns, 2);
 
     // First element in plonk is not used and can be any value. (But always the same).
     // We set it to zero to go faster in the exponentiations.
     buffWitness.set(Fr.zero, 0);
-    const buffInternalWitness = new ffjavascript.BigBuffer(n8r*zkey.nAdditions);
+    const buffInternalWitness = new BigBuffer(n8r*zkey.nAdditions);
 
     let buffers = {};
     let polynomials = {};
@@ -8195,31 +11844,31 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     if (logger) logger.debug(`> Reading Section ${ZKEY_PL_SIGMA_SECTION}. Sigma1, Sigma2 & Sigma 3`);
     if (logger) logger.debug("··· Reading Sigma polynomials ");
-    polynomials.Sigma1 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma2 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma3 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), curve, logger);
 
     await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 5 * sDomain);
     await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 10 * sDomain);
 
     if (logger) logger.debug("··· Reading Sigma evaluations");
-    evaluations.Sigma1 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma2 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma3 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
 
     await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + sDomain);
     await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 6 * sDomain);
     await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 11 * sDomain);
 
     if (logger) logger.debug(`> Reading Section ${ZKEY_PL_PTAU_SECTION}. Powers of Tau`);
-    const PTau = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_PL_PTAU_SECTION);
+    const PTau = await readSection(fdZKey, zkeySections, ZKEY_PL_PTAU_SECTION);
 
     let publicSignals = [];
 
     for (let i=1; i<= zkey.nPublic; i++) {
         const pub = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
-        publicSignals.push(ffjavascript.Scalar.fromRprLE(pub));
+        publicSignals.push(Scalar.fromRprLE(pub));
     }
 
     if (logger) logger.debug("");
@@ -8259,7 +11908,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
     async function calculateAdditions() {
         if (logger) logger.debug("··· Computing additions");
-        const additionsBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_PL_ADDITIONS_SECTION);
+        const additionsBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_ADDITIONS_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
         // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
@@ -8334,14 +11983,14 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         if (logger) logger.debug("··· Reading data from zkey file");
 
         // Build A, B and C evaluations buffer from zkey and witness files
-        buffers.A = new ffjavascript.BigBuffer(sDomain);
-        buffers.B = new ffjavascript.BigBuffer(sDomain);
-        buffers.C = new ffjavascript.BigBuffer(sDomain);
+        buffers.A = new BigBuffer(sDomain);
+        buffers.B = new BigBuffer(sDomain);
+        buffers.C = new BigBuffer(sDomain);
 
         // Read zkey file to the buffers
-        const aMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_PL_A_MAP_SECTION);
-        const bMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_PL_B_MAP_SECTION);
-        const cMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_PL_C_MAP_SECTION);
+        const aMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_A_MAP_SECTION);
+        const bMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_B_MAP_SECTION);
+        const cMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_C_MAP_SECTION);
 
         // Compute all witness from signal ids and set them to A,B & C buffers
         for (let i = 0; i < zkey.nConstraints; i++) {
@@ -8447,8 +12096,8 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     async function computeZ() {
         if (logger) logger.debug("··· Computing Z evaluations");
 
-        let numArr = new ffjavascript.BigBuffer(sDomain);
-        let denArr = new ffjavascript.BigBuffer(sDomain);
+        let numArr = new BigBuffer(sDomain);
+        let denArr = new BigBuffer(sDomain);
 
         // Set the first values to 1
         numArr.set(Fr.one, 0);
@@ -8574,11 +12223,11 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
             logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
                 `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
         // Reserve memory for Q's evaluations
-        evaluations.QL = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QR = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QM = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QO = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QC = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
+        evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+        evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+        evaluations.QM = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+        evaluations.QO = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+        evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
 
         // Read Q's evaluations from zkey file
         await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QL_SECTION][0].p + sDomain);
@@ -8588,14 +12237,14 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QC_SECTION][0].p + sDomain);
 
         // Read Lagrange polynomials & evaluations from zkey file
-        evaluations.Lagrange = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4 * zkey.nPublic), curve, logger);
+        evaluations.Lagrange = new Evaluations(new BigBuffer(sDomain * 4 * zkey.nPublic), curve, logger);
 
         for (let i = 0; i < zkey.nPublic; i++) {
             await fdZKey.readToBuffer(evaluations.Lagrange.eval, i * sDomain * 4, sDomain * 4, zkeySections[ZKEY_PL_LAGRANGE_SECTION][0].p + i * 5 * sDomain + sDomain);
         }
 
-        buffers.T = new ffjavascript.BigBuffer(sDomain * 4);
-        buffers.Tz = new ffjavascript.BigBuffer(sDomain * 4);
+        buffers.T = new BigBuffer(sDomain * 4);
+        buffers.Tz = new BigBuffer(sDomain * 4);
 
         if (logger) logger.debug("··· Computing T evaluations");
 
@@ -8746,9 +12395,9 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         // such that
         // t(X) = T1(X) + X^n T2(X) + X^2n T3(X)
         if (logger) logger.debug("··· Computing T1, T2, T3 polynomials");
-        polynomials.T1 = new Polynomial(new ffjavascript.BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
-        polynomials.T2 = new Polynomial(new ffjavascript.BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
-        polynomials.T3 = new Polynomial(new ffjavascript.BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
+        polynomials.T1 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
+        polynomials.T2 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
+        polynomials.T3 = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
 
         polynomials.T1.coef.set(polynomials.T.coef.slice(0, sDomain), 0);
         polynomials.T2.coef.set(polynomials.T.coef.slice(sDomain, sDomain * 2), 0);
@@ -8839,11 +12488,11 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
         const Fr = curve.Fr;
     
         // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
+        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
 
         // Read Q's evaluations from zkey file
         await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_PL_QL_SECTION][0].p);
@@ -8920,7 +12569,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 
         const e4 = Fr.mul(eval_l1, challenges.alpha2);
 
-        polynomials.R = new Polynomial(new ffjavascript.BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
+        polynomials.R = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
 
         polynomials.R.add(polynomials.QM, coef_ab);
         polynomials.R.add(polynomials.QL, proof.evaluations.eval_a);
@@ -8948,7 +12597,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     }
 
     function computeWxi() {
-        polynomials.Wxi = new Polynomial(new ffjavascript.BigBuffer(sDomain + 6 * n8r), curve, logger);
+        polynomials.Wxi = new Polynomial(new BigBuffer(sDomain + 6 * n8r), curve, logger);
 
         polynomials.Wxi.add(polynomials.R);
         polynomials.Wxi.add(polynomials.A, challenges.v[1]);
@@ -8992,7 +12641,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$3} = utils;
 
 async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
     const input = unstringifyBigInts$3(_input);
@@ -9022,7 +12671,7 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$2} = utils;
 
 
 
@@ -9703,7 +13352,7 @@ class CPolynomial {
         const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
         const sFr = this.Fr.n8;
 
-        let polynomial = new Polynomial(new ffjavascript.BigBuffer(lengthBuffer * sFr), this.curve, this.logger);
+        let polynomial = new Polynomial(new BigBuffer(lengthBuffer * sFr), this.curve, this.logger);
 
         for (let i = 0; i < maxDegree; i++) {
             const i_n8 = i * sFr;
@@ -9757,7 +13406,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
-    const {fd: fdPTau, sections: pTauSections} = await binFileUtils.readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
+    const {fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1);
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -9768,8 +13417,8 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
-    const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1);
+    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
     if (r1cs.prime !== curve.r) {
@@ -9792,8 +13441,8 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         nPublic: r1cs.nOutputs + r1cs.nPubInputs
     };
 
-    const plonkConstraints = new BigArray();
-    let plonkAdditions = new BigArray();
+    const plonkConstraints = new BigArray$1();
+    let plonkAdditions = new BigArray$1();
 
     // Process constraints inside r1cs
     if (logger) logger.info("> Processing FFlonk constraints");
@@ -9860,7 +13509,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         // Add all constraints from r1cs file
         const r1csProcessor = new r1csConstraintProcessor(Fr, getFFlonkConstantConstraint, getFFlonkAdditionConstraint, getFFlonkMultiplicationConstraint, logger);
 
-        const bR1cs = await binFileUtils__namespace.readSection(fdR1cs, sectionsR1cs, 2);
+        const bR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
         let bR1csPos = 0;
         for (let i = 0; i < r1cs.nConstraints; i++) {
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
@@ -9904,7 +13553,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
-        const fdZKey = await binFileUtils.createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
@@ -9971,13 +13620,13 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     }
 
     async function writeZkeyHeader(fdZKey) {
-        await binFileUtils.startWriteSection(fdZKey, HEADER_ZKEY_SECTION);
+        await startWriteSection(fdZKey, HEADER_ZKEY_SECTION);
         await fdZKey.writeULE32(FFLONK_PROTOCOL_ID);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeAdditions(fdZKey) {
-        await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_ADDITIONS_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_ADDITIONS_SECTION);
 
         // Written values are 2 * 32 bit integers (2 * 4 bytes) + 2 field size values ( 2 * sFr bytes)
         const buffOut = new Uint8Array(8 + 2 * sFr);
@@ -9995,11 +13644,11 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
             await fdZKey.write(buffOut);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeWitnessMap(fdZKey, sectionNum, posConstraint, name) {
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         for (let i = 0; i < plonkConstraints.length; i++) {
             if (logger && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`      writing witness ${name}: ${i}/${plonkConstraints.length}`);
@@ -10007,12 +13656,12 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
             await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeQMap(fdZKey, sectionNum, posConstraint, name) {
         // Compute Q from q evaluations
-        let Q = new ffjavascript.BigBuffer(settings.domainSize * sFr);
+        let Q = new BigBuffer(settings.domainSize * sFr);
 
         for (let i = 0; i < plonkConstraints.length; i++) {
             Q.set(plonkConstraints[i][posConstraint], i * sFr);
@@ -10025,17 +13674,17 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
 
         // Write Q coefficients and evaluations
-        await binFileUtils.startWriteSection(fdZKey, sectionNum);
+        await startWriteSection(fdZKey, sectionNum);
         await fdZKey.write(polynomials[name].coef);
         await fdZKey.write(evaluations[name].eval);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeSigma(fdZKey) {
         // Compute sigma
-        const sigma = new ffjavascript.BigBuffer(sFr * settings.domainSize * 3);
-        const lastSeen = new BigArray(settings.nVars);
-        const firstPos = new BigArray(settings.nVars);
+        const sigma = new BigBuffer(sFr * settings.domainSize * 3);
+        const lastSeen = new BigArray$1(settings.nVars);
+        const firstPos = new BigArray$1(settings.nVars);
 
         let w = Fr.one;
         for (let i = 0; i < settings.domainSize; i++) {
@@ -10079,10 +13728,10 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
             let name = "S" + (i + 1);
             polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
             evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
-            await binFileUtils.startWriteSection(fdZKey, sectionId);
+            await startWriteSection(fdZKey, sectionId);
             await fdZKey.write(polynomials[name].coef);
             await fdZKey.write(evaluations[name].eval);
-            await binFileUtils.endWriteSection(fdZKey);
+            await endWriteSection(fdZKey);
 
             if (globalThis.gc) globalThis.gc();
         }
@@ -10109,27 +13758,27 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     }
 
     async function writeLagrangePolynomials(fdZKey) {
-        await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_LAGRANGE_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_LAGRANGE_SECTION);
 
         const l = Math.max(settings.nPublic, 1);
         for (let i = 0; i < l; i++) {
-            let buff = new ffjavascript.BigBuffer(settings.domainSize * sFr);
+            let buff = new BigBuffer(settings.domainSize * sFr);
             buff.set(Fr.one, i * sFr);
 
             await writeP4(fdZKey, buff);
         }
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writePtau(fdZKey) {
-        await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
 
         // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
-        PTau = new ffjavascript.BigBuffer((settings.domainSize * 9 + 18) * sG1);
+        PTau = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
         await fdPTau.readToBuffer(PTau, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
 
         await fdZKey.write(PTau);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeC0(fdZKey) {
@@ -10152,23 +13801,23 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
             throw new Error("C0 Polynomial is not well calculated");
         }
 
-        await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeFFlonkHeader(fdZKey) {
-        await binFileUtils.startWriteSection(fdZKey, ZKEY_FF_HEADER_SECTION);
+        await startWriteSection(fdZKey, ZKEY_FF_HEADER_SECTION);
 
         const primeQ = curve.q;
-        const n8q = (Math.floor((ffjavascript.Scalar.bitLength(primeQ) - 1) / 64) + 1) * 8;
+        const n8q = (Math.floor((Scalar.bitLength(primeQ) - 1) / 64) + 1) * 8;
         await fdZKey.writeULE32(n8q);
-        await binFileUtils.writeBigInt(fdZKey, primeQ, n8q);
+        await writeBigInt(fdZKey, primeQ, n8q);
 
         const primeR = curve.r;
-        const n8r = (Math.floor((ffjavascript.Scalar.bitLength(primeR) - 1) / 64) + 1) * 8;
+        const n8r = (Math.floor((Scalar.bitLength(primeR) - 1) / 64) + 1) * 8;
         await fdZKey.writeULE32(n8r);
-        await binFileUtils.writeBigInt(fdZKey, primeR, n8r);
+        await writeBigInt(fdZKey, primeR, n8r);
 
         // Total number of r1cs vars
         await fdZKey.writeULE32(settings.nVars);
@@ -10193,7 +13842,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
         await fdZKey.write(commitC0);
 
-        await binFileUtils.endWriteSection(fdZKey);
+        await endWriteSection(fdZKey);
     }
 
     async function writeP4(fdZKey, buff) {
@@ -10230,7 +13879,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
         // Exponent is order(r - 1) / 3
         let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = ffjavascript.Scalar.div(orderRsub1, ffjavascript.Scalar.e(3));
+        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
 
         return Fr.exp(generator, exponent);
     }
@@ -10270,7 +13919,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const { stringifyBigInts } = ffjavascript.utils;
+const { stringifyBigInts } = utils;
 
 
 async function fflonkProve(zkeyFileName, witnessFileName, logger) {
@@ -10281,7 +13930,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
     const {
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
+    } = await readBinFile(witnessFileName, "wtns", 2);
     const wtns = await readHeader(fdWtns, wtnsSections);
 
     //Read zkey file
@@ -10289,14 +13938,14 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
     const {
         fd: fdZKey,
         sections: zkeySections
-    } = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
+    } = await readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await readHeader$1(fdZKey, zkeySections);
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not fflonk");
     }
 
-    if (!ffjavascript.Scalar.eq(zkey.r, wtns.q)) {
+    if (!Scalar.eq(zkey.r, wtns.q)) {
         throw new Error("Curve of the witness does not match the curve of the proving key");
     }
 
@@ -10327,13 +13976,13 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 
     //Read witness data
     if (logger) logger.info("> Reading witness file data");
-    const buffWitness = await binFileUtils__namespace.readSection(fdWtns, wtnsSections, 2);
+    const buffWitness = await readSection(fdWtns, wtnsSections, 2);
     await fdWtns.close();
 
     // First element in plonk is not used and can be any value. (But always the same).
     // We set it to zero to go faster in the exponentiations.
     buffWitness.set(Fr.zero, 0);
-    const buffInternalWitness = new ffjavascript.BigBuffer(zkey.nAdditions * sFr);
+    const buffInternalWitness = new BigBuffer(zkey.nAdditions * sFr);
 
     let buffers = {};
     let polynomials = {};
@@ -10367,25 +14016,25 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 
     if (logger) logger.info(`> Reading Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
     if (logger) logger.info("··· Reading Sigma polynomials ");
-    polynomials.Sigma1 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma2 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma3 = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), curve, logger);
+    polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), curve, logger);
 
     await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p);
     await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p);
 
     if (logger) logger.info("··· Reading Sigma evaluations");
-    evaluations.Sigma1 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma2 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma3 = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+    evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
 
     await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p + sDomain);
     await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p + sDomain);
     await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p + sDomain);
 
     if (logger) logger.info(`> Reading Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
-    const PTau = new ffjavascript.BigBuffer(zkey.domainSize * 16 * sG1);
+    const PTau = new BigBuffer(zkey.domainSize * 16 * sG1);
     // domainSize * 9 + 18 = SRS length in the zkey saved in setup process.
     // it corresponds to the maximum SRS length needed, specifically to commit C2
     // notice that the reserved buffers size is zkey.domainSize * 16 * sG1 because a power of two buffer size is needed
@@ -10480,7 +14129,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         const i_sFr = i * sFr;
 
         const pub = buffWitness.slice(i_sFr, i_sFr + sFr);
-        publicSignals.push(ffjavascript.Scalar.fromRprLE(pub));
+        publicSignals.push(Scalar.fromRprLE(pub));
     }
 
     if (logger) logger.info("FFLONK PROVER FINISHED");
@@ -10492,7 +14141,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 
     async function calculateAdditions() {
         if (logger) logger.info("··· Computing additions");
-        const additionsBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_ADDITIONS_SECTION);
+        const additionsBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_ADDITIONS_SECTION);
 
         // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
         // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
@@ -10569,14 +14218,14 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         async function computeWirePolynomials() {
             if (logger) logger.info("··· Reading data from zkey file");
             // Build A, B and C evaluations buffer from zkey and witness files
-            buffers.A = new ffjavascript.BigBuffer(sDomain);
-            buffers.B = new ffjavascript.BigBuffer(sDomain);
-            buffers.C = new ffjavascript.BigBuffer(sDomain);
+            buffers.A = new BigBuffer(sDomain);
+            buffers.B = new BigBuffer(sDomain);
+            buffers.C = new BigBuffer(sDomain);
 
             // Read zkey sections and fill the buffers
-            const aMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
-            const bMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
-            const cMapBuff = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
+            const aMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
+            const bMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
+            const cMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
 
             // Compute all witness from signal ids and set them to A,B & C buffers
             for (let i = 0; i < zkey.nConstraints; i++) {
@@ -10640,11 +14289,11 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
             if (logger) logger.info(`··· Reading sections ${ZKEY_FF_QL_SECTION}, ${ZKEY_FF_QR_SECTION}` +
                 `, ${ZKEY_FF_QM_SECTION}, ${ZKEY_FF_QO_SECTION}, ${ZKEY_FF_QC_SECTION}. Q selectors`);
             // Reserve memory for Q's evaluations
-            evaluations.QL = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QR = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QM = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QO = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QC = new Evaluations(new ffjavascript.BigBuffer(sDomain * 4), curve, logger);
+            evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+            evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+            evaluations.QM = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+            evaluations.QO = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
+            evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
 
             // Read Q's evaluations from zkey file
             await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QL_SECTION][0].p + sDomain);
@@ -10654,11 +14303,11 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
             await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QC_SECTION][0].p + sDomain);
 
             // Read Lagrange polynomials & evaluations from zkey file
-            const lagrangePolynomials = await binFileUtils__namespace.readSection(fdZKey, zkeySections, ZKEY_FF_LAGRANGE_SECTION);
+            const lagrangePolynomials = await readSection(fdZKey, zkeySections, ZKEY_FF_LAGRANGE_SECTION);
             evaluations.lagrange1 = new Evaluations(lagrangePolynomials, curve, logger);
 
             // Reserve memory for buffers T0
-            buffers.T0 = new ffjavascript.BigBuffer(sDomain * 4);
+            buffers.T0 = new BigBuffer(sDomain * 4);
 
             if (logger) logger.info("··· Computing T0 evaluations");
             for (let i = 0; i < zkey.domainSize * 4; i++) {
@@ -10793,8 +14442,8 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         async function computeZ() {
             if (logger) logger.info("··· Computing Z evaluations");
 
-            let numArr = new ffjavascript.BigBuffer(sDomain);
-            let denArr = new ffjavascript.BigBuffer(sDomain);
+            let numArr = new BigBuffer(sDomain);
+            let denArr = new BigBuffer(sDomain);
 
             // Set the first values to 1
             numArr.set(Fr.one, 0);
@@ -10891,8 +14540,8 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         async function computeT1() {
             if (logger) logger.info("··· Computing T1 evaluations");
 
-            buffers.T1 = new ffjavascript.BigBuffer(sDomain * 2);
-            buffers.T1z = new ffjavascript.BigBuffer(sDomain * 2);
+            buffers.T1 = new BigBuffer(sDomain * 2);
+            buffers.T1z = new BigBuffer(sDomain * 2);
 
             // Set initial omega
             let omega = Fr.one;
@@ -10944,8 +14593,8 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         async function computeT2() {
             if (logger) logger.info("··· Computing T2 evaluations");
 
-            buffers.T2 = new ffjavascript.BigBuffer(sDomain * 4);
-            buffers.T2z = new ffjavascript.BigBuffer(sDomain * 4);
+            buffers.T2 = new BigBuffer(sDomain * 4);
+            buffers.T2z = new BigBuffer(sDomain * 4);
 
             // Set initial omega
             let omega = Fr.one;
@@ -11120,11 +14769,11 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         if (logger) logger.info("··· challenges.xi: " + Fr.toString(challenges.xi));
 
         // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new ffjavascript.BigBuffer(sDomain), curve, logger);
+        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
+        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
 
         // Read Q's evaluations from zkey file
         await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_FF_QL_SECTION][0].p);
@@ -11179,7 +14828,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 
         // STEP 4.2 - Compute F(X)
         if (logger) logger.info("> Reading C0 polynomial");
-        polynomials.C0 = new Polynomial(new ffjavascript.BigBuffer(sDomain * 8), curve, logger);
+        polynomials.C0 = new Polynomial(new BigBuffer(sDomain * 8), curve, logger);
         await fdZKey.readToBuffer(polynomials.C0.coef, 0, sDomain * 8, zkeySections[ZKEY_FF_C0_SECTION][0].p);
 
         if (logger) logger.info("> Computing R0 polynomial");
@@ -11525,7 +15174,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$1} = utils;
 
 async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger) {
     const input = unstringifyBigInts$1(_input);
@@ -11558,7 +15207,7 @@ async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger) {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const { unstringifyBigInts } = ffjavascript.utils;
+const { unstringifyBigInts } = utils;
 
 async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     if (logger) logger.info("FFLONK VERIFIER STARTED");
@@ -11696,11 +15345,11 @@ function commitmentsBelongToG1(curve, proof, vk) {
 }
 
 function checkValueBelongToField(curve, value) {
-    return ffjavascript.Scalar.lt(value, curve.r);
+    return Scalar.lt(value, curve.r);
 }
 
 function checkEvaluationIsValid(curve, evaluation) {
-    return checkValueBelongToField(curve, ffjavascript.Scalar.fromRprLE(evaluation));
+    return checkValueBelongToField(curve, Scalar.fromRprLE(evaluation));
 }
 
 function evaluationsAreValid(curve, proof) {
@@ -11857,8 +15506,8 @@ async function computeLagrangeEvaluations(curve, challenges, vk) {
     const Fr = curve.Fr;
 
     const size = Math.max(1, vk.nPublic);
-    const numArr = new ffjavascript.BigBuffer(size * Fr.n8);
-    let denArr = new ffjavascript.BigBuffer(size * Fr.n8);
+    const numArr = new BigBuffer(size * Fr.n8);
+    let denArr = new BigBuffer(size * Fr.n8);
 
     let w = Fr.one;
     for (let i = 0; i < size; i++) {
@@ -12158,10 +15807,4 @@ var fflonk = /*#__PURE__*/Object.freeze({
     verify: fflonkVerify
 });
 
-exports.fflonk = fflonk;
-exports.groth16 = groth16;
-exports.plonk = plonk;
-exports.powersOfTau = powersoftau;
-exports.r1cs = r1cs;
-exports.wtns = wtns;
-exports.zKey = zkey;
+export { fflonk, groth16, plonk, powersoftau as powersOfTau, r1cs, wtns, zkey as zKey };

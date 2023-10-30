@@ -3,7 +3,6 @@
 'use strict';
 
 var fs = require('fs');
-var url = require('url');
 var r1csfile = require('r1csfile');
 var fastFile = require('fastfile');
 var ffjavascript = require('ffjavascript');
@@ -11,6 +10,7 @@ var Blake2b = require('blake2b-wasm');
 var readline = require('readline');
 var crypto = require('crypto');
 var path = require('path');
+var url = require('url');
 var binFileUtils = require('@iden3/binfileutils');
 var circom_runtime = require('circom_runtime');
 var jsSha3 = require('js-sha3');
@@ -38,12 +38,12 @@ function _interopNamespace(e) {
 }
 
 var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
-var url__default = /*#__PURE__*/_interopDefaultLegacy(url);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
 var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
 var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
+var url__default = /*#__PURE__*/_interopDefaultLegacy(url);
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
 var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
 var bfj__default = /*#__PURE__*/_interopDefaultLegacy(bfj);
@@ -279,7 +279,7 @@ function askEntropy() {
 
 function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (typeof globalThis.crypto !== "undefined") { // Supported
+    if (process.browser) { // Supported
         globalThis.crypto.getRandomValues(array);
     } else { // NodeJS
         crypto__default["default"].randomFillSync(array);
@@ -288,7 +288,7 @@ function getRandomBytes(n) {
 }
 
 async function sha256digest(data) {
-    if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.subtle !== "undefined") { // Supported
+    if (process.browser) { // Supported
         const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
         return new Uint8Array(buffer);
     } else { // NodeJS
@@ -12264,8 +12264,6 @@ const {stringifyBigInts} = ffjavascript.utils;
 
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp: false});
 Logger__default["default"].setLogLevel("INFO");
-
-path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 const commands = [
     {
