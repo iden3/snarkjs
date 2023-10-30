@@ -48,7 +48,7 @@
     "js-sha3": "^0.8.0",
     "logplease": "^1.2.15",
     "r1csfile": "0.0.46",
-    "snarkjs-generate-solidity": "./snarkjs-generate-solidity"
+    "snarkjs-generate-solidity": "github:iden3/snarkjs-generate-solidity"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^22.0.0",
