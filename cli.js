@@ -166,7 +166,7 @@ const commands = [
         action: wtnsDebug
     },
     {
-        cmd: "wtns export json [witness.wtns] [witnes.json]",
+        cmd: "wtns export json [witness.wtns] [witness.json]",
         description: "Calculate the witness with debug info.",
         longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
         options: "-verbose|v",
