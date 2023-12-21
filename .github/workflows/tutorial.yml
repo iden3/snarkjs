@@ -105,9 +105,9 @@ jobs:
     - name: 25. Verify the proof
       run: snarkjs groth16 verify verification_key.json public.json proof.json
     - name: 26. Turn the verifier into a smart contract
-      run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+      run: snarkjs zkey export verifier circuit_final.zkey verifier.sol
     - name: 27. Simulate a verification call
-      run: snarkjs zkey export soliditycalldata public.json proof.json
+      run: snarkjs zkey export calldata public.json proof.json
     - name: 28. Plonk setup
       run: snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
     - name: 29. Export the verification key
@@ -117,9 +117,9 @@ jobs:
     - name: 31. Verify the PLONK proof
       run: snarkjs plonk verify verification_key.json public.json proof.json
     - name: 32. Turn the PLONK verifier into a smart contract
-      run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+      run: snarkjs zkey export verifier circuit_final.zkey verifier.sol
     - name: 33. Simulate a PLONK verification call
-      run: snarkjs zkey export soliditycalldata public.json proof.json
+      run: snarkjs zkey export calldata public.json proof.json
     - name: 34. Fflonk setup
       run: snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
     - name: 35. Export the verification key
@@ -129,9 +129,9 @@ jobs:
     - name: 37. Verify the FFLONK proof
       run: snarkjs fflonk verify verification_key.json public.json proof.json
     - name: 38. Turn the FFLONK verifier into a smart contract
-      run: snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
+      run: snarkjs zkey export verifier circuit_final.zkey verifier.sol
     - name: 39. Simulate a FFLONK verification call
-      run: snarkjs zkey export soliditycalldata public.json proof.json
+      run: snarkjs zkey export calldata public.json proof.json
 
 
 

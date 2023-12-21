@@ -20,7 +20,6 @@
 /* eslint-disable no-console */
 
 import fs from "fs";
-import url from "url";
 
 import {readR1cs} from "r1csfile";
 
@@ -41,7 +40,6 @@ import * as plonk from "./src/plonk.js";
 import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
-import path from "path";
 import bfj from "bfj";
 
 import Logger from "logplease";
@@ -49,8 +47,6 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
-
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const commands = [
     {
@@ -242,16 +238,18 @@ const commands = [
         action: zkeyExportJson
     },
     {
-        cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
-        description: "Creates a verifier in solidity",
+        cmd: "zkey export verifier [circuit_final.zkey] [verifier.sol]",
+        description: "Creates a verifier",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
-        action: zkeyExportSolidityVerifier
+        options: "-plugin",
+        action: zkeyExportVerifier
     },
     {
-        cmd: "zkey export soliditycalldata [public.json] [proof.json]",
+        cmd: "zkey export calldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
-        action: zkeyExportSolidityCalldata
+        options: "-plugin",
+        action: zkeyExportCalldata
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -607,14 +605,8 @@ async function zkeyExportJson(params, options) {
     await bfj.write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
-async function fileExists(file) {
-    return fs.promises.access(file, fs.constants.F_OK)
-        .then(() => true)
-        .catch(() => false);
-}
-
-// solidity genverifier [circuit_final.zkey] [verifier.sol]
-async function zkeyExportSolidityVerifier(params, options) {
+// zkey export verifier [circuit_final.zkey] [verifier.sol]
+async function zkeyExportVerifier(params, options) {
     let zkeyName;
     let verifierName;
 
@@ -632,19 +624,10 @@ async function zkeyExportSolidityVerifier(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const templates = {};
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { verifiers } = await import(generator);
 
-    if (await fileExists(path.join(__dirname, "templates"))) {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    } else {
-        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
-    }
-
-    const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
+    const verifierCode = await zkey.exportVerifier(zkeyName, verifiers, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
@@ -652,8 +635,8 @@ async function zkeyExportSolidityVerifier(params, options) {
 }
 
 
-// solidity gencall <public.json> <proof.json>
-async function zkeyExportSolidityCalldata(params, options) {
+// zkey export calldata <public.json> <proof.json>
+async function zkeyExportCalldata(params, options) {
     let publicName;
     let proofName;
 
@@ -674,16 +657,10 @@ async function zkeyExportSolidityCalldata(params, options) {
     const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
-    let res;
-    if (proof.protocol == "groth16") {
-        res = await groth16.exportSolidityCallData(proof, pub);
-    } else if (proof.protocol == "plonk") {
-        res = await plonk.exportSolidityCallData(proof, pub);
-    } else if (proof.protocol === "fflonk") {
-        res = await fflonk.exportSolidityCallData(pub, proof);
-    } else {
-        throw new Error("Invalid Protocol");
-    }
+    const generator = options.plugin || "snarkjs-generate-solidity";
+    const { calldata } = await import(generator);
+
+    const res = await zkey.exportCalldata(proof, pub, calldata, logger);
     console.log(res);
 
     return 0;
