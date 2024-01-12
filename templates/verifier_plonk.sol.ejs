@@ -158,7 +158,7 @@ contract PlonkVerifier {
     
                 let pAux := mload(0x40)     // Point to the next free position
                 let pIn := pVals
-                let lastPIn := add(pVals, mul(n, 32))  // Read n elemnts
+                let lastPIn := add(pVals, mul(n, 32))  // Read n elements
                 let acc := mload(pIn)       // Read the first element
                 pIn := add(pIn, 32)         // Point to the second element
                 let inv
