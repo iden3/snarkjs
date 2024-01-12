@@ -610,7 +610,7 @@ the Random Beacon Model](https://eprint.iacr.org/2017/1050.pdf)
 - [Perpetual Powers of Tau](https://github.com/weijiekoh/perpetualpowersoftau)
 - [Powers of Tau](https://github.com/ebfull/powersoftau)
 - [Trusted setup ceremonies explored](https://www.zeroknowledge.fm/133)
-- [Simple react projct using snarkjs](https://github.com/LHerskind/snarkjs-react)
+- [Simple react project using snarkjs](https://github.com/LHerskind/snarkjs-react)
 
 ## Final note
 

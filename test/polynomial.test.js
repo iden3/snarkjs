@@ -52,7 +52,7 @@ describe("snarkjs: Polynomial tests", function () {
         poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
-        // buffer with 3 coefficients, the two greatests iare zero => degree 0
+        // buffer with 3 coefficients, the two greatests are zero => degree 0
         buff = new Uint8Array(96);
         buff.set(curve.Fr.random(), 0);
         buff.set(curve.Fr.zero, 32);
@@ -61,7 +61,7 @@ describe("snarkjs: Polynomial tests", function () {
         poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
-        // buffer with 3 coefficients, the greatest is different thn zero => degree 2
+        // buffer with 3 coefficients, the greatest is different than zero => degree 2
         buff.set(curve.Fr.one, 64);
 
         poly = new Polynomial(buff, curve);
