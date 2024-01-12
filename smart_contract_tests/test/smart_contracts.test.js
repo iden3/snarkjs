@@ -119,7 +119,7 @@ describe("Smart contracts test suite", function () {
         const VerifierFactory = await ethers.getContractFactory("PlonkVerifier");
         verifierContract = await VerifierFactory.deploy();
 
-        // Verifiy the proof in the smart contract
+        // Verify the proof in the smart contract
         const proof =
             [
                 ethers.utils.hexZeroPad(ethers.BigNumber.from(proofJson.A[0]).toHexString(), 32),
@@ -171,7 +171,7 @@ describe("Smart contracts test suite", function () {
         const VerifierFactory = await ethers.getContractFactory("FflonkVerifier");
         verifierContract = await VerifierFactory.deploy();
 
-        // Verifiy the proof in the smart contract
+        // Verify the proof in the smart contract
         const { evaluations, polynomials } = proofJson;
 
         const proof = 
