@@ -1408,7 +1408,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     }
 
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
+        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
     const hasherResponse = new Blake2b__default["default"](64);
     hasherResponse.update(contributionPreviousHash);
@@ -2956,16 +2956,20 @@ async function exportJson(pTauFilename, verbose) {
     pTau.power = power;
     pTau.contributions = await readContributions(fd, curve, sections);
 
-    pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
-    pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
-    pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
-    pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
-    pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
+    if (sections[2]) {
+        pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
+        pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
+        pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
+        pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
+        pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
 
-    pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
-    pTau.lTauG2 = await exportLagrange(13, "G2", "lTauG2");
-    pTau.lAlphaTauG1 = await exportLagrange(14, "G1", "lAlphaTauG2");
-    pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
+        if (sections[12]) {
+            pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
+            pTau.lTauG2 = await exportLagrange(13, "G2", "lTauG2");
+            pTau.lAlphaTauG1 = await exportLagrange(14, "G1", "lAlphaTauG2");
+            pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
+        }
+    }
 
     await fd.close();
 
@@ -12548,14 +12552,14 @@ const commands = [
     {
         cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Convert ptau",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        longDescription: " This process calculates the evaluation of the Lagrange polynomials at tau for alpha*tau and beta tau",
         alias: ["ptcv"],
         options: "-verbose|v",
         action: powersOfTauConvert
     },
     {
         cmd: "powersoftau truncate <powersoftau.ptau>",
-        description: "Generate diferent powers of tau with smoller sizes ",
+        description: "Generate diferent powers of tau with smaller sizes ",
         longDescription: " This process generates smaller ptau files from a bigger power ptau",
         alias: ["ptt"],
         options: "-verbose|v",
@@ -12577,7 +12581,7 @@ const commands = [
     },
     {
         cmd: "r1cs info [circuit.r1cs]",
-        description: "Print statistiscs of a circuit",
+        description: "Print statistics of a circuit",
         alias: ["ri", "info -r|r1cs:circuit.r1cs"],
         action: r1csInfo
     },
