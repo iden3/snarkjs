@@ -260,6 +260,13 @@ const commands = [
         action: zkeyExportSolidityCalldata
     },
     {
+        cmd: "zkey export sophiacalldata [public.json] [proof.json]",
+        description: "Generates call parameters for verifier.aes.",
+        alias: ["zkesoc", "generatecall -pub|public -p|proof"],
+        options: "-cli|c",
+        action: zkeyExportSophiaCalldata
+    },
+    {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
         description: "Creates an initial groth16 pkey file with zero contributions",
         alias: ["g16s", "zkn", "zkey new"],
@@ -721,6 +728,40 @@ async function zkeyExportSolidityCalldata(params, options) {
         res = await plonk.exportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
         res = await fflonk.exportSolidityCallData(pub, proof);
+    } else {
+        throw new Error("Invalid Protocol");
+    }
+    console.log(res);
+
+    return 0;
+}
+
+// sophia gencall <public.json> <proof.json> <sdk|cli>
+async function zkeyExportSophiaCalldata(params, options) {
+    let publicName;
+    let proofName;
+
+    if (params.length < 1) {
+        publicName = "public.json";
+    } else {
+        publicName = params[0];
+    }
+
+    if (params.length < 2) {
+        proofName = "proof.json";
+    } else {
+        proofName = params[1];
+    }
+
+    let type = "sdk";
+    if (options.cli) type = "cli";
+
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
+
+    let res;
+    if (proof.protocol == "groth16") {
+        res = await groth16.exportSophiaCallData(proof, pub, type);
     } else {
         throw new Error("Invalid Protocol");
     }
