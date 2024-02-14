@@ -5513,6 +5513,21 @@ async function exportFFlonkVk(zkey, logger) {
     return stringifyBigInts$5(vKey);
 }
 
+async function exportSophiaVerifier(zKeyName, templates, logger) {
+
+    const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
+
+    if ("groth16" === verificationKey.protocol) {
+        let template = templates[verificationKey.protocol];
+
+        return ejs__default["default"].render(template, verificationKey);
+    }
+
+    if (logger) logger.error(`Protocol ${verificationKey.protocol} is not supported for Sophia verifier export`);
+
+    throw new Error("Unsupported verifier export format");
+}
+
 /*
     Copyright 2021 0KIMS association.
 
@@ -5532,7 +5547,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {unstringifyBigInts: unstringifyBigInts$b, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$c, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
@@ -5562,7 +5577,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
     return ejs__default["default"].render(template, vk);
 
     function fromVkey(str) {
-        const val = unstringifyBigInts$b(str);
+        const val = unstringifyBigInts$c(str);
         return curve.Fr.fromObject(val);
     }
 
@@ -6062,10 +6077,10 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
 
 async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$a(_input);
+    const input = unstringifyBigInts$b(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -6107,10 +6122,10 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
 async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
-    const input = unstringifyBigInts$9(_input);
+    const input = unstringifyBigInts$a(_input);
 
     const wtns= {
         type: "mem"
@@ -6137,7 +6152,7 @@ async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
 async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -6147,9 +6162,9 @@ async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
     }
 */
 
-    const vk_verifier = unstringifyBigInts$8(_vk_verifier);
-    const proof = unstringifyBigInts$8(_proof);
-    const publicSignals = unstringifyBigInts$8(_publicSignals);
+    const vk_verifier = unstringifyBigInts$9(_vk_verifier);
+    const proof = unstringifyBigInts$9(_proof);
+    const publicSignals = unstringifyBigInts$9(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -6238,7 +6253,7 @@ function publicInputsAreValid$1(curve, publicInputs) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
 
 function p256$2(n) {
     let nstr = n.toString(16);
@@ -6248,8 +6263,8 @@ function p256$2(n) {
 }
 
 async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$7(_proof);
-    const pub = unstringifyBigInts$7(_pub);
+    const proof = unstringifyBigInts$8(_proof);
+    const pub = unstringifyBigInts$8(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -6262,6 +6277,95 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
         `[[${p256$2(proof.pi_b[0][1])}, ${p256$2(proof.pi_b[0][0])}],[${p256$2(proof.pi_b[1][1])}, ${p256$2(proof.pi_b[1][0])}]],` +
         `[${p256$2(proof.pi_c[0])}, ${p256$2(proof.pi_c[1])}],` +
         `[${inputs}]`;
+
+    return S;
+}
+
+/*
+    Copyright 2024 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+const { unstringifyBigInts: unstringifyBigInts$7 } = ffjavascript.utils;
+
+function cli_n(n) {
+    let nstr = n.toString(16);
+    return `0x${nstr}`;
+}
+
+function sdk_n(n) {
+    let nstr = n.toString(10);
+    return `${nstr}n`;
+}
+
+async function groth16ExportSophiaCalldata(_proof, _pub, type) {
+    const proof = unstringifyBigInts$7(_proof);
+    const pub = unstringifyBigInts$7(_pub);
+
+
+    let S;
+
+    if (type == "cli") {
+        let inputs = "";
+        for (let i=0; i<pub.length; i++) {
+            if (inputs != "") inputs = inputs + ",";
+            inputs = inputs + cli_n(pub[i]);
+        }
+
+        S = `aesophia_cli --create_calldata --call "verify([${inputs}], ` +
+            `{a = (${cli_n(proof.pi_a[0])}, ${cli_n(proof.pi_a[1])}),` +
+            ` b = ((${cli_n(proof.pi_b[0][0])}, ${cli_n(proof.pi_b[0][1])}), (${cli_n(proof.pi_b[1][0])}, ${cli_n(proof.pi_b[1][1])})),` +
+            ` c = (${cli_n(proof.pi_c[0])}, ${cli_n(proof.pi_c[1])})})" verifier.aes`;
+
+    } else {
+        S = "verify(\n";
+        if (pub.length == 0) {
+            S = S + "  [],\n";
+        } else if(pub.length == 1) {
+            S = S + `  [${sdk_n(pub[0])}],\n`;
+        } else {
+            S = S + `  [ ${sdk_n(pub[0])}\n`;
+            for (let i = 1; i < pub.length; i++) {
+                S = S + `  , ${sdk_n(pub[i])}\n`;
+            }
+            S = S + "  ],\n";
+        }
+
+        S = S +
+            `  {\n` +
+            `    a: [\n` +
+            `        ${sdk_n(proof.pi_a[0])},\n` +
+            `        ${sdk_n(proof.pi_a[1])},\n` +
+            `    ],\n` +
+            `    b: [\n` +
+            `        [\n` +
+            `         ${sdk_n(proof.pi_b[0][0])},\n` +
+            `         ${sdk_n(proof.pi_b[0][1])},\n` +
+            `        ],\n` +
+            `        [\n` +
+            `         ${sdk_n(proof.pi_b[1][0])},\n` +
+            `         ${sdk_n(proof.pi_b[1][1])},\n` +
+            `        ],\n` +
+            `    ],\n` +
+            `    c: [\n` +
+            `        ${sdk_n(proof.pi_c[0])},\n` +
+            `        ${sdk_n(proof.pi_c[1])},\n` +
+            `    ],\n` +
+            `  })`;
+    }
 
     return S;
 }
@@ -12690,10 +12794,23 @@ const commands = [
         action: zkeyExportSolidityVerifier
     },
     {
+        cmd: "zkey export sophiaverifier [circuit_final.zkey] [verifier.aes]",
+        description: "Creates a verifier in Sophia (only for Groth16/BLS12-381)",
+        alias: ["zkesov", "generateverifier -vk|verificationkey -v|verifier"],
+        action: zkeyExportSophiaVerifier
+    },
+    {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
+    },
+    {
+        cmd: "zkey export sophiacalldata [public.json] [proof.json]",
+        description: "Generates call parameters for verifier.aes.",
+        alias: ["zkesoc", "generatecall -pub|public -p|proof"],
+        options: "-cli|c",
+        action: zkeyExportSophiaCalldata
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -13093,6 +13210,40 @@ async function zkeyExportSolidityVerifier(params, options) {
     return 0;
 }
 
+// sophia genverifier [circuit_final.zkey] [verifier.aes]
+async function zkeyExportSophiaVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.aes";
+    } else {
+        verifierName = params[1];
+    }
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    const templates = {};
+
+    if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
+        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.aes.ejs"), "utf8");
+    } else {
+        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.aes.ejs"), "utf8");
+    }
+
+    const verifierCode = await exportSophiaVerifier(zkeyName, templates, logger);
+
+    fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
 
 // solidity gencall <public.json> <proof.json>
 async function zkeyExportSolidityCalldata(params, options) {
@@ -13123,6 +13274,40 @@ async function zkeyExportSolidityCalldata(params, options) {
         res = await plonkExportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
         res = await fflonkExportCallData(pub, proof);
+    } else {
+        throw new Error("Invalid Protocol");
+    }
+    console.log(res);
+
+    return 0;
+}
+
+// sophia gencall <public.json> <proof.json> <sdk|cli>
+async function zkeyExportSophiaCalldata(params, options) {
+    let publicName;
+    let proofName;
+
+    if (params.length < 1) {
+        publicName = "public.json";
+    } else {
+        publicName = params[0];
+    }
+
+    if (params.length < 2) {
+        proofName = "proof.json";
+    } else {
+        proofName = params[1];
+    }
+
+    let type = "sdk";
+    if (options.cli) type = "cli";
+
+    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
+
+    let res;
+    if (proof.protocol == "groth16") {
+        res = await groth16ExportSophiaCalldata(proof, pub, type);
     } else {
         throw new Error("Invalid Protocol");
     }
