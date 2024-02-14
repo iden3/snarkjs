@@ -248,6 +248,12 @@ const commands = [
         action: zkeyExportSolidityVerifier
     },
     {
+        cmd: "zkey export sophiaverifier [circuit_final.zkey] [verifier.aes]",
+        description: "Creates a verifier in Sophia (only for Groth16/BLS12-381)",
+        alias: ["zkesov", "generateverifier -vk|verificationkey -v|verifier"],
+        action: zkeyExportSophiaVerifier
+    },
+    {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
@@ -645,6 +651,40 @@ async function zkeyExportSolidityVerifier(params, options) {
     }
 
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
+
+    fs.writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
+// sophia genverifier [circuit_final.zkey] [verifier.aes]
+async function zkeyExportSophiaVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.aes";
+    } else {
+        verifierName = params[1];
+    }
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const templates = {};
+
+    if (await fileExists(path.join(__dirname, "templates"))) {
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.aes.ejs"), "utf8");
+    } else {
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.aes.ejs"), "utf8");
+    }
+
+    const verifierCode = await zkey.exportSophiaVerifier(zkeyName, templates, logger);
 
     fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
