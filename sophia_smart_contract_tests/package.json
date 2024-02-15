@@ -1,0 +1,19 @@
+{
+  "name": "aeproject-project",
+  "version": "1.0.0",
+  "description": "This is the default package.json generated for your project",
+  "type": "module",
+  "scripts": {
+    "test": "mocha ./test/**/*.js --timeout 0 --exit"
+  },
+  "dependencies": {
+    "@aeternity/aepp-sdk": "^13.2.1"
+  },
+  "devDependencies": {
+    "@aeternity/aeproject": "^4.8.2",
+    "chai": "^4.3.8",
+    "ffjavascript": "0.2.59",
+    "mocha": "^10.2.0",
+    "snarkjs": "file:.."
+  }
+}
