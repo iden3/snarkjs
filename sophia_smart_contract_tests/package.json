@@ -4,7 +4,10 @@
   "description": "This is the default package.json generated for your project",
   "type": "module",
   "scripts": {
-    "test": "mocha ./test/**/*.js --timeout 0 --exit"
+    "all": "npm run setup; npm test; npm run teardown",
+    "setup": "docker compose up -d",
+    "teardown": "docker compose down -v",
+    "test": "mocha ./test/**/*.js --exit"
   },
   "dependencies": {
     "@aeternity/aepp-sdk": "^13.2.1"

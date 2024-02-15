@@ -8,7 +8,9 @@ import { assert } from "chai";
 import { buildBls12381 } from "ffjavascript";
 import * as snarkjs from "snarkjs";
 
-describe('SophiaContracts', () => {
+describe('SophiaContracts', function () {
+    this.timeout(20000);
+
     let aeSdk;
     let contract;
 
