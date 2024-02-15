@@ -261,7 +261,7 @@ const commands = [
     },
     {
         cmd: "zkey export sophiacalldata [public.json] [proof.json]",
-        description: "Generates call parameters for verifier.aes.",
+        description: "Generates call parameters for verifier.aes. Add -cli for CLI compiler format.",
         alias: ["zkesoc", "generatecall -pub|public -p|proof"],
         options: "-cli|c",
         action: zkeyExportSophiaCalldata
