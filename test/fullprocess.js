@@ -111,6 +111,18 @@ describe("Full process", function ()  {
         await snarkjs.wtns.calculate({a: 11, b:2}, path.join("test", "circuit", "circuit.wasm"), wtns);
     });
 
+    // ensure granular witness calculate works the same
+    // as the full witness calculate
+    it("granular witness calculate", async () => {
+        const wc = await snarkjs.wtns.getWtnsCalculator(path.join("test", "circuit", "circuit.wasm"));
+        for(let i = 0;i < 3;i++) {
+            await snarkjs.wtns.wtnsCalculateWithCalculator({a: 11, b:i}, wc, wtns);
+            const copiedWtns = JSON.stringify(wtns);
+            await snarkjs.wtns.calculate({a: 11, b:i}, path.join("test", "circuit", "circuit.wasm"), wtns);
+            assert(JSON.stringify(wtns) == copiedWtns);
+        }
+    });
+
     it ("checks witness complies with r1cs", async () => {
         await snarkjs.wtns.check(path.join("test", "circuit", "circuit.r1cs"), wtns);
     });

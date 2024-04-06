@@ -25,13 +25,22 @@ import {  utils }   from "ffjavascript";
 const { unstringifyBigInts} = utils;
 
 export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts(_input);
+    const wc = await getWtnsCalculator(wasmFileName);
+    const rslt = await wtnsCalculateWithCalculator(_input, wc, wtnsFileName, options);
+    return rslt;
+}
 
+export async function getWtnsCalculator(wasmFileName) {
     const fdWasm = await fastFile.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
     const wc = await WitnessCalculatorBuilder(wasm);
+    return wc;
+}
+
+export async function wtnsCalculateWithCalculator(_input, wc, wtnsFileName, options) {
+    const input = unstringifyBigInts(_input);
     if (wc.circom_version() == 1) {
         const w = await wc.calculateBinWitness(input);
 

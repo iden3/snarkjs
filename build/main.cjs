@@ -1248,13 +1248,22 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 const { unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$b(_input);
+    const wc = await getWtnsCalculator(wasmFileName);
+    const rslt = await wtnsCalculateWithCalculator(_input, wc, wtnsFileName);
+    return rslt;
+}
 
+async function getWtnsCalculator(wasmFileName) {
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
+    return wc;
+}
+
+async function wtnsCalculateWithCalculator(_input, wc, wtnsFileName, options) {
+    const input = unstringifyBigInts$b(_input);
     if (wc.circom_version() == 1) {
         const w = await wc.calculateBinWitness(input);
 
@@ -4243,6 +4252,8 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 var wtns = /*#__PURE__*/Object.freeze({
     __proto__: null,
     calculate: wtnsCalculate,
+    getWtnsCalculator: getWtnsCalculator,
+    wtnsCalculateWithCalculator: wtnsCalculateWithCalculator,
     debug: wtnsDebug,
     exportJson: wtnsExportJson,
     check: wtnsCheck

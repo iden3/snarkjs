@@ -17,7 +17,11 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export {default as calculate} from "./wtns_calculate.js";
+export {
+    default as calculate,
+    getWtnsCalculator,
+    wtnsCalculateWithCalculator,
+} from "./wtns_calculate.js";
 export {default as debug} from "./wtns_debug.js";
 export {default as exportJson} from "./wtns_export_json.js";
 export {default as check} from "./wtns_check.js";
