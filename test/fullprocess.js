@@ -25,6 +25,7 @@ describe("Full process", function ()  {
     const wtns = {type: "mem"};
     let proof;
     let publicSignals;
+    let publicSignalsWithAlias;
 
     before( async () => {
         curve = await getCurveFromName("bn128");
@@ -70,7 +71,7 @@ describe("Full process", function ()  {
     });
 
     it ("groth16 setup", async () => {
-        await snarkjs.zKey.newZKey(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_0);
+        await snarkjs.zKey.newZKey(path.join("test", "groth16", "circuit.r1cs"), ptau_final, zkey_0);
     });
 
     it ("zkey contribute ", async () => {
@@ -94,7 +95,7 @@ describe("Full process", function ()  {
     });
 
     it ("zkey verify r1cs", async () => {
-        const res = await snarkjs.zKey.verifyFromR1cs(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_final);
+        const res = await snarkjs.zKey.verifyFromR1cs(path.join("test", "groth16", "circuit.r1cs"), ptau_final, zkey_final);
         assert(res);
     });
 
@@ -108,23 +109,28 @@ describe("Full process", function ()  {
     });
 
     it ("witness calculate", async () => {
-        await snarkjs.wtns.calculate({a: 11, b:2}, path.join("test", "circuit", "circuit.wasm"), wtns);
+        await snarkjs.wtns.calculate({a: 11, b:2}, path.join("test", "groth16", "circuit.wasm"), wtns);
     });
 
     it ("checks witness complies with r1cs", async () => {
-        await snarkjs.wtns.check(path.join("test", "circuit", "circuit.r1cs"), wtns);
+        await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), wtns);
     });
 
     it ("groth16 proof", async () => {
         const res = await snarkjs.groth16.prove(zkey_final, wtns);
         proof = res.proof;
         publicSignals = res.publicSignals;
+        publicSignalsWithAlias = [...res.publicSignals];
+        publicSignalsWithAlias[1] = BigInt(res.publicSignals[1]) + BigInt(21888242871839275222246405745257275088548364400416034343698204186575808495617n);
     });
 
 
     it ("groth16 verify", async () => {
         const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
         assert(res == true);
+
+        const res2 = await snarkjs.groth16.verify(vKey, publicSignalsWithAlias, proof);
+        assert(res2 == false);
     });
 
     it ("plonk setup", async () => {
