@@ -3886,10 +3886,10 @@ class WitnessCalculatorCircom2 {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$b} = utils;
+const { unstringifyBigInts: unstringifyBigInts$c} = utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$b(_input);
+    const input = unstringifyBigInts$c(_input);
 
     const fdWasm = await readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -3931,10 +3931,10 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$a} = utils;
+const {unstringifyBigInts: unstringifyBigInts$b} = utils;
 
 async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
-    const input = unstringifyBigInts$a(_input);
+    const input = unstringifyBigInts$b(_input);
 
     const wtns= {
         type: "mem"
@@ -3961,7 +3961,7 @@ async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$9} = utils;
+const {unstringifyBigInts: unstringifyBigInts$a} = utils;
 
 async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -3971,9 +3971,9 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     }
 */
 
-    const vk_verifier = unstringifyBigInts$9(_vk_verifier);
-    const proof = unstringifyBigInts$9(_proof);
-    const publicSignals = unstringifyBigInts$9(_publicSignals);
+    const vk_verifier = unstringifyBigInts$a(_vk_verifier);
+    const proof = unstringifyBigInts$a(_proof);
+    const publicSignals = unstringifyBigInts$a(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -4062,7 +4062,7 @@ function publicInputsAreValid$1(curve, publicInputs) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$8} = utils;
+const { unstringifyBigInts: unstringifyBigInts$9} = utils;
 
 function p256$2(n) {
     let nstr = n.toString(16);
@@ -4072,8 +4072,8 @@ function p256$2(n) {
 }
 
 async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$8(_proof);
-    const pub = unstringifyBigInts$8(_pub);
+    const proof = unstringifyBigInts$9(_proof);
+    const pub = unstringifyBigInts$9(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -4086,6 +4086,95 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
         `[[${p256$2(proof.pi_b[0][1])}, ${p256$2(proof.pi_b[0][0])}],[${p256$2(proof.pi_b[1][1])}, ${p256$2(proof.pi_b[1][0])}]],` +
         `[${p256$2(proof.pi_c[0])}, ${p256$2(proof.pi_c[1])}],` +
         `[${inputs}]`;
+
+    return S;
+}
+
+/*
+    Copyright 2024 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+const { unstringifyBigInts: unstringifyBigInts$8 } = utils;
+
+function cli_n(n) {
+    let nstr = n.toString(16);
+    return `0x${nstr}`;
+}
+
+function sdk_n(n) {
+    let nstr = n.toString(10);
+    return `${nstr}n`;
+}
+
+async function groth16ExportSophiaCalldata(_proof, _pub, type) {
+    const proof = unstringifyBigInts$8(_proof);
+    const pub = unstringifyBigInts$8(_pub);
+
+
+    let S;
+
+    if (type == "cli") {
+        let inputs = "";
+        for (let i=0; i<pub.length; i++) {
+            if (inputs != "") inputs = inputs + ",";
+            inputs = inputs + cli_n(pub[i]);
+        }
+
+        S = `aesophia_cli --create_calldata --call "verify([${inputs}], ` +
+            `{a = (${cli_n(proof.pi_a[0])}, ${cli_n(proof.pi_a[1])}),` +
+            ` b = ((${cli_n(proof.pi_b[0][0])}, ${cli_n(proof.pi_b[0][1])}), (${cli_n(proof.pi_b[1][0])}, ${cli_n(proof.pi_b[1][1])})),` +
+            ` c = (${cli_n(proof.pi_c[0])}, ${cli_n(proof.pi_c[1])})})" verifier.aes`;
+
+    } else {
+        S = "verify(\n";
+        if (pub.length == 0) {
+            S = S + "  [],\n";
+        } else if(pub.length == 1) {
+            S = S + `  [${sdk_n(pub[0])}],\n`;
+        } else {
+            S = S + `  [ ${sdk_n(pub[0])}\n`;
+            for (let i = 1; i < pub.length; i++) {
+                S = S + `  , ${sdk_n(pub[i])}\n`;
+            }
+            S = S + "  ],\n";
+        }
+
+        S = S +
+            `  {\n` +
+            `    a: [\n` +
+            `        ${sdk_n(proof.pi_a[0])},\n` +
+            `        ${sdk_n(proof.pi_a[1])},\n` +
+            `    ],\n` +
+            `    b: [\n` +
+            `        [\n` +
+            `         ${sdk_n(proof.pi_b[0][0])},\n` +
+            `         ${sdk_n(proof.pi_b[0][1])},\n` +
+            `        ],\n` +
+            `        [\n` +
+            `         ${sdk_n(proof.pi_b[1][0])},\n` +
+            `         ${sdk_n(proof.pi_b[1][1])},\n` +
+            `        ],\n` +
+            `    ],\n` +
+            `    c: [\n` +
+            `        ${sdk_n(proof.pi_c[0])},\n` +
+            `        ${sdk_n(proof.pi_c[1])},\n` +
+            `    ],\n` +
+            `  })`;
+    }
 
     return S;
 }
@@ -4114,7 +4203,8 @@ var groth16 = /*#__PURE__*/Object.freeze({
     fullProve: groth16FullProve,
     prove: groth16Prove,
     verify: groth16Verify,
-    exportSolidityCallData: groth16ExportSolidityCallData
+    exportSolidityCallData: groth16ExportSolidityCallData,
+    exportSophiaCallData: groth16ExportSophiaCalldata
 });
 
 /*
@@ -9255,6 +9345,21 @@ async function exportFFlonkVk(zkey, logger) {
 
 var ejs = {};
 
+async function exportSophiaVerifier(zKeyName, templates, logger) {
+
+    const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
+
+    if ("groth16" === verificationKey.protocol) {
+        let template = templates[verificationKey.protocol];
+
+        return ejs.render(template, verificationKey);
+    }
+
+    if (logger) logger.error(`Protocol ${verificationKey.protocol} is not supported for Sophia verifier export`);
+
+    throw new Error("Unsupported verifier export format");
+}
+
 /*
     Copyright 2021 0KIMS association.
 
@@ -9361,6 +9466,7 @@ var zkey = /*#__PURE__*/Object.freeze({
     exportJson: zkeyExportJson,
     bellmanContribute: bellmanContribute,
     exportVerificationKey: zkeyExportVerificationKey,
+    exportSophiaVerifier: exportSophiaVerifier,
     exportSolidityVerifier: exportSolidityVerifier
 });
 
