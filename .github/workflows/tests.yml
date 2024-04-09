@@ -1,5 +1,9 @@
 name: Continuous Integration
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   test:
@@ -11,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ["14", "16", "18"]
+        node-version: ["16", "18", "20"]
 
     steps:
       - name: Checkout project
@@ -39,8 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # Pinning to 18.15 and dropped 20 due to https://github.com/NomicFoundation/hardhat/issues/3877
-        node-version: ["16", "18.15.0"]
+        node-version: ["16", "18", "20"]
 
     steps:
       - name: Checkout project
@@ -64,34 +67,6 @@ jobs:
         working-directory: smart_contract_tests
         run: npm test
 
-  testv12:
-    name: Testv12
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ["12"]
-
-    steps:
-      - name: Checkout project
-        uses: actions/checkout@v2
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ matrix.node-version }}
-          check-latest: true
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run testv12
-
   test-browser:
     name: Test browser
     runs-on: ${{ matrix.os }}
@@ -101,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ["18"]
+        node-version: ["18", "20"]
 
     steps:
       - name: Checkout project

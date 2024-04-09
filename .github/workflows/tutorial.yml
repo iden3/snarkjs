@@ -1,13 +1,16 @@
 name: Check snarkjs tutorial
-
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [12.x, 14.x]
+        node-version: ["16", "18", "20"]
 
     steps:
     - uses: actions/checkout@v2
