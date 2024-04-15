@@ -3330,6 +3330,13 @@ function flatArray(a) {
     }
 }
 
+// Ref https://github.com/iden3/circom/commit/ec6388cf6eb62463539cb4c40cc3ceae9826de19
+function normalize(n, prime) {
+    let res = BigInt(n) % prime;
+    if (res < 0) res += prime;
+    return res
+}
+
 function fnvHash(str) {
     const uint64_max = BigInt(2) ** BigInt(64);
     let hash = BigInt("0xCBF29CE484222325");
@@ -3739,7 +3746,7 @@ class WitnessCalculatorCircom2 {
         this.n32 = this.instance.exports.getFieldNumLen32();
 
         this.instance.exports.getRawPrime();
-        const arr = new Array(this.n32);
+        const arr = new Uint32Array(this.n32);
         for (let i=0; i<this.n32; i++) {
             arr[this.n32-1-i] = this.instance.exports.readSharedRWMemory(i);
         }
@@ -3764,18 +3771,32 @@ class WitnessCalculatorCircom2 {
             const hMSB = parseInt(h.slice(0,8), 16);
             const hLSB = parseInt(h.slice(8,16), 16);
             const fArr = flatArray(input[k]);
+            // Slight deviation from https://github.com/iden3/circom/blob/v2.1.6/code_producers/src/wasm_elements/common/witness_calculator.js
+            // because I don't know when this exported function was added
+            if (typeof this.instance.exports.getInputSignalSize === 'function') {
+                let signalSize = this.instance.exports.getInputSignalSize(hMSB, hLSB);
+                if (signalSize < 0){
+                    throw new Error(`Signal ${k} not found\n`);
+                }
+                if (fArr.length < signalSize) {
+                    throw new Error(`Not enough values for input signal ${k}\n`);
+                }
+                if (fArr.length > signalSize) {
+                    throw new Error(`Too many values for input signal ${k}\n`);
+                }
+            }
             for (let i=0; i<fArr.length; i++) {
-        const arrFr = toArray32(fArr[i],this.n32);
-        for (let j=0; j<this.n32; j++) {
-            this.instance.exports.writeSharedRWMemory(j,arrFr[this.n32-1-j]);
-        }
-        try {
+                const arrFr = toArray32(normalize(fArr[i],this.prime),this.n32);
+                for (let j=0; j<this.n32; j++) {
+                    this.instance.exports.writeSharedRWMemory(j,arrFr[this.n32-1-j]);
+                }
+                try {
                     this.instance.exports.setInputSignal(hMSB, hLSB,i);
-            input_counter++;
-        } catch (err) {
-            // console.log(`After adding signal ${i} of ${k}`)
+                    input_counter++;
+                } catch (err) {
+                    // console.log(`After adding signal ${i} of ${k}`)
                     throw new Error(err);
-        }
+                }
             }
 
         });
