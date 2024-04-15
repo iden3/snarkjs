@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ["14", "16", "18"]
+        node-version: ["18", "20"]
 
     steps:
       - name: Checkout project
@@ -40,7 +40,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         # Pinning to 18.15 and dropped 20 due to https://github.com/NomicFoundation/hardhat/issues/3877
-        node-version: ["16", "18.15.0"]
+        node-version: ["18.15.0", "20"]
 
     steps:
       - name: Checkout project
@@ -101,7 +101,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ["18"]
+        node-version: ["20"]
 
     steps:
       - name: Checkout project
