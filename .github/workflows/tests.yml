@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ["16", "18", "20"]
+        node-version: ["18", "20"]
 
     steps:
       - name: Checkout project
@@ -43,7 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ["16", "18", "20"]
+        node-version: ["18", "20"]
 
     steps:
       - name: Checkout project
