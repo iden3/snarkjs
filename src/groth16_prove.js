@@ -25,14 +25,14 @@ import { log2 } from "./misc.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
-export default async function groth16Prove(zkeyFileName, witnessFileName, logger) {
+export default async function groth16Prove(zkeyFileName, witnessFileName, logger, singleThreaded = false) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey);
+    const zkey = await zkeyUtils.readHeader(fdZKey, sectionsZKey, undefined, singleThreaded);
 
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");

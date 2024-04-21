@@ -22,12 +22,12 @@ import wtns_calculate from "./wtns_calculate.js";
 import {utils} from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
-export default async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
+export default async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, singleThreaded = false) {
     const input = unstringifyBigInts(_input);
 
     const wtns= {
         type: "mem"
     };
     await wtns_calculate(input, wasmFile, wtns);
-    return await groth16_prove(zkeyFileName, wtns, logger);
+    return await groth16_prove(zkeyFileName, wtns, logger, singleThreaded);
 }
