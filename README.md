@@ -461,7 +461,7 @@ We create the proof. this command generates the files `proof.json` and `public.j
 > snarkjs plonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
 > or
 > snarkjs fflonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
-> > ```
+> ```
 
 
 ### 24. Verify the proof
