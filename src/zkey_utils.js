@@ -205,7 +205,7 @@ async function readG2(fd, curve, toObject) {
 }
 
 
-export async function readHeader(fd, sections, toObject) {
+export async function readHeader(fd, sections, toObject, singleThreaded = false) {
     // Read Header
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
@@ -213,7 +213,7 @@ export async function readHeader(fd, sections, toObject) {
     await binFileUtils.endReadSection(fd);
 
     if (protocolId === GROTH16_PROTOCOL_ID) {
-        return await readHeaderGroth16(fd, sections, toObject);
+        return await readHeaderGroth16(fd, sections, toObject, singleThreaded);
     } else if (protocolId === PLONK_PROTOCOL_ID) {
         return await readHeaderPlonk(fd, sections, toObject);
     } else if (protocolId === FFLONK_PROTOCOL_ID) {
@@ -226,7 +226,7 @@ export async function readHeader(fd, sections, toObject) {
 
 
 
-async function readHeaderGroth16(fd, sections, toObject) {
+async function readHeaderGroth16(fd, sections, toObject, singleThreaded = false) {
     const zkey = {};
 
     zkey.protocol = "groth16";
@@ -241,7 +241,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils.readBigInt(fd, n8r);
-    zkey.curve = await getCurve(zkey.q);
+    zkey.curve = await getCurve(zkey.q, singleThreaded);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
