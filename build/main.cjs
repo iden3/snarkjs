@@ -10,6 +10,7 @@ var crypto = require('crypto');
 var fastFile = require('fastfile');
 var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
+var vm = require('vm');
 var ejs = require('ejs');
 var jsSha3 = require('js-sha3');
 
@@ -4365,7 +4366,6 @@ class BigArray {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const TAU_G1 = 0;
@@ -4466,15 +4466,18 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // delta2
     await binFileUtils.endWriteSection(fdZKey);
 
+    if (logger) logger.info(process.memoryUsage());
     if (logger) logger.info("Reading r1cs");
     let sR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
+    await fdR1cs.close();
 
-    const A = new BigArray(r1cs.nVars);
-    const B1 = new BigArray(r1cs.nVars);
-    const B2 = new BigArray(r1cs.nVars);
-    const C = new BigArray(r1cs.nVars- nPublic -1);
-    const IC = new Array(nPublic+1);
+    let A = new BigArray(r1cs.nVars);
+    let B1 = new BigArray(r1cs.nVars);
+    let B2 = new BigArray(r1cs.nVars);
+    let C = new BigArray(r1cs.nVars- nPublic -1);
+    let IC = new Array(nPublic+1);
 
+    if (logger) logger.info(process.memoryUsage());
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading tauG2");
@@ -4484,19 +4487,56 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     if (logger) logger.info("Reading betatauG1");
     let sBetaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("processConstraints");
     await processConstraints();
 
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("composeAndWritePoints");
     await composeAndWritePoints(3, "G1", IC, "IC");
 
+    IC = null;
+    const gc = vm.runInNewContext("gc"); // nocommit
+    gc();
+
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("writeHs");
     await writeHs();
 
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("hashHPoints");
     await hashHPoints();
 
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("composeAndWritePoints 8 G1 C");
     await composeAndWritePoints(8, "G1", C, "C");
+
+    C = null;
+    gc();
+
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
+
+    A = null;
+    gc();
+
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
+
+    B1 = null;
+    gc();
+
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
+    B2 = null;
+    gc();
+
+    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
     // Contributions section
     await binFileUtils.startWriteSection(fdZKey, 10);
@@ -4508,7 +4548,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
 
     await fdZKey.close();
-    await fdR1cs.close();
     await fdPTau.close();
 
     return csHash;
@@ -4563,6 +4602,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 const l2t = BETATAU_G1;
                 const l2 = sG1*c;
                 if (typeof A[s] === "undefined") A[s] = [];
+                console.log(s, A[s].length);
                 A[s].push([l1t, l1, coefp]);
 
                 if (s <= nPublic) {

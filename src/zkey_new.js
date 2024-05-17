@@ -31,7 +31,7 @@ import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
 import Blake2b from "blake2b-wasm";
 import BigArray from "./bigarray.js";
-
+import { runInNewContext } from "vm";
 
 export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
@@ -133,15 +133,18 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // delta2
     await endWriteSection(fdZKey);
 
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading r1cs");
     let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
+    await fdR1cs.close();
 
-    const A = new BigArray(r1cs.nVars);
-    const B1 = new BigArray(r1cs.nVars);
-    const B2 = new BigArray(r1cs.nVars);
-    const C = new BigArray(r1cs.nVars- nPublic -1);
-    const IC = new Array(nPublic+1);
+    let A = new BigArray(r1cs.nVars);
+    let B1 = new BigArray(r1cs.nVars);
+    let B2 = new BigArray(r1cs.nVars);
+    let C = new BigArray(r1cs.nVars- nPublic -1);
+    let IC = new Array(nPublic+1);
 
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading tauG2");
@@ -151,19 +154,56 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     if (logger) logger.info("Reading betatauG1");
     let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("processConstraints");
     await processConstraints();
 
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("composeAndWritePoints");
     await composeAndWritePoints(3, "G1", IC, "IC");
 
+    IC = null;
+    const gc = runInNewContext("gc"); // nocommit
+    gc();
+
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("writeHs");
     await writeHs();
 
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("hashHPoints");
     await hashHPoints();
 
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("composeAndWritePoints 8 G1 C");
     await composeAndWritePoints(8, "G1", C, "C");
+
+    C = null;
+    gc();
+
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
+
+    A = null;
+    gc();
+
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
+
+    B1 = null;
+    gc();
+
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
+    B2 = null;
+    gc();
+
+    if (logger) logger.info(memUsage());
+    if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
     // Contributions section
     await startWriteSection(fdZKey, 10);
@@ -175,7 +215,6 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
 
     await fdZKey.close();
-    await fdR1cs.close();
     await fdPTau.close();
 
     return csHash;
@@ -357,7 +396,12 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
                     nP += (arr[i+n] ? arr[i+n].length : 0);
                     n ++;
                 }
+
+                if (logger) logger.info("before slice:");
+                if (logger) logger.info(memUsage());
                 const subArr = arr.slice(i, i + n);
+                if (logger) logger.info("after slice:");
+                if (logger) logger.info(memUsage());
                 const _i = i;
                 opPromises.push(composeAndWritePointsThread(groupName, subArr, logger, sectionName).then( (r) => {
                     if (logger)  logger.debug(`Writing points end ${sectionName}: ${_i}/${arr.length}`);
@@ -582,6 +626,14 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
         buffV.setUint32(0, n, false);
         csHasher.update(buff);
+    }
+
+    function memUsage() {
+        let m = process.memoryUsage();
+        for (const i in m) {
+            m[i] = Math.round(m[i] / (1024*1024));
+        }
+        return m;
     }
 
 }

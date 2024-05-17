@@ -8,7 +8,7 @@ export default {
     output: {
         file: "build/cli.cjs",
         format: "cjs",
-        banner: "#! /usr/bin/env node\n",
+        banner: "#!/usr/bin/node --expose-gc \n",
     },
     external: [
         ...Object.keys(pkg.dependencies),

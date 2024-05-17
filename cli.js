@@ -47,6 +47,11 @@ import bfj from "bfj";
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
 
+import { setFlagsFromString } from "v8";
+
+setFlagsFromString("--expose_gc");
+
+
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
 
