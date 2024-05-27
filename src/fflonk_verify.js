@@ -272,7 +272,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger) {
     roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], w3[1]);
     roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3[2]);
 
-    // Compute xi = xi_seeder^12
+    // Compute xi = xi_seeder^24
     challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
     challenges.xiw = Fr.mul(challenges.xi, Fr.w[vk.power]);
 
