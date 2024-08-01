@@ -6,7 +6,7 @@
     "test": "node test/launch-groth16.js"
   },
   "devDependencies": {
-    "puppeteer": "20.2.0",
+    "puppeteer": "22.15.0",
     "ffjavascript": "^0.3.0",
     "st": "3.0.0"
   }
