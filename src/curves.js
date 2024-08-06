@@ -18,10 +18,10 @@ export async function getCurveFromR(r) {
     return curve;
 }
 
-export async function getCurveFromQ(q) {
+export async function getCurveFromQ(q, singleThreaded = false) {
     let curve;
     if (Scalar.eq(q, bn128q)) {
-        curve = await buildBn128();
+        curve = await buildBn128(singleThreaded);
     } else if (Scalar.eq(q, bls12381q)) {
         curve = await buildBls12381();
     } else {
