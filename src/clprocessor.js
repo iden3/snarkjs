@@ -246,7 +246,7 @@ export default async function clProcessor(commands) {
                 S += pl.cmd.join(" ");
             }
             S += " " + pl.params.join(" ");
-            console.log(S);
+            console.log(S + "\n");
         }
     }
 
