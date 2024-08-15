@@ -31,7 +31,7 @@ export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, 
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await WitnessCalculatorBuilder(wasm);
+    const wc = await WitnessCalculatorBuilder(wasm, options);
     if (wc.circom_version() == 1) {
         const w = await wc.calculateBinWitness(input);
 
