@@ -151,7 +151,7 @@ contract Groth16Verifier {
             mstore(0x40, add(pMem, pLastMem))
 
             // Validate that all evaluations ∈ F
-            <% for (let i=0; i<IC.length; i++) { %>
+            <% for (let i=0; i<nPublic; i++) { %>
             checkField(calldataload(add(_pubSignals, <%=i*32%>)))
             <% } %>
 
