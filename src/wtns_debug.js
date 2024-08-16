@@ -34,10 +34,8 @@ export default async function wtnsDebug(_input, wasmFileName, wtnsFileName, symN
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-
-    let wcOps = {
-        sanityCheck: true
-    };
+    let wcOps = options || {};
+    wcOps.sanityCheck = true;
     let sym = await loadSyms(symName);
     if (options.set) {
         if (!sym) sym = await loadSyms(symName);
@@ -65,7 +63,7 @@ export default async function wtnsDebug(_input, wasmFileName, wtnsFileName, symN
     wcOps.sym = sym;
 
     const wc = await WitnessCalculatorBuilder(wasm, wcOps);
-    const w = await wc.calculateWitness(input);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await binFileUtils.createBinFile(wtnsFileName, "wtns", 2, 2);
 

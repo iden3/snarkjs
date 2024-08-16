@@ -6071,8 +6071,8 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
-    if (wc.circom_version() == 1) {
+    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, options);
+    if (wc.circom_version() === 1) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
@@ -12257,10 +12257,8 @@ async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options,
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-
-    let wcOps = {
-        sanityCheck: true
-    };
+    let wcOps = options || {};
+    wcOps.sanityCheck = true;
     let sym = await loadSymbols(symName);
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
@@ -12288,7 +12286,7 @@ async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options,
     wcOps.sym = sym;
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
-    const w = await wc.calculateWitness(input);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
 
@@ -12881,7 +12879,7 @@ async function wtnsCalculate(params, options) {
 
     const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
-    await wtnsCalculate$1(input, wasmName, witnessName);
+    await wtnsCalculate$1(input, wasmName, witnessName, {});
 
     return 0;
 }

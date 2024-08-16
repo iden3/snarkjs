@@ -89,6 +89,13 @@ async function getCurveFromName(name) {
 
 }
 
+var curves = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    getCurveFromR: getCurveFromR,
+    getCurveFromQ: getCurveFromQ,
+    getCurveFromName: getCurveFromName
+});
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -1254,8 +1261,8 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
-    if (wc.circom_version() == 1) {
+    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, options);
+    if (wc.circom_version() === 1) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
@@ -4010,10 +4017,8 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-
-    let wcOps = {
-        sanityCheck: true
-    };
+    let wcOps = options || {};
+    wcOps.sanityCheck = true;
     let sym = await loadSymbols(symName);
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
@@ -4041,7 +4046,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     wcOps.sym = sym;
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
-    const w = await wc.calculateWitness(input);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
 
@@ -12388,6 +12393,7 @@ var fflonk = /*#__PURE__*/Object.freeze({
     exportSolidityCallData: fflonkExportCallData
 });
 
+exports.curves = curves;
 exports.fflonk = fflonk;
 exports.groth16 = groth16;
 exports.plonk = plonk;
