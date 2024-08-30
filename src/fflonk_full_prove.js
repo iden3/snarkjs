@@ -26,7 +26,7 @@ export default async function fflonkFullProve(_input, wasmFilename, zkeyFilename
     const wtns= {type: "mem"};
 
     // Compute the witness
-    await wtns_calculate(input, wasmFilename, wtns);
+    await wtns_calculate(input, wasmFilename, wtns, wtnsCalcOptions);
 
     // Compute the proof
     return await fflonkProve(zkeyFilename, wtns, logger);
