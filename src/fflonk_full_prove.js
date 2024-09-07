@@ -20,7 +20,7 @@ import wtns_calculate from "./wtns_calculate.js";
 import {utils} from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
-export default async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger) {
+export default async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts(_input);
 
     const wtns= {type: "mem"};
