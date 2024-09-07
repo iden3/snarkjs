@@ -34,8 +34,7 @@ export default async function wtnsDebug(_input, wasmFileName, wtnsFileName, symN
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    let wcOps = options || {};
-    wcOps.sanityCheck = true;
+    const wcOps = {...options, sanityCheck: true};
     let sym = await loadSyms(symName);
     if (options.set) {
         if (!sym) sym = await loadSyms(symName);
