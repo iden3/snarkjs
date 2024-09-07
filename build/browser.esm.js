@@ -3975,13 +3975,13 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
 */
 const {unstringifyBigInts: unstringifyBigInts$a} = utils;
 
-async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
+async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$a(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate(input, wasmFile, wtns);
+    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
     return await groth16Prove(zkeyFileName, wtns, logger);
 }
 
@@ -7043,8 +7043,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    let wcOps = options || {};
-    wcOps.sanityCheck = true;
+    const wcOps = {...options, sanityCheck: true};
     let sym = await loadSymbols(symName);
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
@@ -12799,13 +12798,13 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$5} = utils;
 
-async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
+async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$5(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate(input, wasmFile, wtns);
+    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
     return await plonk16Prove(zkeyFileName, wtns, logger);
 }
 
@@ -15390,13 +15389,13 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$2} = utils;
 
-async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger) {
+async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$2(_input);
 
     const wtns= {type: "mem"};
 
     // Compute the witness
-    await wtnsCalculate(input, wasmFilename, wtns);
+    await wtnsCalculate(input, wasmFilename, wtns, wtnsCalcOptions);
 
     // Compute the proof
     return await fflonkProve(zkeyFilename, wtns, logger);
