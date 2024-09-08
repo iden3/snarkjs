@@ -187,7 +187,7 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
 }
 
 /*
-async function buldABC(curve, zkey, witness, coeffs, logger) {
+async function buildABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 

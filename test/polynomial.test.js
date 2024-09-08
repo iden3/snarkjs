@@ -52,7 +52,7 @@ describe("snarkjs: Polynomial tests", function () {
         poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
-        // buffer with 3 coefficients, the two greatests iare zero => degree 0
+        // buffer with 3 coefficients, the two greatest are zero => degree 0
         buff = new Uint8Array(96);
         buff.set(curve.Fr.random(), 0);
         buff.set(curve.Fr.zero, 32);

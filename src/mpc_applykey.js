@@ -21,7 +21,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 /*
     This function creates a new section in the fdTo file with id idSection.
-    It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
+    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
     It also updates the newChallengeHasher with the new points
 */

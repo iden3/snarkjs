@@ -872,8 +872,8 @@ class BigMemFile {
     }
 }
 
-const O_TRUNC = 1024;
-const O_CREAT = 512;
+const O_TRUNC = 512;
+const O_CREAT = 64;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
@@ -1130,6 +1130,13 @@ async function getCurveFromName(name) {
     }
 
 }
+
+var curves = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    getCurveFromR: getCurveFromR,
+    getCurveFromQ: getCurveFromQ,
+    getCurveFromName: getCurveFromName
+});
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -2756,7 +2763,7 @@ async function readContribution$1(fd, curve, toObject) {
         }
     }
     if (fd.pos != curPos + paramLength) {
-        throw new Error("Parametes do not match");
+        throw new Error("Parameters do not match");
     }
 
     return c;
@@ -3110,7 +3117,7 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
 }
 
 /*
-async function buldABC(curve, zkey, witness, coeffs, logger) {
+async function buildABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
@@ -3315,13 +3322,13 @@ limitations under the License.
 */
 
 function flatArray(a) {
-    var res = [];
+    let res = [];
     fillArray(res, a);
     return res;
 
     function fillArray(res, a) {
         if (Array.isArray(a)) {
-            for (let i=0; i<a.length; i++) {
+            for (let i = 0; i < a.length; i++) {
                 fillArray(res, a[i]);
             }
         } else {
@@ -3334,38 +3341,38 @@ function flatArray(a) {
 function normalize(n, prime) {
     let res = BigInt(n) % prime;
     if (res < 0) res += prime;
-    return res
+    return res;
 }
 
 function fnvHash(str) {
     const uint64_max = BigInt(2) ** BigInt(64);
     let hash = BigInt("0xCBF29CE484222325");
-    for (var i = 0; i < str.length; i++) {
-    hash ^= BigInt(str[i].charCodeAt());
-    hash *= BigInt(0x100000001B3);
-    hash %= uint64_max;
+    for (let i = 0; i < str.length; i++) {
+        hash ^= BigInt(str[i].charCodeAt(0));
+        hash *= BigInt(0x100000001B3);
+        hash %= uint64_max;
     }
     let shash = hash.toString(16);
     let n = 16 - shash.length;
-    shash = '0'.repeat(n).concat(shash);
+    shash = "0".repeat(n).concat(shash);
     return shash;
 }
 
 // Note that this pads zeros
-function toArray32(s,size) {
+function toArray32(s, size) {
     const res = []; //new Uint32Array(size); //has no unshift
     let rem = BigInt(s);
     const radix = BigInt(0x100000000);
     while (rem) {
-        res.unshift( Number(rem % radix));
+        res.unshift(Number(rem % radix));
         rem = rem / radix;
     }
     if (size) {
-    var i = size - res.length;
-    while (i>0) {
-        res.unshift(0);
-        i--;
-    }
+        let i = size - res.length;
+        while (i > 0) {
+            res.unshift(0);
+            i--;
+        }
     }
     return res;
 }
@@ -3373,31 +3380,10 @@ function toArray32(s,size) {
 /* globals WebAssembly */
 
 async function builder(code, options) {
-
-    options = options || {};
-
-    let memorySize = 32767;
-    let memory;
-    let memoryAllocated = false;
-    while (!memoryAllocated){
-        try{
-            memory = new WebAssembly.Memory({initial:memorySize});
-            memoryAllocated = true;
-        } catch(err){
-            if(memorySize === 1){
-                throw err;
-            }
-            console.warn("Could not allocate " + memorySize * 1024 * 64 + " bytes. This may cause severe instability. Trying with " + memorySize * 1024 * 64 / 2 + " bytes");
-            memorySize = Math.floor(memorySize/2);
-        }
-    }
-
-    const wasmModule = await WebAssembly.compile(code);
-
+    let instance;
     let wc;
-
-    let errStr = "";
-    let msgStr = "";
+    let memory;
+    options = options || {};
 
     // Only circom 2 implements version lookup through exports in the WASM
     // We default to `1` and update if we see the `getVersion` export (major version)
@@ -3405,122 +3391,157 @@ async function builder(code, options) {
     let majorVersion = 1;
     // After Circom 2.0.7, Blaine added exported functions for getting minor and patch versions
     let minorVersion = 0;
-    // If we can't lookup the patch version, assume the lowest
+    // If we can't look up the patch version, assume the lowest
     let patchVersion = 0;
 
-    const instance = await WebAssembly.instantiate(wasmModule, {
-        env: {
-            "memory": memory
-        },
-        runtime: {
-            exceptionHandler: function(code) {
-                let err;
-                if (code == 1) {
-                    err = "Signal not found. ";
-                } else if (code == 2) {
-                    err = "Too many signals set. ";
-                } else if (code == 3) {
-                    err = "Signal already set. ";
-                } else if (code == 4) {
-                    err = "Assert Failed. ";
-                } else if (code == 5) {
-                    err = "Not enough memory. ";
-                } else if (code == 6) {
-                    err = "Input signal array access exceeds the size. ";
-                } else {
-                    err = "Unknown error. ";
-                }
-                console.error("ERROR: ", code, errStr);
-                throw new Error(err + errStr);
-            },
-            // A new way of logging messages was added in Circom 2.0.7 that requires 2 new imports
-            // `printErrorMessage` and `writeBufferMessage`.
-            printErrorMessage: function() {
-                errStr += getMessage() + "\n";
-            },
-            writeBufferMessage: function() {
-                const msg = getMessage();
-                // Any calls to `log()` will always end with a `\n`, so that's when we print and reset
-                if (msg === "\n") {
-                    console.log(msgStr);
-                    msgStr = "";
-                } else {
-                    // If we've buffered other content, put a space in between the items
-                    if (msgStr !== "") {
-                        msgStr += " ";
-                    }
-                    // Then append the message to the message we are creating
-                    msgStr += msg;
-                }
-            },
-            showSharedRWMemory: function() {
-                const shared_rw_memory_size = instance.exports.getFieldNumLen32();
-                const arr = new Uint32Array(shared_rw_memory_size);
-                for (let j=0; j<shared_rw_memory_size; j++) {
-                    arr[shared_rw_memory_size-1-j] = instance.exports.readSharedRWMemory(j);
-                }
+    // If code is already prepared WebAssembly.Instance, we use it directly
+    if (code instanceof WebAssembly.Instance) {
+        instance = code;
+    } else {
 
-                // In circom 2.0.7, they changed the log() function to allow strings and changed the
-                // output API. This smoothes over the breaking change.
-                if (majorVersion >= 2 && (minorVersion >= 1 || patchVersion >= 7)) {
-                    // If we've buffered other content, put a space in between the items
-                    if (msgStr !== "") {
-                        msgStr += " ";
-                    }
-                    // Then append the value to the message we are creating
-                    const msg = (Scalar.fromArray(arr, 0x100000000).toString());
-                    msgStr += msg;
-                } else {
-                    console.log(Scalar.fromArray(arr, 0x100000000));
-                }
-            },
-            error: function(code, pstr, a,b,c,d) {
-                let errStr;
-                if (code == 7) {
-                    errStr=p2str(pstr) + " " + wc.getFr(b).toString() + " != " + wc.getFr(c).toString() + " " +p2str(d);
-                } else if (code == 9) {
-                    errStr=p2str(pstr) + " " + wc.getFr(b).toString() + " " +p2str(c);
-                } else if ((code == 5)&&(options.sym)) {
-                    errStr=p2str(pstr)+ " " + options.sym.labelIdx2Name[c];
-                } else {
-                    errStr=p2str(pstr)+ " " + a + " " + b + " " + c + " " + d;
-                }
-                console.log("ERROR: ", code, errStr);
-                throw new Error(errStr);
-            },
-            log: function(a) {
-                console.log(wc.getFr(a).toString());
-            },
-            logGetSignal: function(signal, pVal) {
-                if (options.logGetSignal) {
-                    options.logGetSignal(signal, wc.getFr(pVal) );
-                }
-            },
-            logSetSignal: function(signal, pVal) {
-                if (options.logSetSignal) {
-                    options.logSetSignal(signal, wc.getFr(pVal) );
-                }
-            },
-            logStartComponent: function(cIdx) {
-                if (options.logStartComponent) {
-                    options.logStartComponent(cIdx);
-                }
-            },
-            logFinishComponent: function(cIdx) {
-                if (options.logFinishComponent) {
-                    options.logFinishComponent(cIdx);
-                }
+        let memorySize = 32767;
+
+        if (options.memorySize) {
+            // make sure we have int
+            memorySize = parseInt(options.memorySize);
+            if (memorySize < 0) {
+                throw new Error("Invalid memory size");
             }
         }
-    });
 
-    if (typeof instance.exports.getVersion == 'function') {
+        let memoryAllocated = false;
+        while (!memoryAllocated) {
+            try {
+                memory = new WebAssembly.Memory({initial: memorySize});
+                memoryAllocated = true;
+            } catch (err) {
+                if (memorySize <= 1) {
+                    throw err;
+                }
+                console.warn("Could not allocate " + memorySize * 1024 * 64 + " bytes. This may cause severe instability. Trying with " + memorySize * 1024 * 64 / 2 + " bytes");
+                memorySize = Math.floor(memorySize / 2);
+            }
+        }
+
+        const wasmModule = await WebAssembly.compile(code);
+
+        let errStr = "";
+        let msgStr = "";
+
+        instance = await WebAssembly.instantiate(wasmModule, {
+            env: {
+                "memory": memory
+            },
+            runtime: {
+                exceptionHandler: function (code) {
+                    let err;
+                    if (code === 1) {
+                        err = "Signal not found. ";
+                    } else if (code === 2) {
+                        err = "Too many signals set. ";
+                    } else if (code === 3) {
+                        err = "Signal already set. ";
+                    } else if (code === 4) {
+                        err = "Assert Failed. ";
+                    } else if (code === 5) {
+                        err = "Not enough memory. ";
+                    } else if (code === 6) {
+                        err = "Input signal array access exceeds the size. ";
+                    } else {
+                        err = "Unknown error. ";
+                    }
+                    console.error("ERROR: ", code, errStr);
+                    throw new Error(err + errStr);
+                },
+                // A new way of logging messages was added in Circom 2.0.7 that requires 2 new imports
+                // `printErrorMessage` and `writeBufferMessage`.
+                printErrorMessage: function () {
+                    errStr += getMessage() + "\n";
+                },
+                writeBufferMessage: function () {
+                    const msg = getMessage();
+                    // Any calls to `log()` will always end with a `\n`, so that's when we print and reset
+                    if (msg === "\n") {
+                        console.log(msgStr);
+                        msgStr = "";
+                    } else {
+                        // If we've buffered other content, put a space in between the items
+                        if (msgStr !== "") {
+                            msgStr += " ";
+                        }
+                        // Then append the message to the message we are creating
+                        msgStr += msg;
+                    }
+                },
+                showSharedRWMemory: function () {
+                    const shared_rw_memory_size = instance.exports.getFieldNumLen32();
+                    const arr = new Uint32Array(shared_rw_memory_size);
+                    for (let j = 0; j < shared_rw_memory_size; j++) {
+                        arr[shared_rw_memory_size - 1 - j] = instance.exports.readSharedRWMemory(j);
+                    }
+
+                    // In circom 2.0.7, they changed the log() function to allow strings and changed the
+                    // output API. This smoothes over the breaking change.
+                    if (majorVersion >= 2 && (minorVersion >= 1 || patchVersion >= 7)) {
+                        // If we've buffered other content, put a space in between the items
+                        if (msgStr !== "") {
+                            msgStr += " ";
+                        }
+                        // Then append the value to the message we are creating
+                        const msg = (Scalar.fromArray(arr, 0x100000000).toString());
+                        msgStr += msg;
+                    } else {
+                        console.log(Scalar.fromArray(arr, 0x100000000));
+                    }
+                },
+                error: function (code, pstr, a, b, c, d) {
+                    let errStr;
+                    if (code === 7) {
+                        errStr = p2str(pstr) + " " + wc.getFr(b).toString() + " != " + wc.getFr(c).toString() + " " + p2str(d);
+                    } else if (code === 9) {
+                        errStr = p2str(pstr) + " " + wc.getFr(b).toString() + " " + p2str(c);
+                    } else if ((code === 5) && (options.sym)) {
+                        errStr = p2str(pstr) + " " + options.sym.labelIdx2Name[c];
+                    } else {
+                        errStr = p2str(pstr) + " " + a + " " + b + " " + c + " " + d;
+                    }
+                    console.log("ERROR: ", code, errStr);
+                    throw new Error(errStr);
+                },
+                log: function (a) {
+                    console.log(wc.getFr(a).toString());
+                },
+                logGetSignal: function (signal, pVal) {
+                    if (options.logGetSignal) {
+                        options.logGetSignal(signal, wc.getFr(pVal));
+                    }
+                },
+                logSetSignal: function (signal, pVal) {
+                    if (options.logSetSignal) {
+                        options.logSetSignal(signal, wc.getFr(pVal));
+                    }
+                },
+                logStartComponent: function (cIdx) {
+                    if (options.logStartComponent) {
+                        options.logStartComponent(cIdx);
+                    }
+                },
+                logFinishComponent: function (cIdx) {
+                    if (options.logFinishComponent) {
+                        options.logFinishComponent(cIdx);
+                    }
+                }
+            }
+        });
+    }
+
+    if (typeof instance.exports.getVersion == "function") {
         majorVersion = instance.exports.getVersion();
     }
-    if (typeof instance.exports.getMinorVersion == 'function') {
+    if (typeof instance.exports.getMinorVersion == "function") {
         minorVersion = instance.exports.getMinorVersion();
     }
-    if (typeof instance.exports.getPatchVersion == 'function') {
+    if (typeof instance.exports.getPatchVersion == "function") {
         patchVersion = instance.exports.getPatchVersion();
     }
 
@@ -3544,9 +3565,9 @@ async function builder(code, options) {
     return wc;
 
     function getMessage() {
-        var message = "";
-        var c = instance.exports.getMessageChar();
-        while ( c != 0 ) {
+        let message = "";
+        let c = instance.exports.getMessageChar();
+        while (c !== 0) {
             message += String.fromCharCode(c);
             c = instance.exports.getMessageChar();
         }
@@ -3558,11 +3579,12 @@ async function builder(code, options) {
 
         const bytes = [];
 
-        for (let i=0; i8[p+i]>0; i++)  bytes.push(i8[p+i]);
+        for (let i = 0; i8[p + i] > 0; i++) bytes.push(i8[p + i]);
 
         return String.fromCharCode.apply(null, bytes);
     }
 }
+
 class WitnessCalculatorCircom1 {
     constructor(memory, instance, sanityCheck) {
         this.memory = memory;
@@ -3573,8 +3595,8 @@ class WitnessCalculatorCircom1 {
         const pRawPrime = this.instance.exports.getPRawPrime();
 
         const arr = new Array(this.n32);
-        for (let i=0; i<this.n32; i++) {
-            arr[this.n32-1-i] = this.i32[(pRawPrime >> 2) + i];
+        for (let i = 0; i < this.n32; i++) {
+            arr[this.n32 - 1 - i] = this.i32[(pRawPrime >> 2) + i];
         }
 
         this.prime = Scalar.fromArray(arr, 0x100000000);
@@ -3583,8 +3605,8 @@ class WitnessCalculatorCircom1 {
 
         this.mask32 = Scalar.fromString("FFFFFFFF", 16);
         this.NVars = this.instance.exports.getNVars();
-        this.n64 = Math.floor((this.Fr.bitLength - 1) / 64)+1;
-        this.R = this.Fr.e( Scalar.shiftLeft(1 , this.n64*64));
+        this.n64 = Math.floor((this.Fr.bitLength - 1) / 64) + 1;
+        this.R = this.Fr.e(Scalar.shiftLeft(1, this.n64 * 64));
         this.RInv = this.Fr.inv(this.R);
         this.sanityCheck = sanityCheck;
     }
@@ -3598,10 +3620,10 @@ class WitnessCalculatorCircom1 {
         const pSigOffset = this.allocInt();
         const pFr = this.allocFr();
         const keys = Object.keys(input);
-        keys.forEach( (k) => {
+        keys.forEach((k) => {
             const h = fnvHash(k);
-            const hMSB = parseInt(h.slice(0,8), 16);
-            const hLSB = parseInt(h.slice(8,16), 16);
+            const hMSB = parseInt(h.slice(0, 8), 16);
+            const hLSB = parseInt(h.slice(8, 16), 16);
             try {
                 this.instance.exports.getSignalOffset32(pSigOffset, 0, hMSB, hLSB);
             } catch (err) {
@@ -3609,7 +3631,7 @@ class WitnessCalculatorCircom1 {
             }
             const sigOffset = this.getInt(pSigOffset);
             const fArr = flatArray(input[k]);
-            for (let i=0; i<fArr.length; i++) {
+            for (let i = 0; i < fArr.length; i++) {
                 this.setFr(pFr, fArr[i]);
                 this.instance.exports.setSignal(0, 0, sigOffset + i, pFr);
             }
@@ -3624,7 +3646,7 @@ class WitnessCalculatorCircom1 {
 
         await self._doCalculateWitness(input, sanityCheck);
 
-        for (let i=0; i<self.NVars; i++) {
+        for (let i = 0; i < self.NVars; i++) {
             const pWitness = self.instance.exports.getPWitness(i);
             w.push(self.getFr(pWitness));
         }
@@ -3650,32 +3672,32 @@ class WitnessCalculatorCircom1 {
 
     allocInt() {
         const p = this.i32[0];
-        this.i32[0] = p+8;
+        this.i32[0] = p + 8;
         return p;
     }
 
     allocFr() {
         const p = this.i32[0];
-        this.i32[0] = p+this.n32*4 + 8;
+        this.i32[0] = p + this.n32 * 4 + 8;
         return p;
     }
 
     getInt(p) {
-        return this.i32[p>>2];
+        return this.i32[p >> 2];
     }
 
     setInt(p, v) {
-        this.i32[p>>2] = v;
+        this.i32[p >> 2] = v;
     }
 
     getFr(p) {
         const self = this;
-        const idx = (p>>2);
+        const idx = (p >> 2);
 
         if (self.i32[idx + 1] & 0x80000000) {
             const arr = new Array(self.n32);
-            for (let i=0; i<self.n32; i++) {
-                arr[self.n32-1-i] = self.i32[idx+2+i];
+            for (let i = 0; i < self.n32; i++) {
+                arr[self.n32 - 1 - i] = self.i32[idx + 2 + i];
             }
             const res = self.Fr.e(Scalar.fromArray(arr, 0x100000000));
             if (self.i32[idx + 1] & 0x40000000) {
@@ -3686,7 +3708,7 @@ class WitnessCalculatorCircom1 {
 
         } else {
             if (self.i32[idx] & 0x80000000) {
-                return self.Fr.e( self.i32[idx] - 0x100000000);
+                return self.Fr.e(self.i32[idx] - 0x100000000);
             } else {
                 return self.Fr.e(self.i32[idx]);
             }
@@ -3707,14 +3729,13 @@ class WitnessCalculatorCircom1 {
         const minShort = self.Fr.neg(self.Fr.e("80000000", 16));
         const maxShort = self.Fr.e("7FFFFFFF", 16);
 
-        if (  (self.Fr.geq(v, minShort))
-            &&(self.Fr.leq(v, maxShort)))
-        {
+        if ((self.Fr.geq(v, minShort))
+            && (self.Fr.leq(v, maxShort))) {
             let a;
             if (self.Fr.geq(v, self.Fr.zero)) {
                 a = Scalar.toNumber(v);
             } else {
-                a = Scalar.toNumber( self.Fr.sub(v, minShort));
+                a = Scalar.toNumber(self.Fr.sub(v, minShort));
                 a = a - 0x80000000;
                 a = 0x100000000 + a;
             }
@@ -3726,10 +3747,10 @@ class WitnessCalculatorCircom1 {
         self.i32[(p >> 2)] = 0;
         self.i32[(p >> 2) + 1] = 0x80000000;
         const arr = Scalar.toArray(v, 0x100000000);
-        for (let i=0; i<self.n32; i++) {
-            const idx = arr.length-1-i;
+        for (let i = 0; i < self.n32; i++) {
+            const idx = arr.length - 1 - i;
 
-            if ( idx >=0) {
+            if (idx >= 0) {
                 self.i32[(p >> 2) + 2 + i] = arr[idx];
             } else {
                 self.i32[(p >> 2) + 2 + i] = 0;
@@ -3747,8 +3768,8 @@ class WitnessCalculatorCircom2 {
 
         this.instance.exports.getRawPrime();
         const arr = new Uint32Array(this.n32);
-        for (let i=0; i<this.n32; i++) {
-            arr[this.n32-1-i] = this.instance.exports.readSharedRWMemory(i);
+        for (let i = 0; i < this.n32; i++) {
+            arr[this.n32 - 1 - i] = this.instance.exports.readSharedRWMemory(i);
         }
         this.prime = Scalar.fromArray(arr, 0x100000000);
 
@@ -3765,17 +3786,17 @@ class WitnessCalculatorCircom2 {
         //input is assumed to be a map from signals to arrays of bigints
         this.instance.exports.init((this.sanityCheck || sanityCheck) ? 1 : 0);
         const keys = Object.keys(input);
-        var input_counter = 0;
-        keys.forEach( (k) => {
+        let input_counter = 0;
+        keys.forEach((k) => {
             const h = fnvHash(k);
-            const hMSB = parseInt(h.slice(0,8), 16);
-            const hLSB = parseInt(h.slice(8,16), 16);
+            const hMSB = parseInt(h.slice(0, 8), 16);
+            const hLSB = parseInt(h.slice(8, 16), 16);
             const fArr = flatArray(input[k]);
             // Slight deviation from https://github.com/iden3/circom/blob/v2.1.6/code_producers/src/wasm_elements/common/witness_calculator.js
             // because I don't know when this exported function was added
-            if (typeof this.instance.exports.getInputSignalSize === 'function') {
+            if (typeof this.instance.exports.getInputSignalSize === "function") {
                 let signalSize = this.instance.exports.getInputSignalSize(hMSB, hLSB);
-                if (signalSize < 0){
+                if (signalSize < 0) {
                     throw new Error(`Signal ${k} not found\n`);
                 }
                 if (fArr.length < signalSize) {
@@ -3785,13 +3806,13 @@ class WitnessCalculatorCircom2 {
                     throw new Error(`Too many values for input signal ${k}\n`);
                 }
             }
-            for (let i=0; i<fArr.length; i++) {
-                const arrFr = toArray32(normalize(fArr[i],this.prime),this.n32);
-                for (let j=0; j<this.n32; j++) {
-                    this.instance.exports.writeSharedRWMemory(j,arrFr[this.n32-1-j]);
+            for (let i = 0; i < fArr.length; i++) {
+                const arrFr = toArray32(normalize(fArr[i], this.prime), this.n32);
+                for (let j = 0; j < this.n32; j++) {
+                    this.instance.exports.writeSharedRWMemory(j, arrFr[this.n32 - 1 - j]);
                 }
                 try {
-                    this.instance.exports.setInputSignal(hMSB, hLSB,i);
+                    this.instance.exports.setInputSignal(hMSB, hLSB, i);
                     input_counter++;
                 } catch (err) {
                     // console.log(`After adding signal ${i} of ${k}`)
@@ -3810,11 +3831,11 @@ class WitnessCalculatorCircom2 {
 
         await this._doCalculateWitness(input, sanityCheck);
 
-        for (let i=0; i<this.witnessSize; i++) {
+        for (let i = 0; i < this.witnessSize; i++) {
             this.instance.exports.getWitness(i);
-        const arr = new Uint32Array(this.n32);
-            for (let j=0; j<this.n32; j++) {
-            arr[this.n32-1-j] = this.instance.exports.readSharedRWMemory(j);
+            const arr = new Uint32Array(this.n32);
+            for (let j = 0; j < this.n32; j++) {
+                arr[this.n32 - 1 - j] = this.instance.exports.readSharedRWMemory(j);
             }
             w.push(Scalar.fromArray(arr, 0x100000000));
         }
@@ -3823,8 +3844,8 @@ class WitnessCalculatorCircom2 {
     }
 
     async calculateWTNSBin(input, sanityCheck) {
-        const buff32 = new Uint32Array(this.witnessSize*this.n32+this.n32+11);
-        const buff = new  Uint8Array( buff32.buffer);
+        const buff32 = new Uint32Array(this.witnessSize * this.n32 + this.n32 + 11);
+        const buff = new Uint8Array(buff32.buffer);
         await this._doCalculateWitness(input, sanityCheck);
 
         //"wtns"
@@ -3842,12 +3863,12 @@ class WitnessCalculatorCircom2 {
         //id section 1
         buff32[3] = 1;
 
-        const n8 = this.n32*4;
+        const n8 = this.n32 * 4;
         //id section 1 length in 64bytes
         const idSection1length = 8 + n8;
         const idSection1lengthHex = idSection1length.toString(16);
-            buff32[4] = parseInt(idSection1lengthHex.slice(0,8), 16);
-            buff32[5] = parseInt(idSection1lengthHex.slice(8,16), 16);
+        buff32[4] = parseInt(idSection1lengthHex.slice(0, 8), 16);
+        buff32[5] = parseInt(idSection1lengthHex.slice(8, 16), 16);
 
         //this.n32
         buff32[6] = n8;
@@ -3855,9 +3876,9 @@ class WitnessCalculatorCircom2 {
         //prime number
         this.instance.exports.getRawPrime();
 
-        var pos = 7;
-        for (let j=0; j<this.n32; j++) {
-            buff32[pos+j] = this.instance.exports.readSharedRWMemory(j);
+        let pos = 7;
+        for (let j = 0; j < this.n32; j++) {
+            buff32[pos + j] = this.instance.exports.readSharedRWMemory(j);
         }
         pos += this.n32;
 
@@ -3870,16 +3891,16 @@ class WitnessCalculatorCircom2 {
         pos++;
 
         // section 2 length
-        const idSection2length = n8*this.witnessSize;
+        const idSection2length = n8 * this.witnessSize;
         const idSection2lengthHex = idSection2length.toString(16);
-        buff32[pos] = parseInt(idSection2lengthHex.slice(0,8), 16);
-        buff32[pos+1] = parseInt(idSection2lengthHex.slice(8,16), 16);
+        buff32[pos] = parseInt(idSection2lengthHex.slice(0, 8), 16);
+        buff32[pos + 1] = parseInt(idSection2lengthHex.slice(8, 16), 16);
 
         pos += 2;
-        for (let i=0; i<this.witnessSize; i++) {
+        for (let i = 0; i < this.witnessSize; i++) {
             this.instance.exports.getWitness(i);
-            for (let j=0; j<this.n32; j++) {
-                buff32[pos+j] = this.instance.exports.readSharedRWMemory(j);
+            for (let j = 0; j < this.n32; j++) {
+                buff32[pos + j] = this.instance.exports.readSharedRWMemory(j);
             }
             pos += this.n32;
         }
@@ -3916,7 +3937,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await builder(wasm);
+    const wc = await builder(wasm, options);
     if (wc.circom_version() == 1) {
         const w = await wc.calculateBinWitness(input);
 
@@ -4408,7 +4429,7 @@ async function readContribution(fd, curve) {
         }
     }
     if (fd.pos != curPos + paramLength) {
-        throw new Error("Parametes do not match");
+        throw new Error("Parameters do not match");
     }
 
     return c;
@@ -4771,9 +4792,9 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (name) currentContribution.name = name;
 
     const sG1 = curve.F1.n8*2;
-    const scG1 = curve.F1.n8; // Compresed size
+    const scG1 = curve.F1.n8; // Compressed size
     const sG2 = curve.F2.n8*2;
-    const scG2 = curve.F2.n8; // Compresed size
+    const scG2 = curve.F2.n8; // Compressed size
 
     const fdResponse = await readExisting(contributionFilename);
 
@@ -4806,7 +4827,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     }
 
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
+        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
     const hasherResponse = new blake2bWasm.exports(64);
     hasherResponse.update(contributionPreviousHash);
@@ -5472,7 +5493,7 @@ async function verify(tauFilename, logger) {
 
 /*
     This function creates a new section in the fdTo file with id idSection.
-    It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
+    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
     It also updates the newChallengeHasher with the new points
 */
@@ -5546,7 +5567,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
+async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     await blake2bWasm.exports.ready();
 
     const fdFrom = await readExisting(challengeFilename);
@@ -5567,7 +5588,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
 
     const rng = await getRandomRng(entropy);
 
-    const fdTo = await createOverride(responesFileName);
+    const fdTo = await createOverride(responseFileName);
 
     // Calculate the hash
     const challengeHasher = blake2bWasm.exports(64);
@@ -5647,7 +5668,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -7145,7 +7166,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
         logger.info("  WITNESS CHECK");
         logger.info(`  Curve:          ${r1cs.curve.name}`);
         logger.info(`  Vars (wires):   ${r1cs.nVars}`);
-        logger.info(`  Ouputs:         ${r1cs.nOutputs}`);
+        logger.info(`  Outputs:        ${r1cs.nOutputs}`);
         logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
         logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
         logger.info(`  Labels:         ${r1cs.nLabels}`);
@@ -7533,7 +7554,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         if (cirPower < curve.Fr.s) {
             let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
             for (let i=0; i< domainSize; i++) {
-                if ((logger)&&(i%10000 == 0)) logger.debug(`spliting buffer: ${i}/${domainSize}`);
+                if ((logger)&&(i%10000 == 0)) logger.debug(`splitting buffer: ${i}/${domainSize}`);
                 const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
                 buffOut.set(buff, i*sG1);
             }
@@ -7975,7 +7996,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
     buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", logger);
 
-    // Remove last element.  (The degree of H will be allways m-2)
+    // Remove last element.  (The degree of H will be always m-2)
     buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);
     buffBasesH_Tau = await curve.G1.batchLEMtoU(buffBasesH_Tau);
     await writePointArray("G1", buffBasesH_Tau);
@@ -8114,9 +8135,9 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     // csHash
     newMPCParams.csHash =  await fdMPCParams.read(64);
 
-    const nConttributions = await fdMPCParams.readUBE32();
+    const nContributions = await fdMPCParams.readUBE32();
     newMPCParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1(fdMPCParams);
         c.delta.g1_s = await readG1(fdMPCParams);
@@ -8148,13 +8169,13 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
 
     for (let i=0; i<oldMPCParams.contributions.length; i++) {
         if (!contributionIsEqual(oldMPCParams.contributions[i], newMPCParams.contributions[i])) {
-            if (logger) logger.error(`Previos contribution ${i} does not match`);
+            if (logger) logger.error(`Previous contribution ${i} does not match`);
             return false;
         }
     }
 
 
-    // Set the same name to all new controbutions
+    // Set the same name to all new contributions
     if (name) {
         for (let i=oldMPCParams.contributions.length; i<newMPCParams.contributions.length; i++) {
             newMPCParams.contributions[i].name = name;
@@ -8207,7 +8228,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     await fdZKeyNew.write(buffH);
     await endWriteSection(fdZKeyNew);
 
-    // C Secion (L section)
+    // C Section (L section)
     const nL = await fdMPCParams.readUBE32();
     if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
         if (logger) logger.error("Invalid number of points in L");
@@ -8568,20 +8589,20 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verification(tau):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*sG);
             const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*sG);
 
-            const buffB = await batchSubstract(buff1, buff2);
+            const buffB = await batchSubtract(buff1, buff2);
             const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
             const r = await G.multiExpAffine(buffB, buffS);
 
             R1 = G.add(R1, r);
         }
 
-        // Caluclate odd coeficients in transformed domain
+        // Calculate odd coefficients in transformed domain
 
         buff_r = await Fr.batchToMontgomery(buff_r);
         // const first = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
@@ -8607,7 +8628,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         await startReadUniqueSection(fd, sections, 9);
         let R2 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verificaition(lagrange):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verification(lagrange):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff = await fd.read(sG*n);
@@ -8626,7 +8647,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     }
 
-    async function batchSubstract(buff1, buff2) {
+    async function batchSubtract(buff1, buff2) {
         const sG = curve.G1.F.n8*2;
         const nPoints = buff1.byteLength / sG;
         const concurrency= curve.tm.concurrency;
@@ -8643,7 +8664,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
             const subBuff1 = buff1.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
             const subBuff2 = buff2.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            opPromises.push(batchSubstractThread(subBuff1, subBuff2));
+            opPromises.push(batchSubtractThread(subBuff1, subBuff2));
         }
 
 
@@ -8660,7 +8681,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     }
 
 
-    async function batchSubstractThread(buff1, buff2) {
+    async function batchSubtractThread(buff1, buff2) {
         const sG1 = curve.G1.F.n8*2;
         const sGmid = curve.G1.F.n8*3;
         const nPoints = buff1.byteLength/sG1;
@@ -8814,12 +8835,12 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     const contributionHasher = blake2bWasm.exports(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
     if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }
 
 /*
@@ -8853,7 +8874,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -8939,11 +8960,11 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     const contributionHasher = blake2bWasm.exports(64);
     hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }
 
 async function zkeyExportJson(zkeyFileName) {
@@ -8974,7 +8995,7 @@ async function zkeyExportJson(zkeyFileName) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
+async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     await blake2bWasm.exports.ready();
 
     const rng = await getRandomRng(entropy);
@@ -8986,7 +9007,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     const sG2 = curve.G2.F.n8*2;
 
     const fdFrom = await readExisting(challengeFilename);
-    const fdTo = await createOverride(responesFileName);
+    const fdTo = await createOverride(responseFileName);
 
 
     await copy(sG1); // alpha1
@@ -9041,9 +9062,9 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     mpcParams.csHash =  await fdFrom.read(64);
     transcriptHasher.update(mpcParams.csHash);
 
-    const nConttributions = await fdFrom.readUBE32();
+    const nContributions = await fdFrom.readUBE32();
     mpcParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1();
         c.delta.g1_s = await readG1();
@@ -9070,7 +9091,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
 
 
     //////////
-    /// Write COntribution
+    /// Write Contribution
     //////////
 
     await fdTo.write(mpcParams.csHash);
@@ -9445,7 +9466,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     let cirPower = log2(plonkConstraints.length -1) +1;
-    if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
+    if (cirPower < 3) cirPower = 3;   // As the t polynomial is n+5 we need at least a power of 4
     const domainSize = 2 ** cirPower;
 
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
@@ -9713,8 +9734,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             let o=0;
             buffOutV.setUint32(o, addition[0], true); o+=4;
             buffOutV.setUint32(o, addition[1], true); o+=4;
-            // The value is storen in  Montgomery. stored = v*R
-            // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w 
+            // The value is stored in Montgomery. stored = v*R
+            // so when montgomery multiplied by the witness, it's result = v*R*w/R = v*w
             buffOut.set(addition[2], o); o+= n8r;
             buffOut.set(addition[3], o); o+= n8r;
             await fdZKey.write(buffOut);
@@ -13644,7 +13665,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     await computeFFConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
 
-    // As the t polynomial is n+5 whe need at least a power of 4
+    // As the t polynomial is n+5 we need at least a power of 4
     //TODO check!!!!
     // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
@@ -16057,4 +16078,4 @@ var fflonk = /*#__PURE__*/Object.freeze({
     exportSolidityCallData: fflonkExportCallData
 });
 
-export { fflonk, groth16, plonk, powersoftau as powersOfTau, r1cs, wtns, zkey as zKey };
+export { curves, fflonk, groth16, plonk, powersoftau as powersOfTau, r1cs, wtns, zkey as zKey };
