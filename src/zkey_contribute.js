@@ -100,10 +100,10 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
     const contributionHasher = Blake2b(64);
     utils.hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
     if (logger) logger.info(misc.formatHash(mpcParams.csHash, "Circuit Hash: "));
-    if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(misc.formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }

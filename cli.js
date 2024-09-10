@@ -113,7 +113,7 @@ const commands = [
     },
     {
         cmd: "powersoftau truncate <powersoftau.ptau>",
-        description: "Generate diferent powers of tau with smoller sizes ",
+        description: "Generate different powers of tau with smaller sizes ",
         longDescription: " This process generates smaller ptau files from a bigger power ptau",
         alias: ["ptt"],
         options: "-verbose|v",
@@ -175,7 +175,7 @@ const commands = [
     },
     {
         cmd: "wtns check [circuit.r1cs] [[witness.wtns]",
-        description: "Check if a specific witness of a circuit fullfills the r1cs constraints",
+        description: "Check if a specific witness of a circuit fulfills the r1cs constraints",
         alias: ["wchk"],
         action: wtnsCheck
     },
@@ -366,7 +366,7 @@ TODO COMMANDS
     },
     {
         cmd: "witness verify <circuit.r1cs> <witness.wtns>",
-        description: "Verify a witness agains a r1cs",
+        description: "Verify a witness against a r1cs",
         alias: ["wv"],
         action: witnessVerify
     },

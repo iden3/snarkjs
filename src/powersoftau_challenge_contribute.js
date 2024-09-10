@@ -42,7 +42,7 @@ import * as misc from "./misc.js";
 import { applyKeyToChallengeSection } from "./mpc_applykey.js";
 import * as keyPair from "./keypair.js";
 
-export default async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
+export default async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     await Blake2b.ready();
 
     const fdFrom = await fastFile.readExisting(challengeFilename);
@@ -63,7 +63,7 @@ export default async function challengeContribute(curve, challengeFilename, resp
 
     const rng = await misc.getRandomRng(entropy);
 
-    const fdTo = await fastFile.createOverride(responesFileName);
+    const fdTo = await fastFile.createOverride(responseFileName);
 
     // Calculate the hash
     const challengeHasher = Blake2b(64);
