@@ -38,9 +38,9 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     if (name) currentContribution.name = name;
 
     const sG1 = curve.F1.n8*2;
-    const scG1 = curve.F1.n8; // Compresed size
+    const scG1 = curve.F1.n8; // Compressed size
     const sG2 = curve.F2.n8*2;
-    const scG2 = curve.F2.n8; // Compresed size
+    const scG2 = curve.F2.n8; // Compressed size
 
     const fdResponse = await fastFile.readExisting(contributionFilename);
 
@@ -73,7 +73,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     }
 
     if(!misc.hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
+        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
     const hasherResponse = new Blake2b(64);
     hasherResponse.update(contributionPreviousHash);

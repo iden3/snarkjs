@@ -288,7 +288,7 @@ This information fits with our mental map of the circuit we created: we had two 
 snarkjs r1cs print circuit.r1cs circuit.sym
 ```
 
-To double check, we print the constraints of the circuit.
+To double-check, we print the constraints of the circuit.
 
 You should see a thousand constraints of the form:
 
@@ -318,7 +318,7 @@ EOT
 Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
-circuit_js$ node generate_witness.js circuit.wasm ../input.json ../witness.wtns
+node generate_witness.js circuit.wasm ../input.json ../witness.wtns
 ```
 
 We can check if the generated witness complies with the `r1cs` file with the following command:
@@ -481,7 +481,7 @@ snarkjs fflonk verify verification_key.json public.json proof.json
 snarkjs groth16 verify verification_key.json public.json proof.json
 ```
 
-We use the this command to verify the proof, passing in the `verification_key` we exported earlier.
+We use this command to verify the proof, passing in the `verification_key` we exported earlier.
 
 If all is well, you should see that `OK` has been outputted to your console. This signifies the proof is valid.
 
@@ -610,7 +610,7 @@ the Random Beacon Model](https://eprint.iacr.org/2017/1050.pdf)
 - [Perpetual Powers of Tau](https://github.com/weijiekoh/perpetualpowersoftau)
 - [Powers of Tau](https://github.com/ebfull/powersoftau)
 - [Trusted setup ceremonies explored](https://www.zeroknowledge.fm/133)
-- [Simple react projct using snarkjs](https://github.com/LHerskind/snarkjs-react)
+- [Simple react project using snarkjs](https://github.com/LHerskind/snarkjs-react)
 
 ## Final note
 

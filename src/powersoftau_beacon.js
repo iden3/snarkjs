@@ -31,7 +31,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 

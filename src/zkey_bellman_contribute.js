@@ -43,7 +43,7 @@ import { applyKeyToChallengeSection } from "./mpc_applykey.js";
 import { hashPubKey } from "./zkey_utils.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 
-export default async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
+export default async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     await Blake2b.ready();
 
     const rng = await misc.getRandomRng(entropy);
@@ -55,7 +55,7 @@ export default async function bellmanContribute(curve, challengeFilename, respon
     const sG2 = curve.G2.F.n8*2;
 
     const fdFrom = await fastFile.readExisting(challengeFilename);
-    const fdTo = await fastFile.createOverride(responesFileName);
+    const fdTo = await fastFile.createOverride(responseFileName);
 
 
     await copy(sG1); // alpha1
@@ -110,9 +110,9 @@ export default async function bellmanContribute(curve, challengeFilename, respon
     mpcParams.csHash =  await fdFrom.read(64);
     transcriptHasher.update(mpcParams.csHash);
 
-    const nConttributions = await fdFrom.readUBE32();
+    const nContributions = await fdFrom.readUBE32();
     mpcParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1();
         c.delta.g1_s = await readG1();
@@ -139,7 +139,7 @@ export default async function bellmanContribute(curve, challengeFilename, respon
 
 
     //////////
-    /// Write COntribution
+    /// Write Contribution
     //////////
 
     await fdTo.write(mpcParams.csHash);

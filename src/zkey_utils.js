@@ -102,7 +102,7 @@ export async function writeZKey(fileName, zkey) {
     const Rr = Scalar.mod(Scalar.shl(1, n8r*8), zkey.r);
     const R2r = Scalar.mod(Scalar.mul(Rr,Rr), zkey.r);
 
-    // Write Pols (A and B (C can be ommited))
+    // Write Pols (A and B (C can be omitted))
     ///////////
 
     zkey.ccoefs = zkey.ccoefs.filter(c => c.matrix<2);
@@ -479,7 +479,7 @@ async function readContribution(fd, curve, toObject) {
         }
     }
     if (fd.pos != curPos + paramLength) {
-        throw new Error("Parametes do not match");
+        throw new Error("Parameters do not match");
     }
 
     return c;
