@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@iden3/binfileutils": "0.0.12",
-    "bfj": "^7.0.2",
+    "bfj": "^9.0.1",
     "blake2b-wasm": "^2.4.0",
     "circom_runtime": "0.1.25",
     "ejs": "^3.1.6",
