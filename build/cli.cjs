@@ -6072,7 +6072,7 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     await fdWasm.close();
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, options);
-    if (wc.circom_version() == 1) {
+    if (wc.circom_version() === 1) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
@@ -6109,13 +6109,13 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
 */
 const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
-async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger) {
+async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$9(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate$1(input, wasmFile, wtns);
+    await wtnsCalculate$1(input, wasmFile, wtns, wtnsCalcOptions);
     return await groth16Prove$1(zkeyFileName, wtns, logger);
 }
 
@@ -9004,13 +9004,13 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
-async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger) {
+async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$6(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate$1(input, wasmFile, wtns);
+    await wtnsCalculate$1(input, wasmFile, wtns, wtnsCalcOptions);
     return await plonk16Prove(zkeyFileName, wtns, logger);
 }
 
@@ -11569,13 +11569,13 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
-async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger) {
+async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions) {
     const input = unstringifyBigInts$3(_input);
 
     const wtns= {type: "mem"};
 
     // Compute the witness
-    await wtnsCalculate$1(input, wasmFilename, wtns);
+    await wtnsCalculate$1(input, wasmFilename, wtns, wtnsCalcOptions);
 
     // Compute the proof
     return await fflonkProve$1(zkeyFilename, wtns, logger);
@@ -12257,10 +12257,7 @@ async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options,
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-
-    let wcOps = {
-        sanityCheck: true
-    };
+    const wcOps = {...options, sanityCheck: true};
     let sym = await loadSymbols(symName);
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
@@ -12288,7 +12285,7 @@ async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options,
     wcOps.sym = sym;
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
-    const w = await wc.calculateWitness(input);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
 
