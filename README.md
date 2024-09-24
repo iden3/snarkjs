@@ -251,7 +251,7 @@ In this case, we've chosen `1000`,  but we can change this to anything we want (
 
 ### 10. Compile the circuit
 ```sh
-circom circuit.circom --r1cs --wasm --sym
+circom --r1cs --wasm --c --sym --inspect circuit.circom
 ```
 
 The `circom` command takes one input (the circuit to compile, in our case `circuit.circom`) and three options:
@@ -260,7 +260,11 @@ The `circom` command takes one input (the circuit to compile, in our case `circu
 
 - `wasm`: generates `circuit.wasm` (the wasm code to generate the witness – more on that later).
 
+- `c`: generates c++ witness calculator code.
+
 - `sym`: generates `circuit.sym` (a symbols file required for debugging and printing the constraint system in an annotated mode).
+
+- `inspect`: does additional checks over the constraints produced.
 
 
 ### 11. View information about the circuit
@@ -311,14 +315,21 @@ First, we create a file with the inputs for our circuit:
 
 ```sh
 cat <<EOT > input.json
-{"a": 3, "b": 11}
+{"a": "3", "b": "11"}
 EOT
 ```
 
-Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
+Note that integers in json file are enclosed in double quotation marks, because otherwise json format looses precision when working with big integers.
+
+Now, we use the Javascript/WASM program created by `circom` in the directory *<circuit_name>_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
-node generate_witness.js circuit.wasm ../input.json ../witness.wtns
+snarkjs wtns calculate circuit_js/circuit.wasm input.json witness.wtns
+```
+
+Alternatively you can do:
+```sh
+node circuit_js/generate_witness.js circuit_js/circuit.wasm input.json witness.wtns
 ```
 
 We can check if the generated witness complies with the `r1cs` file with the following command:
