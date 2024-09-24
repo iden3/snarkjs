@@ -319,7 +319,7 @@ cat <<EOT > input.json
 EOT
 ```
 
-Note that integers in json file are enclosed in double quotation marks, because otherwise json format looses precision when working with big integers.
+Note that integers in json file are enclosed in double quotation marks, because otherwise json format loses precision when working with big integers.
 
 Now, we use the Javascript/WASM program created by `circom` in the directory *<circuit_name>_js* to create the witness (values of all the wires) for our inputs:
 
