@@ -3,9 +3,9 @@
 
 # snarkjs
 
-This is a **JavaScript and Pure Web Assembly implementation of zkSNARK and PLONK schemes.** It uses the Groth16 Protocol (3 point only and 3 pairings), PLONK and FFLONK.
+This is a **JavaScript and Pure Web Assembly implementation of zkSNARK and PLONK schemes.** It uses the Groth16 Protocol (3 points only and 3 pairings), PLONK, and FFLONK.
 
-This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit specific ceremonies.
+This library includes all the tools required to perform trusted setup multi-party ceremonies: including the universal [*powers of tau*](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377) ceremony, and the second phase circuit-specific ceremonies.
 
 > Any zk-snark project can pick a round from the common phase 1 to start their circuit-specific phase 2 ceremony.
 
@@ -17,7 +17,7 @@ It works in [`node.js`](#using-node) as well as directly in the [browser](#in-th
 
 It's an [ES module](https://hacks.mozilla.org/2018/03/es-modules-a-cartoon-deep-dive/), so it can be directly imported into bigger projects using [Rollup](https://rollupjs.org/guide/en/) or [Webpack](https://webpack.js.org/).
 
-The low-level cryptography is performed directly in `wasm`, and uses worker threads to parallelize the computations. The result is a high performance library with benchmarks comparable to host implementations.
+The low-level cryptography is performed directly in `wasm`, and uses worker threads to parallelize the computations. The result is a high-performance library with benchmarks comparable to host implementations.
 
 ## Preliminaries
 
@@ -44,7 +44,7 @@ If you're seeing an error, try prefixing both commands with `sudo` and running t
 
 ### Understand the `help` command
 
-To see a list of all `snarkjs` commands, as well as descriptions about their inputs and outputs, run:
+To see a list of all `snarkjs` commands, as well as descriptions of their inputs and outputs, run:
 
 ```sh
 snarkjs --help
@@ -67,7 +67,7 @@ snarkjs g16p --help
 
 ### Debugging tip
 
-If you a feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked.
+If you feel a command is taking longer than it should, re-run it with a `-v` or `--verbose` option to see more details about how it's progressing and where it's getting blocked.
 
 ### Install circom
 
@@ -113,7 +113,7 @@ snarkjs powersoftau contribute pot14_0001.ptau pot14_0002.ptau --name="Second co
 
 By letting you write the random text as part of the command, the `-e` parameter allows `contribute` to be non-interactive.
 
-### 4. Provide a third contribution using third party software
+### 4. Provide a third contribution using third-party software
 ```sh
 snarkjs powersoftau export challenge pot14_0002.ptau challenge_0003
 snarkjs powersoftau challenge contribute bn128 challenge_0003 response_0003 -e="some random text"
@@ -129,7 +129,7 @@ This allows you to use different types of software in a single ceremony.
 snarkjs powersoftau verify pot14_0003.ptau
 ```
 
-The `verify` command verifies a `ptau` (powers of tau) file. Which means it checks all the contributions to the multi-party computation (MPC) up to that point. It also prints the hashes of all the intermediate results to the console.
+The `verify` command verifies a `ptau` (powers of tau) file, which means it checks all the contributions to the multi-party computation (MPC) up to that point. It also prints the hashes of all the intermediate results to the console.
 
 If everything checks out, you should see the following at the top of the output:
 
@@ -147,7 +147,7 @@ snarkjs powersoftau beacon pot14_0003.ptau pot14_beacon.ptau 0102030405060708090
 
 The `beacon` command creates a `ptau` file with a contribution applied in the form of a random beacon.
 
-We need to apply a random beacon in order to finalise phase 1 of the trusted setup.
+We need to apply a random beacon in order to finalize phase 1 of the trusted setup.
 
 > To paraphrase Sean Bowe and Ariel Gabizon, a random beacon is a source of public randomness that is not available before a fixed time. The beacon itself can be a delayed hash function (e.g. 2^40 iterations of SHA256) evaluated on some high entropy and publicly available data. Possible sources of data include: the closing value of the stock market on a certain date in the future, the output of a selected set of national lotteries, or the value of a block at a particular height in one or more blockchains. E.g. the hash of the 11 millionth Ethereum block (which as of this writing is some 3 months in the future). See [here](https://eprint.iacr.org/2017/1050.pdf) for more on the importance of a random beacon.
 
@@ -162,12 +162,12 @@ snarkjs powersoftau prepare phase2 pot14_beacon.ptau pot14_final.ptau -v
 
 We're now ready to prepare phase 2 of the setup (the circuit-specific phase).
 
-Under the hood,  the `prepare phase2` command calculates the encrypted evaluation of the Lagrange polynomials at tau for `tau`, `alpha*tau` and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step, and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
+Under the hood,  the `prepare phase2` command calculates the encrypted evaluation of the Lagrange polynomials at tau for `tau`, `alpha*tau`, and `beta*tau`. It takes the beacon `ptau` file we generated in the previous step and outputs a final `ptau` file which will be used to generate the circuit proving and verification keys.
 
 ---
 **NOTE**
 
-Ptau files for bn128 with the peraperPhase2 54 contributions and a beacon, can be found here:
+Prepared (phase2) Ptau files for bn128 with 54 contributions and a beacon can be found here:
 
 
 | power | maxConstraints | file      |  hash |
@@ -251,7 +251,7 @@ In this case, we've chosen `1000`,  but we can change this to anything we want (
 
 ### 10. Compile the circuit
 ```sh
-circom circuit.circom --r1cs --wasm --sym
+circom --r1cs --wasm --c --sym --inspect circuit.circom
 ```
 
 The `circom` command takes one input (the circuit to compile, in our case `circuit.circom`) and three options:
@@ -260,7 +260,11 @@ The `circom` command takes one input (the circuit to compile, in our case `circu
 
 - `wasm`: generates `circuit.wasm` (the wasm code to generate the witness – more on that later).
 
+- `c`: generates c++ witness calculator code.
+
 - `sym`: generates `circuit.sym` (a symbols file required for debugging and printing the constraint system in an annotated mode).
+
+- `inspect`: does additional checks over the constraints produced.
 
 
 ### 11. View information about the circuit
@@ -302,7 +306,7 @@ snarkjs r1cs export json circuit.r1cs circuit.r1cs.json
 cat circuit.r1cs.json
 ```
 
-We export `r1cs` to `json` format to make it human readable.
+We export `r1cs` to `json` format to make it human-readable.
 
 
 ### 14. Calculate the witness
@@ -311,14 +315,21 @@ First, we create a file with the inputs for our circuit:
 
 ```sh
 cat <<EOT > input.json
-{"a": 3, "b": 11}
+{"a": "3", "b": "11"}
 EOT
 ```
 
-Now, we use the Javascript/WASM program created by `circom` in the directory *circuit_js* to create the witness (values of all the wires) for our inputs:
+Note that integers in json file are enclosed in double quotation marks, because otherwise json format loses precision when working with big integers.
+
+Now, we use the Javascript/WASM program created by `circom` in the directory *<circuit_name>_js* to create the witness (values of all the wires) for our inputs:
 
 ```sh
-node generate_witness.js circuit.wasm ../input.json ../witness.wtns
+snarkjs wtns calculate circuit_js/circuit.wasm input.json witness.wtns
+```
+
+Alternatively, you can do:
+```sh
+node circuit_js/generate_witness.js circuit_js/circuit.wasm input.json witness.wtns
 ```
 
 We can check if the generated witness complies with the `r1cs` file with the following command:
@@ -330,7 +341,7 @@ snarkjs wtns check circuit.r1cs witness.wtns
 
 ### 15. Setup
 
-Currently, snarkjs supports 3 proving systems: Groth16, PLONK and FFLONK (Beta version).
+Currently, snarkjs supports 3 proving systems: Groth16, PLONK, and FFLONK (Beta version).
 
 Groth16 requires a trusted ceremony for each circuit. PLONK and FFLONK do not require it, it's enough with the powers of tau ceremony which is universal.
 
@@ -344,16 +355,16 @@ snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
 snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit.zkey
 ```
 
-You can jump directly to Section 22 as PLONK or FFLONK does not require a specific trusted ceremony.
+You can jump directly to Section 22 as PLONK and FFLONK do not require a circuit-specific trusted ceremony.
 
 #### Groth16
 ```sh
 snarkjs groth16 setup circuit.r1cs pot14_final.ptau circuit_0000.zkey
 ```
 
-This generates the reference `zkey` without phase 2 contributions
+This generates the reference `zkey` without phase 2 contributions.
 
-IMPORTANT: Do not use this zkey in production, as it's not safe. It requires at least a contribution,
+IMPORTANT: Do not use this zkey in production, as it's not safe. It requires at least one contribution.
 
 The `zkey new` command creates an initial `zkey` file with zero contributions.
 
@@ -363,7 +374,7 @@ Importantly, one can verify whether a `zkey` belongs to a specific circuit or no
 
 Note that `circuit_0000.zkey` (the output of the `zkey` command above)  does not include any contributions yet, so it cannot be used in a final circuit.
 
-*The following steps (15-20) are similar to the equivalent phase 1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather that `ptau` files.*
+*The following steps (15-20) are similar to the equivalent phase 1 steps, except we use `zkey` instead of `powersoftau` as the main command, and we generate `zkey` rather than `ptau` files.*
 
 ### 16. Contribute to the phase 2 ceremony
 ```sh
@@ -382,7 +393,7 @@ snarkjs zkey contribute circuit_0001.zkey circuit_0002.zkey --name="Second contr
 
 We provide a second contribution.
 
-### 18. Provide a third contribution using third party software
+### 18. Provide a third contribution using third-party software
 
 ```sh
 snarkjs zkey export bellman circuit_0002.zkey  challenge_phase2_0003
@@ -399,7 +410,7 @@ snarkjs zkey verify circuit.r1cs pot14_final.ptau circuit_0003.zkey
 
 The `zkey verify` command verifies a `zkey` file. It also prints the hashes of all the intermediary results to the console.
 
-We verify the `zkey` file we created in the previous step.  Which means we check all the contributions to the second phase of the multi-party computation (MPC) up to that point.
+We verify the `zkey` file we created in the previous step, which means we check all the contributions to the second phase of the multi-party computation (MPC) up to that point.
 
 This command also checks that the `zkey` file matches the circuit.
 
@@ -416,7 +427,7 @@ snarkjs zkey beacon circuit_0003.zkey circuit_final.zkey 0102030405060708090a0b0
 
 The `zkey beacon` command creates a `zkey` file with a contribution applied in the form of a random beacon.
 
-We use it to apply a random beacon to the latest `zkey` after the final contribution has been made (this is necessary in order to generate a final `zkey` file and finalise phase 2 of the trusted setup).
+We use it to apply a random beacon to the latest `zkey` after the final contribution has been made (this is necessary to generate a final `zkey` file and finalize phase 2 of the trusted setup).
 
 ### 21. Verify the final `zkey`
 ```sh
@@ -452,17 +463,28 @@ snarkjs fflonk prove circuit.zkey witness.wtns proof.json public.json
 snarkjs groth16 prove circuit_final.zkey witness.wtns proof.json public.json
 ```
 
-We create the proof. this command generates the files `proof.json` and `public.json`: `proof.json` contains the actual proof, whereas `public.json` contains the values of the public inputs and output.
+We create the proof. This command generates the files `proof.json` and `public.json`: 
+- `proof.json` contains the actual proof.
+- `public.json` contains the values of the public inputs and output.
 
-> Note that it's also possible to create the proof and calculate the witness in the same command by running:
-> ```sh
-> snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json public.json
-> or
-> snarkjs plonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
-> or
-> snarkjs fflonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
-> > ```
+### 23a. Calculate the witness and generate the proof in one step
 
+Note that it's also possible to create the proof and calculate the witness in the same command by running:
+
+#### PLONK
+```sh
+snarkjs plonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+```
+
+#### FFLONK
+```sh
+snarkjs fflonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+```
+
+#### Groth16
+```sh
+snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json public.json
+```
 
 ### 24. Verify the proof
 
@@ -491,14 +513,14 @@ If all is well, you should see that `OK` has been outputted to your console. Thi
 snarkjs zkey export solidityverifier circuit_final.zkey verifier.sol
 ```
 
-Finally, we export the verifier as a Solidity smart-contract so that we can publish it on-chain -- using [remix](https://remix.ethereum.org/) for example. For the details on how to do this, refer to section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
+Finally, we export the verifier as a Solidity smart contract so that we can publish it on-chain -- using [remix](https://remix.ethereum.org/) for example. For details on how to do this, refer to section 4 of [this tutorial](https://blog.iden3.io/first-zk-proof.html).
 
 ### 26. Simulate a verification call
 ```sh
 snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
-We use `soliditycalldata` to simulate a verification call, and cut and paste the result directly in the verifyProof field in the deployed smart contract in the remix environment.
+We use `soliditycalldata` to simulate a verification call and cut-and-paste the result directly into the verifyProof field in the deployed smart contract in the remix environment.
 
 And voila! That's all there is to it :)
 
@@ -600,7 +622,7 @@ async function calculateProof() {
 
 ## Security
 
-Avoid using versions before v0.4.16. They contain bugs that may affect the security.
+We advise using the latest version of snarkjs as previous versions may contain bugs and security issues.
 
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
