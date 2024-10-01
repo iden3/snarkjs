@@ -61,7 +61,7 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
         logger.info("  WITNESS CHECK");
         logger.info(`  Curve:          ${r1cs.curve.name}`);
         logger.info(`  Vars (wires):   ${r1cs.nVars}`);
-        logger.info(`  Ouputs:         ${r1cs.nOutputs}`);
+        logger.info(`  Outputs:        ${r1cs.nOutputs}`);
         logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
         logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
         logger.info(`  Labels:         ${r1cs.nLabels}`);

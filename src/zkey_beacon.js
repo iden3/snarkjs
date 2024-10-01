@@ -38,7 +38,7 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -124,9 +124,9 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
     const contributionHasher = Blake2b(64);
     utils.hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
-    if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(misc.formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }

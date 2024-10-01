@@ -51,9 +51,9 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     // csHash
     newMPCParams.csHash =  await fdMPCParams.read(64);
 
-    const nConttributions = await fdMPCParams.readUBE32();
+    const nContributions = await fdMPCParams.readUBE32();
     newMPCParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1(fdMPCParams);
         c.delta.g1_s = await readG1(fdMPCParams);
@@ -85,13 +85,13 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
     for (let i=0; i<oldMPCParams.contributions.length; i++) {
         if (!contributionIsEqual(oldMPCParams.contributions[i], newMPCParams.contributions[i])) {
-            if (logger) logger.error(`Previos contribution ${i} does not match`);
+            if (logger) logger.error(`Previous contribution ${i} does not match`);
             return false;
         }
     }
 
 
-    // Set the same name to all new controbutions
+    // Set the same name to all new contributions
     if (name) {
         for (let i=oldMPCParams.contributions.length; i<newMPCParams.contributions.length; i++) {
             newMPCParams.contributions[i].name = name;
@@ -144,7 +144,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     await fdZKeyNew.write(buffH);
     await binFileUtils.endWriteSection(fdZKeyNew);
 
-    // C Secion (L section)
+    // C Section (L section)
     const nL = await fdMPCParams.readUBE32();
     if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
         if (logger) logger.error("Invalid number of points in L");
