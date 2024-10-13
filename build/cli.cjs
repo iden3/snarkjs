@@ -436,7 +436,7 @@ async function r1csExportJson(r1csFileName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const __dirname$2 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$2 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT' && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 let pkgS;
 try {
@@ -769,37 +769,41 @@ const bn128r = ffjavascript.Scalar.e("218882428718392752222464057452572750885483
 const bls12381q = ffjavascript.Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
 const bn128q = ffjavascript.Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 
-async function getCurveFromR(r) {
+async function getCurveFromR(r, options) {
     let curve;
+    // check that options param is defined and that options.singleThread is defined
+    let singleThread = options && options.singleThread;
     if (ffjavascript.Scalar.eq(r, bn128r)) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (ffjavascript.Scalar.eq(r, bls12381r)) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(r)}`);
     }
     return curve;
 }
 
-async function getCurveFromQ(q) {
+async function getCurveFromQ(q, options) {
     let curve;
+    let singleThread = options && options.singleThread;
     if (ffjavascript.Scalar.eq(q, bn128q)) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (ffjavascript.Scalar.eq(q, bls12381q)) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(q)}`);
     }
     return curve;
 }
 
-async function getCurveFromName(name) {
+async function getCurveFromName(name, options) {
     let curve;
+    let singleThread = options && options.singleThread;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (["BLS12381"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${name}`);
     }
@@ -3814,7 +3818,7 @@ async function readG2(fd, curve, toObject) {
 }
 
 
-async function readHeader$1(fd, sections, toObject) {
+async function readHeader$1(fd, sections, toObject, options) {
     // Read Header
     /////////////////////
     await binFileUtils__namespace.startReadUniqueSection(fd, sections, 1);
@@ -3822,11 +3826,11 @@ async function readHeader$1(fd, sections, toObject) {
     await binFileUtils__namespace.endReadSection(fd);
 
     if (protocolId === GROTH16_PROTOCOL_ID) {
-        return await readHeaderGroth16(fd, sections, toObject);
+        return await readHeaderGroth16(fd, sections, toObject, options);
     } else if (protocolId === PLONK_PROTOCOL_ID) {
-        return await readHeaderPlonk(fd, sections, toObject);
+        return await readHeaderPlonk(fd, sections, toObject, options);
     } else if (protocolId === FFLONK_PROTOCOL_ID) {
-        return await readHeaderFFlonk(fd, sections, toObject);
+        return await readHeaderFFlonk(fd, sections, toObject, options);
     } else {
         throw new Error("Protocol not supported: ");
     }
@@ -3835,7 +3839,7 @@ async function readHeader$1(fd, sections, toObject) {
 
 
 
-async function readHeaderGroth16(fd, sections, toObject) {
+async function readHeaderGroth16(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "groth16";
@@ -3850,7 +3854,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -3867,7 +3871,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 }
 
-async function readHeaderPlonk(fd, sections, toObject) {
+async function readHeaderPlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "plonk";
@@ -3882,7 +3886,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -3907,7 +3911,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     return zkey;
 }
 
-async function readHeaderFFlonk(fd, sections, toObject) {
+async function readHeaderFFlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "fflonk";
@@ -3917,7 +3921,7 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
     zkey.q = await binFileUtils__namespace.readBigInt(fd, n8q);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
@@ -5696,14 +5700,14 @@ async function read(fileName) {
 */
 const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
 
-async function groth16Prove$1(zkeyFileName, witnessFileName, logger) {
+async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await readHeader$1(fdZKey, sectionsZKey);
+    const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
 
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -6109,14 +6113,14 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
 */
 const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
-async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
+async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$9(_input);
 
     const wtns= {
         type: "mem"
     };
     await wtnsCalculate$1(input, wasmFile, wtns, wtnsCalcOptions);
-    return await groth16Prove$1(zkeyFileName, wtns, logger);
+    return await groth16Prove$1(zkeyFileName, wtns, logger, proverOptions);
 }
 
 /*
@@ -8140,7 +8144,7 @@ class Evaluations {
 */
 const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
     
-async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
+async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     // Read witness file
@@ -8151,7 +8155,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     if (logger) logger.debug("> Reading zkey file");
     const {fd: fdZKey, sections: zkeySections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await readHeader$1(fdZKey, zkeySections);
+    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
         throw new Error("zkey file is not plonk");
     }
@@ -9004,14 +9008,14 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
-async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions) {
+async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$6(_input);
 
     const wtns= {
         type: "mem"
     };
     await wtnsCalculate$1(input, wasmFile, wtns, wtnsCalcOptions);
-    return await plonk16Prove(zkeyFileName, wtns, logger);
+    return await plonk16Prove(zkeyFileName, wtns, logger, proverOptions);
 }
 
 /*
@@ -10315,7 +10319,7 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
 const { stringifyBigInts: stringifyBigInts$1 } = ffjavascript.utils;
 
 
-async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
+async function fflonkProve$1(zkeyFileName, witnessFileName, logger, options) {
     if (logger) logger.info("FFLONK PROVER STARTED");
 
     // Read witness file
@@ -10332,7 +10336,8 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
         fd: fdZKey,
         sections: zkeySections
     } = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
-    const zkey = await readHeader$1(fdZKey, zkeySections);
+
+    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not fflonk");
@@ -11569,7 +11574,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
-async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions) {
+async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$3(_input);
 
     const wtns= {type: "mem"};
@@ -11578,7 +11583,7 @@ async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtn
     await wtnsCalculate$1(input, wasmFilename, wtns, wtnsCalcOptions);
 
     // Compute the proof
-    return await fflonkProve$1(zkeyFilename, wtns, logger);
+    return await fflonkProve$1(zkeyFilename, wtns, logger, proverOptions);
 }
 
 /*
@@ -12489,7 +12494,7 @@ const {stringifyBigInts} = ffjavascript.utils;
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp: false});
 Logger__default["default"].setLogLevel("INFO");
 
-const __dirname$1 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$1 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT' && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 const commands = [
     {
