@@ -14,7 +14,7 @@ const server = http
     .listen(1337);
 
 const browser = await puppeteer.launch({
-    headless: "new",
+    headless: true,
     args: [
         // Necessary to have WebCrypto on localhost
         "--allow-insecure-localhost",
