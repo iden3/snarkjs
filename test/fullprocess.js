@@ -124,6 +124,14 @@ describe("Full process", function ()  {
         publicSignalsWithAlias[1] = BigInt(res.publicSignals[1]) + 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     });
 
+    it ("groth16 verify", async () => {
+        const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
+        assert(res == true);
+
+        const res2 = await snarkjs.groth16.verify(vKey, publicSignalsWithAlias, proof);
+        assert(res2 == false);
+    });
+
     it ("groth16 proof singleThreaded", async () => {
         const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, {singleThread: true});
         proof = res.proof;
@@ -132,7 +140,7 @@ describe("Full process", function ()  {
         publicSignalsWithAlias[1] = BigInt(res.publicSignals[1]) + 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     });
 
-    it ("groth16 verify", async () => {
+    it ("groth16 verify (proof singleThreaded)", async () => {
         const res = await snarkjs.groth16.verify(vKey, publicSignals, proof);
         assert(res == true);
 
