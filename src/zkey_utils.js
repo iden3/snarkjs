@@ -205,7 +205,7 @@ async function readG2(fd, curve, toObject) {
 }
 
 
-export async function readHeader(fd, sections, toObject) {
+export async function readHeader(fd, sections, toObject, options) {
     // Read Header
     /////////////////////
     await binFileUtils.startReadUniqueSection(fd, sections, 1);
@@ -213,11 +213,11 @@ export async function readHeader(fd, sections, toObject) {
     await binFileUtils.endReadSection(fd);
 
     if (protocolId === GROTH16_PROTOCOL_ID) {
-        return await readHeaderGroth16(fd, sections, toObject);
+        return await readHeaderGroth16(fd, sections, toObject, options);
     } else if (protocolId === PLONK_PROTOCOL_ID) {
-        return await readHeaderPlonk(fd, sections, toObject);
+        return await readHeaderPlonk(fd, sections, toObject, options);
     } else if (protocolId === FFLONK_PROTOCOL_ID) {
-        return await readHeaderFFlonk(fd, sections, toObject);
+        return await readHeaderFFlonk(fd, sections, toObject, options);
     } else {
         throw new Error("Protocol not supported: ");
     }
@@ -226,7 +226,7 @@ export async function readHeader(fd, sections, toObject) {
 
 
 
-async function readHeaderGroth16(fd, sections, toObject) {
+async function readHeaderGroth16(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "groth16";
@@ -241,7 +241,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils.readBigInt(fd, n8r);
-    zkey.curve = await getCurve(zkey.q);
+    zkey.curve = await getCurve(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -258,7 +258,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 }
 
-async function readHeaderPlonk(fd, sections, toObject) {
+async function readHeaderPlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "plonk";
@@ -273,7 +273,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils.readBigInt(fd, n8r);
-    zkey.curve = await getCurve(zkey.q);
+    zkey.curve = await getCurve(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -298,7 +298,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     return zkey;
 }
 
-async function readHeaderFFlonk(fd, sections, toObject) {
+async function readHeaderFFlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "fflonk";
@@ -308,7 +308,7 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
     zkey.q = await binFileUtils.readBigInt(fd, n8q);
-    zkey.curve = await getCurve(zkey.q);
+    zkey.curve = await getCurve(zkey.q, options);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
