@@ -14,12 +14,15 @@ const server = http
     .listen(1337);
 
 const browser = await puppeteer.launch({
-    headless: "new",
+    headless: true,
     args: [
         // Necessary to have WebCrypto on localhost
         "--allow-insecure-localhost",
         // Necessary to download the PTAU file from AWS within the tests
-        "--disable-web-security"
+        "--disable-web-security",
+        // Disable the sandbox to run in GHA
+        "--no-sandbox",
+
     ],
 });
 const page = await browser.newPage();
