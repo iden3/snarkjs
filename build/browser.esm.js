@@ -872,8 +872,8 @@ class BigMemFile {
     }
 }
 
-const O_TRUNC = 512;
-const O_CREAT = 64;
+const O_TRUNC = 1024;
+const O_CREAT = 512;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
@@ -3439,6 +3439,9 @@ async function builder(code, options) {
                 "memory": memory
             },
             runtime: {
+                printDebug : function(value) {
+                    console.log("printDebug:", value);
+                },
                 exceptionHandler: function (code) {
                     let err;
                     if (code === 1) {
