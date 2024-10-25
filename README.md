@@ -624,6 +624,31 @@ async function calculateProof() {
 
 We advise using the latest version of snarkjs as previous versions may contain bugs and security issues.
 
+## Common Issues
+
+### Multithreading with Worker Threads is not available in my execution environment
+
+This happens in Bun, browser extensions, SES envs, etc.
+
+You can switch to singlethreaded proof calculation using the following code:
+
+```javascript
+const result = await snarkjs.groth16.prove(zkey_final, wtns, undefined, {singleThread: true});
+```
+
+### Control initial memory allocation in witness calculator
+
+To minimize amount of memory allocated on the web you could pass a following option:
+
+```javascript
+await wtnsCalculate(input, wasmFile, wtns, {memorySize: 0});
+```
+
+### Issues with Web Pack
+
+
+
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
