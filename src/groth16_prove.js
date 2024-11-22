@@ -200,7 +200,7 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
             coeffsDV.push(new DataView(coeffs.buffers[i].buffer));
         }
         getUint32 = function (pos) {
-            return coeffsDV[Math.floor(pos/PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
+            return coeffsDV[~~(pos/PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
         };
     } else {
         const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
@@ -209,12 +209,12 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         };
     }
 
-    const elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
+    const elementsPerChunk = ~~(zkey.domainSize/concurrency);
     const promises = [];
 
     const cutPoints = [];
     for (let i=0; i<concurrency; i++) {
-        cutPoints.push( getCutPoint( Math.floor(i*elementsPerChunk) ));
+        cutPoints.push( getCutPoint( ~~(i*elementsPerChunk) ));
     }
     cutPoints.push(coeffs.byteLength);
 
@@ -302,7 +302,7 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         let m = 0;
         let n = getUint32(0);
         while (m < n) {
-            var k = Math.floor((n + m) / 2);
+            var k = ~~((n + m) / 2);
             const va = getUint32(4 + k*sCoef + 4);
             if (va > v) {
                 n = k - 1;
@@ -321,7 +321,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     const MAX_CHUNK_SIZE = 1 << 22;
 
     const n8 = curve.Fr.n8;
-    const nElements = Math.floor(a.byteLength / curve.Fr.n8);
+    const nElements = ~~(a.byteLength / curve.Fr.n8);
 
     const promises = [];
 
