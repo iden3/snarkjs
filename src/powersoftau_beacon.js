@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import Blake2b from "blake2b-wasm";
+import { blake2b } from '@noble/hashes/blake2b';
 import * as utils from "./powersoftau_utils.js";
 import * as misc from "./misc.js";
 import * as binFileUtils from "@iden3/binfileutils";
@@ -41,8 +41,6 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
         return false;
     }
 
-
-    await Blake2b.ready();
 
     const {fd: fdOld, sections} = await binFileUtils.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await utils.readPTauHeader(fdOld, sections);
@@ -71,7 +69,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
 
     curContribution.key = await utils.keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = new Blake2b(64);
+    const responseHasher = blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -91,7 +89,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.partialHash = responseHasher.getPartialHash();
+    curContribution.partialHash = misc.toPartialHash(responseHasher);
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
@@ -102,7 +100,7 @@ export default async function beacon(oldPtauFilename, newPTauFilename, name,  be
 
     if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b(64);
+    const nextChallengeHasher = blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);

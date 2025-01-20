@@ -36,15 +36,13 @@
 //          G2*up*beta (compressed)
 
 import * as fastFile from "fastfile";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from '@noble/hashes/blake2b';
 import * as utils from "./powersoftau_utils.js";
 import * as misc from "./misc.js";
 import { applyKeyToChallengeSection } from "./mpc_applykey.js";
 import * as keyPair from "./keypair.js";
 
 export default async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    await Blake2b.ready();
-
     const fdFrom = await fastFile.readExisting(challengeFilename);
 
 
@@ -66,7 +64,7 @@ export default async function challengeContribute(curve, challengeFilename, resp
     const fdTo = await fastFile.createOverride(responseFileName);
 
     // Calculate the hash
-    const challengeHasher = Blake2b(64);
+    const challengeHasher = blake2b.create({ dkLen: 64 });
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -92,7 +90,7 @@ export default async function challengeContribute(curve, challengeFilename, resp
         });
     }
 
-    const responseHasher = Blake2b(64);
+    const responseHasher = blake2b.create({ dkLen: 64 });
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);

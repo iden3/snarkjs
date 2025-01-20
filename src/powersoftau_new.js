@@ -67,12 +67,10 @@ contributions(7)
 
 import * as ptauUtils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from '@noble/hashes/blake2b';
 import * as misc from "./misc.js";
 
 export default async function newAccumulator(curve, power, fileName, logger) {
-
-    await Blake2b.ready();
 
     const fd = await binFileUtils.createBinFile(fileName, "ptau", 1, 7);
 
@@ -137,7 +135,7 @@ export default async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = ptauUtils.calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(misc.formatHash(Blake2b(64).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(misc.formatHash(blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(misc.formatHash(firstChallengeHash, "First Contribution Hash:"));
 

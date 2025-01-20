@@ -18,7 +18,7 @@
 */
 
 import { Scalar } from "ffjavascript";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from '@noble/hashes/blake2b';
 import * as keyPair from "./keypair.js";
 import * as misc from "./misc.js";
 import { getCurveFromQ } from "./curves.js";
@@ -176,8 +176,7 @@ async function readContribution(fd, curve) {
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
     toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
 
-    const responseHasher = Blake2b(64);
-    responseHasher.setPartialHash(c.partialHash);
+    const responseHasher =  misc.fromPartialHash(c.partialHash);
     responseHasher.update(buffV);
     c.responseHash = responseHasher.digest();
 
@@ -313,14 +312,14 @@ export async function writeContributions(fd, curve, contributions) {
 export function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = new Blake2b(64);
+    const hasher = blake2b.create({ dkLen: 64 });
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(Blake2b(64).digest());
+    hasher.update(blake2b.create({ dkLen: 64 }).digest());
 
     let n;
 

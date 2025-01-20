@@ -18,8 +18,7 @@
 */
 
 import {Scalar} from "ffjavascript";
-import jsSha3 from "js-sha3";
-const { keccak256 } = jsSha3;
+import {keccak_256} from '@noble/hashes/sha3';
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -67,7 +66,7 @@ export class Keccak256Transcript {
             }
         }
 
-        const value = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = Scalar.fromRprBE(keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
