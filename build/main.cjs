@@ -11,7 +11,7 @@ var fastFile = require('fastfile');
 var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
 var ejs = require('ejs');
-var jsSha3 = require('js-sha3');
+var sha3 = require('@noble/hashes/sha3');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -39,7 +39,6 @@ var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
-var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
 
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -6983,7 +6982,6 @@ class Proof {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const { keccak256 } = jsSha3__default["default"];
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -7031,7 +7029,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
         return this.Fr.e(value);
     }
 }

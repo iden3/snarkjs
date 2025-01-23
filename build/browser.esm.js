@@ -872,8 +872,8 @@ class BigMemFile {
     }
 }
 
-const O_TRUNC = 1024;
-const O_CREAT = 512;
+const O_TRUNC = 512;
+const O_CREAT = 64;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
@@ -1141,8 +1141,6 @@ var curves = /*#__PURE__*/Object.freeze({
     getCurveFromQ: getCurveFromQ,
     getCurveFromName: getCurveFromName
 });
-
-var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
 var blake2bWasm = {exports: {}};
 
@@ -10004,662 +10002,333 @@ class Proof {
     }
 }
 
-var sha3 = {exports: {}};
+/**
+ * Internal assertion helpers.
+ * @module
+ */
+/** Asserts something is positive integer. */
+function anumber(n) {
+    if (!Number.isSafeInteger(n) || n < 0)
+        throw new Error('positive integer expected, got ' + n);
+}
+/** Is number an Uint8Array? Copied from utils for perf. */
+function isBytes(a) {
+    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
+}
+/** Asserts something is Uint8Array. */
+function abytes(b, ...lengths) {
+    if (!isBytes(b))
+        throw new Error('Uint8Array expected');
+    if (lengths.length > 0 && !lengths.includes(b.length))
+        throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
+}
+/** Asserts a hash instance has not been destroyed / finished */
+function aexists(instance, checkFinished = true) {
+    if (instance.destroyed)
+        throw new Error('Hash instance has been destroyed');
+    if (checkFinished && instance.finished)
+        throw new Error('Hash#digest() has already been called');
+}
+/** Asserts output is properly-sized byte array */
+function aoutput(out, instance) {
+    abytes(out);
+    const min = instance.outputLen;
+    if (out.length < min) {
+        throw new Error('digestInto() expects output buffer of length at least ' + min);
+    }
+}
 
 /**
- * [js-sha3]{@link https://github.com/emn178/js-sha3}
- *
- * @version 0.8.0
- * @author Chen, Yi-Cyuan [emn178@gmail.com]
- * @copyright Chen, Yi-Cyuan 2015-2018
- * @license MIT
+ * Internal helpers for u64. BigUint64Array is too slow as per 2025, so we implement it using Uint32Array.
+ * @todo re-check https://issues.chromium.org/issues/42212588
+ * @module
  */
+const U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
+const _32n = /* @__PURE__ */ BigInt(32);
+function fromBig(n, le = false) {
+    if (le)
+        return { h: Number(n & U32_MASK64), l: Number((n >> _32n) & U32_MASK64) };
+    return { h: Number((n >> _32n) & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
+}
+function split(lst, le = false) {
+    let Ah = new Uint32Array(lst.length);
+    let Al = new Uint32Array(lst.length);
+    for (let i = 0; i < lst.length; i++) {
+        const { h, l } = fromBig(lst[i], le);
+        [Ah[i], Al[i]] = [h, l];
+    }
+    return [Ah, Al];
+}
+// Left rotate for Shift in [1, 32)
+const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
+const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
+// Left rotate for Shift in (32, 64), NOTE: 32 is special case.
+const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
+const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
 
-(function (module) {
-	/*jslint bitwise: true */
-	(function () {
+/**
+ * Utilities for hex, bytes, CSPRNG.
+ * @module
+ */
+function u32(arr) {
+    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
+}
+/** Is current platform little-endian? Most are. Big-Endian platform: IBM */
+const isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44)();
+// The byte swap operation for uint32
+function byteSwap(word) {
+    return (((word << 24) & 0xff000000) |
+        ((word << 8) & 0xff0000) |
+        ((word >>> 8) & 0xff00) |
+        ((word >>> 24) & 0xff));
+}
+/** In place byte swap for Uint32Array */
+function byteSwap32(arr) {
+    for (let i = 0; i < arr.length; i++) {
+        arr[i] = byteSwap(arr[i]);
+    }
+}
+/**
+ * Convert JS string to byte array.
+ * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
+ */
+function utf8ToBytes(str) {
+    if (typeof str !== 'string')
+        throw new Error('utf8ToBytes expected string, got ' + typeof str);
+    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
+}
+/**
+ * Normalizes (non-hex) string or Uint8Array to Uint8Array.
+ * Warning: when Uint8Array is passed, it would NOT get copied.
+ * Keep in mind for future mutable operations.
+ */
+function toBytes(data) {
+    if (typeof data === 'string')
+        data = utf8ToBytes(data);
+    abytes(data);
+    return data;
+}
+/** For runtime check if class implements interface */
+class Hash {
+    // Safe version that clones internal state
+    clone() {
+        return this._cloneInto();
+    }
+}
+/** Wraps hash function, creating an interface on top of it */
+function wrapConstructor(hashCons) {
+    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
+    const tmp = hashCons();
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = () => hashCons();
+    return hashC;
+}
 
-	  var INPUT_ERROR = 'input is invalid type';
-	  var FINALIZE_ERROR = 'finalize already called';
-	  var WINDOW = typeof window === 'object';
-	  var root = WINDOW ? window : {};
-	  if (root.JS_SHA3_NO_WINDOW) {
-	    WINDOW = false;
-	  }
-	  var WEB_WORKER = !WINDOW && typeof self === 'object';
-	  var NODE_JS = !root.JS_SHA3_NO_NODE_JS && typeof process === 'object' && process.versions && process.versions.node;
-	  if (NODE_JS) {
-	    root = commonjsGlobal;
-	  } else if (WEB_WORKER) {
-	    root = self;
-	  }
-	  var COMMON_JS = !root.JS_SHA3_NO_COMMON_JS && 'object' === 'object' && module.exports;
-	  var ARRAY_BUFFER = !root.JS_SHA3_NO_ARRAY_BUFFER && typeof ArrayBuffer !== 'undefined';
-	  var HEX_CHARS = '0123456789abcdef'.split('');
-	  var SHAKE_PADDING = [31, 7936, 2031616, 520093696];
-	  var CSHAKE_PADDING = [4, 1024, 262144, 67108864];
-	  var KECCAK_PADDING = [1, 256, 65536, 16777216];
-	  var PADDING = [6, 1536, 393216, 100663296];
-	  var SHIFT = [0, 8, 16, 24];
-	  var RC = [1, 0, 32898, 0, 32906, 2147483648, 2147516416, 2147483648, 32907, 0, 2147483649,
-	    0, 2147516545, 2147483648, 32777, 2147483648, 138, 0, 136, 0, 2147516425, 0,
-	    2147483658, 0, 2147516555, 0, 139, 2147483648, 32905, 2147483648, 32771,
-	    2147483648, 32770, 2147483648, 128, 2147483648, 32778, 0, 2147483658, 2147483648,
-	    2147516545, 2147483648, 32896, 2147483648, 2147483649, 0, 2147516424, 2147483648];
-	  var BITS = [224, 256, 384, 512];
-	  var SHAKE_BITS = [128, 256];
-	  var OUTPUT_TYPES = ['hex', 'buffer', 'arrayBuffer', 'array', 'digest'];
-	  var CSHAKE_BYTEPAD = {
-	    '128': 168,
-	    '256': 136
-	  };
-
-	  if (root.JS_SHA3_NO_NODE_JS || !Array.isArray) {
-	    Array.isArray = function (obj) {
-	      return Object.prototype.toString.call(obj) === '[object Array]';
-	    };
-	  }
-
-	  if (ARRAY_BUFFER && (root.JS_SHA3_NO_ARRAY_BUFFER_IS_VIEW || !ArrayBuffer.isView)) {
-	    ArrayBuffer.isView = function (obj) {
-	      return typeof obj === 'object' && obj.buffer && obj.buffer.constructor === ArrayBuffer;
-	    };
-	  }
-
-	  var createOutputMethod = function (bits, padding, outputType) {
-	    return function (message) {
-	      return new Keccak(bits, padding, bits).update(message)[outputType]();
-	    };
-	  };
-
-	  var createShakeOutputMethod = function (bits, padding, outputType) {
-	    return function (message, outputBits) {
-	      return new Keccak(bits, padding, outputBits).update(message)[outputType]();
-	    };
-	  };
-
-	  var createCshakeOutputMethod = function (bits, padding, outputType) {
-	    return function (message, outputBits, n, s) {
-	      return methods['cshake' + bits].update(message, outputBits, n, s)[outputType]();
-	    };
-	  };
-
-	  var createKmacOutputMethod = function (bits, padding, outputType) {
-	    return function (key, message, outputBits, s) {
-	      return methods['kmac' + bits].update(key, message, outputBits, s)[outputType]();
-	    };
-	  };
-
-	  var createOutputMethods = function (method, createMethod, bits, padding) {
-	    for (var i = 0; i < OUTPUT_TYPES.length; ++i) {
-	      var type = OUTPUT_TYPES[i];
-	      method[type] = createMethod(bits, padding, type);
-	    }
-	    return method;
-	  };
-
-	  var createMethod = function (bits, padding) {
-	    var method = createOutputMethod(bits, padding, 'hex');
-	    method.create = function () {
-	      return new Keccak(bits, padding, bits);
-	    };
-	    method.update = function (message) {
-	      return method.create().update(message);
-	    };
-	    return createOutputMethods(method, createOutputMethod, bits, padding);
-	  };
-
-	  var createShakeMethod = function (bits, padding) {
-	    var method = createShakeOutputMethod(bits, padding, 'hex');
-	    method.create = function (outputBits) {
-	      return new Keccak(bits, padding, outputBits);
-	    };
-	    method.update = function (message, outputBits) {
-	      return method.create(outputBits).update(message);
-	    };
-	    return createOutputMethods(method, createShakeOutputMethod, bits, padding);
-	  };
-
-	  var createCshakeMethod = function (bits, padding) {
-	    var w = CSHAKE_BYTEPAD[bits];
-	    var method = createCshakeOutputMethod(bits, padding, 'hex');
-	    method.create = function (outputBits, n, s) {
-	      if (!n && !s) {
-	        return methods['shake' + bits].create(outputBits);
-	      } else {
-	        return new Keccak(bits, padding, outputBits).bytepad([n, s], w);
-	      }
-	    };
-	    method.update = function (message, outputBits, n, s) {
-	      return method.create(outputBits, n, s).update(message);
-	    };
-	    return createOutputMethods(method, createCshakeOutputMethod, bits, padding);
-	  };
-
-	  var createKmacMethod = function (bits, padding) {
-	    var w = CSHAKE_BYTEPAD[bits];
-	    var method = createKmacOutputMethod(bits, padding, 'hex');
-	    method.create = function (key, outputBits, s) {
-	      return new Kmac(bits, padding, outputBits).bytepad(['KMAC', s], w).bytepad([key], w);
-	    };
-	    method.update = function (key, message, outputBits, s) {
-	      return method.create(key, outputBits, s).update(message);
-	    };
-	    return createOutputMethods(method, createKmacOutputMethod, bits, padding);
-	  };
-
-	  var algorithms = [
-	    { name: 'keccak', padding: KECCAK_PADDING, bits: BITS, createMethod: createMethod },
-	    { name: 'sha3', padding: PADDING, bits: BITS, createMethod: createMethod },
-	    { name: 'shake', padding: SHAKE_PADDING, bits: SHAKE_BITS, createMethod: createShakeMethod },
-	    { name: 'cshake', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createCshakeMethod },
-	    { name: 'kmac', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createKmacMethod }
-	  ];
-
-	  var methods = {}, methodNames = [];
-
-	  for (var i = 0; i < algorithms.length; ++i) {
-	    var algorithm = algorithms[i];
-	    var bits = algorithm.bits;
-	    for (var j = 0; j < bits.length; ++j) {
-	      var methodName = algorithm.name + '_' + bits[j];
-	      methodNames.push(methodName);
-	      methods[methodName] = algorithm.createMethod(bits[j], algorithm.padding);
-	      if (algorithm.name !== 'sha3') {
-	        var newMethodName = algorithm.name + bits[j];
-	        methodNames.push(newMethodName);
-	        methods[newMethodName] = methods[methodName];
-	      }
-	    }
-	  }
-
-	  function Keccak(bits, padding, outputBits) {
-	    this.blocks = [];
-	    this.s = [];
-	    this.padding = padding;
-	    this.outputBits = outputBits;
-	    this.reset = true;
-	    this.finalized = false;
-	    this.block = 0;
-	    this.start = 0;
-	    this.blockCount = (1600 - (bits << 1)) >> 5;
-	    this.byteCount = this.blockCount << 2;
-	    this.outputBlocks = outputBits >> 5;
-	    this.extraBytes = (outputBits & 31) >> 3;
-
-	    for (var i = 0; i < 50; ++i) {
-	      this.s[i] = 0;
-	    }
-	  }
-
-	  Keccak.prototype.update = function (message) {
-	    if (this.finalized) {
-	      throw new Error(FINALIZE_ERROR);
-	    }
-	    var notString, type = typeof message;
-	    if (type !== 'string') {
-	      if (type === 'object') {
-	        if (message === null) {
-	          throw new Error(INPUT_ERROR);
-	        } else if (ARRAY_BUFFER && message.constructor === ArrayBuffer) {
-	          message = new Uint8Array(message);
-	        } else if (!Array.isArray(message)) {
-	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(message)) {
-	            throw new Error(INPUT_ERROR);
-	          }
-	        }
-	      } else {
-	        throw new Error(INPUT_ERROR);
-	      }
-	      notString = true;
-	    }
-	    var blocks = this.blocks, byteCount = this.byteCount, length = message.length,
-	      blockCount = this.blockCount, index = 0, s = this.s, i, code;
-
-	    while (index < length) {
-	      if (this.reset) {
-	        this.reset = false;
-	        blocks[0] = this.block;
-	        for (i = 1; i < blockCount + 1; ++i) {
-	          blocks[i] = 0;
-	        }
-	      }
-	      if (notString) {
-	        for (i = this.start; index < length && i < byteCount; ++index) {
-	          blocks[i >> 2] |= message[index] << SHIFT[i++ & 3];
-	        }
-	      } else {
-	        for (i = this.start; index < length && i < byteCount; ++index) {
-	          code = message.charCodeAt(index);
-	          if (code < 0x80) {
-	            blocks[i >> 2] |= code << SHIFT[i++ & 3];
-	          } else if (code < 0x800) {
-	            blocks[i >> 2] |= (0xc0 | (code >> 6)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          } else if (code < 0xd800 || code >= 0xe000) {
-	            blocks[i >> 2] |= (0xe0 | (code >> 12)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          } else {
-	            code = 0x10000 + (((code & 0x3ff) << 10) | (message.charCodeAt(++index) & 0x3ff));
-	            blocks[i >> 2] |= (0xf0 | (code >> 18)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 12) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          }
-	        }
-	      }
-	      this.lastByteIndex = i;
-	      if (i >= byteCount) {
-	        this.start = i - byteCount;
-	        this.block = blocks[blockCount];
-	        for (i = 0; i < blockCount; ++i) {
-	          s[i] ^= blocks[i];
-	        }
-	        f(s);
-	        this.reset = true;
-	      } else {
-	        this.start = i;
-	      }
-	    }
-	    return this;
-	  };
-
-	  Keccak.prototype.encode = function (x, right) {
-	    var o = x & 255, n = 1;
-	    var bytes = [o];
-	    x = x >> 8;
-	    o = x & 255;
-	    while (o > 0) {
-	      bytes.unshift(o);
-	      x = x >> 8;
-	      o = x & 255;
-	      ++n;
-	    }
-	    if (right) {
-	      bytes.push(n);
-	    } else {
-	      bytes.unshift(n);
-	    }
-	    this.update(bytes);
-	    return bytes.length;
-	  };
-
-	  Keccak.prototype.encodeString = function (str) {
-	    var notString, type = typeof str;
-	    if (type !== 'string') {
-	      if (type === 'object') {
-	        if (str === null) {
-	          throw new Error(INPUT_ERROR);
-	        } else if (ARRAY_BUFFER && str.constructor === ArrayBuffer) {
-	          str = new Uint8Array(str);
-	        } else if (!Array.isArray(str)) {
-	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(str)) {
-	            throw new Error(INPUT_ERROR);
-	          }
-	        }
-	      } else {
-	        throw new Error(INPUT_ERROR);
-	      }
-	      notString = true;
-	    }
-	    var bytes = 0, length = str.length;
-	    if (notString) {
-	      bytes = length;
-	    } else {
-	      for (var i = 0; i < str.length; ++i) {
-	        var code = str.charCodeAt(i);
-	        if (code < 0x80) {
-	          bytes += 1;
-	        } else if (code < 0x800) {
-	          bytes += 2;
-	        } else if (code < 0xd800 || code >= 0xe000) {
-	          bytes += 3;
-	        } else {
-	          code = 0x10000 + (((code & 0x3ff) << 10) | (str.charCodeAt(++i) & 0x3ff));
-	          bytes += 4;
-	        }
-	      }
-	    }
-	    bytes += this.encode(bytes * 8);
-	    this.update(str);
-	    return bytes;
-	  };
-
-	  Keccak.prototype.bytepad = function (strs, w) {
-	    var bytes = this.encode(w);
-	    for (var i = 0; i < strs.length; ++i) {
-	      bytes += this.encodeString(strs[i]);
-	    }
-	    var paddingBytes = w - bytes % w;
-	    var zeros = [];
-	    zeros.length = paddingBytes;
-	    this.update(zeros);
-	    return this;
-	  };
-
-	  Keccak.prototype.finalize = function () {
-	    if (this.finalized) {
-	      return;
-	    }
-	    this.finalized = true;
-	    var blocks = this.blocks, i = this.lastByteIndex, blockCount = this.blockCount, s = this.s;
-	    blocks[i >> 2] |= this.padding[i & 3];
-	    if (this.lastByteIndex === this.byteCount) {
-	      blocks[0] = blocks[blockCount];
-	      for (i = 1; i < blockCount + 1; ++i) {
-	        blocks[i] = 0;
-	      }
-	    }
-	    blocks[blockCount - 1] |= 0x80000000;
-	    for (i = 0; i < blockCount; ++i) {
-	      s[i] ^= blocks[i];
-	    }
-	    f(s);
-	  };
-
-	  Keccak.prototype.toString = Keccak.prototype.hex = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var hex = '', block;
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        block = s[i];
-	        hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F] +
-	          HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F] +
-	          HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F] +
-	          HEX_CHARS[(block >> 28) & 0x0F] + HEX_CHARS[(block >> 24) & 0x0F];
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	        i = 0;
-	      }
-	    }
-	    if (extraBytes) {
-	      block = s[i];
-	      hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F];
-	      if (extraBytes > 1) {
-	        hex += HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F];
-	      }
-	      if (extraBytes > 2) {
-	        hex += HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F];
-	      }
-	    }
-	    return hex;
-	  };
-
-	  Keccak.prototype.arrayBuffer = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var bytes = this.outputBits >> 3;
-	    var buffer;
-	    if (extraBytes) {
-	      buffer = new ArrayBuffer((outputBlocks + 1) << 2);
-	    } else {
-	      buffer = new ArrayBuffer(bytes);
-	    }
-	    var array = new Uint32Array(buffer);
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        array[j] = s[i];
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	      }
-	    }
-	    if (extraBytes) {
-	      array[i] = s[i];
-	      buffer = buffer.slice(0, bytes);
-	    }
-	    return buffer;
-	  };
-
-	  Keccak.prototype.buffer = Keccak.prototype.arrayBuffer;
-
-	  Keccak.prototype.digest = Keccak.prototype.array = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var array = [], offset, block;
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        offset = j << 2;
-	        block = s[i];
-	        array[offset] = block & 0xFF;
-	        array[offset + 1] = (block >> 8) & 0xFF;
-	        array[offset + 2] = (block >> 16) & 0xFF;
-	        array[offset + 3] = (block >> 24) & 0xFF;
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	      }
-	    }
-	    if (extraBytes) {
-	      offset = j << 2;
-	      block = s[i];
-	      array[offset] = block & 0xFF;
-	      if (extraBytes > 1) {
-	        array[offset + 1] = (block >> 8) & 0xFF;
-	      }
-	      if (extraBytes > 2) {
-	        array[offset + 2] = (block >> 16) & 0xFF;
-	      }
-	    }
-	    return array;
-	  };
-
-	  function Kmac(bits, padding, outputBits) {
-	    Keccak.call(this, bits, padding, outputBits);
-	  }
-
-	  Kmac.prototype = new Keccak();
-
-	  Kmac.prototype.finalize = function () {
-	    this.encode(this.outputBits, true);
-	    return Keccak.prototype.finalize.call(this);
-	  };
-
-	  var f = function (s) {
-	    var h, l, n, c0, c1, c2, c3, c4, c5, c6, c7, c8, c9,
-	      b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17,
-	      b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33,
-	      b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49;
-	    for (n = 0; n < 48; n += 2) {
-	      c0 = s[0] ^ s[10] ^ s[20] ^ s[30] ^ s[40];
-	      c1 = s[1] ^ s[11] ^ s[21] ^ s[31] ^ s[41];
-	      c2 = s[2] ^ s[12] ^ s[22] ^ s[32] ^ s[42];
-	      c3 = s[3] ^ s[13] ^ s[23] ^ s[33] ^ s[43];
-	      c4 = s[4] ^ s[14] ^ s[24] ^ s[34] ^ s[44];
-	      c5 = s[5] ^ s[15] ^ s[25] ^ s[35] ^ s[45];
-	      c6 = s[6] ^ s[16] ^ s[26] ^ s[36] ^ s[46];
-	      c7 = s[7] ^ s[17] ^ s[27] ^ s[37] ^ s[47];
-	      c8 = s[8] ^ s[18] ^ s[28] ^ s[38] ^ s[48];
-	      c9 = s[9] ^ s[19] ^ s[29] ^ s[39] ^ s[49];
-
-	      h = c8 ^ ((c2 << 1) | (c3 >>> 31));
-	      l = c9 ^ ((c3 << 1) | (c2 >>> 31));
-	      s[0] ^= h;
-	      s[1] ^= l;
-	      s[10] ^= h;
-	      s[11] ^= l;
-	      s[20] ^= h;
-	      s[21] ^= l;
-	      s[30] ^= h;
-	      s[31] ^= l;
-	      s[40] ^= h;
-	      s[41] ^= l;
-	      h = c0 ^ ((c4 << 1) | (c5 >>> 31));
-	      l = c1 ^ ((c5 << 1) | (c4 >>> 31));
-	      s[2] ^= h;
-	      s[3] ^= l;
-	      s[12] ^= h;
-	      s[13] ^= l;
-	      s[22] ^= h;
-	      s[23] ^= l;
-	      s[32] ^= h;
-	      s[33] ^= l;
-	      s[42] ^= h;
-	      s[43] ^= l;
-	      h = c2 ^ ((c6 << 1) | (c7 >>> 31));
-	      l = c3 ^ ((c7 << 1) | (c6 >>> 31));
-	      s[4] ^= h;
-	      s[5] ^= l;
-	      s[14] ^= h;
-	      s[15] ^= l;
-	      s[24] ^= h;
-	      s[25] ^= l;
-	      s[34] ^= h;
-	      s[35] ^= l;
-	      s[44] ^= h;
-	      s[45] ^= l;
-	      h = c4 ^ ((c8 << 1) | (c9 >>> 31));
-	      l = c5 ^ ((c9 << 1) | (c8 >>> 31));
-	      s[6] ^= h;
-	      s[7] ^= l;
-	      s[16] ^= h;
-	      s[17] ^= l;
-	      s[26] ^= h;
-	      s[27] ^= l;
-	      s[36] ^= h;
-	      s[37] ^= l;
-	      s[46] ^= h;
-	      s[47] ^= l;
-	      h = c6 ^ ((c0 << 1) | (c1 >>> 31));
-	      l = c7 ^ ((c1 << 1) | (c0 >>> 31));
-	      s[8] ^= h;
-	      s[9] ^= l;
-	      s[18] ^= h;
-	      s[19] ^= l;
-	      s[28] ^= h;
-	      s[29] ^= l;
-	      s[38] ^= h;
-	      s[39] ^= l;
-	      s[48] ^= h;
-	      s[49] ^= l;
-
-	      b0 = s[0];
-	      b1 = s[1];
-	      b32 = (s[11] << 4) | (s[10] >>> 28);
-	      b33 = (s[10] << 4) | (s[11] >>> 28);
-	      b14 = (s[20] << 3) | (s[21] >>> 29);
-	      b15 = (s[21] << 3) | (s[20] >>> 29);
-	      b46 = (s[31] << 9) | (s[30] >>> 23);
-	      b47 = (s[30] << 9) | (s[31] >>> 23);
-	      b28 = (s[40] << 18) | (s[41] >>> 14);
-	      b29 = (s[41] << 18) | (s[40] >>> 14);
-	      b20 = (s[2] << 1) | (s[3] >>> 31);
-	      b21 = (s[3] << 1) | (s[2] >>> 31);
-	      b2 = (s[13] << 12) | (s[12] >>> 20);
-	      b3 = (s[12] << 12) | (s[13] >>> 20);
-	      b34 = (s[22] << 10) | (s[23] >>> 22);
-	      b35 = (s[23] << 10) | (s[22] >>> 22);
-	      b16 = (s[33] << 13) | (s[32] >>> 19);
-	      b17 = (s[32] << 13) | (s[33] >>> 19);
-	      b48 = (s[42] << 2) | (s[43] >>> 30);
-	      b49 = (s[43] << 2) | (s[42] >>> 30);
-	      b40 = (s[5] << 30) | (s[4] >>> 2);
-	      b41 = (s[4] << 30) | (s[5] >>> 2);
-	      b22 = (s[14] << 6) | (s[15] >>> 26);
-	      b23 = (s[15] << 6) | (s[14] >>> 26);
-	      b4 = (s[25] << 11) | (s[24] >>> 21);
-	      b5 = (s[24] << 11) | (s[25] >>> 21);
-	      b36 = (s[34] << 15) | (s[35] >>> 17);
-	      b37 = (s[35] << 15) | (s[34] >>> 17);
-	      b18 = (s[45] << 29) | (s[44] >>> 3);
-	      b19 = (s[44] << 29) | (s[45] >>> 3);
-	      b10 = (s[6] << 28) | (s[7] >>> 4);
-	      b11 = (s[7] << 28) | (s[6] >>> 4);
-	      b42 = (s[17] << 23) | (s[16] >>> 9);
-	      b43 = (s[16] << 23) | (s[17] >>> 9);
-	      b24 = (s[26] << 25) | (s[27] >>> 7);
-	      b25 = (s[27] << 25) | (s[26] >>> 7);
-	      b6 = (s[36] << 21) | (s[37] >>> 11);
-	      b7 = (s[37] << 21) | (s[36] >>> 11);
-	      b38 = (s[47] << 24) | (s[46] >>> 8);
-	      b39 = (s[46] << 24) | (s[47] >>> 8);
-	      b30 = (s[8] << 27) | (s[9] >>> 5);
-	      b31 = (s[9] << 27) | (s[8] >>> 5);
-	      b12 = (s[18] << 20) | (s[19] >>> 12);
-	      b13 = (s[19] << 20) | (s[18] >>> 12);
-	      b44 = (s[29] << 7) | (s[28] >>> 25);
-	      b45 = (s[28] << 7) | (s[29] >>> 25);
-	      b26 = (s[38] << 8) | (s[39] >>> 24);
-	      b27 = (s[39] << 8) | (s[38] >>> 24);
-	      b8 = (s[48] << 14) | (s[49] >>> 18);
-	      b9 = (s[49] << 14) | (s[48] >>> 18);
-
-	      s[0] = b0 ^ (~b2 & b4);
-	      s[1] = b1 ^ (~b3 & b5);
-	      s[10] = b10 ^ (~b12 & b14);
-	      s[11] = b11 ^ (~b13 & b15);
-	      s[20] = b20 ^ (~b22 & b24);
-	      s[21] = b21 ^ (~b23 & b25);
-	      s[30] = b30 ^ (~b32 & b34);
-	      s[31] = b31 ^ (~b33 & b35);
-	      s[40] = b40 ^ (~b42 & b44);
-	      s[41] = b41 ^ (~b43 & b45);
-	      s[2] = b2 ^ (~b4 & b6);
-	      s[3] = b3 ^ (~b5 & b7);
-	      s[12] = b12 ^ (~b14 & b16);
-	      s[13] = b13 ^ (~b15 & b17);
-	      s[22] = b22 ^ (~b24 & b26);
-	      s[23] = b23 ^ (~b25 & b27);
-	      s[32] = b32 ^ (~b34 & b36);
-	      s[33] = b33 ^ (~b35 & b37);
-	      s[42] = b42 ^ (~b44 & b46);
-	      s[43] = b43 ^ (~b45 & b47);
-	      s[4] = b4 ^ (~b6 & b8);
-	      s[5] = b5 ^ (~b7 & b9);
-	      s[14] = b14 ^ (~b16 & b18);
-	      s[15] = b15 ^ (~b17 & b19);
-	      s[24] = b24 ^ (~b26 & b28);
-	      s[25] = b25 ^ (~b27 & b29);
-	      s[34] = b34 ^ (~b36 & b38);
-	      s[35] = b35 ^ (~b37 & b39);
-	      s[44] = b44 ^ (~b46 & b48);
-	      s[45] = b45 ^ (~b47 & b49);
-	      s[6] = b6 ^ (~b8 & b0);
-	      s[7] = b7 ^ (~b9 & b1);
-	      s[16] = b16 ^ (~b18 & b10);
-	      s[17] = b17 ^ (~b19 & b11);
-	      s[26] = b26 ^ (~b28 & b20);
-	      s[27] = b27 ^ (~b29 & b21);
-	      s[36] = b36 ^ (~b38 & b30);
-	      s[37] = b37 ^ (~b39 & b31);
-	      s[46] = b46 ^ (~b48 & b40);
-	      s[47] = b47 ^ (~b49 & b41);
-	      s[8] = b8 ^ (~b0 & b2);
-	      s[9] = b9 ^ (~b1 & b3);
-	      s[18] = b18 ^ (~b10 & b12);
-	      s[19] = b19 ^ (~b11 & b13);
-	      s[28] = b28 ^ (~b20 & b22);
-	      s[29] = b29 ^ (~b21 & b23);
-	      s[38] = b38 ^ (~b30 & b32);
-	      s[39] = b39 ^ (~b31 & b33);
-	      s[48] = b48 ^ (~b40 & b42);
-	      s[49] = b49 ^ (~b41 & b43);
-
-	      s[0] ^= RC[n];
-	      s[1] ^= RC[n + 1];
-	    }
-	  };
-
-	  if (COMMON_JS) {
-	    module.exports = methods;
-	  } else {
-	    for (i = 0; i < methodNames.length; ++i) {
-	      root[methodNames[i]] = methods[methodNames[i]];
-	    }
-	  }
-	})();
-} (sha3));
-
-var jsSha3 = sha3.exports;
+/**
+ * SHA3 (keccak) hash function, based on a new "Sponge function" design.
+ * Different from older hashes, the internal state is bigger than output size.
+ *
+ * Check out [FIPS-202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf),
+ * [Website](https://keccak.team/keccak.html),
+ * [the differences between SHA-3 and Keccak](https://crypto.stackexchange.com/questions/15727/what-are-the-key-differences-between-the-draft-sha-3-standard-and-the-keccak-sub).
+ *
+ * Check out `sha3-addons` module for cSHAKE, k12, and others.
+ * @module
+ */
+// Various per round constants calculations
+const SHA3_PI = [];
+const SHA3_ROTL = [];
+const _SHA3_IOTA = [];
+const _0n = /* @__PURE__ */ BigInt(0);
+const _1n = /* @__PURE__ */ BigInt(1);
+const _2n = /* @__PURE__ */ BigInt(2);
+const _7n = /* @__PURE__ */ BigInt(7);
+const _256n = /* @__PURE__ */ BigInt(256);
+const _0x71n = /* @__PURE__ */ BigInt(0x71);
+for (let round = 0, R = _1n, x = 1, y = 0; round < 24; round++) {
+    // Pi
+    [x, y] = [y, (2 * x + 3 * y) % 5];
+    SHA3_PI.push(2 * (5 * y + x));
+    // Rotational
+    SHA3_ROTL.push((((round + 1) * (round + 2)) / 2) % 64);
+    // Iota
+    let t = _0n;
+    for (let j = 0; j < 7; j++) {
+        R = ((R << _1n) ^ ((R >> _7n) * _0x71n)) % _256n;
+        if (R & _2n)
+            t ^= _1n << ((_1n << /* @__PURE__ */ BigInt(j)) - _1n);
+    }
+    _SHA3_IOTA.push(t);
+}
+const [SHA3_IOTA_H, SHA3_IOTA_L] = /* @__PURE__ */ split(_SHA3_IOTA, true);
+// Left rotation (without 0, 32, 64)
+const rotlH = (h, l, s) => (s > 32 ? rotlBH(h, l, s) : rotlSH(h, l, s));
+const rotlL = (h, l, s) => (s > 32 ? rotlBL(h, l, s) : rotlSL(h, l, s));
+/** `keccakf1600` internal function, additionally allows to adjust round count. */
+function keccakP(s, rounds = 24) {
+    const B = new Uint32Array(5 * 2);
+    // NOTE: all indices are x2 since we store state as u32 instead of u64 (bigints to slow in js)
+    for (let round = 24 - rounds; round < 24; round++) {
+        // Theta θ
+        for (let x = 0; x < 10; x++)
+            B[x] = s[x] ^ s[x + 10] ^ s[x + 20] ^ s[x + 30] ^ s[x + 40];
+        for (let x = 0; x < 10; x += 2) {
+            const idx1 = (x + 8) % 10;
+            const idx0 = (x + 2) % 10;
+            const B0 = B[idx0];
+            const B1 = B[idx0 + 1];
+            const Th = rotlH(B0, B1, 1) ^ B[idx1];
+            const Tl = rotlL(B0, B1, 1) ^ B[idx1 + 1];
+            for (let y = 0; y < 50; y += 10) {
+                s[x + y] ^= Th;
+                s[x + y + 1] ^= Tl;
+            }
+        }
+        // Rho (ρ) and Pi (π)
+        let curH = s[2];
+        let curL = s[3];
+        for (let t = 0; t < 24; t++) {
+            const shift = SHA3_ROTL[t];
+            const Th = rotlH(curH, curL, shift);
+            const Tl = rotlL(curH, curL, shift);
+            const PI = SHA3_PI[t];
+            curH = s[PI];
+            curL = s[PI + 1];
+            s[PI] = Th;
+            s[PI + 1] = Tl;
+        }
+        // Chi (χ)
+        for (let y = 0; y < 50; y += 10) {
+            for (let x = 0; x < 10; x++)
+                B[x] = s[y + x];
+            for (let x = 0; x < 10; x++)
+                s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
+        }
+        // Iota (ι)
+        s[0] ^= SHA3_IOTA_H[round];
+        s[1] ^= SHA3_IOTA_L[round];
+    }
+    B.fill(0);
+}
+/** Keccak sponge function. */
+class Keccak extends Hash {
+    // NOTE: we accept arguments in bytes instead of bits here.
+    constructor(blockLen, suffix, outputLen, enableXOF = false, rounds = 24) {
+        super();
+        this.blockLen = blockLen;
+        this.suffix = suffix;
+        this.outputLen = outputLen;
+        this.enableXOF = enableXOF;
+        this.rounds = rounds;
+        this.pos = 0;
+        this.posOut = 0;
+        this.finished = false;
+        this.destroyed = false;
+        // Can be passed from user as dkLen
+        anumber(outputLen);
+        // 1600 = 5x5 matrix of 64bit.  1600 bits === 200 bytes
+        // 0 < blockLen < 200
+        if (0 >= this.blockLen || this.blockLen >= 200)
+            throw new Error('Sha3 supports only keccak-f1600 function');
+        this.state = new Uint8Array(200);
+        this.state32 = u32(this.state);
+    }
+    keccak() {
+        if (!isLE)
+            byteSwap32(this.state32);
+        keccakP(this.state32, this.rounds);
+        if (!isLE)
+            byteSwap32(this.state32);
+        this.posOut = 0;
+        this.pos = 0;
+    }
+    update(data) {
+        aexists(this);
+        const { blockLen, state } = this;
+        data = toBytes(data);
+        const len = data.length;
+        for (let pos = 0; pos < len;) {
+            const take = Math.min(blockLen - this.pos, len - pos);
+            for (let i = 0; i < take; i++)
+                state[this.pos++] ^= data[pos++];
+            if (this.pos === blockLen)
+                this.keccak();
+        }
+        return this;
+    }
+    finish() {
+        if (this.finished)
+            return;
+        this.finished = true;
+        const { state, suffix, pos, blockLen } = this;
+        // Do the padding
+        state[pos] ^= suffix;
+        if ((suffix & 0x80) !== 0 && pos === blockLen - 1)
+            this.keccak();
+        state[blockLen - 1] ^= 0x80;
+        this.keccak();
+    }
+    writeInto(out) {
+        aexists(this, false);
+        abytes(out);
+        this.finish();
+        const bufferOut = this.state;
+        const { blockLen } = this;
+        for (let pos = 0, len = out.length; pos < len;) {
+            if (this.posOut >= blockLen)
+                this.keccak();
+            const take = Math.min(blockLen - this.posOut, len - pos);
+            out.set(bufferOut.subarray(this.posOut, this.posOut + take), pos);
+            this.posOut += take;
+            pos += take;
+        }
+        return out;
+    }
+    xofInto(out) {
+        // Sha3/Keccak usage with XOF is probably mistake, only SHAKE instances can do XOF
+        if (!this.enableXOF)
+            throw new Error('XOF is not possible for this instance');
+        return this.writeInto(out);
+    }
+    xof(bytes) {
+        anumber(bytes);
+        return this.xofInto(new Uint8Array(bytes));
+    }
+    digestInto(out) {
+        aoutput(out, this);
+        if (this.finished)
+            throw new Error('digest() was already called');
+        this.writeInto(out);
+        this.destroy();
+        return out;
+    }
+    digest() {
+        return this.digestInto(new Uint8Array(this.outputLen));
+    }
+    destroy() {
+        this.destroyed = true;
+        this.state.fill(0);
+    }
+    _cloneInto(to) {
+        const { blockLen, suffix, outputLen, rounds, enableXOF } = this;
+        to || (to = new Keccak(blockLen, suffix, outputLen, enableXOF, rounds));
+        to.state32.set(this.state32);
+        to.pos = this.pos;
+        to.posOut = this.posOut;
+        to.finished = this.finished;
+        to.rounds = rounds;
+        // Suffix can change in cSHAKE
+        to.suffix = suffix;
+        to.outputLen = outputLen;
+        to.enableXOF = enableXOF;
+        to.destroyed = this.destroyed;
+        return to;
+    }
+}
+const gen = (suffix, blockLen, outputLen) => wrapConstructor(() => new Keccak(blockLen, suffix, outputLen));
+/** keccak-256 hash function. Different from SHA3-256. */
+const keccak_256 = /* @__PURE__ */ gen(0x01, 136, 256 / 8);
 
 /*
     Copyright 2022 iden3 association.
@@ -10679,7 +10348,6 @@ var jsSha3 = sha3.exports;
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const { keccak256 } = jsSha3;
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -10727,7 +10395,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = Scalar.fromRprBE(keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
