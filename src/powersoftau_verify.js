@@ -298,7 +298,7 @@ export default async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         utils.toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher =  misc.fromPartialHash(c.partialHash)
+        const responseHasher =  misc.fromPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
 
