@@ -1892,7 +1892,7 @@ async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher =  fromPartialHash(c.partialHash);
+        const responseHasher =  fromPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
 
