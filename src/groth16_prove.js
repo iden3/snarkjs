@@ -20,7 +20,6 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import { getCurveFromQ as getCurve } from "./curves.js";
 import { log2 } from "./misc.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
@@ -55,50 +54,72 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     if (logger) logger.debug("Reading Wtns");
     const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
-    if (logger) logger.debug("Reading Coeffs");
-    const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
 
-    if (logger) logger.debug("Building ABC");
-    const [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+    let buffPodd_T;
 
-    const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
+    await (async function (){
+        let buffA_T, buffB_T, buffC_T;
+        await (async function (){
+            if (logger) logger.debug("Reading Coeffs");
+            const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
 
-    const buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-    const buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+            if (logger) logger.debug("Building ABC");
+            [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+        })();
 
-    const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
-    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-    const buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+        const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
-    const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
-    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-    const buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+        const buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+        const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
+        const buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
 
-    if (logger) logger.debug("Join ABC");
-    const buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
+        const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+        const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
+        const buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+
+        const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+        const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
+        const buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+
+        if (logger) logger.debug("Join ABC");
+        buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
+    })();
+
 
     let proof = {};
 
-    if (logger) logger.debug("Reading A Points");
-    const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
-    proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
+    await (async function (){
+        if (logger) logger.debug("Reading A Points");
+        const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
+        proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
+    })();
 
-    if (logger) logger.debug("Reading B1 Points");
-    const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
-    let pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
+    let pib1;
+    await (async function (){
+        if (logger) logger.debug("Reading B1 Points");
+        const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
+        pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
+    })();
 
-    if (logger) logger.debug("Reading B2 Points");
-    const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
-    proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
+    await (async function (){
+        if (logger) logger.debug("Reading B2 Points");
+        const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
+        proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
+    })();
 
-    if (logger) logger.debug("Reading C Points");
-    const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
-    proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+    await (async function (){
+        if (logger) logger.debug("Reading C Points");
+        const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
+        proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+    })();
 
-    if (logger) logger.debug("Reading H Points");
-    const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
-    const resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+
+    let resH;
+    await (async function (){
+        if (logger) logger.debug("Reading H Points");
+        const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
+        resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+    })();
 
     const r = curve.Fr.random();
     const s = curve.Fr.random();
