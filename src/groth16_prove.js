@@ -22,9 +22,13 @@ import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
 import { log2 } from "./misc.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
+import os from "os";
 const {stringifyBigInts} = utils;
 
 export default async function groth16Prove(zkeyFileName, witnessFileName, logger) {
+
+    monitorMemoryUsage(50);
+
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
@@ -57,7 +61,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
     let buffPodd_T;
 
-    await (async function (){
+    let abcPromise = (async function (){
         let buffA_T, buffB_T, buffC_T;
         await (async function (){
             if (logger) logger.debug("Reading Coeffs");
@@ -84,30 +88,30 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
     })();
-
+    await abcPromise;
 
     let proof = {};
 
-    await (async function (){
+    let piaPromise = (async function (){
         if (logger) logger.debug("Reading A Points");
         const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
         proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
     })();
 
     let pib1;
-    await (async function (){
+    let pib1Promise = (async function (){
         if (logger) logger.debug("Reading B1 Points");
         const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
         pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
     })();
 
-    await (async function (){
+    let pibPromise = (async function (){
         if (logger) logger.debug("Reading B2 Points");
         const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
         proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
     })();
 
-    await (async function (){
+    let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
         const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
         proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
@@ -115,24 +119,29 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
 
     let resH;
-    await (async function (){
+    let resHPromise = (async function (){
         if (logger) logger.debug("Reading H Points");
         const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
+        await abcPromise;
         resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
     })();
 
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
+    await piaPromise;
     proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
+    await pibPromise;
     proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
     proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
+    await pib1Promise;
     pib1 = G1.add( pib1, zkey.vk_beta_1 );
     pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
+    await Promise.all([picPromise, resHPromise]);
     proof.pi_c = G1.add(proof.pi_c, resH);
 
 
@@ -394,3 +403,20 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     return outBuff;
 }
 
+function memUsage() {
+    const used = process.memoryUsage();
+    console.log(
+        "                                      ",
+        "\x1b[0m Heap Used: \x1b[32m ", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
+        "\x1b[0m Heap Total: \x1b[32m ", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
+        "\x1b[0m RSS: \x1b[32m ", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
+        "\x1b[0m External: \x1b[32m ", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
+        "\x1b[0m ArrBuffers: \x1b[32m ", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(15)
+    );
+}
+
+function monitorMemoryUsage(interval = 5000) {
+    return setInterval(() => {
+        memUsage();
+    }, interval);
+}
