@@ -206,7 +206,6 @@ function publicInputsAreValid(curve, publicInputs) {
 }
 
 function calculatechallenges(curve, proof, publicSignals, vk) {
-    const G1 = curve.G1;
     const Fr = curve.Fr;
     const res = {};
     const transcript = new Keccak256Transcript(curve);
