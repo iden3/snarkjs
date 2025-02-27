@@ -212,8 +212,8 @@ contract PlonkVerifier {
                 }
             }  
 
-            function checkInput() {
-                // Check proof commitments fulfill bn128 curve equation Y^2 = X^3 + 3
+            function checkProofData() {
+                // Check proof commitments belong to the bn128 curve
                 checkPointBelongsToBN128Curve(pA)
                 checkPointBelongsToBN128Curve(pB)
                 checkPointBelongsToBN128Curve(pC)
@@ -224,6 +224,7 @@ contract PlonkVerifier {
                 checkPointBelongsToBN128Curve(pWxi)
                 checkPointBelongsToBN128Curve(pWxiw)
 
+                // Check proof commitments coordinates are in the field
                 checkField(calldataload(pA))
                 checkField(calldataload(add(pA, 32)))
                 checkField(calldataload(pB))
@@ -243,6 +244,7 @@ contract PlonkVerifier {
                 checkField(calldataload(pWxiw))
                 checkField(calldataload(add(pWxiw, 32)))
 
+                // Check proof evaluations are in the field
                 checkField(calldataload(pEval_a))
                 checkField(calldataload(pEval_b))
                 checkField(calldataload(pEval_c))
@@ -734,7 +736,7 @@ contract PlonkVerifier {
             let pMem := mload(0x40)
             mstore(0x40, add(pMem, lastMem))
             
-            checkInput()
+            checkProofData()
             calculateChallenges(pMem, _pubSignals)
             calculateLagrange(pMem)
             calculatePI(pMem, _pubSignals)
