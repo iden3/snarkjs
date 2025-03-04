@@ -169,7 +169,7 @@ contract FflonkVerifier {
     function verifyProof(bytes32[24] calldata proof, uint256[<%- Math.max(nPublic, 1) %>] calldata pubSignals) public view returns (bool) {
         assembly {
             // Computes the inverse of an array of values
-            // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
+            // See https://vitalik.eth.limo/general/2018/07/21/starks_part_3.html in section where explain fields operations
             // To save the inverse to be computed on chain the prover sends the inverse as an evaluation in commits.eval_inv
             function inverseArray(pMem) {
 
@@ -865,7 +865,7 @@ contract FflonkVerifier {
 
             // To divide prime fields the Extended Euclidean Algorithm for computing modular inverses is needed.
             // The Montgomery batch inversion algorithm allow us to compute n inverses reducing to a single one inversion.
-            // More info: https://vitalik.ca/general/2018/07/21/starks_part_3.html
+            // More info: https://vitalik.eth.limo/general/2018/07/21/starks_part_3.html
             // To avoid this single inverse computation on-chain, it has been computed in proving time and send it to the verifier.
             // Therefore, the verifier:
             //      1) Prepare all the denominators to inverse
