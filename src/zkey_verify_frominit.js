@@ -23,8 +23,7 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import Blake2b from "blake2b-wasm";
 import * as misc from "./misc.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
-const sameRatio = misc.sameRatio;
-import {hashG1, hashPubKey} from "./zkey_utils.js";
+import { hashG1, hashPubKey } from "./zkey_utils.js";
 import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
 
@@ -62,13 +61,13 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
         const delta_g2_sp = hashToG2(curve, c.transcript);
 
-        sr = await sameRatio(curve, c.delta.g1_s, c.delta.g1_sx, delta_g2_sp, c.delta.g2_spx);
+        sr = await misc.sameRatio(curve, c.delta.g1_s, c.delta.g1_sx, delta_g2_sp, c.delta.g2_spx);
         if (sr !== true) {
             console.log(`INVALID(${i}): public key G1 and G2 do not have the same ration `);
             return false;
         }
 
-        sr = await sameRatio(curve, curDelta, c.deltaAfter, delta_g2_sp, c.delta.g2_spx);
+        sr = await misc.sameRatio(curve, curDelta, c.deltaAfter, delta_g2_sp, c.delta.g2_spx);
         if (sr !== true) {
             console.log(`INVALID(${i}): deltaAfter does not fillow the public key `);
             return false;
@@ -144,7 +143,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         if (logger) logger.error("INVALID:  Invalid delta1");
         return false;
     }
-    sr = await sameRatio(curve, curve.G1.g, curDelta, curve.G2.g, zkey.vk_delta_2);
+    sr = await misc.sameRatio(curve, curve.G1.g, curDelta, curve.G2.g, zkey.vk_delta_2);
     if (sr !== true) {
         if (logger) logger.error("INVALID:  Invalid delta2");
         return false;
@@ -264,7 +263,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
         if (nPoints == 0) return true;
 
-        sr = await sameRatio(curve, R1, R2, g2sp, g2spx);
+        sr = await misc.sameRatio(curve, R1, R2, g2sp, g2spx);
         if (sr !== true) return false;
 
         return true;
@@ -343,7 +342,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         }
         await binFileUtils.endReadSection(fd);
 
-        sr = await sameRatio(curve, R1, R2, zkey.vk_delta_2, zkeyInit.vk_delta_2);
+        sr = await misc.sameRatio(curve, R1, R2, zkey.vk_delta_2, zkeyInit.vk_delta_2);
         if (sr !== true) return false;
 
 

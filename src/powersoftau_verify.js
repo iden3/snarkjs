@@ -23,7 +23,6 @@ import * as keyPair from "./keypair.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import { ChaCha, BigBuffer } from "ffjavascript";
 import * as misc from "./misc.js";
-const sameRatio = misc.sameRatio;
 
 async function verifyContribution(curve, cur, prev, logger) {
     let sr;
@@ -74,49 +73,49 @@ async function verifyContribution(curve, cur, prev, logger) {
     cur.key.alpha.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 1, prev.nextChallenge, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
     cur.key.beta.g2_sp = curve.G2.toAffine(keyPair.getG2sp(curve, 2, prev.nextChallenge, cur.key.beta.g1_s, cur.key.beta.g1_sx));
 
-    sr = await sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
+    sr = await misc.sameRatio(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID key (tau) in challenge #"+cur.id);
         return false;
     }
 
-    sr = await sameRatio(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
+    sr = await misc.sameRatio(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID key (alpha) in challenge #"+cur.id);
         return false;
     }
 
-    sr = await sameRatio(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
+    sr = await misc.sameRatio(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID key (beta) in challenge #"+cur.id);
         return false;
     }
 
-    sr = await sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
+    sr = await misc.sameRatio(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID tau*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    sr = await sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
+    sr = await misc.sameRatio(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
     if (sr !== true) {
         if (logger) logger.error("INVALID tau*G2. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    sr = await sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
+    sr = await misc.sameRatio(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID alpha*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    sr = await sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
+    sr = await misc.sameRatio(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
     if (sr !== true) {
         if (logger) logger.error("INVALID beta*G1. challenge #"+cur.id+" It does not follow the previous contribution");
         return false;
     }
 
-    sr = await sameRatio(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
+    sr = await misc.sameRatio(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
     if (sr !== true) {
         if (logger) logger.error("INVALID beta*G2. challenge #"+cur.id+"It does not follow the previous contribution");
         return false;
@@ -175,7 +174,7 @@ export default async function verify(tauFilename, logger) {
     // Verify Section tau*G1
     if (logger) logger.debug("Verifying powers in tau*G1 section");
     const rTau1 = await processSection(2, "G1", "tauG1", (2 ** power)*2-1, [0, 1], logger);
-    sr = await sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2);
+    sr = await misc.sameRatio(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("tauG1 section. Powers do not match");
         return false;
@@ -194,7 +193,7 @@ export default async function verify(tauFilename, logger) {
     // Verify Section tau*G2
     if (logger) logger.debug("Verifying powers in tau*G2 section");
     const rTau2 = await processSection(3, "G2", "tauG2", 2 ** power, [0, 1],  logger);
-    sr = await sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2);
+    sr = await misc.sameRatio(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2);
     if (sr !== true) {
         if (logger) logger.error("tauG2 section. Powers do not match");
         return false;
@@ -211,7 +210,7 @@ export default async function verify(tauFilename, logger) {
     // Verify Section alpha*tau*G1
     if (logger) logger.debug("Verifying powers in alpha*tau*G1 section");
     const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 2 ** power, [0], logger);
-    sr = await sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2);
+    sr = await misc.sameRatio(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("alphaTauG1 section. Powers do not match");
         return false;
@@ -224,7 +223,7 @@ export default async function verify(tauFilename, logger) {
     // Verify Section beta*tau*G1
     if (logger) logger.debug("Verifying powers in beta*tau*G1 section");
     const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 2 ** power, [0], logger);
-    sr = await sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2);
+    sr = await misc.sameRatio(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2);
     if (sr !== true) {
         if (logger) logger.error("betaTauG1 section. Powers do not match");
         return false;

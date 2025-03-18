@@ -1117,7 +1117,7 @@ async function zkeyInfo(params, options) {
         zkeyName = params[0];
     }
 
-    const res = await zkey.zkeyInfo(zkeyName, options, logger);
+    const res = await zkey.info(zkeyName, options, logger);
     if (res === null) {
         return 1;
     } else {
