@@ -208,6 +208,13 @@ const commands = [
         action: zkeyImportBellman
     },
     {
+        cmd: "zkey info [circuit_final.zkey]",
+        description: "Print zkey file info and contributions",
+        alias: ["zki"],
+        options: "-verbose|v -nocontributions|nc",
+        action: zkeyInfo
+    },
+    {
         cmd: "zkey beacon <circuit_old.zkey> <circuit_new.zkey> <beaconHash(Hex)> <numIterationsExp>",
         description: "adds a beacon",
         alias: ["zkb"],
@@ -1097,6 +1104,26 @@ async function zkeyBellmanContribute(params, options) {
     await zkey.bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 
     return 0;
+}
+
+
+// zkey info [circuit_final.zkey]
+async function zkeyInfo(params, options) {
+    let zkeyName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    const res = await zkey.zkeyInfo(zkeyName, options, logger);
+    if (res === null) {
+        return 1;
+    } else {
+        return 1;
+    }
+
 }
 
 
