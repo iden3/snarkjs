@@ -120,7 +120,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
     // The Extended Euclidean Algorithm is expensive in terms of computation.
     // For the special case where we need to do many modular inverses, there's a simple mathematical trick
     // that allows us to compute many inverses, called Montgomery batch inversion.
-    // More info: https://vitalik.ca/general/2018/07/21/starks_part_3.html
+    // More info: https://vitalik.eth.limo/general/2018/07/21/starks_part_3.html
     // Montgomery batch inversion reduces the n inverse computations to a single one
     // To save this (single) inverse computation on-chain, will compute it in proving time and send it to the verifier.
     // The verifier will have to check:
