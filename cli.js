@@ -153,7 +153,7 @@ const commands = [
     },
     {
         cmd: "wtns calculate [circuit.wasm] [input.json] [witness.wtns]",
-        description: "Caclculate specific witness of a circuit given an input",
+        description: "Calculate specific witness of a circuit given an input",
         alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
         action: wtnsCalculate
     },
