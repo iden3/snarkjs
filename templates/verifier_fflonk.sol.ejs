@@ -226,14 +226,24 @@ contract FflonkVerifier {
                 }
             }  
             
-            // Validate all the evaluations sent by the prover ∈ F
-            function checkInput() {
-                // Check proof commitments fulfill bn128 curve equation Y^2 = X^3 + 3
+            function checkProofData() {
+                // Check proof commitments belong to the bn128 curve
                 checkPointBelongsToBN128Curve(pC1)
                 checkPointBelongsToBN128Curve(pC2)
                 checkPointBelongsToBN128Curve(pW1)
                 checkPointBelongsToBN128Curve(pW2)
 
+                // Check proof commitments coordinates are in the field
+                checkField(calldataload(pC1))
+                checkField(calldataload(add(pC1, 32)))
+                checkField(calldataload(pC2))
+                checkField(calldataload(add(pC2, 32)))
+                checkField(calldataload(pW1))
+                checkField(calldataload(add(pW1, 32)))
+                checkField(calldataload(pW2))
+                checkField(calldataload(add(pW2, 32)))
+
+                // Check proof evaluations are in the field
                 checkField(calldataload(pEval_ql))
                 checkField(calldataload(pEval_qr))
                 checkField(calldataload(pEval_qm))
@@ -250,8 +260,6 @@ contract FflonkVerifier {
                 checkField(calldataload(pEval_t1w))
                 checkField(calldataload(pEval_t2w))
                 checkField(calldataload(pEval_inv))
-
-                // Points are checked in the point operations precompiled smart contracts
             }
 
             function computeChallenges(pMem, pPublic) {
@@ -857,8 +865,8 @@ contract FflonkVerifier {
             let pMem := mload(0x40)
             mstore(0x40, add(pMem, lastMem))
 
-            // Validate that all evaluations ∈ F
-            checkInput()
+            // Check proof data is well-formed
+            checkProofData()
 
             // Compute the challenges: beta, gamma, xi, alpha and y ∈ F, h1w4/h2w3/h3w3 roots, xiN and zh(xi)
             computeChallenges(pMem, pubSignals)
