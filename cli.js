@@ -232,6 +232,7 @@ const commands = [
         cmd: "zkey export verificationkey [circuit_final.zkey] [verification_key.json]",
         description: "Exports a verification key",
         alias: ["zkev"],
+        options: "-bls12381-solidity",
         action: zkeyExportVKey
     },
     {
@@ -588,7 +589,14 @@ async function zkeyExportVKey(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
+    let vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
+
+    if (options["bls12381-solidity"] &&
+         vKey.protocol === "groth16" && 
+         vKey.curve === "bls12381") {
+        
+        vKey = await zkey.processVerificationKeyForSolidity(vKey);
+    }
 
     await bfj.write(vKeyFilename, stringifyBigInts(vKey), {space: 1});
 
