@@ -18,7 +18,7 @@
 */
 
 import {Scalar} from "ffjavascript";
-import {keccak_256} from '@noble/hashes/sha3';
+import {keccak_256} from "@noble/hashes/sha3";
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;

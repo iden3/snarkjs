@@ -11,6 +11,9 @@ export default {
         banner: "#! /usr/bin/env node\n",
     },
     external: [
+        "@noble/hashes/blake2b",
+        "@noble/hashes/utils",
+        "@noble/hashes/sha3",
         ...Object.keys(pkg.dependencies),
         ...builtin,
     ]

@@ -29,7 +29,7 @@ import {
 } from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import BigArray from "./bigarray.js";
 
 

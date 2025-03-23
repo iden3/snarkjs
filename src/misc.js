@@ -18,8 +18,8 @@
 */
 
 /* global window */
-import { blake2b } from '@noble/hashes/blake2b';
-import { u32 } from '@noble/hashes/utils';
+import { blake2b } from "@noble/hashes/blake2b";
+import { u32 } from "@noble/hashes/utils";
 import readline from "readline";
 import { ChaCha } from "ffjavascript";
 import crypto from "crypto";

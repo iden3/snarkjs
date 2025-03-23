@@ -67,7 +67,7 @@ contributions(7)
 
 import * as ptauUtils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as misc from "./misc.js";
 
 export default async function newAccumulator(curve, power, fileName, logger) {

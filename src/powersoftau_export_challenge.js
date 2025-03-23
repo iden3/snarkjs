@@ -7,7 +7,7 @@
 //     BetaG2 (uncompressed)
 
 import * as fastFile from "fastfile";
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import * as misc from "./misc.js";

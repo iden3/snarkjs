@@ -18,7 +18,7 @@
 */
 
 import { Scalar } from "ffjavascript";
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as keyPair from "./keypair.js";
 import * as misc from "./misc.js";
 import { getCurveFromQ } from "./curves.js";

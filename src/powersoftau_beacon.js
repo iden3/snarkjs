@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./powersoftau_utils.js";
 import * as misc from "./misc.js";
 import * as binFileUtils from "@iden3/binfileutils";

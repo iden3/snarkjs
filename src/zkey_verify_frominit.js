@@ -20,7 +20,7 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as misc from "./misc.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 const sameRatio = misc.sameRatio;

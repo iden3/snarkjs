@@ -24,7 +24,7 @@
 //      2^N AlphaTauG1 Points (uncompressed)
 //      2^N BetaTauG1 Points (uncompressed)
 
-import { blake2b } from '@noble/hashes/blake2b';
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./powersoftau_utils.js";
 import * as keyPair from "./keypair.js";
 import * as binFileUtils from "@iden3/binfileutils";
