@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: ["18", "20"]
+        node-version: ["22"]
 
     steps:
     - uses: actions/checkout@v2
@@ -18,7 +18,8 @@ jobs:
       uses: actions/setup-node@v1
       with:
         node-version: ${{ matrix.node-version }}
-    - run: npm install -g circom@latest
+    - name: Setup Circom
+      run: wget https://github.com/iden3/circom/releases/latest/download/circom-linux-amd64 && sudo mv ./circom-linux-amd64 /usr/bin/circom && sudo chmod +x /usr/bin/circom
     - run: npm install
     - run: npm link
     - name: 1. Start a new powers of tau ceremony
@@ -45,6 +46,7 @@ jobs:
     - name: 9. Create the circuit
       run: |
         cat <<EOT > circuit.circom
+        pragma circom 2.0.0;
         template Multiplier(n) {
             signal private input a;
             signal private input b;
