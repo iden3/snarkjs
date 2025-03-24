@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: ["22"]
+        node-version: [lts/*]
 
     steps:
     - uses: actions/checkout@v2
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
     - name: Setup Circom
@@ -65,7 +65,7 @@ jobs:
         component main = Multiplier(1000);
         EOT
     - name: 10. Compile the circuit
-      run: circom circuit.circom --r1cs --wasm --sym -v
+      run: circom --r1cs --wasm --sym circuit.circom
     - name: 11. View information about the circuit
       run: snarkjs r1cs info circuit.r1cs
     - name: 12. Print the constraints
