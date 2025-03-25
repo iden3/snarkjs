@@ -29,7 +29,7 @@ import {
 } from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import BigArray from "./bigarray.js";
 
 
@@ -39,8 +39,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    await Blake2b.ready();
-    const csHasher = Blake2b(64);
+    const csHasher = blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);

@@ -20,7 +20,7 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import * as misc from "./misc.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 const sameRatio = misc.sameRatio;
@@ -32,8 +32,6 @@ import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 export default async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
-    await Blake2b.ready();
-
     const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fd, sections, false);
     if (zkey.protocol != "groth16") {
@@ -45,7 +43,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
     const mpcParams = await zkeyUtils.readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = Blake2b(64);
+    const accumulatedHasher = blake2b.create({ dkLen: 64 });
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -91,7 +89,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = Blake2b(64);
+        const contributionHasher = blake2b.create({ dkLen: 64 });
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();

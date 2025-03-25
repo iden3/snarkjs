@@ -18,7 +18,8 @@
 */
 
 /* global window */
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
+import { u32 } from "@noble/hashes/utils";
 import readline from "readline";
 import { ChaCha } from "ffjavascript";
 import crypto from "crypto";
@@ -82,9 +83,46 @@ export function hashIsEqual(h1, h2) {
 }
 
 export function cloneHasher(h) {
-    const ph = h.getPartialHash();
-    const res = Blake2b(64);
-    res.setPartialHash(ph);
+    return h.clone();
+}
+
+export function fromPartialHash(partial) {
+    // NOTE: this is unsafe and uses internal API
+    const buf = partial.subarray(0, 128);
+    const rest = u32(partial.subarray(128));
+    const res = blake2b.create({ dkLen: 64 });
+    res.buffer.set(buf);
+    (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
+    (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
+    (res.v2l = rest[4] | 0), (res.v2h = rest[5] | 0);
+    (res.v3l = rest[6] | 0), (res.v3h = rest[7] | 0);
+    (res.v4l = rest[8] | 0), (res.v4h = rest[9] | 0);
+    (res.v5l = rest[10] | 0), (res.v5h = rest[11] | 0);
+    (res.v6l = rest[12] | 0), (res.v6h = rest[13] | 0);
+    (res.v7l = rest[14] | 0), (res.v7h = rest[15] | 0);
+    const shift = 2 ** 32;
+    const len = rest[16] + rest[17] * shift;
+    const pos = rest[18] + rest[19] * shift;
+    res.length = len + pos;
+    res.pos = pos;
+    return res;
+}
+
+export function toPartialHash(hash){
+    // NOTE: this is unsafe and uses internal API
+    const res = new Uint8Array(216);
+    const res32 = u32(res.subarray(128));
+    res.set(hash.buffer);
+    (res32[0] = hash.v0l), (res32[1] = hash.v0h);
+    (res32[2] = hash.v1l), (res32[3] = hash.v1h);
+    (res32[4] = hash.v2l), (res32[5] = hash.v2h);
+    (res32[6] = hash.v3l), (res32[7] = hash.v3h);
+    (res32[8] = hash.v4l), (res32[9] = hash.v4h);
+    (res32[10] = hash.v5l), (res32[11] = hash.v5h);
+    (res32[12] = hash.v6l), (res32[13] = hash.v6h);
+    (res32[14] = hash.v7l), (res32[15] = hash.v7h);
+    res32[18] = hash.pos;
+    res32[16] = hash.length-hash.pos;
     return res;
 }
 
@@ -146,7 +184,7 @@ export async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = Blake2b(64);
+    const hasher = blake2b.create(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));

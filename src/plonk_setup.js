@@ -31,15 +31,12 @@ import {
 } from "@iden3/binfileutils";
 import { log2  } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
-import Blake2b from "blake2b-wasm";
 import BigArray from "./bigarray.js";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
-
-    await Blake2b.ready();
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);

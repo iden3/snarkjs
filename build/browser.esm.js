@@ -872,8 +872,8 @@ class BigMemFile {
     }
 }
 
-const O_TRUNC = 1024;
-const O_CREAT = 512;
+const O_TRUNC = 512;
+const O_CREAT = 64;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
@@ -1142,1045 +1142,497 @@ var curves = /*#__PURE__*/Object.freeze({
     getCurveFromName: getCurveFromName
 });
 
-var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
-
-var blake2bWasm = {exports: {}};
-
-var nanoassert = assert$1;
-
-class AssertionError extends Error {}
-AssertionError.prototype.name = 'AssertionError';
+/**
+ * Internal assertion helpers.
+ * @module
+ */
+/** Asserts something is positive integer. */
+function anumber(n) {
+    if (!Number.isSafeInteger(n) || n < 0)
+        throw new Error('positive integer expected, got ' + n);
+}
+/** Is number an Uint8Array? Copied from utils for perf. */
+function isBytes(a) {
+    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
+}
+/** Asserts something is Uint8Array. */
+function abytes(b, ...lengths) {
+    if (!isBytes(b))
+        throw new Error('Uint8Array expected');
+    if (lengths.length > 0 && !lengths.includes(b.length))
+        throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
+}
+/** Asserts a hash instance has not been destroyed / finished */
+function aexists(instance, checkFinished = true) {
+    if (instance.destroyed)
+        throw new Error('Hash instance has been destroyed');
+    if (checkFinished && instance.finished)
+        throw new Error('Hash#digest() has already been called');
+}
+/** Asserts output is properly-sized byte array */
+function aoutput(out, instance) {
+    abytes(out);
+    const min = instance.outputLen;
+    if (out.length < min) {
+        throw new Error('digestInto() expects output buffer of length at least ' + min);
+    }
+}
 
 /**
- * Minimal assert function
- * @param  {any} t Value to check if falsy
- * @param  {string=} m Optional assertion error message
- * @throws {AssertionError}
+ * Utilities for hex, bytes, CSPRNG.
+ * @module
  */
-function assert$1 (t, m) {
-  if (!t) {
-    var err = new AssertionError(m);
-    if (Error.captureStackTrace) Error.captureStackTrace(err, assert$1);
-    throw err
-  }
+function u32(arr) {
+    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
 }
-
-var browser = {exports: {}};
-
-function byteLength$4 (string) {
-  return string.length
+/** Is current platform little-endian? Most are. Big-Endian platform: IBM */
+const isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44)();
+// The byte swap operation for uint32
+function byteSwap(word) {
+    return (((word << 24) & 0xff000000) |
+        ((word << 8) & 0xff0000) |
+        ((word >>> 8) & 0xff00) |
+        ((word >>> 24) & 0xff));
 }
-
-function toString$4 (buffer) {
-  const len = buffer.byteLength;
-
-  let result = '';
-
-  for (let i = 0; i < len; i++) {
-    result += String.fromCharCode(buffer[i]);
-  }
-
-  return result
-}
-
-function write$5 (buffer, string, offset = 0, length = byteLength$4(string)) {
-  const len = Math.min(length, buffer.byteLength - offset);
-
-  for (let i = 0; i < len; i++) {
-    buffer[offset + i] = string.charCodeAt(i);
-  }
-
-  return len
-}
-
-var ascii = {
-  byteLength: byteLength$4,
-  toString: toString$4,
-  write: write$5
-};
-
-const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-const codes = new Uint8Array(256);
-
-for (let i = 0; i < alphabet.length; i++) {
-  codes[alphabet.charCodeAt(i)] = i;
-}
-
-codes[/* - */ 0x2d] = 62;
-codes[/* _ */ 0x5f] = 63;
-
-function byteLength$3 (string) {
-  let len = string.length;
-
-  if (string.charCodeAt(len - 1) === 0x3d) len--;
-  if (len > 1 && string.charCodeAt(len - 1) === 0x3d) len--;
-
-  return (len * 3) >>> 2
-}
-
-function toString$3 (buffer) {
-  const len = buffer.byteLength;
-
-  let result = '';
-
-  for (let i = 0; i < len; i += 3) {
-    result += (
-      alphabet[buffer[i] >> 2] +
-      alphabet[((buffer[i] & 3) << 4) | (buffer[i + 1] >> 4)] +
-      alphabet[((buffer[i + 1] & 15) << 2) | (buffer[i + 2] >> 6)] +
-      alphabet[buffer[i + 2] & 63]
-    );
-  }
-
-  if (len % 3 === 2) {
-    result = result.substring(0, result.length - 1) + '=';
-  } else if (len % 3 === 1) {
-    result = result.substring(0, result.length - 2) + '==';
-  }
-
-  return result
-}
-function write$4 (buffer, string, offset = 0, length = byteLength$3(string)) {
-  const len = Math.min(length, buffer.byteLength - offset);
-
-  for (let i = 0, j = 0; j < len; i += 4) {
-    const a = codes[string.charCodeAt(i)];
-    const b = codes[string.charCodeAt(i + 1)];
-    const c = codes[string.charCodeAt(i + 2)];
-    const d = codes[string.charCodeAt(i + 3)];
-
-    buffer[j++] = (a << 2) | (b >> 4);
-    buffer[j++] = ((b & 15) << 4) | (c >> 2);
-    buffer[j++] = ((c & 3) << 6) | (d & 63);
-  }
-
-  return len
-}
-var base64 = {
-  byteLength: byteLength$3,
-  toString: toString$3,
-  write: write$4
-};
-
-function byteLength$2 (string) {
-  return string.length >>> 1
-}
-
-function toString$2 (buffer) {
-  const len = buffer.byteLength;
-
-  buffer = new DataView(buffer.buffer, buffer.byteOffset, len);
-
-  let result = '';
-  let i = 0;
-
-  for (let n = len - (len % 4); i < n; i += 4) {
-    result += buffer.getUint32(i).toString(16).padStart(8, '0');
-  }
-
-  for (; i < len; i++) {
-    result += buffer.getUint8(i).toString(16).padStart(2, '0');
-  }
-
-  return result
-}
-
-function write$3 (buffer, string, offset = 0, length = byteLength$2(string)) {
-  const len = Math.min(length, buffer.byteLength - offset);
-
-  for (let i = 0; i < len; i++) {
-    const a = hexValue(string.charCodeAt(i * 2));
-    const b = hexValue(string.charCodeAt(i * 2 + 1));
-
-    if (a === undefined || b === undefined) {
-      return buffer.subarray(0, i)
+/** Conditionally byte swap if on a big-endian platform */
+const byteSwapIfBE = isLE
+    ? (n) => n
+    : (n) => byteSwap(n);
+/** In place byte swap for Uint32Array */
+function byteSwap32(arr) {
+    for (let i = 0; i < arr.length; i++) {
+        arr[i] = byteSwap(arr[i]);
     }
-
-    buffer[offset + i] = (a << 4) | b;
-  }
-
-  return len
 }
-
-var hex = {
-  byteLength: byteLength$2,
-  toString: toString$2,
-  write: write$3
-};
-
-function hexValue (char) {
-  if (char >= 0x30 && char <= 0x39) return char - 0x30
-  if (char >= 0x41 && char <= 0x46) return char - 0x41 + 10
-  if (char >= 0x61 && char <= 0x66) return char - 0x61 + 10
+/**
+ * Convert JS string to byte array.
+ * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
+ */
+function utf8ToBytes(str) {
+    if (typeof str !== 'string')
+        throw new Error('utf8ToBytes expected string, got ' + typeof str);
+    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
 }
-
-function byteLength$1 (string) {
-  let length = 0;
-
-  for (let i = 0, n = string.length; i < n; i++) {
-    const code = string.charCodeAt(i);
-
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < n) {
-      const code = string.charCodeAt(i + 1);
-
-      if (code >= 0xdc00 && code <= 0xdfff) {
-        length += 4;
-        i++;
-        continue
-      }
+/**
+ * Normalizes (non-hex) string or Uint8Array to Uint8Array.
+ * Warning: when Uint8Array is passed, it would NOT get copied.
+ * Keep in mind for future mutable operations.
+ */
+function toBytes(data) {
+    if (typeof data === 'string')
+        data = utf8ToBytes(data);
+    abytes(data);
+    return data;
+}
+/** For runtime check if class implements interface */
+class Hash {
+    // Safe version that clones internal state
+    clone() {
+        return this._cloneInto();
     }
-
-    if (code <= 0x7f) length += 1;
-    else if (code <= 0x7ff) length += 2;
-    else length += 3;
-  }
-
-  return length
+}
+/** Wraps hash function, creating an interface on top of it */
+function wrapConstructor(hashCons) {
+    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
+    const tmp = hashCons();
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = () => hashCons();
+    return hashC;
+}
+function wrapConstructorWithOpts(hashCons) {
+    const hashC = (msg, opts) => hashCons(opts).update(toBytes(msg)).digest();
+    const tmp = hashCons({});
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = (opts) => hashCons(opts);
+    return hashC;
 }
 
-let toString$1;
-
-if (typeof TextDecoder !== 'undefined') {
-  const decoder = new TextDecoder();
-
-  toString$1 = function toString (buffer) {
-    return decoder.decode(buffer)
-  };
-} else {
-  toString$1 = function toString (buffer) {
-    const len = buffer.byteLength;
-
-    let output = '';
-    let i = 0;
-
-    while (i < len) {
-      let byte = buffer[i];
-
-      if (byte <= 0x7f) {
-        output += String.fromCharCode(byte);
-        i++;
-        continue
-      }
-
-      let bytesNeeded = 0;
-      let codePoint = 0;
-
-      if (byte <= 0xdf) {
-        bytesNeeded = 1;
-        codePoint = byte & 0x1f;
-      } else if (byte <= 0xef) {
-        bytesNeeded = 2;
-        codePoint = byte & 0x0f;
-      } else if (byte <= 0xf4) {
-        bytesNeeded = 3;
-        codePoint = byte & 0x07;
-      }
-
-      if (len - i - bytesNeeded > 0) {
-        let k = 0;
-
-        while (k < bytesNeeded) {
-          byte = buffer[i + k + 1];
-          codePoint = (codePoint << 6) | (byte & 0x3f);
-          k += 1;
+/**
+ * Internal helpers for blake hash.
+ * @module
+ */
+/**
+ * Internal blake variable.
+ * For BLAKE2b, the two extra permutations for rounds 10 and 11 are SIGMA[10..11] = SIGMA[0..1].
+ */
+// prettier-ignore
+const SIGMA = /* @__PURE__ */ new Uint8Array([
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
+    11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
+    7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8,
+    9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
+    2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
+    12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11,
+    13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10,
+    6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5,
+    10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
+    // Blake1, unused in others
+    11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
+    7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8,
+    9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
+    2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
+]);
+/** Class, from which others are subclassed. */
+class BLAKE extends Hash {
+    constructor(blockLen, outputLen, opts = {}, keyLen, saltLen, persLen) {
+        super();
+        this.blockLen = blockLen;
+        this.outputLen = outputLen;
+        this.length = 0;
+        this.pos = 0;
+        this.finished = false;
+        this.destroyed = false;
+        anumber(blockLen);
+        anumber(outputLen);
+        anumber(keyLen);
+        if (outputLen < 0 || outputLen > keyLen)
+            throw new Error('outputLen bigger than keyLen');
+        if (opts.key !== undefined && (opts.key.length < 1 || opts.key.length > keyLen))
+            throw new Error('key length must be undefined or 1..' + keyLen);
+        if (opts.salt !== undefined && opts.salt.length !== saltLen)
+            throw new Error('salt must be undefined or ' + saltLen);
+        if (opts.personalization !== undefined && opts.personalization.length !== persLen)
+            throw new Error('personalization must be undefined or ' + persLen);
+        this.buffer = new Uint8Array(blockLen);
+        this.buffer32 = u32(this.buffer);
+    }
+    update(data) {
+        aexists(this);
+        // Main difference with other hashes: there is flag for last block,
+        // so we cannot process current block before we know that there
+        // is the next one. This significantly complicates logic and reduces ability
+        // to do zero-copy processing
+        const { blockLen, buffer, buffer32 } = this;
+        data = toBytes(data);
+        const len = data.length;
+        const offset = data.byteOffset;
+        const buf = data.buffer;
+        for (let pos = 0; pos < len;) {
+            // If buffer is full and we still have input (don't process last block, same as blake2s)
+            if (this.pos === blockLen) {
+                if (!isLE)
+                    byteSwap32(buffer32);
+                this.compress(buffer32, 0, false);
+                if (!isLE)
+                    byteSwap32(buffer32);
+                this.pos = 0;
+            }
+            const take = Math.min(blockLen - this.pos, len - pos);
+            const dataOffset = offset + pos;
+            // full block && aligned to 4 bytes && not last in input
+            if (take === blockLen && !(dataOffset % 4) && pos + take < len) {
+                const data32 = new Uint32Array(buf, dataOffset, Math.floor((len - pos) / 4));
+                if (!isLE)
+                    byteSwap32(data32);
+                for (let pos32 = 0; pos + blockLen < len; pos32 += buffer32.length, pos += blockLen) {
+                    this.length += blockLen;
+                    this.compress(data32, pos32, false);
+                }
+                if (!isLE)
+                    byteSwap32(data32);
+                continue;
+            }
+            buffer.set(data.subarray(pos, pos + take), this.pos);
+            this.pos += take;
+            this.length += take;
+            pos += take;
         }
-      } else {
-        codePoint = 0xfffd;
-        bytesNeeded = len - i;
-      }
-
-      output += String.fromCodePoint(codePoint);
-      i += bytesNeeded + 1;
+        return this;
     }
-
-    return output
-  };
-}
-
-let write$2;
-
-if (typeof TextEncoder !== 'undefined') {
-  const encoder = new TextEncoder();
-
-  write$2 = function write (buffer, string, offset = 0, length = byteLength$1(string)) {
-    const len = Math.min(length, buffer.byteLength - offset);
-    encoder.encodeInto(string, buffer.subarray(offset, offset + len));
-    return len
-  };
-} else {
-  write$2 = function write (buffer, string, offset = 0, length = byteLength$1(string)) {
-    const len = Math.min(length, buffer.byteLength - offset);
-
-    buffer = buffer.subarray(offset, offset + len);
-
-    let i = 0;
-    let j = 0;
-
-    while (i < string.length) {
-      const code = string.codePointAt(i);
-
-      if (code <= 0x7f) {
-        buffer[j++] = code;
-        i++;
-        continue
-      }
-
-      let count = 0;
-      let bits = 0;
-
-      if (code <= 0x7ff) {
-        count = 6;
-        bits = 0xc0;
-      } else if (code <= 0xffff) {
-        count = 12;
-        bits = 0xe0;
-      } else if (code <= 0x1fffff) {
-        count = 18;
-        bits = 0xf0;
-      }
-
-      buffer[j++] = bits | (code >> count);
-      count -= 6;
-
-      while (count >= 0) {
-        buffer[j++] = 0x80 | ((code >> count) & 0x3f);
-        count -= 6;
-      }
-
-      i += code >= 0x10000 ? 2 : 1;
+    digestInto(out) {
+        aexists(this);
+        aoutput(out, this);
+        const { pos, buffer32 } = this;
+        this.finished = true;
+        // Padding
+        this.buffer.subarray(pos).fill(0);
+        if (!isLE)
+            byteSwap32(buffer32);
+        this.compress(buffer32, 0, true);
+        if (!isLE)
+            byteSwap32(buffer32);
+        const out32 = u32(out);
+        this.get().forEach((v, i) => (out32[i] = byteSwapIfBE(v)));
     }
-
-    return len
-  };
-}
-
-var utf8 = {
-  byteLength: byteLength$1,
-  toString: toString$1,
-  write: write$2
-};
-
-function byteLength (string) {
-  return string.length * 2
-}
-
-function toString (buffer) {
-  const len = buffer.byteLength;
-
-  let result = '';
-
-  for (let i = 0; i < len - 1; i += 2) {
-    result += String.fromCharCode(buffer[i] + (buffer[i + 1] * 256));
-  }
-
-  return result
-}
-
-function write$1 (buffer, string, offset = 0, length = byteLength(string)) {
-  const len = Math.min(length, buffer.byteLength - offset);
-
-  let units = len;
-
-  for (let i = 0; i < string.length; ++i) {
-    if ((units -= 2) < 0) break
-
-    const c = string.charCodeAt(i);
-    const hi = c >> 8;
-    const lo = c % 256;
-
-    buffer[offset + i * 2] = lo;
-    buffer[offset + i * 2 + 1] = hi;
-  }
-
-  return len
-}
-
-var utf16le = {
-  byteLength,
-  toString,
-  write: write$1
-};
-
-(function (module, exports) {
-	const ascii$1 = ascii;
-	const base64$1 = base64;
-	const hex$1 = hex;
-	const utf8$1 = utf8;
-	const utf16le$1 = utf16le;
-
-	const LE = new Uint8Array(Uint16Array.of(0xff).buffer)[0] === 0xff;
-
-	function codecFor (encoding) {
-	  switch (encoding) {
-	    case 'ascii':
-	      return ascii$1
-	    case 'base64':
-	      return base64$1
-	    case 'hex':
-	      return hex$1
-	    case 'utf8':
-	    case 'utf-8':
-	    case undefined:
-	      return utf8$1
-	    case 'ucs2':
-	    case 'ucs-2':
-	    case 'utf16le':
-	    case 'utf-16le':
-	      return utf16le$1
-	    default:
-	      throw new Error(`Unknown encoding: ${encoding}`)
-	  }
-	}
-
-	function isBuffer (value) {
-	  return value instanceof Uint8Array
-	}
-
-	function isEncoding (encoding) {
-	  try {
-	    codecFor(encoding);
-	    return true
-	  } catch {
-	    return false
-	  }
-	}
-
-	function alloc (size, fill, encoding) {
-	  const buffer = new Uint8Array(size);
-	  if (fill !== undefined) exports.fill(buffer, fill, 0, buffer.byteLength, encoding);
-	  return buffer
-	}
-
-	function allocUnsafe (size) {
-	  return new Uint8Array(size)
-	}
-
-	function allocUnsafeSlow (size) {
-	  return new Uint8Array(size)
-	}
-
-	function byteLength (string, encoding) {
-	  return codecFor(encoding).byteLength(string)
-	}
-
-	function compare (a, b) {
-	  if (a === b) return 0
-
-	  const len = Math.min(a.byteLength, b.byteLength);
-
-	  a = new DataView(a.buffer, a.byteOffset, a.byteLength);
-	  b = new DataView(b.buffer, b.byteOffset, b.byteLength);
-
-	  let i = 0;
-
-	  for (let n = len - (len % 4); i < n; i += 4) {
-	    const x = a.getUint32(i, LE);
-	    const y = b.getUint32(i, LE);
-	    if (x !== y) break
-	  }
-
-	  for (; i < len; i++) {
-	    const x = a.getUint8(i);
-	    const y = b.getUint8(i);
-	    if (x < y) return -1
-	    if (x > y) return 1
-	  }
-
-	  return a.byteLength > b.byteLength ? 1 : a.byteLength < b.byteLength ? -1 : 0
-	}
-
-	function concat (buffers, totalLength) {
-	  if (totalLength === undefined) {
-	    totalLength = buffers.reduce((len, buffer) => len + buffer.byteLength, 0);
-	  }
-
-	  const result = new Uint8Array(totalLength);
-
-	  let offset = 0;
-	  for (const buffer of buffers) {
-	    if (offset + buffer.byteLength > result.byteLength) {
-	      const sub = buffer.subarray(0, result.byteLength - offset);
-	      result.set(sub, offset);
-	      return result
-	    }
-	    result.set(buffer, offset);
-	    offset += buffer.byteLength;
-	  }
-
-	  return result
-	}
-
-	function copy (source, target, targetStart = 0, start = 0, end = source.byteLength) {
-	  if (end > 0 && end < start) return 0
-	  if (end === start) return 0
-	  if (source.byteLength === 0 || target.byteLength === 0) return 0
-
-	  if (targetStart < 0) throw new RangeError('targetStart is out of range')
-	  if (start < 0 || start >= source.byteLength) throw new RangeError('sourceStart is out of range')
-	  if (end < 0) throw new RangeError('sourceEnd is out of range')
-
-	  if (targetStart >= target.byteLength) targetStart = target.byteLength;
-	  if (end > source.byteLength) end = source.byteLength;
-	  if (target.byteLength - targetStart < end - start) {
-	    end = target.length - targetStart + start;
-	  }
-
-	  const len = end - start;
-
-	  if (source === target) {
-	    target.copyWithin(targetStart, start, end);
-	  } else {
-	    target.set(source.subarray(start, end), targetStart);
-	  }
-
-	  return len
-	}
-
-	function equals (a, b) {
-	  if (a === b) return true
-	  if (a.byteLength !== b.byteLength) return false
-
-	  const len = a.byteLength;
-
-	  a = new DataView(a.buffer, a.byteOffset, a.byteLength);
-	  b = new DataView(b.buffer, b.byteOffset, b.byteLength);
-
-	  let i = 0;
-
-	  for (let n = len - (len % 4); i < n; i += 4) {
-	    if (a.getUint32(i, LE) !== b.getUint32(i, LE)) return false
-	  }
-
-	  for (; i < len; i++) {
-	    if (a.getUint8(i) !== b.getUint8(i)) return false
-	  }
-
-	  return true
-	}
-
-	function fill (buffer, value, offset, end, encoding) {
-	  if (typeof value === 'string') {
-	    // fill(buffer, string, encoding)
-	    if (typeof offset === 'string') {
-	      encoding = offset;
-	      offset = 0;
-	      end = buffer.byteLength;
-
-	    // fill(buffer, string, offset, encoding)
-	    } else if (typeof end === 'string') {
-	      encoding = end;
-	      end = buffer.byteLength;
-	    }
-	  } else if (typeof value === 'number') {
-	    value = value & 0xff;
-	  } else if (typeof value === 'boolean') {
-	    value = +value;
-	  }
-
-	  if (offset < 0 || buffer.byteLength < offset || buffer.byteLength < end) {
-	    throw new RangeError('Out of range index')
-	  }
-
-	  if (offset === undefined) offset = 0;
-	  if (end === undefined) end = buffer.byteLength;
-
-	  if (end <= offset) return buffer
-
-	  if (!value) value = 0;
-
-	  if (typeof value === 'number') {
-	    for (let i = offset; i < end; ++i) {
-	      buffer[i] = value;
-	    }
-	  } else {
-	    value = isBuffer(value) ? value : from(value, encoding);
-
-	    const len = value.byteLength;
-
-	    for (let i = 0; i < end - offset; ++i) {
-	      buffer[i + offset] = value[i % len];
-	    }
-	  }
-
-	  return buffer
-	}
-
-	function from (value, encodingOrOffset, length) {
-	  // from(string, encoding)
-	  if (typeof value === 'string') return fromString(value, encodingOrOffset)
-
-	  // from(array)
-	  if (Array.isArray(value)) return fromArray(value)
-
-	  // from(buffer)
-	  if (ArrayBuffer.isView(value)) return fromBuffer(value)
-
-	  // from(arrayBuffer[, byteOffset[, length]])
-	  return fromArrayBuffer(value, encodingOrOffset, length)
-	}
-
-	function fromString (string, encoding) {
-	  const codec = codecFor(encoding);
-	  const buffer = new Uint8Array(codec.byteLength(string));
-	  codec.write(buffer, string, 0, buffer.byteLength);
-	  return buffer
-	}
-
-	function fromArray (array) {
-	  const buffer = new Uint8Array(array.length);
-	  buffer.set(array);
-	  return buffer
-	}
-
-	function fromBuffer (buffer) {
-	  const copy = new Uint8Array(buffer.byteLength);
-	  copy.set(buffer);
-	  return copy
-	}
-
-	function fromArrayBuffer (arrayBuffer, byteOffset, length) {
-	  return new Uint8Array(arrayBuffer, byteOffset, length)
-	}
-
-	function includes (buffer, value, byteOffset, encoding) {
-	  return indexOf(buffer, value, byteOffset, encoding) !== -1
-	}
-
-	function bidirectionalIndexOf (buffer, value, byteOffset, encoding, first) {
-	  if (buffer.byteLength === 0) return -1
-
-	  if (typeof byteOffset === 'string') {
-	    encoding = byteOffset;
-	    byteOffset = 0;
-	  } else if (byteOffset === undefined) {
-	    byteOffset = first ? 0 : (buffer.length - 1);
-	  } else if (byteOffset < 0) {
-	    byteOffset += buffer.byteLength;
-	  }
-
-	  if (byteOffset >= buffer.byteLength) {
-	    if (first) return -1
-	    else byteOffset = buffer.byteLength - 1;
-	  } else if (byteOffset < 0) {
-	    if (first) byteOffset = 0;
-	    else return -1
-	  }
-
-	  if (typeof value === 'string') {
-	    value = from(value, encoding);
-	  } else if (typeof value === 'number') {
-	    value = value & 0xff;
-
-	    if (first) {
-	      return buffer.indexOf(value, byteOffset)
-	    } else {
-	      return buffer.lastIndexOf(value, byteOffset)
-	    }
-	  }
-
-	  if (value.byteLength === 0) return -1
-
-	  if (first) {
-	    let foundIndex = -1;
-
-	    for (let i = byteOffset; i < buffer.byteLength; i++) {
-	      if (buffer[i] === value[foundIndex === -1 ? 0 : i - foundIndex]) {
-	        if (foundIndex === -1) foundIndex = i;
-	        if (i - foundIndex + 1 === value.byteLength) return foundIndex
-	      } else {
-	        if (foundIndex !== -1) i -= i - foundIndex;
-	        foundIndex = -1;
-	      }
-	    }
-	  } else {
-	    if (byteOffset + value.byteLength > buffer.byteLength) {
-	      byteOffset = buffer.byteLength - value.byteLength;
-	    }
-
-	    for (let i = byteOffset; i >= 0; i--) {
-	      let found = true;
-
-	      for (let j = 0; j < value.byteLength; j++) {
-	        if (buffer[i + j] !== value[j]) {
-	          found = false;
-	          break
-	        }
-	      }
-
-	      if (found) return i
-	    }
-	  }
-
-	  return -1
-	}
-
-	function indexOf (buffer, value, byteOffset, encoding) {
-	  return bidirectionalIndexOf(buffer, value, byteOffset, encoding, true /* first */)
-	}
-
-	function lastIndexOf (buffer, value, byteOffset, encoding) {
-	  return bidirectionalIndexOf(buffer, value, byteOffset, encoding, false /* last */)
-	}
-
-	function swap (buffer, n, m) {
-	  const i = buffer[n];
-	  buffer[n] = buffer[m];
-	  buffer[m] = i;
-	}
-
-	function swap16 (buffer) {
-	  const len = buffer.byteLength;
-
-	  if (len % 2 !== 0) throw new RangeError('Buffer size must be a multiple of 16-bits')
-
-	  for (let i = 0; i < len; i += 2) swap(buffer, i, i + 1);
-
-	  return buffer
-	}
-
-	function swap32 (buffer) {
-	  const len = buffer.byteLength;
-
-	  if (len % 4 !== 0) throw new RangeError('Buffer size must be a multiple of 32-bits')
-
-	  for (let i = 0; i < len; i += 4) {
-	    swap(buffer, i, i + 3);
-	    swap(buffer, i + 1, i + 2);
-	  }
-
-	  return buffer
-	}
-
-	function swap64 (buffer) {
-	  const len = buffer.byteLength;
-
-	  if (len % 8 !== 0) throw new RangeError('Buffer size must be a multiple of 64-bits')
-
-	  for (let i = 0; i < len; i += 8) {
-	    swap(buffer, i, i + 7);
-	    swap(buffer, i + 1, i + 6);
-	    swap(buffer, i + 2, i + 5);
-	    swap(buffer, i + 3, i + 4);
-	  }
-
-	  return buffer
-	}
-
-	function toBuffer (buffer) {
-	  return buffer
-	}
-
-	function toString (buffer, encoding, start = 0, end = buffer.byteLength) {
-	  const len = buffer.byteLength;
-
-	  if (start >= len) return ''
-	  if (end <= start) return ''
-	  if (start < 0) start = 0;
-	  if (end > len) end = len;
-
-	  if (start !== 0 || end < len) buffer = buffer.subarray(start, end);
-
-	  return codecFor(encoding).toString(buffer)
-	}
-
-	function write (buffer, string, offset, length, encoding) {
-	  // write(buffer, string)
-	  if (offset === undefined) {
-	    encoding = 'utf8';
-
-	  // write(buffer, string, encoding)
-	  } else if (length === undefined && typeof offset === 'string') {
-	    encoding = offset;
-	    offset = undefined;
-
-	  // write(buffer, string, offset, encoding)
-	  } else if (encoding === undefined && typeof length === 'string') {
-	    encoding = length;
-	    length = undefined;
-	  }
-
-	  return codecFor(encoding).write(buffer, string, offset, length)
-	}
-
-	function writeDoubleLE (buffer, value, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	  view.setFloat64(offset, value, true);
-
-	  return offset + 8
-	}
-
-	function writeFloatLE (buffer, value, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	  view.setFloat32(offset, value, true);
-
-	  return offset + 4
-	}
-
-	function writeUInt32LE (buffer, value, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	  view.setUint32(offset, value, true);
-
-	  return offset + 4
-	}
-
-	function writeInt32LE (buffer, value, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	  view.setInt32(offset, value, true);
-
-	  return offset + 4
-	}
-
-	function readDoubleLE (buffer, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-
-	  return view.getFloat64(offset, true)
-	}
-
-	function readFloatLE (buffer, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-
-	  return view.getFloat32(offset, true)
-	}
-
-	function readUInt32LE (buffer, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-
-	  return view.getUint32(offset, true)
-	}
-
-	function readInt32LE (buffer, offset) {
-	  if (offset === undefined) offset = 0;
-
-	  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-
-	  return view.getInt32(offset, true)
-	}
-
-	module.exports = exports = {
-	  isBuffer,
-	  isEncoding,
-	  alloc,
-	  allocUnsafe,
-	  allocUnsafeSlow,
-	  byteLength,
-	  compare,
-	  concat,
-	  copy,
-	  equals,
-	  fill,
-	  from,
-	  includes,
-	  indexOf,
-	  lastIndexOf,
-	  swap16,
-	  swap32,
-	  swap64,
-	  toBuffer,
-	  toString,
-	  write,
-	  writeDoubleLE,
-	  writeFloatLE,
-	  writeUInt32LE,
-	  writeInt32LE,
-	  readDoubleLE,
-	  readFloatLE,
-	  readUInt32LE,
-	  readInt32LE
-	};
-} (browser, browser.exports));
-
-var blake2b;
-var hasRequiredBlake2b;
-
-function requireBlake2b () {
-	if (hasRequiredBlake2b) return blake2b;
-	hasRequiredBlake2b = 1;
-	var __commonJS = (cb, mod) => function __require() {
-	  return mod || (0, cb[Object.keys(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-	};
-	var __toBinary = /* @__PURE__ */ (() => {
-	  var table = new Uint8Array(128);
-	  for (var i = 0; i < 64; i++)
-	    table[i < 26 ? i + 65 : i < 52 ? i + 71 : i < 62 ? i - 4 : i * 4 - 205] = i;
-	  return (base64) => {
-	    var n = base64.length, bytes2 = new Uint8Array((n - (base64[n - 1] == "=") - (base64[n - 2] == "=")) * 3 / 4 | 0);
-	    for (var i2 = 0, j = 0; i2 < n; ) {
-	      var c0 = table[base64.charCodeAt(i2++)], c1 = table[base64.charCodeAt(i2++)];
-	      var c2 = table[base64.charCodeAt(i2++)], c3 = table[base64.charCodeAt(i2++)];
-	      bytes2[j++] = c0 << 2 | c1 >> 4;
-	      bytes2[j++] = c1 << 4 | c2 >> 2;
-	      bytes2[j++] = c2 << 6 | c3;
-	    }
-	    return bytes2;
-	  };
-	})();
-
-	// wasm-binary:./blake2b.wat
-	var require_blake2b = __commonJS({
-	  "wasm-binary:./blake2b.wat"(exports2, module2) {
-	    module2.exports = __toBinary("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");
-	  }
-	});
-
-	// wasm-module:./blake2b.wat
-	var bytes = require_blake2b();
-	var compiled = WebAssembly.compile(bytes);
-	blake2b = async (imports) => {
-	  const instance = await WebAssembly.instantiate(await compiled, imports);
-	  return instance.exports;
-	};
-	return blake2b;
-}
-
-var assert = nanoassert;
-var b4a = browser.exports;
-
-var wasm = null;
-var wasmPromise = typeof WebAssembly !== "undefined" && requireBlake2b()().then(mod => {
-  wasm = mod;
-});
-
-var head = 64;
-var freeList = [];
-
-blake2bWasm.exports = Blake2b;
-var BYTES_MIN = blake2bWasm.exports.BYTES_MIN = 16;
-var BYTES_MAX = blake2bWasm.exports.BYTES_MAX = 64;
-blake2bWasm.exports.BYTES = 32;
-var KEYBYTES_MIN = blake2bWasm.exports.KEYBYTES_MIN = 16;
-var KEYBYTES_MAX = blake2bWasm.exports.KEYBYTES_MAX = 64;
-blake2bWasm.exports.KEYBYTES = 32;
-var SALTBYTES = blake2bWasm.exports.SALTBYTES = 16;
-var PERSONALBYTES = blake2bWasm.exports.PERSONALBYTES = 16;
-
-function Blake2b (digestLength, key, salt, personal, noAssert) {
-  if (!(this instanceof Blake2b)) return new Blake2b(digestLength, key, salt, personal, noAssert)
-  if (!wasm) throw new Error('WASM not loaded. Wait for Blake2b.ready(cb)')
-  if (!digestLength) digestLength = 32;
-
-  if (noAssert !== true) {
-    assert(digestLength >= BYTES_MIN, 'digestLength must be at least ' + BYTES_MIN + ', was given ' + digestLength);
-    assert(digestLength <= BYTES_MAX, 'digestLength must be at most ' + BYTES_MAX + ', was given ' + digestLength);
-    if (key != null) {
-      assert(key instanceof Uint8Array, 'key must be Uint8Array or Buffer');
-      assert(key.length >= KEYBYTES_MIN, 'key must be at least ' + KEYBYTES_MIN + ', was given ' + key.length);
-      assert(key.length <= KEYBYTES_MAX, 'key must be at least ' + KEYBYTES_MAX + ', was given ' + key.length);
+    digest() {
+        const { buffer, outputLen } = this;
+        this.digestInto(buffer);
+        const res = buffer.slice(0, outputLen);
+        this.destroy();
+        return res;
     }
-    if (salt != null) {
-      assert(salt instanceof Uint8Array, 'salt must be Uint8Array or Buffer');
-      assert(salt.length === SALTBYTES, 'salt must be exactly ' + SALTBYTES + ', was given ' + salt.length);
+    _cloneInto(to) {
+        const { buffer, length, finished, destroyed, outputLen, pos } = this;
+        to || (to = new this.constructor({ dkLen: outputLen }));
+        to.set(...this.get());
+        to.length = length;
+        to.finished = finished;
+        to.destroyed = destroyed;
+        to.outputLen = outputLen;
+        to.buffer.set(buffer);
+        to.pos = pos;
+        return to;
     }
-    if (personal != null) {
-      assert(personal instanceof Uint8Array, 'personal must be Uint8Array or Buffer');
-      assert(personal.length === PERSONALBYTES, 'personal must be exactly ' + PERSONALBYTES + ', was given ' + personal.length);
-    }
-  }
-
-  if (!freeList.length) {
-    freeList.push(head);
-    head += 216;
-  }
-
-  this.digestLength = digestLength;
-  this.finalized = false;
-  this.pointer = freeList.pop();
-  this._memory = new Uint8Array(wasm.memory.buffer);
-
-  this._memory.fill(0, 0, 64);
-  this._memory[0] = this.digestLength;
-  this._memory[1] = key ? key.length : 0;
-  this._memory[2] = 1; // fanout
-  this._memory[3] = 1; // depth
-
-  if (salt) this._memory.set(salt, 32);
-  if (personal) this._memory.set(personal, 48);
-
-  if (this.pointer + 216 > this._memory.length) this._realloc(this.pointer + 216); // we need 216 bytes for the state
-  wasm.blake2b_init(this.pointer, this.digestLength);
-
-  if (key) {
-    this.update(key);
-    this._memory.fill(0, head, head + key.length); // whiteout key
-    this._memory[this.pointer + 200] = 128;
-  }
 }
 
-Blake2b.prototype._realloc = function (size) {
-  wasm.memory.grow(Math.max(0, Math.ceil(Math.abs(size - this._memory.length) / 65536)));
-  this._memory = new Uint8Array(wasm.memory.buffer);
+/**
+ * Internal helpers for u64. BigUint64Array is too slow as per 2025, so we implement it using Uint32Array.
+ * @todo re-check https://issues.chromium.org/issues/42212588
+ * @module
+ */
+const U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
+const _32n = /* @__PURE__ */ BigInt(32);
+function fromBig(n, le = false) {
+    if (le)
+        return { h: Number(n & U32_MASK64), l: Number((n >> _32n) & U32_MASK64) };
+    return { h: Number((n >> _32n) & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
+}
+function split(lst, le = false) {
+    let Ah = new Uint32Array(lst.length);
+    let Al = new Uint32Array(lst.length);
+    for (let i = 0; i < lst.length; i++) {
+        const { h, l } = fromBig(lst[i], le);
+        [Ah[i], Al[i]] = [h, l];
+    }
+    return [Ah, Al];
+}
+const toBig = (h, l) => (BigInt(h >>> 0) << _32n) | BigInt(l >>> 0);
+// for Shift in [0, 32)
+const shrSH = (h, _l, s) => h >>> s;
+const shrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
+// Right rotate for Shift in [1, 32)
+const rotrSH = (h, l, s) => (h >>> s) | (l << (32 - s));
+const rotrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
+// Right rotate for Shift in (32, 64), NOTE: 32 is special case.
+const rotrBH = (h, l, s) => (h << (64 - s)) | (l >>> (s - 32));
+const rotrBL = (h, l, s) => (h >>> (s - 32)) | (l << (64 - s));
+// Right rotate for shift===32 (just swaps l&h)
+const rotr32H = (_h, l) => l;
+const rotr32L = (h, _l) => h;
+// Left rotate for Shift in [1, 32)
+const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
+const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
+// Left rotate for Shift in (32, 64), NOTE: 32 is special case.
+const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
+const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
+// JS uses 32-bit signed integers for bitwise operations which means we cannot
+// simple take carry out of low bit sum by shift, we need to use division.
+function add(Ah, Al, Bh, Bl) {
+    const l = (Al >>> 0) + (Bl >>> 0);
+    return { h: (Ah + Bh + ((l / 2 ** 32) | 0)) | 0, l: l | 0 };
+}
+// Addition with more than 2 elements
+const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
+const add3H = (low, Ah, Bh, Ch) => (Ah + Bh + Ch + ((low / 2 ** 32) | 0)) | 0;
+const add4L = (Al, Bl, Cl, Dl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0);
+const add4H = (low, Ah, Bh, Ch, Dh) => (Ah + Bh + Ch + Dh + ((low / 2 ** 32) | 0)) | 0;
+const add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
+const add5H = (low, Ah, Bh, Ch, Dh, Eh) => (Ah + Bh + Ch + Dh + Eh + ((low / 2 ** 32) | 0)) | 0;
+// prettier-ignore
+const u64 = {
+    fromBig, split, toBig,
+    shrSH, shrSL,
+    rotrSH, rotrSL, rotrBH, rotrBL,
+    rotr32H, rotr32L,
+    rotlSH, rotlSL, rotlBH, rotlBL,
+    add, add3L, add3H, add4L, add4H, add5H, add5L,
 };
+var u64$1 = u64;
 
-Blake2b.prototype.update = function (input) {
-  assert(this.finalized === false, 'Hash instance finalized');
-  assert(input instanceof Uint8Array, 'input must be Uint8Array or Buffer');
-
-  if (head + input.length > this._memory.length) this._realloc(head + input.length);
-  this._memory.set(input, head);
-  wasm.blake2b_update(this.pointer, head, head + input.length);
-  return this
-};
-
-Blake2b.prototype.digest = function (enc) {
-  assert(this.finalized === false, 'Hash instance finalized');
-  this.finalized = true;
-
-  freeList.push(this.pointer);
-  wasm.blake2b_final(this.pointer);
-
-  if (!enc || enc === 'binary') {
-    return this._memory.slice(this.pointer + 128, this.pointer + 128 + this.digestLength)
-  }
-
-  if (typeof enc === 'string') {
-    return b4a.toString(this._memory, enc, this.pointer + 128, this.pointer + 128 + this.digestLength)
-  }
-
-  assert(enc instanceof Uint8Array && enc.length >= this.digestLength, 'input must be Uint8Array or Buffer');
-  for (var i = 0; i < this.digestLength; i++) {
-    enc[i] = this._memory[this.pointer + 128 + i];
-  }
-
-  return enc
-};
-
-// libsodium compat
-Blake2b.prototype.final = Blake2b.prototype.digest;
-
-Blake2b.WASM = wasm;
-Blake2b.SUPPORTED = typeof WebAssembly !== 'undefined';
-
-Blake2b.ready = function (cb) {
-  if (!cb) cb = noop;
-  if (!wasmPromise) return cb(new Error('WebAssembly not supported'))
-  return wasmPromise.then(() => cb(), cb)
-};
-
-Blake2b.prototype.ready = Blake2b.ready;
-
-Blake2b.prototype.getPartialHash = function () {
-  return this._memory.slice(this.pointer, this.pointer + 216);
-};
-
-Blake2b.prototype.setPartialHash = function (ph) {
-  this._memory.set(ph, this.pointer);
-};
-
-function noop () {}
+/**
+ * Blake2b hash function. Focuses on 64-bit platforms, but in JS speed different from Blake2s is negligible.
+ * @module
+ */
+// Same as SHA-512 but LE
+// prettier-ignore
+const B2B_IV = /* @__PURE__ */ new Uint32Array([
+    0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
+    0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19
+]);
+// Temporary buffer
+const BBUF = /* @__PURE__ */ new Uint32Array(32);
+// Mixing function G splitted in two halfs
+function G1b(a, b, c, d, msg, x) {
+    // NOTE: V is LE here
+    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
+    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
+    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
+    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
+    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
+    // v[a] = (v[a] + v[b] + x) | 0;
+    let ll = u64$1.add3L(Al, Bl, Xl);
+    Ah = u64$1.add3H(ll, Ah, Bh, Xh);
+    Al = ll | 0;
+    // v[d] = rotr(v[d] ^ v[a], 32)
+    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
+    ({ Dh, Dl } = { Dh: u64$1.rotr32H(Dh, Dl), Dl: u64$1.rotr32L(Dh, Dl) });
+    // v[c] = (v[c] + v[d]) | 0;
+    ({ h: Ch, l: Cl } = u64$1.add(Ch, Cl, Dh, Dl));
+    // v[b] = rotr(v[b] ^ v[c], 24)
+    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
+    ({ Bh, Bl } = { Bh: u64$1.rotrSH(Bh, Bl, 24), Bl: u64$1.rotrSL(Bh, Bl, 24) });
+    (BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah);
+    (BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh);
+    (BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch);
+    (BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh);
+}
+function G2b(a, b, c, d, msg, x) {
+    // NOTE: V is LE here
+    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
+    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
+    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
+    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
+    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
+    // v[a] = (v[a] + v[b] + x) | 0;
+    let ll = u64$1.add3L(Al, Bl, Xl);
+    Ah = u64$1.add3H(ll, Ah, Bh, Xh);
+    Al = ll | 0;
+    // v[d] = rotr(v[d] ^ v[a], 16)
+    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
+    ({ Dh, Dl } = { Dh: u64$1.rotrSH(Dh, Dl, 16), Dl: u64$1.rotrSL(Dh, Dl, 16) });
+    // v[c] = (v[c] + v[d]) | 0;
+    ({ h: Ch, l: Cl } = u64$1.add(Ch, Cl, Dh, Dl));
+    // v[b] = rotr(v[b] ^ v[c], 63)
+    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
+    ({ Bh, Bl } = { Bh: u64$1.rotrBH(Bh, Bl, 63), Bl: u64$1.rotrBL(Bh, Bl, 63) });
+    (BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah);
+    (BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh);
+    (BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch);
+    (BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh);
+}
+class BLAKE2b extends BLAKE {
+    constructor(opts = {}) {
+        super(128, opts.dkLen === undefined ? 64 : opts.dkLen, opts, 64, 16, 16);
+        // Same as SHA-512, but LE
+        this.v0l = B2B_IV[0] | 0;
+        this.v0h = B2B_IV[1] | 0;
+        this.v1l = B2B_IV[2] | 0;
+        this.v1h = B2B_IV[3] | 0;
+        this.v2l = B2B_IV[4] | 0;
+        this.v2h = B2B_IV[5] | 0;
+        this.v3l = B2B_IV[6] | 0;
+        this.v3h = B2B_IV[7] | 0;
+        this.v4l = B2B_IV[8] | 0;
+        this.v4h = B2B_IV[9] | 0;
+        this.v5l = B2B_IV[10] | 0;
+        this.v5h = B2B_IV[11] | 0;
+        this.v6l = B2B_IV[12] | 0;
+        this.v6h = B2B_IV[13] | 0;
+        this.v7l = B2B_IV[14] | 0;
+        this.v7h = B2B_IV[15] | 0;
+        const keyLength = opts.key ? opts.key.length : 0;
+        this.v0l ^= this.outputLen | (keyLength << 8) | (0x01 << 16) | (0x01 << 24);
+        if (opts.salt) {
+            const salt = u32(toBytes(opts.salt));
+            this.v4l ^= byteSwapIfBE(salt[0]);
+            this.v4h ^= byteSwapIfBE(salt[1]);
+            this.v5l ^= byteSwapIfBE(salt[2]);
+            this.v5h ^= byteSwapIfBE(salt[3]);
+        }
+        if (opts.personalization) {
+            const pers = u32(toBytes(opts.personalization));
+            this.v6l ^= byteSwapIfBE(pers[0]);
+            this.v6h ^= byteSwapIfBE(pers[1]);
+            this.v7l ^= byteSwapIfBE(pers[2]);
+            this.v7h ^= byteSwapIfBE(pers[3]);
+        }
+        if (opts.key) {
+            // Pad to blockLen and update
+            const tmp = new Uint8Array(this.blockLen);
+            tmp.set(toBytes(opts.key));
+            this.update(tmp);
+        }
+    }
+    // prettier-ignore
+    get() {
+        let { v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h } = this;
+        return [v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h];
+    }
+    // prettier-ignore
+    set(v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h) {
+        this.v0l = v0l | 0;
+        this.v0h = v0h | 0;
+        this.v1l = v1l | 0;
+        this.v1h = v1h | 0;
+        this.v2l = v2l | 0;
+        this.v2h = v2h | 0;
+        this.v3l = v3l | 0;
+        this.v3h = v3h | 0;
+        this.v4l = v4l | 0;
+        this.v4h = v4h | 0;
+        this.v5l = v5l | 0;
+        this.v5h = v5h | 0;
+        this.v6l = v6l | 0;
+        this.v6h = v6h | 0;
+        this.v7l = v7l | 0;
+        this.v7h = v7h | 0;
+    }
+    compress(msg, offset, isLast) {
+        this.get().forEach((v, i) => (BBUF[i] = v)); // First half from state.
+        BBUF.set(B2B_IV, 16); // Second half from IV.
+        let { h, l } = u64$1.fromBig(BigInt(this.length));
+        BBUF[24] = B2B_IV[8] ^ l; // Low word of the offset.
+        BBUF[25] = B2B_IV[9] ^ h; // High word.
+        // Invert all bits for last block
+        if (isLast) {
+            BBUF[28] = ~BBUF[28];
+            BBUF[29] = ~BBUF[29];
+        }
+        let j = 0;
+        const s = SIGMA;
+        for (let i = 0; i < 12; i++) {
+            G1b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
+            G2b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
+            G1b(1, 5, 9, 13, msg, offset + 2 * s[j++]);
+            G2b(1, 5, 9, 13, msg, offset + 2 * s[j++]);
+            G1b(2, 6, 10, 14, msg, offset + 2 * s[j++]);
+            G2b(2, 6, 10, 14, msg, offset + 2 * s[j++]);
+            G1b(3, 7, 11, 15, msg, offset + 2 * s[j++]);
+            G2b(3, 7, 11, 15, msg, offset + 2 * s[j++]);
+            G1b(0, 5, 10, 15, msg, offset + 2 * s[j++]);
+            G2b(0, 5, 10, 15, msg, offset + 2 * s[j++]);
+            G1b(1, 6, 11, 12, msg, offset + 2 * s[j++]);
+            G2b(1, 6, 11, 12, msg, offset + 2 * s[j++]);
+            G1b(2, 7, 8, 13, msg, offset + 2 * s[j++]);
+            G2b(2, 7, 8, 13, msg, offset + 2 * s[j++]);
+            G1b(3, 4, 9, 14, msg, offset + 2 * s[j++]);
+            G2b(3, 4, 9, 14, msg, offset + 2 * s[j++]);
+        }
+        this.v0l ^= BBUF[0] ^ BBUF[16];
+        this.v0h ^= BBUF[1] ^ BBUF[17];
+        this.v1l ^= BBUF[2] ^ BBUF[18];
+        this.v1h ^= BBUF[3] ^ BBUF[19];
+        this.v2l ^= BBUF[4] ^ BBUF[20];
+        this.v2h ^= BBUF[5] ^ BBUF[21];
+        this.v3l ^= BBUF[6] ^ BBUF[22];
+        this.v3h ^= BBUF[7] ^ BBUF[23];
+        this.v4l ^= BBUF[8] ^ BBUF[24];
+        this.v4h ^= BBUF[9] ^ BBUF[25];
+        this.v5l ^= BBUF[10] ^ BBUF[26];
+        this.v5h ^= BBUF[11] ^ BBUF[27];
+        this.v6l ^= BBUF[12] ^ BBUF[28];
+        this.v6h ^= BBUF[13] ^ BBUF[29];
+        this.v7l ^= BBUF[14] ^ BBUF[30];
+        this.v7h ^= BBUF[15] ^ BBUF[31];
+        BBUF.fill(0);
+    }
+    destroy() {
+        this.destroyed = true;
+        this.buffer32.fill(0);
+        this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+}
+/**
+ * Blake2b hash function. Focuses on 64-bit platforms, but in JS speed different from Blake2s is negligible.
+ * @param msg - message that would be hashed
+ * @param opts - dkLen output length, key for MAC mode, salt, personalization
+ */
+const blake2b = /* @__PURE__ */ wrapConstructorWithOpts((opts) => new BLAKE2b(opts));
 
 /*
     Copyright 2018 0KIMS association.
@@ -2235,9 +1687,46 @@ function hashIsEqual(h1, h2) {
 }
 
 function cloneHasher(h) {
-    const ph = h.getPartialHash();
-    const res = blake2bWasm.exports(64);
-    res.setPartialHash(ph);
+    return h.clone();
+}
+
+function fromPartialHash(partial) {
+    // NOTE: this is unsafe and uses internal API
+    const buf = partial.subarray(0, 128);
+    const rest = u32(partial.subarray(128));
+    const res = blake2b.create({ dkLen: 64 });
+    res.buffer.set(buf);
+    (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
+    (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
+    (res.v2l = rest[4] | 0), (res.v2h = rest[5] | 0);
+    (res.v3l = rest[6] | 0), (res.v3h = rest[7] | 0);
+    (res.v4l = rest[8] | 0), (res.v4h = rest[9] | 0);
+    (res.v5l = rest[10] | 0), (res.v5h = rest[11] | 0);
+    (res.v6l = rest[12] | 0), (res.v6h = rest[13] | 0);
+    (res.v7l = rest[14] | 0), (res.v7h = rest[15] | 0);
+    const shift = 2 ** 32;
+    const len = rest[16] + rest[17] * shift;
+    const pos = rest[18] + rest[19] * shift;
+    res.length = len + pos;
+    res.pos = pos;
+    return res;
+}
+
+function toPartialHash(hash){
+    // NOTE: this is unsafe and uses internal API
+    const res = new Uint8Array(216);
+    const res32 = u32(res.subarray(128));
+    res.set(hash.buffer);
+    (res32[0] = hash.v0l), (res32[1] = hash.v0h);
+    (res32[2] = hash.v1l), (res32[3] = hash.v1h);
+    (res32[4] = hash.v2l), (res32[5] = hash.v2h);
+    (res32[6] = hash.v3l), (res32[7] = hash.v3h);
+    (res32[8] = hash.v4l), (res32[9] = hash.v4h);
+    (res32[10] = hash.v5l), (res32[11] = hash.v5h);
+    (res32[12] = hash.v6l), (res32[13] = hash.v6h);
+    (res32[14] = hash.v7l), (res32[15] = hash.v7h);
+    res32[18] = hash.pos;
+    res32[16] = hash.length-hash.pos;
     return res;
 }
 
@@ -2286,7 +1775,7 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = blake2bWasm.exports(64);
+    const hasher = blake2b.create(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
@@ -4207,7 +3696,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = blake2bWasm.exports(64);
+    const h = blake2b.create({ dkLen: 64 });
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -4415,8 +3904,7 @@ async function readContribution(fd, curve) {
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
     toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
 
-    const responseHasher = blake2bWasm.exports(64);
-    responseHasher.setPartialHash(c.partialHash);
+    const responseHasher =  fromPartialHash(c.partialHash);
     responseHasher.update(buffV);
     c.responseHash = responseHasher.digest();
 
@@ -4552,14 +4040,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = new blake2bWasm.exports(64);
+    const hasher = blake2b.create({ dkLen: 64 });
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(blake2bWasm.exports(64).digest());
+    hasher.update(blake2b.create({ dkLen: 64 }).digest());
 
     let n;
 
@@ -4628,8 +4116,6 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
 
 async function newAccumulator(curve, power, fileName, logger) {
 
-    await blake2bWasm.exports.ready();
-
     const fd = await createBinFile(fileName, "ptau", 1, 7);
 
     await writePTauHeader(fd, curve, power, 0);
@@ -4693,7 +4179,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(blake2bWasm.exports(64).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -4704,7 +4190,6 @@ async function newAccumulator(curve, power, fileName, logger) {
 // Format of the outpu
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    await blake2bWasm.exports.ready();
     const {fd: fdFrom, sections} = await readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fdFrom, sections);
@@ -4712,7 +4197,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = blake2bWasm.exports(64).digest();
+        lastResponseHash = blake2b.create({ dkLen: 64 }).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -4726,7 +4211,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
     const fdTo = await createOverride(challengeFilename);
 
-    const toHash = blake2bWasm.exports(64);
+    const toHash = blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -4792,8 +4277,6 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
-    await blake2bWasm.exports.ready();
-
     const noHash = new Uint8Array(64);
     for (let i=0; i<64; i++) noHash[i] = 0xFF;
 
@@ -4842,7 +4325,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
-    const hasherResponse = new blake2bWasm.exports(64);
+    const hasherResponse = blake2b.create({ dkLen: 64 });
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -4858,7 +4341,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
     currentContribution.betaG2 = res[0];
 
-    currentContribution.partialHash = hasherResponse.getPartialHash();
+    currentContribution.partialHash = toPartialHash(hasherResponse);
 
 
     const buffKey = await fdResponse.read(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -4871,7 +4354,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = new blake2bWasm.exports(64);
+        const nextChallengeHasher = blake2b.create({ dkLen: 64 });
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -5120,7 +4603,6 @@ async function verifyContribution(curve, cur, prev, logger) {
 
 async function verify(tauFilename, logger) {
     let sr;
-    await blake2bWasm.exports.ready();
 
     const {fd, sections} = await readBinFile(tauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
@@ -5137,7 +4619,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: blake2bWasm.exports(64).digest()
+        responseHash: blake2b.create({ dkLen: 64 }).digest()
     };
 
     if (contrs.length == 0) {
@@ -5157,7 +4639,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = blake2bWasm.exports(64);
+    const nextContributionHasher = blake2b.create({ dkLen: 64 });
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -5291,8 +4773,7 @@ async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher = blake2bWasm.exports(64);
-        responseHasher.setPartialHash(curContr.partialHash);
+        const responseHasher =  fromPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
 
@@ -5581,8 +5062,6 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 */
 
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    await blake2bWasm.exports.ready();
-
     const fdFrom = await readExisting(challengeFilename);
 
 
@@ -5604,7 +5083,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     const fdTo = await createOverride(responseFileName);
 
     // Calculate the hash
-    const challengeHasher = blake2bWasm.exports(64);
+    const challengeHasher = blake2b.create({ dkLen: 64 });
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -5630,7 +5109,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
         });
     }
 
-    const responseHasher = blake2bWasm.exports(64);
+    const responseHasher = blake2b.create({ dkLen: 64 });
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -5692,8 +5171,6 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     }
 
 
-    await blake2bWasm.exports.ready();
-
     const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
     if (power != ceremonyPower) {
@@ -5721,7 +5198,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = new blake2bWasm.exports(64);
+    const responseHasher = blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -5741,7 +5218,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.partialHash = responseHasher.getPartialHash();
+    curContribution.partialHash = toPartialHash(responseHasher);
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
@@ -5752,7 +5229,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new blake2bWasm.exports(64);
+    const nextChallengeHasher = blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -5860,7 +5337,6 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 */
 
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
-    await blake2bWasm.exports.ready();
 
     const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
@@ -5893,7 +5369,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = new blake2bWasm.exports(64);
+    const responseHasher = blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -5913,7 +5389,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.partialHash = responseHasher.getPartialHash();
+    curContribution.partialHash = toPartialHash(responseHasher);
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
@@ -5924,7 +5400,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new blake2bWasm.exports(64);
+    const nextChallengeHasher = blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -7417,8 +6893,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    await blake2bWasm.exports.ready();
-    const csHasher = blake2bWasm.exports(64);
+    const csHasher = blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -8338,8 +7813,6 @@ const sameRatio = sameRatio$2;
 async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
-    await blake2bWasm.exports.ready();
-
     const {fd, sections} = await readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await readHeader$1(fd, sections, false);
     if (zkey.protocol != "groth16") {
@@ -8351,7 +7824,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = blake2bWasm.exports(64);
+    const accumulatedHasher = blake2b.create({ dkLen: 64 });
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -8397,7 +7870,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = blake2bWasm.exports(64);
+        const contributionHasher = blake2b.create({ dkLen: 64 });
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -8772,7 +8245,6 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
 */
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    await blake2bWasm.exports.ready();
 
     const {fd: fdOld, sections: sections} = await readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await readHeader$1(fdOld, sections);
@@ -8789,7 +8261,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = blake2bWasm.exports(64);
+    const transcriptHasher = blake2b.create({ dkLen: 64 });
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -8842,7 +8314,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2bWasm.exports(64);
+    const contributionHasher = blake2b.create({ dkLen: 64 });
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
@@ -8874,8 +8346,6 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    await blake2bWasm.exports.ready();
-
     const beaconHash = hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
@@ -8911,8 +8381,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = blake2bWasm.exports(64);
-    transcriptHasher.update(mpcParams.csHash);
+    const transcriptHasher = blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
@@ -8967,8 +8436,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2bWasm.exports(64);
-    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -9006,8 +8474,6 @@ async function zkeyExportJson(zkeyFileName) {
 */
 
 async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    await blake2bWasm.exports.ready();
-
     const rng = await getRandomRng(entropy);
 
     const delta = curve.Fr.fromRng(rng);
@@ -9065,8 +8531,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = blake2bWasm.exports(64);
-
+    const transcriptHasher = blake2b.create({ dkLen: 64 });
     const mpcParams = {};
     // csHash
     mpcParams.csHash =  await fdFrom.read(64);
@@ -9116,8 +8581,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = blake2bWasm.exports(64);
-    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -9439,8 +8903,6 @@ var zkey = /*#__PURE__*/Object.freeze({
 async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
-
-    await blake2bWasm.exports.ready();
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -10004,662 +9466,210 @@ class Proof {
     }
 }
 
-var sha3 = {exports: {}};
-
 /**
- * [js-sha3]{@link https://github.com/emn178/js-sha3}
+ * SHA3 (keccak) hash function, based on a new "Sponge function" design.
+ * Different from older hashes, the internal state is bigger than output size.
  *
- * @version 0.8.0
- * @author Chen, Yi-Cyuan [emn178@gmail.com]
- * @copyright Chen, Yi-Cyuan 2015-2018
- * @license MIT
+ * Check out [FIPS-202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf),
+ * [Website](https://keccak.team/keccak.html),
+ * [the differences between SHA-3 and Keccak](https://crypto.stackexchange.com/questions/15727/what-are-the-key-differences-between-the-draft-sha-3-standard-and-the-keccak-sub).
+ *
+ * Check out `sha3-addons` module for cSHAKE, k12, and others.
+ * @module
  */
-
-(function (module) {
-	/*jslint bitwise: true */
-	(function () {
-
-	  var INPUT_ERROR = 'input is invalid type';
-	  var FINALIZE_ERROR = 'finalize already called';
-	  var WINDOW = typeof window === 'object';
-	  var root = WINDOW ? window : {};
-	  if (root.JS_SHA3_NO_WINDOW) {
-	    WINDOW = false;
-	  }
-	  var WEB_WORKER = !WINDOW && typeof self === 'object';
-	  var NODE_JS = !root.JS_SHA3_NO_NODE_JS && typeof process === 'object' && process.versions && process.versions.node;
-	  if (NODE_JS) {
-	    root = commonjsGlobal;
-	  } else if (WEB_WORKER) {
-	    root = self;
-	  }
-	  var COMMON_JS = !root.JS_SHA3_NO_COMMON_JS && 'object' === 'object' && module.exports;
-	  var ARRAY_BUFFER = !root.JS_SHA3_NO_ARRAY_BUFFER && typeof ArrayBuffer !== 'undefined';
-	  var HEX_CHARS = '0123456789abcdef'.split('');
-	  var SHAKE_PADDING = [31, 7936, 2031616, 520093696];
-	  var CSHAKE_PADDING = [4, 1024, 262144, 67108864];
-	  var KECCAK_PADDING = [1, 256, 65536, 16777216];
-	  var PADDING = [6, 1536, 393216, 100663296];
-	  var SHIFT = [0, 8, 16, 24];
-	  var RC = [1, 0, 32898, 0, 32906, 2147483648, 2147516416, 2147483648, 32907, 0, 2147483649,
-	    0, 2147516545, 2147483648, 32777, 2147483648, 138, 0, 136, 0, 2147516425, 0,
-	    2147483658, 0, 2147516555, 0, 139, 2147483648, 32905, 2147483648, 32771,
-	    2147483648, 32770, 2147483648, 128, 2147483648, 32778, 0, 2147483658, 2147483648,
-	    2147516545, 2147483648, 32896, 2147483648, 2147483649, 0, 2147516424, 2147483648];
-	  var BITS = [224, 256, 384, 512];
-	  var SHAKE_BITS = [128, 256];
-	  var OUTPUT_TYPES = ['hex', 'buffer', 'arrayBuffer', 'array', 'digest'];
-	  var CSHAKE_BYTEPAD = {
-	    '128': 168,
-	    '256': 136
-	  };
-
-	  if (root.JS_SHA3_NO_NODE_JS || !Array.isArray) {
-	    Array.isArray = function (obj) {
-	      return Object.prototype.toString.call(obj) === '[object Array]';
-	    };
-	  }
-
-	  if (ARRAY_BUFFER && (root.JS_SHA3_NO_ARRAY_BUFFER_IS_VIEW || !ArrayBuffer.isView)) {
-	    ArrayBuffer.isView = function (obj) {
-	      return typeof obj === 'object' && obj.buffer && obj.buffer.constructor === ArrayBuffer;
-	    };
-	  }
-
-	  var createOutputMethod = function (bits, padding, outputType) {
-	    return function (message) {
-	      return new Keccak(bits, padding, bits).update(message)[outputType]();
-	    };
-	  };
-
-	  var createShakeOutputMethod = function (bits, padding, outputType) {
-	    return function (message, outputBits) {
-	      return new Keccak(bits, padding, outputBits).update(message)[outputType]();
-	    };
-	  };
-
-	  var createCshakeOutputMethod = function (bits, padding, outputType) {
-	    return function (message, outputBits, n, s) {
-	      return methods['cshake' + bits].update(message, outputBits, n, s)[outputType]();
-	    };
-	  };
-
-	  var createKmacOutputMethod = function (bits, padding, outputType) {
-	    return function (key, message, outputBits, s) {
-	      return methods['kmac' + bits].update(key, message, outputBits, s)[outputType]();
-	    };
-	  };
-
-	  var createOutputMethods = function (method, createMethod, bits, padding) {
-	    for (var i = 0; i < OUTPUT_TYPES.length; ++i) {
-	      var type = OUTPUT_TYPES[i];
-	      method[type] = createMethod(bits, padding, type);
-	    }
-	    return method;
-	  };
-
-	  var createMethod = function (bits, padding) {
-	    var method = createOutputMethod(bits, padding, 'hex');
-	    method.create = function () {
-	      return new Keccak(bits, padding, bits);
-	    };
-	    method.update = function (message) {
-	      return method.create().update(message);
-	    };
-	    return createOutputMethods(method, createOutputMethod, bits, padding);
-	  };
-
-	  var createShakeMethod = function (bits, padding) {
-	    var method = createShakeOutputMethod(bits, padding, 'hex');
-	    method.create = function (outputBits) {
-	      return new Keccak(bits, padding, outputBits);
-	    };
-	    method.update = function (message, outputBits) {
-	      return method.create(outputBits).update(message);
-	    };
-	    return createOutputMethods(method, createShakeOutputMethod, bits, padding);
-	  };
-
-	  var createCshakeMethod = function (bits, padding) {
-	    var w = CSHAKE_BYTEPAD[bits];
-	    var method = createCshakeOutputMethod(bits, padding, 'hex');
-	    method.create = function (outputBits, n, s) {
-	      if (!n && !s) {
-	        return methods['shake' + bits].create(outputBits);
-	      } else {
-	        return new Keccak(bits, padding, outputBits).bytepad([n, s], w);
-	      }
-	    };
-	    method.update = function (message, outputBits, n, s) {
-	      return method.create(outputBits, n, s).update(message);
-	    };
-	    return createOutputMethods(method, createCshakeOutputMethod, bits, padding);
-	  };
-
-	  var createKmacMethod = function (bits, padding) {
-	    var w = CSHAKE_BYTEPAD[bits];
-	    var method = createKmacOutputMethod(bits, padding, 'hex');
-	    method.create = function (key, outputBits, s) {
-	      return new Kmac(bits, padding, outputBits).bytepad(['KMAC', s], w).bytepad([key], w);
-	    };
-	    method.update = function (key, message, outputBits, s) {
-	      return method.create(key, outputBits, s).update(message);
-	    };
-	    return createOutputMethods(method, createKmacOutputMethod, bits, padding);
-	  };
-
-	  var algorithms = [
-	    { name: 'keccak', padding: KECCAK_PADDING, bits: BITS, createMethod: createMethod },
-	    { name: 'sha3', padding: PADDING, bits: BITS, createMethod: createMethod },
-	    { name: 'shake', padding: SHAKE_PADDING, bits: SHAKE_BITS, createMethod: createShakeMethod },
-	    { name: 'cshake', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createCshakeMethod },
-	    { name: 'kmac', padding: CSHAKE_PADDING, bits: SHAKE_BITS, createMethod: createKmacMethod }
-	  ];
-
-	  var methods = {}, methodNames = [];
-
-	  for (var i = 0; i < algorithms.length; ++i) {
-	    var algorithm = algorithms[i];
-	    var bits = algorithm.bits;
-	    for (var j = 0; j < bits.length; ++j) {
-	      var methodName = algorithm.name + '_' + bits[j];
-	      methodNames.push(methodName);
-	      methods[methodName] = algorithm.createMethod(bits[j], algorithm.padding);
-	      if (algorithm.name !== 'sha3') {
-	        var newMethodName = algorithm.name + bits[j];
-	        methodNames.push(newMethodName);
-	        methods[newMethodName] = methods[methodName];
-	      }
-	    }
-	  }
-
-	  function Keccak(bits, padding, outputBits) {
-	    this.blocks = [];
-	    this.s = [];
-	    this.padding = padding;
-	    this.outputBits = outputBits;
-	    this.reset = true;
-	    this.finalized = false;
-	    this.block = 0;
-	    this.start = 0;
-	    this.blockCount = (1600 - (bits << 1)) >> 5;
-	    this.byteCount = this.blockCount << 2;
-	    this.outputBlocks = outputBits >> 5;
-	    this.extraBytes = (outputBits & 31) >> 3;
-
-	    for (var i = 0; i < 50; ++i) {
-	      this.s[i] = 0;
-	    }
-	  }
-
-	  Keccak.prototype.update = function (message) {
-	    if (this.finalized) {
-	      throw new Error(FINALIZE_ERROR);
-	    }
-	    var notString, type = typeof message;
-	    if (type !== 'string') {
-	      if (type === 'object') {
-	        if (message === null) {
-	          throw new Error(INPUT_ERROR);
-	        } else if (ARRAY_BUFFER && message.constructor === ArrayBuffer) {
-	          message = new Uint8Array(message);
-	        } else if (!Array.isArray(message)) {
-	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(message)) {
-	            throw new Error(INPUT_ERROR);
-	          }
-	        }
-	      } else {
-	        throw new Error(INPUT_ERROR);
-	      }
-	      notString = true;
-	    }
-	    var blocks = this.blocks, byteCount = this.byteCount, length = message.length,
-	      blockCount = this.blockCount, index = 0, s = this.s, i, code;
-
-	    while (index < length) {
-	      if (this.reset) {
-	        this.reset = false;
-	        blocks[0] = this.block;
-	        for (i = 1; i < blockCount + 1; ++i) {
-	          blocks[i] = 0;
-	        }
-	      }
-	      if (notString) {
-	        for (i = this.start; index < length && i < byteCount; ++index) {
-	          blocks[i >> 2] |= message[index] << SHIFT[i++ & 3];
-	        }
-	      } else {
-	        for (i = this.start; index < length && i < byteCount; ++index) {
-	          code = message.charCodeAt(index);
-	          if (code < 0x80) {
-	            blocks[i >> 2] |= code << SHIFT[i++ & 3];
-	          } else if (code < 0x800) {
-	            blocks[i >> 2] |= (0xc0 | (code >> 6)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          } else if (code < 0xd800 || code >= 0xe000) {
-	            blocks[i >> 2] |= (0xe0 | (code >> 12)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          } else {
-	            code = 0x10000 + (((code & 0x3ff) << 10) | (message.charCodeAt(++index) & 0x3ff));
-	            blocks[i >> 2] |= (0xf0 | (code >> 18)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 12) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | ((code >> 6) & 0x3f)) << SHIFT[i++ & 3];
-	            blocks[i >> 2] |= (0x80 | (code & 0x3f)) << SHIFT[i++ & 3];
-	          }
-	        }
-	      }
-	      this.lastByteIndex = i;
-	      if (i >= byteCount) {
-	        this.start = i - byteCount;
-	        this.block = blocks[blockCount];
-	        for (i = 0; i < blockCount; ++i) {
-	          s[i] ^= blocks[i];
-	        }
-	        f(s);
-	        this.reset = true;
-	      } else {
-	        this.start = i;
-	      }
-	    }
-	    return this;
-	  };
-
-	  Keccak.prototype.encode = function (x, right) {
-	    var o = x & 255, n = 1;
-	    var bytes = [o];
-	    x = x >> 8;
-	    o = x & 255;
-	    while (o > 0) {
-	      bytes.unshift(o);
-	      x = x >> 8;
-	      o = x & 255;
-	      ++n;
-	    }
-	    if (right) {
-	      bytes.push(n);
-	    } else {
-	      bytes.unshift(n);
-	    }
-	    this.update(bytes);
-	    return bytes.length;
-	  };
-
-	  Keccak.prototype.encodeString = function (str) {
-	    var notString, type = typeof str;
-	    if (type !== 'string') {
-	      if (type === 'object') {
-	        if (str === null) {
-	          throw new Error(INPUT_ERROR);
-	        } else if (ARRAY_BUFFER && str.constructor === ArrayBuffer) {
-	          str = new Uint8Array(str);
-	        } else if (!Array.isArray(str)) {
-	          if (!ARRAY_BUFFER || !ArrayBuffer.isView(str)) {
-	            throw new Error(INPUT_ERROR);
-	          }
-	        }
-	      } else {
-	        throw new Error(INPUT_ERROR);
-	      }
-	      notString = true;
-	    }
-	    var bytes = 0, length = str.length;
-	    if (notString) {
-	      bytes = length;
-	    } else {
-	      for (var i = 0; i < str.length; ++i) {
-	        var code = str.charCodeAt(i);
-	        if (code < 0x80) {
-	          bytes += 1;
-	        } else if (code < 0x800) {
-	          bytes += 2;
-	        } else if (code < 0xd800 || code >= 0xe000) {
-	          bytes += 3;
-	        } else {
-	          code = 0x10000 + (((code & 0x3ff) << 10) | (str.charCodeAt(++i) & 0x3ff));
-	          bytes += 4;
-	        }
-	      }
-	    }
-	    bytes += this.encode(bytes * 8);
-	    this.update(str);
-	    return bytes;
-	  };
-
-	  Keccak.prototype.bytepad = function (strs, w) {
-	    var bytes = this.encode(w);
-	    for (var i = 0; i < strs.length; ++i) {
-	      bytes += this.encodeString(strs[i]);
-	    }
-	    var paddingBytes = w - bytes % w;
-	    var zeros = [];
-	    zeros.length = paddingBytes;
-	    this.update(zeros);
-	    return this;
-	  };
-
-	  Keccak.prototype.finalize = function () {
-	    if (this.finalized) {
-	      return;
-	    }
-	    this.finalized = true;
-	    var blocks = this.blocks, i = this.lastByteIndex, blockCount = this.blockCount, s = this.s;
-	    blocks[i >> 2] |= this.padding[i & 3];
-	    if (this.lastByteIndex === this.byteCount) {
-	      blocks[0] = blocks[blockCount];
-	      for (i = 1; i < blockCount + 1; ++i) {
-	        blocks[i] = 0;
-	      }
-	    }
-	    blocks[blockCount - 1] |= 0x80000000;
-	    for (i = 0; i < blockCount; ++i) {
-	      s[i] ^= blocks[i];
-	    }
-	    f(s);
-	  };
-
-	  Keccak.prototype.toString = Keccak.prototype.hex = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var hex = '', block;
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        block = s[i];
-	        hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F] +
-	          HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F] +
-	          HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F] +
-	          HEX_CHARS[(block >> 28) & 0x0F] + HEX_CHARS[(block >> 24) & 0x0F];
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	        i = 0;
-	      }
-	    }
-	    if (extraBytes) {
-	      block = s[i];
-	      hex += HEX_CHARS[(block >> 4) & 0x0F] + HEX_CHARS[block & 0x0F];
-	      if (extraBytes > 1) {
-	        hex += HEX_CHARS[(block >> 12) & 0x0F] + HEX_CHARS[(block >> 8) & 0x0F];
-	      }
-	      if (extraBytes > 2) {
-	        hex += HEX_CHARS[(block >> 20) & 0x0F] + HEX_CHARS[(block >> 16) & 0x0F];
-	      }
-	    }
-	    return hex;
-	  };
-
-	  Keccak.prototype.arrayBuffer = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var bytes = this.outputBits >> 3;
-	    var buffer;
-	    if (extraBytes) {
-	      buffer = new ArrayBuffer((outputBlocks + 1) << 2);
-	    } else {
-	      buffer = new ArrayBuffer(bytes);
-	    }
-	    var array = new Uint32Array(buffer);
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        array[j] = s[i];
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	      }
-	    }
-	    if (extraBytes) {
-	      array[i] = s[i];
-	      buffer = buffer.slice(0, bytes);
-	    }
-	    return buffer;
-	  };
-
-	  Keccak.prototype.buffer = Keccak.prototype.arrayBuffer;
-
-	  Keccak.prototype.digest = Keccak.prototype.array = function () {
-	    this.finalize();
-
-	    var blockCount = this.blockCount, s = this.s, outputBlocks = this.outputBlocks,
-	      extraBytes = this.extraBytes, i = 0, j = 0;
-	    var array = [], offset, block;
-	    while (j < outputBlocks) {
-	      for (i = 0; i < blockCount && j < outputBlocks; ++i, ++j) {
-	        offset = j << 2;
-	        block = s[i];
-	        array[offset] = block & 0xFF;
-	        array[offset + 1] = (block >> 8) & 0xFF;
-	        array[offset + 2] = (block >> 16) & 0xFF;
-	        array[offset + 3] = (block >> 24) & 0xFF;
-	      }
-	      if (j % blockCount === 0) {
-	        f(s);
-	      }
-	    }
-	    if (extraBytes) {
-	      offset = j << 2;
-	      block = s[i];
-	      array[offset] = block & 0xFF;
-	      if (extraBytes > 1) {
-	        array[offset + 1] = (block >> 8) & 0xFF;
-	      }
-	      if (extraBytes > 2) {
-	        array[offset + 2] = (block >> 16) & 0xFF;
-	      }
-	    }
-	    return array;
-	  };
-
-	  function Kmac(bits, padding, outputBits) {
-	    Keccak.call(this, bits, padding, outputBits);
-	  }
-
-	  Kmac.prototype = new Keccak();
-
-	  Kmac.prototype.finalize = function () {
-	    this.encode(this.outputBits, true);
-	    return Keccak.prototype.finalize.call(this);
-	  };
-
-	  var f = function (s) {
-	    var h, l, n, c0, c1, c2, c3, c4, c5, c6, c7, c8, c9,
-	      b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17,
-	      b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32, b33,
-	      b34, b35, b36, b37, b38, b39, b40, b41, b42, b43, b44, b45, b46, b47, b48, b49;
-	    for (n = 0; n < 48; n += 2) {
-	      c0 = s[0] ^ s[10] ^ s[20] ^ s[30] ^ s[40];
-	      c1 = s[1] ^ s[11] ^ s[21] ^ s[31] ^ s[41];
-	      c2 = s[2] ^ s[12] ^ s[22] ^ s[32] ^ s[42];
-	      c3 = s[3] ^ s[13] ^ s[23] ^ s[33] ^ s[43];
-	      c4 = s[4] ^ s[14] ^ s[24] ^ s[34] ^ s[44];
-	      c5 = s[5] ^ s[15] ^ s[25] ^ s[35] ^ s[45];
-	      c6 = s[6] ^ s[16] ^ s[26] ^ s[36] ^ s[46];
-	      c7 = s[7] ^ s[17] ^ s[27] ^ s[37] ^ s[47];
-	      c8 = s[8] ^ s[18] ^ s[28] ^ s[38] ^ s[48];
-	      c9 = s[9] ^ s[19] ^ s[29] ^ s[39] ^ s[49];
-
-	      h = c8 ^ ((c2 << 1) | (c3 >>> 31));
-	      l = c9 ^ ((c3 << 1) | (c2 >>> 31));
-	      s[0] ^= h;
-	      s[1] ^= l;
-	      s[10] ^= h;
-	      s[11] ^= l;
-	      s[20] ^= h;
-	      s[21] ^= l;
-	      s[30] ^= h;
-	      s[31] ^= l;
-	      s[40] ^= h;
-	      s[41] ^= l;
-	      h = c0 ^ ((c4 << 1) | (c5 >>> 31));
-	      l = c1 ^ ((c5 << 1) | (c4 >>> 31));
-	      s[2] ^= h;
-	      s[3] ^= l;
-	      s[12] ^= h;
-	      s[13] ^= l;
-	      s[22] ^= h;
-	      s[23] ^= l;
-	      s[32] ^= h;
-	      s[33] ^= l;
-	      s[42] ^= h;
-	      s[43] ^= l;
-	      h = c2 ^ ((c6 << 1) | (c7 >>> 31));
-	      l = c3 ^ ((c7 << 1) | (c6 >>> 31));
-	      s[4] ^= h;
-	      s[5] ^= l;
-	      s[14] ^= h;
-	      s[15] ^= l;
-	      s[24] ^= h;
-	      s[25] ^= l;
-	      s[34] ^= h;
-	      s[35] ^= l;
-	      s[44] ^= h;
-	      s[45] ^= l;
-	      h = c4 ^ ((c8 << 1) | (c9 >>> 31));
-	      l = c5 ^ ((c9 << 1) | (c8 >>> 31));
-	      s[6] ^= h;
-	      s[7] ^= l;
-	      s[16] ^= h;
-	      s[17] ^= l;
-	      s[26] ^= h;
-	      s[27] ^= l;
-	      s[36] ^= h;
-	      s[37] ^= l;
-	      s[46] ^= h;
-	      s[47] ^= l;
-	      h = c6 ^ ((c0 << 1) | (c1 >>> 31));
-	      l = c7 ^ ((c1 << 1) | (c0 >>> 31));
-	      s[8] ^= h;
-	      s[9] ^= l;
-	      s[18] ^= h;
-	      s[19] ^= l;
-	      s[28] ^= h;
-	      s[29] ^= l;
-	      s[38] ^= h;
-	      s[39] ^= l;
-	      s[48] ^= h;
-	      s[49] ^= l;
-
-	      b0 = s[0];
-	      b1 = s[1];
-	      b32 = (s[11] << 4) | (s[10] >>> 28);
-	      b33 = (s[10] << 4) | (s[11] >>> 28);
-	      b14 = (s[20] << 3) | (s[21] >>> 29);
-	      b15 = (s[21] << 3) | (s[20] >>> 29);
-	      b46 = (s[31] << 9) | (s[30] >>> 23);
-	      b47 = (s[30] << 9) | (s[31] >>> 23);
-	      b28 = (s[40] << 18) | (s[41] >>> 14);
-	      b29 = (s[41] << 18) | (s[40] >>> 14);
-	      b20 = (s[2] << 1) | (s[3] >>> 31);
-	      b21 = (s[3] << 1) | (s[2] >>> 31);
-	      b2 = (s[13] << 12) | (s[12] >>> 20);
-	      b3 = (s[12] << 12) | (s[13] >>> 20);
-	      b34 = (s[22] << 10) | (s[23] >>> 22);
-	      b35 = (s[23] << 10) | (s[22] >>> 22);
-	      b16 = (s[33] << 13) | (s[32] >>> 19);
-	      b17 = (s[32] << 13) | (s[33] >>> 19);
-	      b48 = (s[42] << 2) | (s[43] >>> 30);
-	      b49 = (s[43] << 2) | (s[42] >>> 30);
-	      b40 = (s[5] << 30) | (s[4] >>> 2);
-	      b41 = (s[4] << 30) | (s[5] >>> 2);
-	      b22 = (s[14] << 6) | (s[15] >>> 26);
-	      b23 = (s[15] << 6) | (s[14] >>> 26);
-	      b4 = (s[25] << 11) | (s[24] >>> 21);
-	      b5 = (s[24] << 11) | (s[25] >>> 21);
-	      b36 = (s[34] << 15) | (s[35] >>> 17);
-	      b37 = (s[35] << 15) | (s[34] >>> 17);
-	      b18 = (s[45] << 29) | (s[44] >>> 3);
-	      b19 = (s[44] << 29) | (s[45] >>> 3);
-	      b10 = (s[6] << 28) | (s[7] >>> 4);
-	      b11 = (s[7] << 28) | (s[6] >>> 4);
-	      b42 = (s[17] << 23) | (s[16] >>> 9);
-	      b43 = (s[16] << 23) | (s[17] >>> 9);
-	      b24 = (s[26] << 25) | (s[27] >>> 7);
-	      b25 = (s[27] << 25) | (s[26] >>> 7);
-	      b6 = (s[36] << 21) | (s[37] >>> 11);
-	      b7 = (s[37] << 21) | (s[36] >>> 11);
-	      b38 = (s[47] << 24) | (s[46] >>> 8);
-	      b39 = (s[46] << 24) | (s[47] >>> 8);
-	      b30 = (s[8] << 27) | (s[9] >>> 5);
-	      b31 = (s[9] << 27) | (s[8] >>> 5);
-	      b12 = (s[18] << 20) | (s[19] >>> 12);
-	      b13 = (s[19] << 20) | (s[18] >>> 12);
-	      b44 = (s[29] << 7) | (s[28] >>> 25);
-	      b45 = (s[28] << 7) | (s[29] >>> 25);
-	      b26 = (s[38] << 8) | (s[39] >>> 24);
-	      b27 = (s[39] << 8) | (s[38] >>> 24);
-	      b8 = (s[48] << 14) | (s[49] >>> 18);
-	      b9 = (s[49] << 14) | (s[48] >>> 18);
-
-	      s[0] = b0 ^ (~b2 & b4);
-	      s[1] = b1 ^ (~b3 & b5);
-	      s[10] = b10 ^ (~b12 & b14);
-	      s[11] = b11 ^ (~b13 & b15);
-	      s[20] = b20 ^ (~b22 & b24);
-	      s[21] = b21 ^ (~b23 & b25);
-	      s[30] = b30 ^ (~b32 & b34);
-	      s[31] = b31 ^ (~b33 & b35);
-	      s[40] = b40 ^ (~b42 & b44);
-	      s[41] = b41 ^ (~b43 & b45);
-	      s[2] = b2 ^ (~b4 & b6);
-	      s[3] = b3 ^ (~b5 & b7);
-	      s[12] = b12 ^ (~b14 & b16);
-	      s[13] = b13 ^ (~b15 & b17);
-	      s[22] = b22 ^ (~b24 & b26);
-	      s[23] = b23 ^ (~b25 & b27);
-	      s[32] = b32 ^ (~b34 & b36);
-	      s[33] = b33 ^ (~b35 & b37);
-	      s[42] = b42 ^ (~b44 & b46);
-	      s[43] = b43 ^ (~b45 & b47);
-	      s[4] = b4 ^ (~b6 & b8);
-	      s[5] = b5 ^ (~b7 & b9);
-	      s[14] = b14 ^ (~b16 & b18);
-	      s[15] = b15 ^ (~b17 & b19);
-	      s[24] = b24 ^ (~b26 & b28);
-	      s[25] = b25 ^ (~b27 & b29);
-	      s[34] = b34 ^ (~b36 & b38);
-	      s[35] = b35 ^ (~b37 & b39);
-	      s[44] = b44 ^ (~b46 & b48);
-	      s[45] = b45 ^ (~b47 & b49);
-	      s[6] = b6 ^ (~b8 & b0);
-	      s[7] = b7 ^ (~b9 & b1);
-	      s[16] = b16 ^ (~b18 & b10);
-	      s[17] = b17 ^ (~b19 & b11);
-	      s[26] = b26 ^ (~b28 & b20);
-	      s[27] = b27 ^ (~b29 & b21);
-	      s[36] = b36 ^ (~b38 & b30);
-	      s[37] = b37 ^ (~b39 & b31);
-	      s[46] = b46 ^ (~b48 & b40);
-	      s[47] = b47 ^ (~b49 & b41);
-	      s[8] = b8 ^ (~b0 & b2);
-	      s[9] = b9 ^ (~b1 & b3);
-	      s[18] = b18 ^ (~b10 & b12);
-	      s[19] = b19 ^ (~b11 & b13);
-	      s[28] = b28 ^ (~b20 & b22);
-	      s[29] = b29 ^ (~b21 & b23);
-	      s[38] = b38 ^ (~b30 & b32);
-	      s[39] = b39 ^ (~b31 & b33);
-	      s[48] = b48 ^ (~b40 & b42);
-	      s[49] = b49 ^ (~b41 & b43);
-
-	      s[0] ^= RC[n];
-	      s[1] ^= RC[n + 1];
-	    }
-	  };
-
-	  if (COMMON_JS) {
-	    module.exports = methods;
-	  } else {
-	    for (i = 0; i < methodNames.length; ++i) {
-	      root[methodNames[i]] = methods[methodNames[i]];
-	    }
-	  }
-	})();
-} (sha3));
-
-var jsSha3 = sha3.exports;
+// Various per round constants calculations
+const SHA3_PI = [];
+const SHA3_ROTL = [];
+const _SHA3_IOTA = [];
+const _0n = /* @__PURE__ */ BigInt(0);
+const _1n = /* @__PURE__ */ BigInt(1);
+const _2n = /* @__PURE__ */ BigInt(2);
+const _7n = /* @__PURE__ */ BigInt(7);
+const _256n = /* @__PURE__ */ BigInt(256);
+const _0x71n = /* @__PURE__ */ BigInt(0x71);
+for (let round = 0, R = _1n, x = 1, y = 0; round < 24; round++) {
+    // Pi
+    [x, y] = [y, (2 * x + 3 * y) % 5];
+    SHA3_PI.push(2 * (5 * y + x));
+    // Rotational
+    SHA3_ROTL.push((((round + 1) * (round + 2)) / 2) % 64);
+    // Iota
+    let t = _0n;
+    for (let j = 0; j < 7; j++) {
+        R = ((R << _1n) ^ ((R >> _7n) * _0x71n)) % _256n;
+        if (R & _2n)
+            t ^= _1n << ((_1n << /* @__PURE__ */ BigInt(j)) - _1n);
+    }
+    _SHA3_IOTA.push(t);
+}
+const [SHA3_IOTA_H, SHA3_IOTA_L] = /* @__PURE__ */ split(_SHA3_IOTA, true);
+// Left rotation (without 0, 32, 64)
+const rotlH = (h, l, s) => (s > 32 ? rotlBH(h, l, s) : rotlSH(h, l, s));
+const rotlL = (h, l, s) => (s > 32 ? rotlBL(h, l, s) : rotlSL(h, l, s));
+/** `keccakf1600` internal function, additionally allows to adjust round count. */
+function keccakP(s, rounds = 24) {
+    const B = new Uint32Array(5 * 2);
+    // NOTE: all indices are x2 since we store state as u32 instead of u64 (bigints to slow in js)
+    for (let round = 24 - rounds; round < 24; round++) {
+        // Theta θ
+        for (let x = 0; x < 10; x++)
+            B[x] = s[x] ^ s[x + 10] ^ s[x + 20] ^ s[x + 30] ^ s[x + 40];
+        for (let x = 0; x < 10; x += 2) {
+            const idx1 = (x + 8) % 10;
+            const idx0 = (x + 2) % 10;
+            const B0 = B[idx0];
+            const B1 = B[idx0 + 1];
+            const Th = rotlH(B0, B1, 1) ^ B[idx1];
+            const Tl = rotlL(B0, B1, 1) ^ B[idx1 + 1];
+            for (let y = 0; y < 50; y += 10) {
+                s[x + y] ^= Th;
+                s[x + y + 1] ^= Tl;
+            }
+        }
+        // Rho (ρ) and Pi (π)
+        let curH = s[2];
+        let curL = s[3];
+        for (let t = 0; t < 24; t++) {
+            const shift = SHA3_ROTL[t];
+            const Th = rotlH(curH, curL, shift);
+            const Tl = rotlL(curH, curL, shift);
+            const PI = SHA3_PI[t];
+            curH = s[PI];
+            curL = s[PI + 1];
+            s[PI] = Th;
+            s[PI + 1] = Tl;
+        }
+        // Chi (χ)
+        for (let y = 0; y < 50; y += 10) {
+            for (let x = 0; x < 10; x++)
+                B[x] = s[y + x];
+            for (let x = 0; x < 10; x++)
+                s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
+        }
+        // Iota (ι)
+        s[0] ^= SHA3_IOTA_H[round];
+        s[1] ^= SHA3_IOTA_L[round];
+    }
+    B.fill(0);
+}
+/** Keccak sponge function. */
+class Keccak extends Hash {
+    // NOTE: we accept arguments in bytes instead of bits here.
+    constructor(blockLen, suffix, outputLen, enableXOF = false, rounds = 24) {
+        super();
+        this.blockLen = blockLen;
+        this.suffix = suffix;
+        this.outputLen = outputLen;
+        this.enableXOF = enableXOF;
+        this.rounds = rounds;
+        this.pos = 0;
+        this.posOut = 0;
+        this.finished = false;
+        this.destroyed = false;
+        // Can be passed from user as dkLen
+        anumber(outputLen);
+        // 1600 = 5x5 matrix of 64bit.  1600 bits === 200 bytes
+        // 0 < blockLen < 200
+        if (0 >= this.blockLen || this.blockLen >= 200)
+            throw new Error('Sha3 supports only keccak-f1600 function');
+        this.state = new Uint8Array(200);
+        this.state32 = u32(this.state);
+    }
+    keccak() {
+        if (!isLE)
+            byteSwap32(this.state32);
+        keccakP(this.state32, this.rounds);
+        if (!isLE)
+            byteSwap32(this.state32);
+        this.posOut = 0;
+        this.pos = 0;
+    }
+    update(data) {
+        aexists(this);
+        const { blockLen, state } = this;
+        data = toBytes(data);
+        const len = data.length;
+        for (let pos = 0; pos < len;) {
+            const take = Math.min(blockLen - this.pos, len - pos);
+            for (let i = 0; i < take; i++)
+                state[this.pos++] ^= data[pos++];
+            if (this.pos === blockLen)
+                this.keccak();
+        }
+        return this;
+    }
+    finish() {
+        if (this.finished)
+            return;
+        this.finished = true;
+        const { state, suffix, pos, blockLen } = this;
+        // Do the padding
+        state[pos] ^= suffix;
+        if ((suffix & 0x80) !== 0 && pos === blockLen - 1)
+            this.keccak();
+        state[blockLen - 1] ^= 0x80;
+        this.keccak();
+    }
+    writeInto(out) {
+        aexists(this, false);
+        abytes(out);
+        this.finish();
+        const bufferOut = this.state;
+        const { blockLen } = this;
+        for (let pos = 0, len = out.length; pos < len;) {
+            if (this.posOut >= blockLen)
+                this.keccak();
+            const take = Math.min(blockLen - this.posOut, len - pos);
+            out.set(bufferOut.subarray(this.posOut, this.posOut + take), pos);
+            this.posOut += take;
+            pos += take;
+        }
+        return out;
+    }
+    xofInto(out) {
+        // Sha3/Keccak usage with XOF is probably mistake, only SHAKE instances can do XOF
+        if (!this.enableXOF)
+            throw new Error('XOF is not possible for this instance');
+        return this.writeInto(out);
+    }
+    xof(bytes) {
+        anumber(bytes);
+        return this.xofInto(new Uint8Array(bytes));
+    }
+    digestInto(out) {
+        aoutput(out, this);
+        if (this.finished)
+            throw new Error('digest() was already called');
+        this.writeInto(out);
+        this.destroy();
+        return out;
+    }
+    digest() {
+        return this.digestInto(new Uint8Array(this.outputLen));
+    }
+    destroy() {
+        this.destroyed = true;
+        this.state.fill(0);
+    }
+    _cloneInto(to) {
+        const { blockLen, suffix, outputLen, rounds, enableXOF } = this;
+        to || (to = new Keccak(blockLen, suffix, outputLen, enableXOF, rounds));
+        to.state32.set(this.state32);
+        to.pos = this.pos;
+        to.posOut = this.posOut;
+        to.finished = this.finished;
+        to.rounds = rounds;
+        // Suffix can change in cSHAKE
+        to.suffix = suffix;
+        to.outputLen = outputLen;
+        to.enableXOF = enableXOF;
+        to.destroyed = this.destroyed;
+        return to;
+    }
+}
+const gen = (suffix, blockLen, outputLen) => wrapConstructor(() => new Keccak(blockLen, suffix, outputLen));
+/** keccak-256 hash function. Different from SHA3-256. */
+const keccak_256 = /* @__PURE__ */ gen(0x01, 136, 256 / 8);
 
 /*
     Copyright 2022 iden3 association.
@@ -10679,7 +9689,6 @@ var jsSha3 = sha3.exports;
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const { keccak256 } = jsSha3;
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -10727,7 +9736,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = Scalar.fromRprBE(keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
