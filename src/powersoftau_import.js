@@ -147,7 +147,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
         const singularPoints = [];
 
         await binFileUtils.startWriteSection(fdTo, sectionId);
-        const nPointsChunk = Math.floor((1<<24)/sG);
+        const nPointsChunk = ~~((1<<24)/sG);
 
         startSections[sectionId] = fdTo.pos;
 
@@ -183,7 +183,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
         const singularPoints = [];
 
-        const nPointsChunk = Math.floor((1<<24)/scG);
+        const nPointsChunk = ~~((1<<24)/scG);
 
         for (let i=0; i< nPoints; i += nPointsChunk) {
             if (logger) logger.debug(`Importing ${sectionName}: ${i}/${nPoints}`);
@@ -209,7 +209,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
+        const nPointsChunk = ~~((1<<24)/sG);
 
         const oldPos = fdTo.pos;
         fdTo.pos = startSections[sectionId];

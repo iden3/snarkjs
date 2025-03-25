@@ -127,7 +127,7 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
+        const chunkSize = ~~((1<<20) / sG);   // 128Mb chunks
         let t = first;
         for (let i=0 ; i<NPoints ; i+= chunkSize) {
             if (logger) logger.debug(`processing: ${sectionName}: ${i}/${NPoints}`);
@@ -163,7 +163,7 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
+        const nPointsChunk = ~~((1<<24)/sG);
 
         const oldPos = fdTo.pos;
         fdTo.pos = startSections[sectionId];
