@@ -17,7 +17,7 @@ export default async function exportSolidityVerifier(zKeyName, templates, logger
 
     if (protocol === "groth16" && verificationKey.curve === "bls12381") {
         protocol = "groth16-bls12381";
-        verificationKey = processVerificationKeyForSolidity(verificationKey);
+        verificationKey = {vk: await processVerificationKeyForSolidity(verificationKey)};
     }
 
     let template = templates[protocol];
