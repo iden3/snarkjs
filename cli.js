@@ -686,7 +686,11 @@ async function zkeyExportSolidityCalldata(params, options) {
 
     let res;
     if (proof.protocol == "groth16") {
-        res = await groth16.exportSolidityCallData(proof, pub);
+        if (proof.curve === "bls12381") {
+            res = await groth16.exportSolidityCallData(proof, pub, "bls12381");
+        } else {
+            res = await groth16.exportSolidityCallData(proof, pub);
+        }
     } else if (proof.protocol == "plonk") {
         res = await plonk.exportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
