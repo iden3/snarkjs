@@ -95,9 +95,13 @@ function isWellConstructed(curve, proof) {
         && G1.isValid(proof.pi_c);
 }
 
+function checkValueBelongToField(curve, value) {
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
+}
+
 function publicInputsAreValid(curve, publicInputs) {
     for(let i = 0; i < publicInputs.length; i++) {
-        if(!Scalar.lt(publicInputs[i], curve.r)) {
+        if(!checkValueBelongToField(curve, publicInputs[i])) {
             return false;
         }
     }
