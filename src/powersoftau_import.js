@@ -18,14 +18,12 @@
 */
 
 import * as fastFile from "fastfile";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import * as misc from "./misc.js";
 
 export default async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
-
-    await Blake2b.ready();
 
     const noHash = new Uint8Array(64);
     for (let i=0; i<64; i++) noHash[i] = 0xFF;
@@ -75,7 +73,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     if(!misc.hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
-    const hasherResponse = new Blake2b(64);
+    const hasherResponse = blake2b.create({ dkLen: 64 });
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -91,7 +89,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
     currentContribution.betaG2 = res[0];
 
-    currentContribution.partialHash = hasherResponse.getPartialHash();
+    currentContribution.partialHash = misc.toPartialHash(hasherResponse);
 
 
     const buffKey = await fdResponse.read(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -104,7 +102,7 @@ export default async function importResponse(oldPtauFilename, contributionFilena
     if (logger) logger.info(misc.formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = new Blake2b(64);
+        const nextChallengeHasher = blake2b.create({ dkLen: 64 });
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
