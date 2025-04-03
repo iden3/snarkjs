@@ -232,6 +232,7 @@ const commands = [
         cmd: "zkey export verificationkey [circuit_final.zkey] [verification_key.json]",
         description: "Exports a verification key",
         alias: ["zkev"],
+        options: "-bls12381-solidity",
         action: zkeyExportVKey
     },
     {
@@ -588,7 +589,14 @@ async function zkeyExportVKey(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
+    let vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
+
+    if (options["bls12381-solidity"] &&
+         vKey.protocol === "groth16" && 
+         vKey.curve === "bls12381") {
+        
+        vKey = await zkey.processVerificationKeyForSolidity(vKey);
+    }
 
     await bfj.write(vKeyFilename, stringifyBigInts(vKey), {space: 1});
 
@@ -638,10 +646,12 @@ async function zkeyExportSolidityVerifier(params, options) {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_plonk.sol.ejs"), "utf8");
         templates.fflonk = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_fflonk.sol.ejs"), "utf8");
+        templates["groth16-bls12381"] = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16_bls12381.sol.ejs"), "utf8");
     } else {
         templates.groth16 = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
         templates.plonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
         templates.fflonk = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
+        templates["groth16-bls12381"] = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16_bls12381.sol.ejs"), "utf8");
     }
 
     const verifierCode = await zkey.exportSolidityVerifier(zkeyName, templates, logger);
@@ -676,7 +686,11 @@ async function zkeyExportSolidityCalldata(params, options) {
 
     let res;
     if (proof.protocol == "groth16") {
-        res = await groth16.exportSolidityCallData(proof, pub);
+        if (proof.curve === "bls12381") {
+            res = await groth16.exportSolidityCallData(proof, pub, "bls12381");
+        } else {
+            res = await groth16.exportSolidityCallData(proof, pub);
+        }
     } else if (proof.protocol == "plonk") {
         res = await plonk.exportSolidityCallData(proof, pub);
     } else if (proof.protocol === "fflonk") {
