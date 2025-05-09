@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 
 import { ChaCha } from "ffjavascript";
 
@@ -37,7 +37,7 @@ export function hashToG2(curve, hash) {
 
 export function getG2sp(curve, personalization, challenge, g1s, g1sx) {
 
-    const h = blake2b(64);
+    const h = blake2b.create({ dkLen: 64 });
     const b1 = new Uint8Array([personalization]);
     h.update(b1);
     h.update(challenge);

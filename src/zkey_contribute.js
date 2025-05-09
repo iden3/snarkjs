@@ -21,13 +21,12 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import * as misc from "./misc.js";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./zkey_utils.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 import { applyKeyToSection } from "./mpc_applykey.js";
 
 export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    await Blake2b.ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await zkeyUtils.readHeader(fdOld, sections);
@@ -44,7 +43,7 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
 
     const rng = await misc.getRandomRng(entropy);
 
-    const transcriptHasher = Blake2b(64);
+    const transcriptHasher = blake2b.create({ dkLen: 64 });
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         utils.hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -97,7 +96,7 @@ export default async function phase2contribute(zkeyNameOld, zkeyNameNew, name, e
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b(64);
+    const contributionHasher = blake2b.create({ dkLen: 64 });
     utils.hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
