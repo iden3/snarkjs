@@ -3525,7 +3525,7 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
     const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
 
-    if (!publicInputsAreValid$1(curve, publicSignals)) {
+    if (!publicInputsAreValid$2(curve, publicSignals)) {
         if (logger) logger.error("Public inputs are not valid.");
         return false;
     }
@@ -3579,9 +3579,13 @@ function isWellConstructed$1(curve, proof) {
         && G1.isValid(proof.pi_c);
 }
 
-function publicInputsAreValid$1(curve, publicInputs) {
+function checkValueBelongToField$2(curve, value) {
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
+}
+
+function publicInputsAreValid$2(curve, publicInputs) {
     for(let i = 0; i < publicInputs.length; i++) {
-        if(!Scalar.lt(publicInputs[i], curve.r)) {
+        if(!checkValueBelongToField$2(curve, publicInputs[i])) {
             return false;
         }
     }
@@ -11848,9 +11852,8 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOp
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$4} = utils;
 
-
+const { unstringifyBigInts: unstringifyBigInts$4 } = utils;
 
 async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     let vk_verifier = unstringifyBigInts$4(_vk_verifier);
@@ -11868,16 +11871,26 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof is not well constructed");
+        logger.error("Proof commitments are not valid.");
         return false;
     }
 
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Invalid number of public inputs");
+        if (logger) logger.error("Invalid number of public inputs");
         return false;
     }
+
+    if (!evaluationsAreValid$1(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid");
+        return false;
+    }
+
+    if (!publicInputsAreValid$1(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
+
     const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
-    
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -11992,6 +12005,32 @@ function isWellConstructed(curve, proof) {
     if (!G1.isValid(proof.T3)) return false;
     if (!G1.isValid(proof.Wxi)) return false;
     if (!G1.isValid(proof.Wxiw)) return false;
+    return true;
+}
+
+function checkValueBelongToField$1(curve, value) {
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid$1(curve, evaluation) {
+    return checkValueBelongToField$1(curve, Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid$1(curve, proof) {
+    return checkEvaluationIsValid$1(curve, proof.eval_a)
+        && checkEvaluationIsValid$1(curve, proof.eval_b)
+        && checkEvaluationIsValid$1(curve, proof.eval_c)
+        && checkEvaluationIsValid$1(curve, proof.eval_s1)
+        && checkEvaluationIsValid$1(curve, proof.eval_s2)
+        && checkEvaluationIsValid$1(curve, proof.eval_zw);
+}
+
+function publicInputsAreValid$1(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField$1(curve, publicInputs[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -14581,7 +14620,7 @@ function commitmentsBelongToG1(curve, proof, vk) {
 }
 
 function checkValueBelongToField(curve, value) {
-    return Scalar.lt(value, curve.r);
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
 }
 
 function checkEvaluationIsValid(curve, evaluation) {
