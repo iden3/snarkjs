@@ -550,7 +550,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
+        // Hardcoded 3th-root of Fr.w[28]
         const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
 
         return Fr.exp(firstRoot, 2 ** (28 - power));

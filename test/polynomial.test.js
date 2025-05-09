@@ -3,7 +3,7 @@ import {getCurveFromName} from "../src/curves.js";
 import {Polynomial} from "../src/polynomial/polynomial.js";
 import {getRandomBuffer, getRandomValue} from "./test.utils.js";
 
-function radomPolynomial(maxDegree, curve) {
+function randomPolynomial(maxDegree, curve) {
     const degree = getRandomValue(maxDegree);
 
     return new Polynomial(getRandomBuffer(degree + 1, curve.Fr), curve);
@@ -61,7 +61,7 @@ describe("snarkjs: Polynomial tests", function () {
         poly = new Polynomial(buff, curve);
         assert.equal(0, poly.degree());
 
-        // buffer with 3 coefficients, the greatest is different thn zero => degree 2
+        // buffer with 3 coefficients, the greatest is different from zero => degree 2
         buff.set(curve.Fr.one, 64);
 
         poly = new Polynomial(buff, curve);
@@ -71,7 +71,7 @@ describe("snarkjs: Polynomial tests", function () {
     it("should check if two polynomials are equal", async () => {
         const Fr = curve.Fr;
 
-        const pol1 = radomPolynomial(30, curve);
+        const pol1 = randomPolynomial(30, curve);
 
         assert(pol1.isEqual(pol1));
 
@@ -109,7 +109,7 @@ describe("snarkjs: Polynomial tests", function () {
 
 
     it("should get the correct coefficient", async () => {
-        const polynomial = radomPolynomial(30, curve);
+        const polynomial = randomPolynomial(30, curve);
 
         for (let i = 0; i < polynomial.length(); i++) {
             const coef = polynomial.coef.slice(i * sFr, (i + 1) * sFr);
@@ -139,8 +139,8 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should add a polynomial", async () => {
-        const polynomial1 = radomPolynomial(30, curve);
-        const polynomial2 = radomPolynomial(30, curve);
+        const polynomial1 = randomPolynomial(30, curve);
+        const polynomial2 = randomPolynomial(30, curve);
         const l1 = polynomial1.length();
         const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
@@ -160,8 +160,8 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should sub a polynomial", async () => {
-        const polynomial1 = radomPolynomial(30, curve);
-        const polynomial2 = radomPolynomial(30, curve);
+        const polynomial1 = randomPolynomial(30, curve);
+        const polynomial2 = randomPolynomial(30, curve);
         const l1 = polynomial1.length();
         const l2 = polynomial2.length();
         const clone1 = Uint8Array.from(polynomial1.coef);
@@ -181,7 +181,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should mul a polynomial with a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve);
+        const polynomial1 = randomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 
@@ -194,7 +194,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should add a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve);
+        const polynomial1 = randomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 
@@ -207,7 +207,7 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("should sub a scalar", async () => {
-        const polynomial1 = radomPolynomial(30, curve);
+        const polynomial1 = randomPolynomial(30, curve);
         const clone1 = Uint8Array.from(polynomial1.coef);
         const scalar = curve.Fr.random();
 

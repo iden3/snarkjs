@@ -19,9 +19,9 @@
 
 export default function r1csPrint(r1cs, syms, logger) {
     for (let i=0; i<r1cs.constraints.length; i++) {
-        printCostraint(r1cs.constraints[i]);
+        printConstraint(r1cs.constraints[i]);
     }
-    function printCostraint(c) {
+    function printConstraint(c) {
         const lc2str = (lc) => {
             let S = "";
             const keys = Object.keys(lc);

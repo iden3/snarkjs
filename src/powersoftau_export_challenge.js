@@ -1,4 +1,4 @@
-// Format of the outpu
+// Format of the output
 //     Hash of the last contribution  64Bytes
 //     2^N * 2 -1  TauG1 points (uncompressed)
 //     2^N  TauG2 Points (uncompressed)
@@ -51,10 +51,10 @@ export default async function exportChallenge(pTauFilename, challengeFilename, l
     const calcCurChallengeHash = toHash.digest();
 
     if (!misc.hashIsEqual (curChallengeHash, calcCurChallengeHash)) {
-        if (logger) logger.info(misc.formatHash(calcCurChallengeHash, "Calc Curret Challenge Hash: "));
+        if (logger) logger.info(misc.formatHash(calcCurChallengeHash, "Calc Current Challenge Hash: "));
 
-        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
-        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the declared one");
+        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the declared one");
     }
 
     return curChallengeHash;

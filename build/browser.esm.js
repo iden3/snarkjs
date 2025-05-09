@@ -872,8 +872,8 @@ class BigMemFile {
     }
 }
 
-const O_TRUNC = 1024;
-const O_CREAT = 512;
+const O_TRUNC = 512;
+const O_CREAT = 64;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
@@ -2225,9 +2225,9 @@ function formatHash(b, title) {
 
 function hashIsEqual(h1, h2) {
     if (h1.byteLength != h2.byteLength) return false;
-    var dv1 = new Int8Array(h1);
-    var dv2 = new Int8Array(h2);
-    for (var i = 0 ; i != h1.byteLength ; i++)
+    let dv1 = new Int8Array(h1);
+    let dv2 = new Int8Array(h2);
+    for (let i = 0 ; i != h1.byteLength ; i++)
     {
         if (dv1[i] != dv2[i]) return false;
     }
@@ -4036,7 +4036,7 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
     const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
 
-    if (!publicInputsAreValid$1(curve, publicSignals)) {
+    if (!publicInputsAreValid$2(curve, publicSignals)) {
         if (logger) logger.error("Public inputs are not valid.");
         return false;
     }
@@ -4090,9 +4090,13 @@ function isWellConstructed$1(curve, proof) {
         && G1.isValid(proof.pi_c);
 }
 
-function publicInputsAreValid$1(curve, publicInputs) {
+function checkValueBelongToField$2(curve, value) {
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
+}
+
+function publicInputsAreValid$2(curve, publicInputs) {
     for(let i = 0; i < publicInputs.length; i++) {
-        if(!Scalar.lt(publicInputs[i], curve.r)) {
+        if(!checkValueBelongToField$2(curve, publicInputs[i])) {
             return false;
         }
     }
@@ -4205,10 +4209,10 @@ function hashToG2(curve, hash) {
     return g2_sp;
 }
 
-function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
+function getG2sp(curve, personalization, challenge, g1s, g1sx) {
 
     const h = blake2bWasm.exports(64);
-    const b1 = new Uint8Array([persinalization]);
+    const b1 = new Uint8Array([personalization]);
     h.update(b1);
     h.update(challenge);
     const b3 = curve.G1.toUncompressed(g1s);
@@ -4701,7 +4705,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
 }
 
-// Format of the outpu
+// Format of the output
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
     await blake2bWasm.exports.ready();
@@ -4742,10 +4746,10 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const calcCurChallengeHash = toHash.digest();
 
     if (!hashIsEqual (curChallengeHash, calcCurChallengeHash)) {
-        if (logger) logger.info(formatHash(calcCurChallengeHash, "Calc Curret Challenge Hash: "));
+        if (logger) logger.info(formatHash(calcCurChallengeHash, "Calc Current Challenge Hash: "));
 
-        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
-        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the declared one");
+        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the declared one");
     }
 
     return curChallengeHash;
@@ -5476,7 +5480,7 @@ async function verify(tauFilename, logger) {
             const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
 
             if (!G.eq(resTau, resLagrange)) {
-                if (logger) logger.error("Phase2 caclutation does not match with powers of tau");
+                if (logger) logger.error("Phase2 calculation does not match with powers of tau");
                 return false;
             }
 
@@ -6497,9 +6501,9 @@ var powersoftau = /*#__PURE__*/Object.freeze({
 
 function r1csPrint(r1cs, syms, logger) {
     for (let i=0; i<r1cs.constraints.length; i++) {
-        printCostraint(r1cs.constraints[i]);
+        printConstraint(r1cs.constraints[i]);
     }
-    function printCostraint(c) {
+    function printConstraint(c) {
         const lc2str = (lc) => {
             let S = "";
             const keys = Object.keys(lc);
@@ -7022,7 +7026,7 @@ async function loadSymbols(symFileName) {
 
     function extractComponent(name) {
         const arr = name.split(".");
-        arr.pop(); // Remove the lasr element
+        arr.pop(); // Remove the last element
         return arr.join(".");
     }
 }
@@ -8376,7 +8380,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         sr = await sameRatio(curve, curDelta, c.deltaAfter, delta_g2_sp, c.delta.g2_spx);
         if (sr !== true) {
-            console.log(`INVALID(${i}): deltaAfter does not fillow the public key `);
+            console.log(`INVALID(${i}): deltaAfter does not follow the public key `);
             return false;
         }
 
@@ -12839,9 +12843,8 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOp
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$4} = utils;
 
-
+const { unstringifyBigInts: unstringifyBigInts$4 } = utils;
 
 async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     let vk_verifier = unstringifyBigInts$4(_vk_verifier);
@@ -12859,16 +12862,26 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof is not well constructed");
+        logger.error("Proof commitments are not valid.");
         return false;
     }
 
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Invalid number of public inputs");
+        if (logger) logger.error("Invalid number of public inputs");
         return false;
     }
+
+    if (!evaluationsAreValid$1(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid");
+        return false;
+    }
+
+    if (!publicInputsAreValid$1(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
+
     const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
-    
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -12983,6 +12996,32 @@ function isWellConstructed(curve, proof) {
     if (!G1.isValid(proof.T3)) return false;
     if (!G1.isValid(proof.Wxi)) return false;
     if (!G1.isValid(proof.Wxiw)) return false;
+    return true;
+}
+
+function checkValueBelongToField$1(curve, value) {
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid$1(curve, evaluation) {
+    return checkValueBelongToField$1(curve, Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid$1(curve, proof) {
+    return checkEvaluationIsValid$1(curve, proof.eval_a)
+        && checkEvaluationIsValid$1(curve, proof.eval_b)
+        && checkEvaluationIsValid$1(curve, proof.eval_c)
+        && checkEvaluationIsValid$1(curve, proof.eval_s1)
+        && checkEvaluationIsValid$1(curve, proof.eval_s2)
+        && checkEvaluationIsValid$1(curve, proof.eval_zw);
+}
+
+function publicInputsAreValid$1(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField$1(curve, publicInputs[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -14119,7 +14158,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     }
 
     function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
+        // Hardcoded 3th-root of Fr.w[28]
         const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
@@ -15572,7 +15611,7 @@ function commitmentsBelongToG1(curve, proof, vk) {
 }
 
 function checkValueBelongToField(curve, value) {
-    return Scalar.lt(value, curve.r);
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
 }
 
 function checkEvaluationIsValid(curve, evaluation) {

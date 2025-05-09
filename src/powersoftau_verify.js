@@ -484,7 +484,7 @@ export default async function verify(tauFilename, logger) {
             const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
 
             if (!G.eq(resTau, resLagrange)) {
-                if (logger) logger.error("Phase2 caclutation does not match with powers of tau");
+                if (logger) logger.error("Phase2 calculation does not match with powers of tau");
                 return false;
             }
 

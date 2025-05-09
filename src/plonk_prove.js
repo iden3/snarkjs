@@ -880,7 +880,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         polynomials.Wxi.divByZerofier(1, challenges.xi);
     }
 
-    async function computeWxiw() {
+    function computeWxiw() {
         polynomials.Wxiw = Polynomial.fromPolynomial(polynomials.Z, curve, logger);
         polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
 

@@ -207,7 +207,7 @@ export default async function clProcessor(commands) {
         console.log("snarkjs@"+version);
     }
 
-    function epilog() {
+    function epilogue() {
         console.log(`        Copyright (C) 2018  0kims association
         This program comes with ABSOLUTELY NO WARRANTY;
         This is free software, and you are welcome to redistribute it
@@ -217,7 +217,7 @@ export default async function clProcessor(commands) {
 
     function helpAll() {
         printVersion();
-        epilog();
+        epilogue();
         console.log("");
         console.log("Usage:");
         console.log("        snarkjs <full command> ...  <options>");
@@ -254,7 +254,7 @@ export default async function clProcessor(commands) {
         if (typeof cmd == "undefined") cmd = selectedCommand;
         if (typeof cmd == "undefined") return helpAll();
         printVersion();
-        epilog();
+        epilogue();
         console.log("");
         if (cmd.longDescription) {
             console.log(cmd.longDescription);

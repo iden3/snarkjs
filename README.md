@@ -104,7 +104,7 @@ You'll be prompted to enter some random text to provide an extra source of entro
 
 `contribute` takes as input the transcript of the protocol so far, in this case `pot14_0000.ptau`, and outputs a new transcript, in this case `pot14_0001.ptau`, which includes the computation carried out by the new contributor (`ptau` files contain a history of all the challenges and responses that have taken place so far).
 
-`name` can be anything you want, and is just included for reference (it will be printed when you verify the file (step 5).
+`name` can be anything you want, and is just included for reference - it will be printed when you verify the file (step 5).
 
 ### 3. Provide a second contribution
 ```sh
@@ -522,7 +522,7 @@ snarkjs zkey export soliditycalldata public.json proof.json
 
 We use `soliditycalldata` to simulate a verification call and cut-and-paste the result directly into the verifyProof field in the deployed smart contract in the remix environment.
 
-And voila! That's all there is to it :)
+And voilà! That's all there is to it :)
 
 
 ## Using Node
@@ -630,7 +630,7 @@ We advise using the latest version of snarkjs as previous versions may contain b
 
 This happens in Bun, browser extensions, SES envs, etc.
 
-You can switch to singlethreaded proof calculation using the following code:
+You can switch to single threaded proof calculation using the following code:
 
 ```javascript
 const result = await snarkjs.groth16.prove(zkey_final, wtns, undefined, {singleThread: true});

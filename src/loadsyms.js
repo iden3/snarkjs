@@ -49,7 +49,7 @@ export default async function loadSymbols(symFileName) {
 
     function extractComponent(name) {
         const arr = name.split(".");
-        arr.pop(); // Remove the lasr element
+        arr.pop(); // Remove the last element
         return arr.join(".");
     }
 }

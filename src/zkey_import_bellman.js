@@ -79,7 +79,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     }
 
     if (oldMPCParams.contributions.length > newMPCParams.contributions.length) {
-        if (logger) logger.error("The impoerted file does not include new contributions");
+        if (logger) logger.error("The imported file does not include new contributions");
         return false;
     }
 

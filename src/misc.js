@@ -72,9 +72,9 @@ export function formatHash(b, title) {
 
 export function hashIsEqual(h1, h2) {
     if (h1.byteLength != h2.byteLength) return false;
-    var dv1 = new Int8Array(h1);
-    var dv2 = new Int8Array(h2);
-    for (var i = 0 ; i != h1.byteLength ; i++)
+    let dv1 = new Int8Array(h1);
+    let dv2 = new Int8Array(h2);
+    for (let i = 0 ; i != h1.byteLength ; i++)
     {
         if (dv1[i] != dv2[i]) return false;
     }

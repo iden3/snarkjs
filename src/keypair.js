@@ -35,10 +35,10 @@ export function hashToG2(curve, hash) {
     return g2_sp;
 }
 
-export function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
+export function getG2sp(curve, personalization, challenge, g1s, g1sx) {
 
     const h = blake2b(64);
-    const b1 = new Uint8Array([persinalization]);
+    const b1 = new Uint8Array([personalization]);
     h.update(b1);
     h.update(challenge);
     const b3 = curve.G1.toUncompressed(g1s);

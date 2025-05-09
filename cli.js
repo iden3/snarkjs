@@ -82,7 +82,7 @@ const commands = [
         action: powersOfTauChallengeContribute
     },
     {
-        cmd: "powersoftau import response <powersoftau_old.ptau> <response> <<powersoftau_new.ptau>",
+        cmd: "powersoftau import response <powersoftau_old.ptau> <response> <powersoftau_new.ptau>",
         description: "import a response to a ptau file",
         alias: ["ptir"],
         options: "-verbose|v -nopoints -nocheck -name|n",
@@ -98,7 +98,7 @@ const commands = [
     {
         cmd: "powersoftau prepare phase2 <powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Prepares phase 2. ",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        longDescription: " This process calculates the evaluation of the Lagrange polynomials at tau for alpha*tau and beta tau",
         alias: ["pt2"],
         options: "-verbose|v",
         action: powersOfTauPreparePhase2
@@ -106,7 +106,7 @@ const commands = [
     {
         cmd: "powersoftau convert <old_powersoftau.ptau> <new_powersoftau.ptau>",
         description: "Convert ptau",
-        longDescription: " This process calculates the evaluation of the Lagrange polinomials at tau for alpha*tau and beta tau",
+        longDescription: " This process calculates the evaluation of the Lagrange polynomials at tau for alpha*tau and beta tau",
         alias: ["ptcv"],
         options: "-verbose|v",
         action: powersOfTauConvert
@@ -135,7 +135,7 @@ const commands = [
     },
     {
         cmd: "r1cs info [circuit.r1cs]",
-        description: "Print statistiscs of a circuit",
+        description: "Print statistics of a circuit",
         alias: ["ri", "info -r|r1cs:circuit.r1cs"],
         action: r1csInfo
     },
@@ -153,7 +153,7 @@ const commands = [
     },
     {
         cmd: "wtns calculate [circuit.wasm] [input.json] [witness.wtns]",
-        description: "Caclculate specific witness of a circuit given an input",
+        description: "Calculate specific witness of a circuit given an input",
         alias: ["wc", "calculatewitness -ws|wasm:circuit.wasm -i|input:input.json -wt|witness:witness.wtns"],
         action: wtnsCalculate
     },
@@ -1049,7 +1049,7 @@ async function zkeyContribute(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    // Discard contribuionHash
+    // Discard contributionHash
     await zkey.contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
 
     return 0;
@@ -1069,7 +1069,7 @@ async function zkeyBeacon(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    // Discard contribuionHash
+    // Discard contributionHash
     await zkey.beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
 
     return 0;
@@ -1217,7 +1217,7 @@ async function fflonkProve(params, options) {
     const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger);
 
     if(undefined !== proofFilename && undefined !== publicInputsFilename) {
-        // Write the proof and the publig signals in each file
+        // Write the proof and the public signals in each file
         await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
         await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
     }
@@ -1239,7 +1239,7 @@ async function fflonkFullProve(params, options) {
 
     const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger);
 
-    // Write the proof and the publig signals in each file
+    // Write the proof and the public signals in each file
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
 

@@ -70,7 +70,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
         sr = await sameRatio(curve, curDelta, c.deltaAfter, delta_g2_sp, c.delta.g2_spx);
         if (sr !== true) {
-            console.log(`INVALID(${i}): deltaAfter does not fillow the public key `);
+            console.log(`INVALID(${i}): deltaAfter does not follow the public key `);
             return false;
         }
 
