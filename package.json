@@ -72,7 +72,7 @@
     "@rollup/plugin-node-resolve": "^14.0.0",
     "@rollup/plugin-replace": "^4.0.0",
     "@rollup/plugin-virtual": "^2.0.3",
-    "eslint": "^8.7.0",
+    "eslint": "^9.27.0",
     "mocha": "^10.2.0",
     "rollup": "^2.36.2",
     "rollup-plugin-terser": "^7.0.2",
