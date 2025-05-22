@@ -20,6 +20,7 @@
 /* Implementation of this paper: https://eprint.iacr.org/2016/260.pdf */
 import { Scalar } from "ffjavascript";
 import * as curves from "./curves.js";
+import { isBigIntArray } from "./misc.js";
 import {  utils }   from "ffjavascript";
 const {unstringifyBigInts} = utils;
 
@@ -41,7 +42,8 @@ export default async function groth16Verify(_vk_verifier, _publicSignals, _proof
     const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
     const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
 
-    if (!publicInputsAreValid(curve, publicSignals)) {
+    if (!isBigIntArray(publicSignals, vk_verifier.nPublic) ||
+        !publicInputsAreValid(curve, publicSignals)) {
         if (logger) logger.error("Public inputs are not valid.");
         return false;
     }

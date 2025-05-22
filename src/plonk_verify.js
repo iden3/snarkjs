@@ -20,6 +20,7 @@
 /* Implementation of this paper: https://eprint.iacr.org/2019/953.pdf */
 
 import * as curves from "./curves.js";
+import { isBigIntArray } from "./misc.js";
 import { utils }   from "ffjavascript";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { Scalar } from "ffjavascript";
@@ -46,17 +47,13 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         return false;
     }
 
-    if (publicSignals.length != vk_verifier.nPublic) {
-        if (logger) logger.error("Invalid number of public inputs");
-        return false;
-    }
-
     if (!evaluationsAreValid(curve, proof)) {
         if (logger) logger.error("Proof evaluations are not valid");
         return false;
     }
 
-    if (!publicInputsAreValid(curve, publicSignals)) {
+    if (!isBigIntArray(publicSignals, vk_verifier.nPublic) ||
+        !publicInputsAreValid(curve, publicSignals)) {
         if (logger) logger.error("Public inputs are not valid.");
         return false;
     }

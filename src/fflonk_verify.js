@@ -18,6 +18,7 @@
 */
 
 import * as curves from "./curves.js";
+import { isBigIntArray } from "./misc.js";
 import { BigBuffer, utils } from "ffjavascript";
 import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
@@ -42,8 +43,8 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     const publicSignals = unstringifyBigInts(_publicSignals);
 
-    if (publicSignals.length !== vk.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+    if (!isBigIntArray(publicSignals, vk.nPublic)) {
+        logger.error("Public signals are not valid.");
         return false;
     }
 
