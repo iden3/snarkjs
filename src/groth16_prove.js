@@ -156,12 +156,23 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
     const outBuf = [ outBuffA, outBuffB ];
     for (let i=0; i<nCoef; i++) {
         if ((logger)&&(i%1000000 == 0)) logger.debug(`QAP AB: ${i}/${nCoef}`);
-        const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
-        const buffCoefV = new DataView(buffCoef.buffer);
-        const m= buffCoefV.getUint32(0, true);
-        const c= buffCoefV.getUint32(4, true);
-        const s= buffCoefV.getUint32(8, true);
-        const coef = buffCoef.slice(12, 12+n8);
+
+        let buffCoefV, coef;
+        if (coeffs.buffer) {
+            // if we have direct access to array buffer, then we can create zero-copy views
+            const coeffOffset = 4 + i * sCoef;
+            buffCoefV = new DataView(coeffs.buffer, coeffs.byteOffset + coeffOffset, sCoef);
+            coef = new Uint8Array(coeffs.buffer, coeffs.byteOffset + coeffOffset + 12, n8);
+        } else {
+            // coeffs is a BigBuffer and we need to copy the slice
+            const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
+            buffCoefV = new DataView(buffCoef.buffer);
+            coef = buffCoef.slice(12, 12+n8);
+        }
+        const m = buffCoefV.getUint32(0, true);
+        const c = buffCoefV.getUint32(4, true);
+        const s = buffCoefV.getUint32(8, true);
+
         outBuf[m].set(
             curve.Fr.add(
                 outBuf[m].slice(c*n8, c*n8+n8),
