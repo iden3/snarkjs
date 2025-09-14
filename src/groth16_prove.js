@@ -416,12 +416,13 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 function memUsage() {
     const used = process.memoryUsage();
     console.log(
-        "                                      ",
+        "                   ",
         "\x1b[0m Heap Used: \x1b[32m ", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
         "\x1b[0m Heap Total: \x1b[32m ", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
         "\x1b[0m RSS: \x1b[32m ", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
         "\x1b[0m External: \x1b[32m ", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
-        "\x1b[0m ArrBuffers: \x1b[32m ", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(15)
+        "\x1b[0m ArrBuffers: \x1b[32m ", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(15),
+        "\x1b[0m"
     );
 }
 
