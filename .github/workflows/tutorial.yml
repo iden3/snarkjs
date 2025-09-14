@@ -10,15 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: ["18", "20"]
+        node-version: [lts/*]
 
     steps:
     - uses: actions/checkout@v2
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-    - run: npm install -g circom@latest
+    - name: Setup Circom
+      run: wget https://github.com/iden3/circom/releases/latest/download/circom-linux-amd64 && sudo mv ./circom-linux-amd64 /usr/bin/circom && sudo chmod +x /usr/bin/circom
     - run: npm install
     - run: npm link
     - name: 1. Start a new powers of tau ceremony
@@ -45,16 +46,17 @@ jobs:
     - name: 9. Create the circuit
       run: |
         cat <<EOT > circuit.circom
+        pragma circom 2.0.0;
         template Multiplier(n) {
-            signal private input a;
-            signal private input b;
+            signal input a;
+            signal input b;
             signal output c;
 
             signal int[n];
 
             int[0] <== a*a + b;
             for (var i=1; i<n; i++) {
-            int[i] <== int[i-1]*int[i-1] + b;
+                int[i] <== int[i-1]*int[i-1] + b;
             }
 
             c <== int[n-1];
@@ -63,7 +65,7 @@ jobs:
         component main = Multiplier(1000);
         EOT
     - name: 10. Compile the circuit
-      run: circom circuit.circom --r1cs --wasm --sym -v
+      run: circom --r1cs --wasm --sym circuit.circom
     - name: 11. View information about the circuit
       run: snarkjs r1cs info circuit.r1cs
     - name: 12. Print the constraints
@@ -99,10 +101,10 @@ jobs:
         cat <<EOT > input.json
         {"a": 3, "b": 11}
         EOT
-        snarkjs wtns calculate circuit.wasm input.json witness.wtns
+        snarkjs wtns calculate circuit_js/circuit.wasm input.json witness.wtns
         snarkjs wtns check circuit.r1cs witness.wtns
     - name: 23. Debug the final witness calculation
-      run: snarkjs wtns debug circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
+      run: snarkjs wtns debug circuit_js/circuit.wasm input.json witness.wtns circuit.sym --trigger --get --set
     - name: 24. Create the proof
       run: snarkjs groth16 prove circuit_final.zkey witness.wtns proof.json public.json
     - name: 25. Verify the proof

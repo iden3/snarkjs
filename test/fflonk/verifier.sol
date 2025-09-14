@@ -377,7 +377,7 @@ contract FflonkVerifier {
             
             // Validate all the evaluations sent by the prover ∈ F
             function checkInput() {
-                // Check proof commitments fullfill bn128 curve equation Y^2 = X^3 + 3
+                // Check proof commitments fulfill bn128 curve equation Y^2 = X^3 + 3
                 checkPointBelongsToBN128Curve(pC1)
                 checkPointBelongsToBN128Curve(pC2)
                 checkPointBelongsToBN128Curve(pW1)

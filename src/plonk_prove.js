@@ -44,7 +44,7 @@ import {  ZKEY_PL_HEADER_SECTION,
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
     
-export default async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
+export default async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     // Read witness file
@@ -55,7 +55,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
     if (logger) logger.debug("> Reading zkey file");
     const {fd: fdZKey, sections: zkeySections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
+    const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
         throw new Error("zkey file is not plonk");
     }

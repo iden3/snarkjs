@@ -106,7 +106,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     await computeFFConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
 
-    // As the t polynomial is n+5 whe need at least a power of 4
+    // As the t polynomial is n+5 we need at least a power of 4
     //TODO check!!!!
     // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);

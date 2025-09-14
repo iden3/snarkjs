@@ -4,7 +4,8 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var binFileUtils = require('@iden3/binfileutils');
 var ffjavascript = require('ffjavascript');
-var Blake2b = require('blake2b-wasm');
+var blake2b = require('@noble/hashes/blake2b');
+var utils = require('@noble/hashes/utils');
 var readline = require('readline');
 var crypto = require('crypto');
 var fastFile = require('fastfile');
@@ -12,7 +13,7 @@ var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
 var vm = require('vm');
 var ejs = require('ejs');
-var jsSha3 = require('js-sha3');
+var sha3 = require('@noble/hashes/sha3');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -35,12 +36,10 @@ function _interopNamespace(e) {
 }
 
 var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
-var Blake2b__default = /*#__PURE__*/_interopDefaultLegacy(Blake2b);
 var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
 var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
-var jsSha3__default = /*#__PURE__*/_interopDefaultLegacy(jsSha3);
 
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -48,37 +47,41 @@ const bn128r$1 = ffjavascript.Scalar.e("2188824287183927522224640574525727508854
 const bls12381q = ffjavascript.Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
 const bn128q = ffjavascript.Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
 
-async function getCurveFromR(r) {
+async function getCurveFromR(r, options) {
     let curve;
+    // check that options param is defined and that options.singleThread is defined
+    let singleThread = options && options.singleThread;
     if (ffjavascript.Scalar.eq(r, bn128r$1)) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (ffjavascript.Scalar.eq(r, bls12381r$1)) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(r)}`);
     }
     return curve;
 }
 
-async function getCurveFromQ(q) {
+async function getCurveFromQ(q, options) {
     let curve;
+    let singleThread = options && options.singleThread;
     if (ffjavascript.Scalar.eq(q, bn128q)) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (ffjavascript.Scalar.eq(q, bls12381q)) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${ffjavascript.Scalar.toString(q)}`);
     }
     return curve;
 }
 
-async function getCurveFromName(name) {
+async function getCurveFromName(name, options) {
     let curve;
+    let singleThread = options && options.singleThread;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBn128();
+        curve = await ffjavascript.buildBn128(singleThread);
     } else if (["BLS12381"].indexOf(normName) >= 0) {
-        curve = await ffjavascript.buildBls12381();
+        curve = await ffjavascript.buildBls12381(singleThread);
     } else {
         throw new Error(`Curve not supported: ${name}`);
     }
@@ -89,6 +92,13 @@ async function getCurveFromName(name) {
     }
 
 }
+
+var curves = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    getCurveFromR: getCurveFromR,
+    getCurveFromQ: getCurveFromQ,
+    getCurveFromName: getCurveFromName
+});
 
 /*
     Copyright 2018 0KIMS association.
@@ -143,9 +153,46 @@ function hashIsEqual(h1, h2) {
 }
 
 function cloneHasher(h) {
-    const ph = h.getPartialHash();
-    const res = Blake2b__default["default"](64);
-    res.setPartialHash(ph);
+    return h.clone();
+}
+
+function fromPartialHash(partial) {
+    // NOTE: this is unsafe and uses internal API
+    const buf = partial.subarray(0, 128);
+    const rest = utils.u32(partial.subarray(128));
+    const res = blake2b.blake2b.create({ dkLen: 64 });
+    res.buffer.set(buf);
+    (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
+    (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
+    (res.v2l = rest[4] | 0), (res.v2h = rest[5] | 0);
+    (res.v3l = rest[6] | 0), (res.v3h = rest[7] | 0);
+    (res.v4l = rest[8] | 0), (res.v4h = rest[9] | 0);
+    (res.v5l = rest[10] | 0), (res.v5h = rest[11] | 0);
+    (res.v6l = rest[12] | 0), (res.v6h = rest[13] | 0);
+    (res.v7l = rest[14] | 0), (res.v7h = rest[15] | 0);
+    const shift = 2 ** 32;
+    const len = rest[16] + rest[17] * shift;
+    const pos = rest[18] + rest[19] * shift;
+    res.length = len + pos;
+    res.pos = pos;
+    return res;
+}
+
+function toPartialHash(hash){
+    // NOTE: this is unsafe and uses internal API
+    const res = new Uint8Array(216);
+    const res32 = utils.u32(res.subarray(128));
+    res.set(hash.buffer);
+    (res32[0] = hash.v0l), (res32[1] = hash.v0h);
+    (res32[2] = hash.v1l), (res32[3] = hash.v1h);
+    (res32[4] = hash.v2l), (res32[5] = hash.v2h);
+    (res32[6] = hash.v3l), (res32[7] = hash.v3h);
+    (res32[8] = hash.v4l), (res32[9] = hash.v4h);
+    (res32[10] = hash.v5l), (res32[11] = hash.v5h);
+    (res32[12] = hash.v6l), (res32[13] = hash.v6h);
+    (res32[14] = hash.v7l), (res32[15] = hash.v7h);
+    res32[18] = hash.pos;
+    res32[16] = hash.length-hash.pos;
     return res;
 }
 
@@ -207,7 +254,7 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = Blake2b__default["default"](64);
+    const hasher = blake2b.blake2b.create(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
@@ -414,7 +461,7 @@ async function readG2(fd, curve, toObject) {
 }
 
 
-async function readHeader$1(fd, sections, toObject) {
+async function readHeader$1(fd, sections, toObject, options) {
     // Read Header
     /////////////////////
     await binFileUtils__namespace.startReadUniqueSection(fd, sections, 1);
@@ -422,11 +469,11 @@ async function readHeader$1(fd, sections, toObject) {
     await binFileUtils__namespace.endReadSection(fd);
 
     if (protocolId === GROTH16_PROTOCOL_ID) {
-        return await readHeaderGroth16(fd, sections, toObject);
+        return await readHeaderGroth16(fd, sections, toObject, options);
     } else if (protocolId === PLONK_PROTOCOL_ID) {
-        return await readHeaderPlonk(fd, sections, toObject);
+        return await readHeaderPlonk(fd, sections, toObject, options);
     } else if (protocolId === FFLONK_PROTOCOL_ID) {
-        return await readHeaderFFlonk(fd, sections, toObject);
+        return await readHeaderFFlonk(fd, sections, toObject, options);
     } else {
         throw new Error("Protocol not supported: ");
     }
@@ -435,7 +482,7 @@ async function readHeader$1(fd, sections, toObject) {
 
 
 
-async function readHeaderGroth16(fd, sections, toObject) {
+async function readHeaderGroth16(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "groth16";
@@ -450,7 +497,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -467,7 +514,7 @@ async function readHeaderGroth16(fd, sections, toObject) {
 
 }
 
-async function readHeaderPlonk(fd, sections, toObject) {
+async function readHeaderPlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "plonk";
@@ -482,7 +529,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
     zkey.r = await binFileUtils__namespace.readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
     zkey.nVars = await fd.readULE32();
     zkey.nPublic = await fd.readULE32();
     zkey.domainSize = await fd.readULE32();
@@ -507,7 +554,7 @@ async function readHeaderPlonk(fd, sections, toObject) {
     return zkey;
 }
 
-async function readHeaderFFlonk(fd, sections, toObject) {
+async function readHeaderFFlonk(fd, sections, toObject, options) {
     const zkey = {};
 
     zkey.protocol = "fflonk";
@@ -517,7 +564,7 @@ async function readHeaderFFlonk(fd, sections, toObject) {
     const n8q = await fd.readULE32();
     zkey.n8q = n8q;
     zkey.q = await binFileUtils__namespace.readBigInt(fd, n8q);
-    zkey.curve = await getCurveFromQ(zkey.q);
+    zkey.curve = await getCurveFromQ(zkey.q, options);
 
     const n8r = await fd.readULE32();
     zkey.n8r = n8r;
@@ -688,7 +735,7 @@ async function readContribution$1(fd, curve, toObject) {
         }
     }
     if (fd.pos != curPos + paramLength) {
-        throw new Error("Parametes do not match");
+        throw new Error("Parameters do not match");
     }
 
     return c;
@@ -880,14 +927,14 @@ async function read(fileName) {
 */
 const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
-async function groth16Prove(zkeyFileName, witnessFileName, logger) {
+async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
 
     const {fd: fdZKey, sections: sectionsZKey} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await readHeader$1(fdZKey, sectionsZKey);
+    const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
 
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -1042,7 +1089,7 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
 }
 
 /*
-async function buldABC(curve, zkey, witness, coeffs, logger) {
+async function buildABC(curve, zkey, witness, coeffs, logger) {
     const concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
@@ -1255,8 +1302,8 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm);
-    if (wc.circom_version() == 1) {
+    const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, options);
+    if (wc.circom_version() === 1) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
@@ -1293,14 +1340,14 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
 */
 const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
-async function groth16FullProve(_input, wasmFile, zkeyFileName, logger) {
+async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$a(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate(input, wasmFile, wtns);
-    return await groth16Prove(zkeyFileName, wtns, logger);
+    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
+    return await groth16Prove(zkeyFileName, wtns, logger, proverOptions);
 }
 
 /*
@@ -1341,7 +1388,7 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
     const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
 
-    if (!publicInputsAreValid$1(curve, publicSignals)) {
+    if (!publicInputsAreValid$2(curve, publicSignals)) {
         if (logger) logger.error("Public inputs are not valid.");
         return false;
     }
@@ -1395,9 +1442,13 @@ function isWellConstructed$1(curve, proof) {
         && G1.isValid(proof.pi_c);
 }
 
-function publicInputsAreValid$1(curve, publicInputs) {
+function checkValueBelongToField$2(curve, value) {
+    return ffjavascript.Scalar.geq(value, 0) && ffjavascript.Scalar.lt(value, curve.r);
+}
+
+function publicInputsAreValid$2(curve, publicInputs) {
     for(let i = 0; i < publicInputs.length; i++) {
-        if(!ffjavascript.Scalar.lt(publicInputs[i], curve.r)) {
+        if(!checkValueBelongToField$2(curve, publicInputs[i])) {
             return false;
         }
     }
@@ -1512,7 +1563,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = Blake2b__default["default"](64);
+    const h = blake2b.blake2b.create({ dkLen: 64 });
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -1720,8 +1771,7 @@ async function readContribution(fd, curve) {
     const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
     toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
 
-    const responseHasher = Blake2b__default["default"](64);
-    responseHasher.setPartialHash(c.partialHash);
+    const responseHasher =  fromPartialHash(c.partialHash);
     responseHasher.update(buffV);
     c.responseHash = responseHasher.digest();
 
@@ -1747,7 +1797,7 @@ async function readContribution(fd, curve) {
         }
     }
     if (fd.pos != curPos + paramLength) {
-        throw new Error("Parametes do not match");
+        throw new Error("Parameters do not match");
     }
 
     return c;
@@ -1857,14 +1907,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = new Blake2b__default["default"](64);
+    const hasher = blake2b.blake2b.create({ dkLen: 64 });
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(Blake2b__default["default"](64).digest());
+    hasher.update(blake2b.blake2b.create({ dkLen: 64 }).digest());
 
     let n;
 
@@ -1933,8 +1983,6 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
 
 async function newAccumulator(curve, power, fileName, logger) {
 
-    await Blake2b__default["default"].ready();
-
     const fd = await binFileUtils__namespace.createBinFile(fileName, "ptau", 1, 7);
 
     await writePTauHeader(fd, curve, power, 0);
@@ -1998,7 +2046,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(Blake2b__default["default"](64).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(blake2b.blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -2009,7 +2057,6 @@ async function newAccumulator(curve, power, fileName, logger) {
 // Format of the outpu
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    await Blake2b__default["default"].ready();
     const {fd: fdFrom, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await readPTauHeader(fdFrom, sections);
@@ -2017,7 +2064,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = Blake2b__default["default"](64).digest();
+        lastResponseHash = blake2b.blake2b.create({ dkLen: 64 }).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -2031,7 +2078,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
     const fdTo = await fastFile__namespace.createOverride(challengeFilename);
 
-    const toHash = Blake2b__default["default"](64);
+    const toHash = blake2b.blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -2097,8 +2144,6 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
-    await Blake2b__default["default"].ready();
-
     const noHash = new Uint8Array(64);
     for (let i=0; i<64; i++) noHash[i] = 0xFF;
 
@@ -2110,9 +2155,9 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (name) currentContribution.name = name;
 
     const sG1 = curve.F1.n8*2;
-    const scG1 = curve.F1.n8; // Compresed size
+    const scG1 = curve.F1.n8; // Compressed size
     const sG2 = curve.F2.n8*2;
-    const scG2 = curve.F2.n8; // Compresed size
+    const scG2 = curve.F2.n8; // Compressed size
 
     const fdResponse = await fastFile__namespace.readExisting(contributionFilename);
 
@@ -2145,9 +2190,9 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     }
 
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. this contribution is not based on the previus hash");
+        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
-    const hasherResponse = new Blake2b__default["default"](64);
+    const hasherResponse = blake2b.blake2b.create({ dkLen: 64 });
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -2163,7 +2208,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
     currentContribution.betaG2 = res[0];
 
-    currentContribution.partialHash = hasherResponse.getPartialHash();
+    currentContribution.partialHash = toPartialHash(hasherResponse);
 
 
     const buffKey = await fdResponse.read(curve.F1.n8*2*6+curve.F2.n8*2*3);
@@ -2176,7 +2221,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = new Blake2b__default["default"](64);
+        const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -2425,7 +2470,6 @@ async function verifyContribution(curve, cur, prev, logger) {
 
 async function verify(tauFilename, logger) {
     let sr;
-    await Blake2b__default["default"].ready();
 
     const {fd, sections} = await binFileUtils__namespace.readBinFile(tauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
@@ -2442,7 +2486,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: Blake2b__default["default"](64).digest()
+        responseHash: blake2b.blake2b.create({ dkLen: 64 }).digest()
     };
 
     if (contrs.length == 0) {
@@ -2462,7 +2506,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = Blake2b__default["default"](64);
+    const nextContributionHasher = blake2b.blake2b.create({ dkLen: 64 });
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -2596,8 +2640,7 @@ async function verify(tauFilename, logger) {
         const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
         toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
 
-        const responseHasher = Blake2b__default["default"](64);
-        responseHasher.setPartialHash(curContr.partialHash);
+        const responseHasher =  fromPartialHash(curContr.partialHash);
         responseHasher.update(buffV);
         const responseHash = responseHasher.digest();
 
@@ -2811,7 +2854,7 @@ async function verify(tauFilename, logger) {
 
 /*
     This function creates a new section in the fdTo file with id idSection.
-    It multiplies the pooints in fdFrom by first, first*inc, first*inc^2, ....
+    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
     nPoint Times.
     It also updates the newChallengeHasher with the new points
 */
@@ -2885,9 +2928,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-async function challengeContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b__default["default"].ready();
-
+async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
 
 
@@ -2906,10 +2947,10 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
 
     const rng = await getRandomRng(entropy);
 
-    const fdTo = await fastFile__namespace.createOverride(responesFileName);
+    const fdTo = await fastFile__namespace.createOverride(responseFileName);
 
     // Calculate the hash
-    const challengeHasher = Blake2b__default["default"](64);
+    const challengeHasher = blake2b.blake2b.create({ dkLen: 64 });
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -2935,7 +2976,7 @@ async function challengeContribute(curve, challengeFilename, responesFileName, e
         });
     }
 
-    const responseHasher = Blake2b__default["default"](64);
+    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -2986,7 +3027,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -2996,8 +3037,6 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
         return false;
     }
 
-
-    await Blake2b__default["default"].ready();
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
@@ -3026,7 +3065,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = new Blake2b__default["default"](64);
+    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3046,7 +3085,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.partialHash = responseHasher.getPartialHash();
+    curContribution.partialHash = toPartialHash(responseHasher);
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
@@ -3057,7 +3096,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b__default["default"](64);
+    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -3165,7 +3204,6 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 */
 
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
-    await Blake2b__default["default"].ready();
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
     const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
@@ -3198,7 +3236,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = new Blake2b__default["default"](64);
+    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3218,7 +3256,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
     curContribution.betaG2 = firstPoints[0];
 
-    curContribution.partialHash = responseHasher.getPartialHash();
+    curContribution.partialHash = toPartialHash(responseHasher);
 
     const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
 
@@ -3229,7 +3267,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = new Blake2b__default["default"](64);
+    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -4011,10 +4049,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
-
-    let wcOps = {
-        sanityCheck: true
-    };
+    const wcOps = {...options, sanityCheck: true};
     let sym = await loadSymbols(symName);
     if (options.set) {
         if (!sym) sym = await loadSymbols(symName);
@@ -4042,7 +4077,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     wcOps.sym = sym;
 
     const wc = await circom_runtime.WitnessCalculatorBuilder(wasm, wcOps);
-    const w = await wc.calculateWitness(input);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
 
@@ -4134,7 +4169,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
         logger.info("  WITNESS CHECK");
         logger.info(`  Curve:          ${r1cs.curve.name}`);
         logger.info(`  Vars (wires):   ${r1cs.nVars}`);
-        logger.info(`  Ouputs:         ${r1cs.nOutputs}`);
+        logger.info(`  Outputs:        ${r1cs.nOutputs}`);
         logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
         logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
         logger.info(`  Labels:         ${r1cs.nLabels}`);
@@ -4372,8 +4407,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    await Blake2b__default["default"].ready();
-    const csHasher = Blake2b__default["default"](64);
+    const csHasher = blake2b.blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -4558,7 +4592,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         if (cirPower < curve.Fr.s) {
             let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
             for (let i=0; i< domainSize; i++) {
-                if ((logger)&&(i%10000 == 0)) logger.debug(`spliting buffer: ${i}/${domainSize}`);
+                if ((logger)&&(i%10000 == 0)) logger.debug(`splitting buffer: ${i}/${domainSize}`);
                 const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
                 buffOut.set(buff, i*sG1);
             }
@@ -5001,7 +5035,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
     buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", logger);
 
-    // Remove last element.  (The degree of H will be allways m-2)
+    // Remove last element.  (The degree of H will be always m-2)
     buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);
     buffBasesH_Tau = await curve.G1.batchLEMtoU(buffBasesH_Tau);
     await writePointArray("G1", buffBasesH_Tau);
@@ -5140,9 +5174,9 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     // csHash
     newMPCParams.csHash =  await fdMPCParams.read(64);
 
-    const nConttributions = await fdMPCParams.readUBE32();
+    const nContributions = await fdMPCParams.readUBE32();
     newMPCParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1(fdMPCParams);
         c.delta.g1_s = await readG1(fdMPCParams);
@@ -5174,13 +5208,13 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
 
     for (let i=0; i<oldMPCParams.contributions.length; i++) {
         if (!contributionIsEqual(oldMPCParams.contributions[i], newMPCParams.contributions[i])) {
-            if (logger) logger.error(`Previos contribution ${i} does not match`);
+            if (logger) logger.error(`Previous contribution ${i} does not match`);
             return false;
         }
     }
 
 
-    // Set the same name to all new controbutions
+    // Set the same name to all new contributions
     if (name) {
         for (let i=oldMPCParams.contributions.length; i<newMPCParams.contributions.length; i++) {
             newMPCParams.contributions[i].name = name;
@@ -5233,7 +5267,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     await fdZKeyNew.write(buffH);
     await binFileUtils__namespace.endWriteSection(fdZKeyNew);
 
-    // C Secion (L section)
+    // C Section (L section)
     const nL = await fdMPCParams.readUBE32();
     if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
         if (logger) logger.error("Invalid number of points in L");
@@ -5333,8 +5367,6 @@ const sameRatio = sameRatio$2;
 async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
 
     let sr;
-    await Blake2b__default["default"].ready();
-
     const {fd, sections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2);
     const zkey = await readHeader$1(fd, sections, false);
     if (zkey.protocol != "groth16") {
@@ -5346,7 +5378,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = Blake2b__default["default"](64);
+    const accumulatedHasher = blake2b.blake2b.create({ dkLen: 64 });
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -5392,7 +5424,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = Blake2b__default["default"](64);
+        const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -5594,20 +5626,20 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         let R1 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verificaition(tau):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verification(tau):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*sG);
             const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*sG);
 
-            const buffB = await batchSubstract(buff1, buff2);
+            const buffB = await batchSubtract(buff1, buff2);
             const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
             const r = await G.multiExpAffine(buffB, buffS);
 
             R1 = G.add(R1, r);
         }
 
-        // Caluclate odd coeficients in transformed domain
+        // Calculate odd coefficients in transformed domain
 
         buff_r = await Fr.batchToMontgomery(buff_r);
         // const first = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
@@ -5633,7 +5665,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         await binFileUtils__namespace.startReadUniqueSection(fd, sections, 9);
         let R2 = G.zero;
         for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verificaition(lagrange):  ${i}/${zkey.domainSize}`);
+            if (logger) logger.debug(`H Verification(lagrange):  ${i}/${zkey.domainSize}`);
             const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
 
             const buff = await fd.read(sG*n);
@@ -5652,7 +5684,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     }
 
-    async function batchSubstract(buff1, buff2) {
+    async function batchSubtract(buff1, buff2) {
         const sG = curve.G1.F.n8*2;
         const nPoints = buff1.byteLength / sG;
         const concurrency= curve.tm.concurrency;
@@ -5669,7 +5701,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
             const subBuff1 = buff1.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
             const subBuff2 = buff2.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            opPromises.push(batchSubstractThread(subBuff1, subBuff2));
+            opPromises.push(batchSubtractThread(subBuff1, subBuff2));
         }
 
 
@@ -5686,7 +5718,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     }
 
 
-    async function batchSubstractThread(buff1, buff2) {
+    async function batchSubtractThread(buff1, buff2) {
         const sG1 = curve.G1.F.n8*2;
         const sGmid = curve.G1.F.n8*3;
         const nPoints = buff1.byteLength/sG1;
@@ -5767,7 +5799,6 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
 */
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-    await Blake2b__default["default"].ready();
 
     const {fd: fdOld, sections: sections} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
     const zkey = await readHeader$1(fdOld, sections);
@@ -5784,7 +5815,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = Blake2b__default["default"](64);
+    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5837,15 +5868,15 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b__default["default"](64);
+    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
     hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
     if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }
 
 /*
@@ -5869,8 +5900,6 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    await Blake2b__default["default"].ready();
-
     const beaconHash = hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
@@ -5879,7 +5908,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -5906,8 +5935,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = Blake2b__default["default"](64);
-    transcriptHasher.update(mpcParams.csHash);
+    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
@@ -5962,14 +5990,13 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b__default["default"](64);
-    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
-    if (logger) logger.info(formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }
 
 async function zkeyExportJson(zkeyFileName) {
@@ -6000,9 +6027,7 @@ async function zkeyExportJson(zkeyFileName) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-async function bellmanContribute(curve, challengeFilename, responesFileName, entropy, logger) {
-    await Blake2b__default["default"].ready();
-
+async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const rng = await getRandomRng(entropy);
 
     const delta = curve.Fr.fromRng(rng);
@@ -6012,7 +6037,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     const sG2 = curve.G2.F.n8*2;
 
     const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
-    const fdTo = await fastFile__namespace.createOverride(responesFileName);
+    const fdTo = await fastFile__namespace.createOverride(responseFileName);
 
 
     await copy(sG1); // alpha1
@@ -6060,16 +6085,15 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = Blake2b__default["default"](64);
-
+    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
     const mpcParams = {};
     // csHash
     mpcParams.csHash =  await fdFrom.read(64);
     transcriptHasher.update(mpcParams.csHash);
 
-    const nConttributions = await fdFrom.readUBE32();
+    const nContributions = await fdFrom.readUBE32();
     mpcParams.contributions = [];
-    for (let i=0; i<nConttributions; i++) {
+    for (let i=0; i<nContributions; i++) {
         const c = { delta:{} };
         c.deltaAfter = await readG1();
         c.delta.g1_s = await readG1();
@@ -6096,7 +6120,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
 
 
     //////////
-    /// Write COntribution
+    /// Write Contribution
     //////////
 
     await fdTo.write(mpcParams.csHash);
@@ -6111,8 +6135,7 @@ async function bellmanContribute(curve, challengeFilename, responesFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = Blake2b__default["default"](64);
-    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -6433,8 +6456,6 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
 
-    await Blake2b__default["default"].ready();
-
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
@@ -6469,7 +6490,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     let cirPower = log2(plonkConstraints.length -1) +1;
-    if (cirPower < 3) cirPower = 3;   // As the t polinomal is n+5 whe need at least a power of 4
+    if (cirPower < 3) cirPower = 3;   // As the t polynomial is n+5 we need at least a power of 4
     const domainSize = 2 ** cirPower;
 
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
@@ -6737,8 +6758,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             let o=0;
             buffOutV.setUint32(o, addition[0], true); o+=4;
             buffOutV.setUint32(o, addition[1], true); o+=4;
-            // The value is storen in  Montgomery. stored = v*R
-            // so when montgomery multiplicated by the witness  it result = v*R*w/R = v*w 
+            // The value is stored in Montgomery. stored = v*R
+            // so when montgomery multiplied by the witness, it's result = v*R*w/R = v*w
             buffOut.set(addition[2], o); o+= n8r;
             buffOut.set(addition[3], o); o+= n8r;
             await fdZKey.write(buffOut);
@@ -7015,7 +7036,6 @@ class Proof {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const { keccak256 } = jsSha3__default["default"];
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -7063,7 +7083,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = ffjavascript.Scalar.fromRprBE(new Uint8Array(keccak256.arrayBuffer(buffer)));
+        const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
@@ -8283,7 +8303,7 @@ class Evaluations {
 */
 const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
     
-async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
+async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     // Read witness file
@@ -8294,7 +8314,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
     if (logger) logger.debug("> Reading zkey file");
     const {fd: fdZKey, sections: zkeySections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
-    const zkey = await readHeader$1(fdZKey, zkeySections);
+    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
         throw new Error("zkey file is not plonk");
     }
@@ -9147,14 +9167,14 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
 
-async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
+async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$5(_input);
 
     const wtns= {
         type: "mem"
     };
-    await wtnsCalculate(input, wasmFile, wtns);
-    return await plonk16Prove(zkeyFileName, wtns, logger);
+    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
+    return await plonk16Prove(zkeyFileName, wtns, logger, proverOptions);
 }
 
 /*
@@ -9175,9 +9195,8 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
 
-
+const { unstringifyBigInts: unstringifyBigInts$4 } = ffjavascript.utils;
 
 async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     let vk_verifier = unstringifyBigInts$4(_vk_verifier);
@@ -9195,16 +9214,26 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof is not well constructed");
+        logger.error("Proof commitments are not valid.");
         return false;
     }
 
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Invalid number of public inputs");
+        if (logger) logger.error("Invalid number of public inputs");
         return false;
     }
+
+    if (!evaluationsAreValid$1(curve, proof)) {
+        if (logger) logger.error("Proof evaluations are not valid");
+        return false;
+    }
+
+    if (!publicInputsAreValid$1(curve, publicSignals)) {
+        if (logger) logger.error("Public inputs are not valid.");
+        return false;
+    }
+
     const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
-    
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -9319,6 +9348,32 @@ function isWellConstructed(curve, proof) {
     if (!G1.isValid(proof.T3)) return false;
     if (!G1.isValid(proof.Wxi)) return false;
     if (!G1.isValid(proof.Wxiw)) return false;
+    return true;
+}
+
+function checkValueBelongToField$1(curve, value) {
+    return ffjavascript.Scalar.geq(value, 0) && ffjavascript.Scalar.lt(value, curve.r);
+}
+
+function checkEvaluationIsValid$1(curve, evaluation) {
+    return checkValueBelongToField$1(curve, ffjavascript.Scalar.fromRprLE(evaluation));
+}
+
+function evaluationsAreValid$1(curve, proof) {
+    return checkEvaluationIsValid$1(curve, proof.eval_a)
+        && checkEvaluationIsValid$1(curve, proof.eval_b)
+        && checkEvaluationIsValid$1(curve, proof.eval_c)
+        && checkEvaluationIsValid$1(curve, proof.eval_s1)
+        && checkEvaluationIsValid$1(curve, proof.eval_s2)
+        && checkEvaluationIsValid$1(curve, proof.eval_zw);
+}
+
+function publicInputsAreValid$1(curve, publicInputs) {
+    for(let i = 0; i < publicInputs.length; i++) {
+        if(!checkValueBelongToField$1(curve, publicInputs[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -10013,7 +10068,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     await computeFFConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
 
-    // As the t polynomial is n+5 whe need at least a power of 4
+    // As the t polynomial is n+5 we need at least a power of 4
     //TODO check!!!!
     // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
     settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
@@ -10486,7 +10541,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 const { stringifyBigInts } = ffjavascript.utils;
 
 
-async function fflonkProve(zkeyFileName, witnessFileName, logger) {
+async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     if (logger) logger.info("FFLONK PROVER STARTED");
 
     // Read witness file
@@ -10503,7 +10558,8 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
         fd: fdZKey,
         sections: zkeySections
     } = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
-    const zkey = await readHeader$1(fdZKey, zkeySections);
+
+    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not fflonk");
@@ -11740,16 +11796,16 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger) {
 */
 const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
 
-async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger) {
+async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
     const input = unstringifyBigInts$2(_input);
 
     const wtns= {type: "mem"};
 
     // Compute the witness
-    await wtnsCalculate(input, wasmFilename, wtns);
+    await wtnsCalculate(input, wasmFilename, wtns, wtnsCalcOptions);
 
     // Compute the proof
-    return await fflonkProve(zkeyFilename, wtns, logger);
+    return await fflonkProve(zkeyFilename, wtns, logger, proverOptions);
 }
 
 /*
@@ -11909,7 +11965,7 @@ function commitmentsBelongToG1(curve, proof, vk) {
 }
 
 function checkValueBelongToField(curve, value) {
-    return ffjavascript.Scalar.lt(value, curve.r);
+    return ffjavascript.Scalar.geq(value, 0) && ffjavascript.Scalar.lt(value, curve.r);
 }
 
 function checkEvaluationIsValid(curve, evaluation) {
@@ -12428,6 +12484,7 @@ var fflonk = /*#__PURE__*/Object.freeze({
     exportSolidityCallData: fflonkExportCallData
 });
 
+exports.curves = curves;
 exports.fflonk = fflonk;
 exports.groth16 = groth16;
 exports.plonk = plonk;

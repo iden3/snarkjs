@@ -48,7 +48,7 @@ import { CPolynomial } from "./polynomial/cpolynomial.js";
 const { stringifyBigInts } = utils;
 
 
-export default async function fflonkProve(zkeyFileName, witnessFileName, logger) {
+export default async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     if (logger) logger.info("FFLONK PROVER STARTED");
 
     // Read witness file
@@ -65,7 +65,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger)
         fd: fdZKey,
         sections: zkeySections
     } = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
-    const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections);
+
+    const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections, undefined, options);
 
     if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
         throw new Error("zkey file is not fflonk");

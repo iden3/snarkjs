@@ -21,15 +21,13 @@ import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import { getCurveFromQ as getCurve } from "./curves.js";
 import * as misc from "./misc.js";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./zkey_utils.js";
 import { hashToG2 as hashToG2 } from "./keypair.js";
 import { applyKeyToSection } from "./mpc_applykey.js";
 
 
 export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    await Blake2b.ready();
-
     const beaconHash = misc.hex2ByteArray(beaconHashStr);
     if (   (beaconHash.byteLength == 0)
         || (beaconHash.byteLength*2 !=beaconHashStr.length))
@@ -38,7 +36,7 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
         return false;
     }
     if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum lenght of beacon hash is 255 bytes");
+        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
         return false;
     }
 
@@ -65,7 +63,7 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
 
     const rng = await misc.rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = Blake2b(64);
+    const transcriptHasher = blake2b.create({ dkLen: 64 });;
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         utils.hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -121,12 +119,12 @@ export default async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashS
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = Blake2b(64);
+    const contributionHasher = blake2b.create({ dkLen: 64 });;
     utils.hashPubKey(contributionHasher, curve, curContribution);
 
-    const contribuionHash = contributionHasher.digest();
+    const contributionHash = contributionHasher.digest();
 
-    if (logger) logger.info(misc.formatHash(contribuionHash, "Contribution Hash: "));
+    if (logger) logger.info(misc.formatHash(contributionHash, "Contribution Hash: "));
 
-    return contribuionHash;
+    return contributionHash;
 }

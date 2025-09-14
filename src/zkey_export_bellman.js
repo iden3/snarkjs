@@ -46,7 +46,7 @@ export default async function phase2exportMPCParams(zkeyName, mpcparamsName, log
     buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
     buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", logger);
 
-    // Remove last element.  (The degree of H will be allways m-2)
+    // Remove last element.  (The degree of H will be always m-2)
     buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);
     buffBasesH_Tau = await curve.G1.batchLEMtoU(buffBasesH_Tau);
     await writePointArray("G1", buffBasesH_Tau);

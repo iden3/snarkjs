@@ -144,7 +144,7 @@ contract PlonkVerifier {
     
                 let pAux := mload(0x40)     // Point to the next free position
                 let pIn := pVals
-                let lastPIn := add(pVals, mul(n, 32))  // Read n elemnts
+                let lastPIn := add(pVals, mul(n, 32))  // Read n elements
                 let acc := mload(pIn)       // Read the first element
                 pIn := add(pIn, 32)         // Point to the second element
                 let inv
@@ -160,9 +160,9 @@ contract PlonkVerifier {
                 }
                 acc := inverse(acc, q)
                 
-                // At this point pAux pint to the next free position we substract 1 to point to the last used
+                // At this point pAux pint to the next free position we subtract 1 to point to the last used
                 pAux := sub(pAux, 32)
-                // pIn points to the n+1 element, we substract to point to n
+                // pIn points to the n+1 element, we subtract to point to n
                 pIn := sub(pIn, 32)
                 lastPIn := pVals  // We don't process the first element 
                 for { } gt(pIn, lastPIn) { 
@@ -200,7 +200,7 @@ contract PlonkVerifier {
                 // Points are checked in the point operations precompiled smart contracts
             }
             
-            function calculateChallanges(pProof, pMem, pPublic) {
+            function calculateChallenges(pProof, pMem, pPublic) {
             
                 let a
                 let b
@@ -695,7 +695,7 @@ contract PlonkVerifier {
             mstore(0x40, add(pMem, lastMem))
             
             checkInput(proof)
-            calculateChallanges(proof, pMem, pubSignals)
+            calculateChallenges(proof, pMem, pubSignals)
             calculateLagrange(pMem)
             calculatePI(pMem, pubSignals)
             calculateR0(proof, pMem)

@@ -161,7 +161,7 @@ function commitmentsBelongToG1(curve, proof, vk) {
 }
 
 function checkValueBelongToField(curve, value) {
-    return Scalar.lt(value, curve.r);
+    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
 }
 
 function checkEvaluationIsValid(curve, evaluation) {

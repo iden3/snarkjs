@@ -221,7 +221,7 @@ export default async function clProcessor(commands) {
         console.log("");
         console.log("Usage:");
         console.log("        snarkjs <full command> ...  <options>");
-        console.log("   or   snarkjs <shorcut> ...  <options>");
+        console.log("   or   snarkjs <shortcut> ...  <options>");
         console.log("");
         console.log("Type snarkjs <command> --help to get more information for that command");
         console.log("");

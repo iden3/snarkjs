@@ -21,8 +21,6 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
-import "hardhat/console.sol";
-
 contract PlonkVerifier {
     // Omega
     uint256 constant w1 = <%=w%>;    
@@ -158,7 +156,7 @@ contract PlonkVerifier {
     
                 let pAux := mload(0x40)     // Point to the next free position
                 let pIn := pVals
-                let lastPIn := add(pVals, mul(n, 32))  // Read n elemnts
+                let lastPIn := add(pVals, mul(n, 32))  // Read n elements
                 let acc := mload(pIn)       // Read the first element
                 pIn := add(pIn, 32)         // Point to the second element
                 let inv
@@ -174,9 +172,9 @@ contract PlonkVerifier {
                 }
                 acc := inverse(acc, q)
                 
-                // At this point pAux pint to the next free position we substract 1 to point to the last used
+                // At this point pAux pint to the next free position we subtract 1 to point to the last used
                 pAux := sub(pAux, 32)
-                // pIn points to the n+1 element, we substract to point to n
+                // pIn points to the n+1 element, we subtract to point to n
                 pIn := sub(pIn, 32)
                 lastPIn := pVals  // We don't process the first element 
                 for { } gt(pIn, lastPIn) { 
@@ -199,7 +197,54 @@ contract PlonkVerifier {
                 }
             }
             
-            function checkInput() {
+            function checkPointBelongsToBN128Curve(p) {
+                let x := calldataload(p)
+                let y := calldataload(add(p, 32))
+
+                // Check that the point is on the curve
+                // y^2 = x^3 + 3
+                let x3_3 := addmod(mulmod(x, mulmod(x, x, qf), qf), 3, qf)
+                let y2 := mulmod(y, y, qf)
+
+                if iszero(eq(x3_3, y2)) {
+                    mstore(0, 0)
+                    return(0, 0x20)
+                }
+            }  
+
+            function checkProofData() {
+                // Check proof commitments belong to the bn128 curve
+                checkPointBelongsToBN128Curve(pA)
+                checkPointBelongsToBN128Curve(pB)
+                checkPointBelongsToBN128Curve(pC)
+                checkPointBelongsToBN128Curve(pZ)
+                checkPointBelongsToBN128Curve(pT1)
+                checkPointBelongsToBN128Curve(pT2)
+                checkPointBelongsToBN128Curve(pT3)
+                checkPointBelongsToBN128Curve(pWxi)
+                checkPointBelongsToBN128Curve(pWxiw)
+
+                // Check proof commitments coordinates are in the field
+                checkField(calldataload(pA))
+                checkField(calldataload(add(pA, 32)))
+                checkField(calldataload(pB))
+                checkField(calldataload(add(pB, 32)))
+                checkField(calldataload(pC))
+                checkField(calldataload(add(pC, 32)))
+                checkField(calldataload(pZ))
+                checkField(calldataload(add(pZ, 32)))
+                checkField(calldataload(pT1))
+                checkField(calldataload(add(pT1, 32)))
+                checkField(calldataload(pT2))
+                checkField(calldataload(add(pT2, 32)))
+                checkField(calldataload(pT3))
+                checkField(calldataload(add(pT3, 32)))
+                checkField(calldataload(pWxi))
+                checkField(calldataload(add(pWxi, 32)))
+                checkField(calldataload(pWxiw))
+                checkField(calldataload(add(pWxiw, 32)))
+
+                // Check proof evaluations are in the field
                 checkField(calldataload(pEval_a))
                 checkField(calldataload(pEval_b))
                 checkField(calldataload(pEval_c))
@@ -691,7 +736,7 @@ contract PlonkVerifier {
             let pMem := mload(0x40)
             mstore(0x40, add(pMem, lastMem))
             
-            checkInput()
+            checkProofData()
             calculateChallenges(pMem, _pubSignals)
             calculateLagrange(pMem)
             calculatePI(pMem, _pubSignals)

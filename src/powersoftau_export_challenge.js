@@ -7,13 +7,12 @@
 //     BetaG2 (uncompressed)
 
 import * as fastFile from "fastfile";
-import Blake2b from "blake2b-wasm";
+import { blake2b } from "@noble/hashes/blake2b";
 import * as utils from "./powersoftau_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import * as misc from "./misc.js";
 
 export default async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    await Blake2b.ready();
     const {fd: fdFrom, sections} = await binFileUtils.readBinFile(pTauFilename, "ptau", 1);
 
     const {curve, power} = await utils.readPTauHeader(fdFrom, sections);
@@ -21,7 +20,7 @@ export default async function exportChallenge(pTauFilename, challengeFilename, l
     const contributions = await utils.readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = Blake2b(64).digest();
+        lastResponseHash = blake2b.create({ dkLen: 64 }).digest();
         curChallengeHash = utils.calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -35,7 +34,7 @@ export default async function exportChallenge(pTauFilename, challengeFilename, l
 
     const fdTo = await fastFile.createOverride(challengeFilename);
 
-    const toHash = Blake2b(64);
+    const toHash = blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
