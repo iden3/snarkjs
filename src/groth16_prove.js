@@ -22,7 +22,6 @@ import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
 import { log2 } from "./misc.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
-import os from "os";
 const {stringifyBigInts} = utils;
 
 export default async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -58,10 +57,13 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     if (logger) logger.debug("Reading Wtns");
     const buffWitness = await binFileUtils.readSection(fdWtns, sectionsWtns, 2);
 
+    let resH;
+    let resHPromise;
     let buffPodd_T;
 
     let abcPromise = (async function (){
         let buffA_T, buffB_T, buffC_T;
+
         await (async function (){
             if (logger) logger.debug("Reading Coeffs");
             const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
@@ -70,60 +72,93 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
             [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
         })();
 
-        const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
+        if (globalThis.gc) {globalThis.gc();}
 
-        const buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-        const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-        const buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+        const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
-        const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
-        const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-        const buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+        let buffAodd_T;
+        await (async function () {
+            let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+            buffA_T = null;
+            const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
+            buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+        })();
 
-        const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
-        const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-        const buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+        let buffBodd_T;
+        await (async function () {
+            const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+            buffB_T = null;
+            const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
+            buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+        })();
+
+        let buffCodd_T;
+        await (async function () {
+            const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+            buffC_T = null;
+            const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
+            buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+        })();
 
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
+        buffAodd_T = null;
+        buffBodd_T = null;
+        buffCodd_T = null;
+
+        if (globalThis.gc) {globalThis.gc();}
+
     })();
-    await abcPromise;
+    //await abcPromise;
 
     let proof = {};
 
-    let piaPromise = (async function (){
+    async function calcPiA(){
         if (logger) logger.debug("Reading A Points");
         const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
         proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
-    })();
+    }
+
+    let piaPromise = calcPiA();
+    //await piaPromise;
 
     let pib1;
-    let pib1Promise = (async function (){
+
+    async function calcPiB1() {
         if (logger) logger.debug("Reading B1 Points");
         const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
         pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
-    })();
+    }
 
-    let pibPromise = (async function (){
+    let pib1Promise = calcPiB1();
+    //await pib1Promise;
+
+    async function calcPiB() {
         if (logger) logger.debug("Reading B2 Points");
         const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
         proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
-    })();
+    }
+
+    let pibPromise = calcPiB();
+    //await pibPromise;
 
     let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
         const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
         proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
     })();
+    //await picPromise;
 
 
-    let resH;
-    let resHPromise = (async function (){
+    resHPromise = (async function (){
+        await abcPromise;
         if (logger) logger.debug("Reading H Points");
         const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
-        await abcPromise;
         resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+        //buffPodd_T = null;
     })();
+    //await resHPromise;
+
 
     const r = curve.Fr.random();
     const s = curve.Fr.random();
@@ -209,6 +244,8 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
             ),
             c*n8
         );
+
+        if (i%1000000 == 0) memUsage();
     }
 
     for (let i=0; i<zkey.domainSize; i++) {
@@ -358,7 +395,7 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 */
 
 async function joinABC(curve, zkey, a, b, c, logger) {
-    const MAX_CHUNK_SIZE = 1 << 22;
+    const MAX_CHUNK_SIZE = 1 << 16;
 
     const n8 = curve.Fr.n8;
     const nElements = Math.floor(a.byteLength / curve.Fr.n8);
@@ -392,7 +429,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
             {var: 3}
         ]});
         task.push({cmd: "GET", out: 0, var: 3, len: n*n8});
-        promises.push(curve.tm.queueAction(task));
+        promises.push(curve.tm.queueAction(task, [aChunk.buffer, bChunk.buffer, cChunk.buffer]) );
     }
 
     const result = await Promise.all(promises);
