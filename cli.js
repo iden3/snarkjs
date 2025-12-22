@@ -254,6 +254,18 @@ const commands = [
         action: zkeyExportSolidityCalldata
     },
     {
+        cmd: "zkey export rustverifier [circuit_final.zkey] [verifier.rs]",
+        description: "Creates a Groth16 verifying key in Rust",
+        alias: ["zkerv"],
+        action: zkeyExportRustVerifier
+    },
+    {
+        cmd: "zkey export rustcalldata [public.json] [proof.json]",
+        description: "Generates Groth16 proof as Rust code",
+        alias: ["zkerc"],
+        action: zkeyExportRustCalldata
+    },
+    {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
         description: "Creates an initial groth16 pkey file with zero contributions",
         alias: ["g16s", "zkn", "zkey new"],
@@ -684,6 +696,67 @@ async function zkeyExportSolidityCalldata(params, options) {
     } else {
         throw new Error("Invalid Protocol");
     }
+    console.log(res);
+
+    return 0;
+}
+
+// rust verifier exporter [circuit_final.zkey] [verifier.rs]
+async function zkeyExportRustVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.rs";
+    } else {
+        verifierName = params[1];
+    }
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    let template;
+    if (await fileExists(path.join(__dirname, "templates"))) {
+        template = await fs.promises.readFile(path.join(__dirname, "templates", "verifier_groth16.rs.ejs"), "utf8");
+    } else {
+        template = await fs.promises.readFile(path.join(__dirname, "..", "templates", "verifier_groth16.rs.ejs"), "utf8");
+    }
+
+    const verifierCode = await groth16.exportRustVerifier(zkeyName, template, logger);
+
+    fs.writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
+// rust calldata [public.json] [proof.json]
+async function zkeyExportRustCalldata(params, options) {
+    let publicName;
+    let proofName;
+
+    if (params.length < 1) {
+        publicName = "public.json";
+    } else {
+        publicName = params[0];
+    }
+
+    if (params.length < 2) {
+        proofName = "proof.json";
+    } else {
+        proofName = params[1];
+    }
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
+
+    const res = await groth16.exportRustCallData(proof, pub);
     console.log(res);
 
     return 0;
