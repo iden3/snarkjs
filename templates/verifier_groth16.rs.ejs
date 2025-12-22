@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: GPL-3.0
+/*
+    Copyright 2021 0KIMS association.
+
+    This file is generated with [snarkJS](https://github.com/iden3/snarkjs).
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/// Groth16 Verifying Key
+/// Protocol: <%= protocol %>
+/// Curve: <%= curve %>
+
+/// Groth16 verifying key structure for BN254 curve.
+/// Compatible with Solana's alt_bn128 precompiles.
+pub struct Groth16VerifyingKey {
+    /// Number of public inputs (including the constant 1)
+    pub nr_pubinputs: usize,
+    /// Alpha in G1 (64 bytes: x, y coordinates)
+    pub vk_alpha_g1: [u8; 64],
+    /// Beta in G2 (128 bytes: x0, x1, y0, y1 coordinates)
+    pub vk_beta_g2: [u8; 128],
+    /// Gamma in G2 (128 bytes)
+    pub vk_gamma_g2: [u8; 128],
+    /// Delta in G2 (128 bytes)
+    pub vk_delta_g2: [u8; 128],
+    /// IC (input commitments) - array of G1 points (64 bytes each)
+    pub vk_ic: &'static [[u8; 64]],
+}
+
+<%
+function formatByteArray(arr, indent) {
+    const bytesPerLine = 16;
+    let lines = [];
+    for (let i = 0; i < arr.length; i += bytesPerLine) {
+        const slice = arr.slice(i, Math.min(i + bytesPerLine, arr.length));
+        lines.push(indent + slice.join(', '));
+    }
+    return lines.join(',\n');
+}
+-%>
+pub const VERIFYING_KEY: Groth16VerifyingKey = Groth16VerifyingKey {
+    nr_pubinputs: <%= nr_pubinputs %>,
+
+    vk_alpha_g1: [
+<%- formatByteArray(vk_alpha_g1, '        ') %>,
+    ],
+
+    vk_beta_g2: [
+<%- formatByteArray(vk_beta_g2, '        ') %>,
+    ],
+
+    vk_gamma_g2: [
+<%- formatByteArray(vk_gamma_g2, '        ') %>,
+    ],
+
+    vk_delta_g2: [
+<%- formatByteArray(vk_delta_g2, '        ') %>,
+    ],
+
+    vk_ic: &[
+<% for (let i = 0; i < vk_ic.length; i++) { -%>
+        [
+<%- formatByteArray(vk_ic[i], '            ') %>,
+        ],
+<% } -%>
+    ],
+};

@@ -5547,7 +5547,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {unstringifyBigInts: unstringifyBigInts$b, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$d, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
@@ -5577,7 +5577,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
     return ejs__default["default"].render(template, vk);
 
     function fromVkey(str) {
-        const val = unstringifyBigInts$b(str);
+        const val = unstringifyBigInts$d(str);
         return curve.Fr.fromObject(val);
     }
 
@@ -6077,10 +6077,10 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$c} = ffjavascript.utils;
 
 async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$a(_input);
+    const input = unstringifyBigInts$c(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -6122,10 +6122,10 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
 
 async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$9(_input);
+    const input = unstringifyBigInts$b(_input);
 
     const wtns= {
         type: "mem"
@@ -6152,7 +6152,7 @@ async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCa
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
 async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -6162,9 +6162,9 @@ async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
     }
 */
 
-    const vk_verifier = unstringifyBigInts$8(_vk_verifier);
-    const proof = unstringifyBigInts$8(_proof);
-    const publicSignals = unstringifyBigInts$8(_publicSignals);
+    const vk_verifier = unstringifyBigInts$a(_vk_verifier);
+    const proof = unstringifyBigInts$a(_proof);
+    const publicSignals = unstringifyBigInts$a(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -6257,7 +6257,7 @@ function publicInputsAreValid$2(curve, publicInputs) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
 function p256$2(n) {
     let nstr = n.toString(16);
@@ -6267,8 +6267,8 @@ function p256$2(n) {
 }
 
 async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$7(_proof);
-    const pub = unstringifyBigInts$7(_pub);
+    const proof = unstringifyBigInts$9(_proof);
+    const pub = unstringifyBigInts$9(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -6283,6 +6283,198 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
         `[${inputs}]`;
 
     return S;
+}
+
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const { unstringifyBigInts: unstringifyBigInts$8, leInt2Buff: leInt2Buff$1 } = ffjavascript.utils;
+
+/**
+ * Convert a G1 point to Rust byte array format.
+ * Each coordinate: BigInt -> 32 bytes little-endian -> reverse bytes
+ * Result: 64 bytes total (x: 32, y: 32)
+ */
+function convertG1Point$1(point) {
+    const x = Array.from(leInt2Buff$1(point[0], 32)).reverse();
+    const y = Array.from(leInt2Buff$1(point[1], 32)).reverse();
+    return [...x, ...y];
+}
+
+/**
+ * Convert a G2 point to Rust byte array format.
+ * Each coordinate pair: concatenate both elements (64 bytes), reverse all, then split back.
+ * Result: 128 bytes total (x: 64, y: 64)
+ */
+function convertG2Point$1(point) {
+    // point[0] = [x0, x1], point[1] = [y0, y1]
+    const x0 = Array.from(leInt2Buff$1(point[0][0], 32));
+    const x1 = Array.from(leInt2Buff$1(point[0][1], 32));
+    const xCombined = [...x0, ...x1].reverse();
+
+    const y0 = Array.from(leInt2Buff$1(point[1][0], 32));
+    const y1 = Array.from(leInt2Buff$1(point[1][1], 32));
+    const yCombined = [...y0, ...y1].reverse();
+
+    return [...xCombined, ...yCombined];
+}
+
+/**
+ * Convert verification key to Rust-compatible byte arrays.
+ */
+function convertVkToRustFormat(vk) {
+    const vkData = unstringifyBigInts$8(vk);
+
+    return {
+        protocol: vkData.protocol,
+        curve: vkData.curve,
+        nr_pubinputs: vkData.IC.length,
+        vk_alpha_g1: convertG1Point$1(vkData.vk_alpha_1),
+        vk_beta_g2: convertG2Point$1(vkData.vk_beta_2),
+        vk_gamma_g2: convertG2Point$1(vkData.vk_gamma_2),
+        vk_delta_g2: convertG2Point$1(vkData.vk_delta_2),
+        vk_ic: vkData.IC.map(ic => convertG1Point$1(ic))
+    };
+}
+
+async function groth16ExportRustVerifier(zkeyName, template, logger) {
+    const verificationKey = await zkeyExportVerificationKey(zkeyName, logger);
+
+    if (verificationKey.protocol !== "groth16") {
+        throw new Error("Only groth16 protocol is supported for Rust verifier export");
+    }
+
+    const rustVk = convertVkToRustFormat(verificationKey);
+
+    return ejs__default["default"].render(template, rustVk);
+}
+
+/*
+    Copyright 2018 0KIMS association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const { unstringifyBigInts: unstringifyBigInts$7, leInt2Buff } = ffjavascript.utils;
+
+/**
+ * Convert a G1 point to Rust byte array format.
+ * Each coordinate: BigInt -> 32 bytes little-endian -> reverse bytes
+ * Result: 64 bytes total
+ */
+function convertG1Point(point) {
+    const x = Array.from(leInt2Buff(point[0], 32)).reverse();
+    const y = Array.from(leInt2Buff(point[1], 32)).reverse();
+    return [...x, ...y];
+}
+
+/**
+ * Convert a G2 point to Rust byte array format.
+ * Each coordinate pair: concatenate both elements (64 bytes), reverse all.
+ * Result: 128 bytes total
+ */
+function convertG2Point(point) {
+    const x0 = Array.from(leInt2Buff(point[0][0], 32));
+    const x1 = Array.from(leInt2Buff(point[0][1], 32));
+    const xCombined = [...x0, ...x1].reverse();
+
+    const y0 = Array.from(leInt2Buff(point[1][0], 32));
+    const y1 = Array.from(leInt2Buff(point[1][1], 32));
+    const yCombined = [...y0, ...y1].reverse();
+
+    return [...xCombined, ...yCombined];
+}
+
+/**
+ * Convert a public input scalar to bytes.
+ * BigInt -> 32 bytes little-endian -> reverse bytes
+ */
+function convertScalar(scalar) {
+    return Array.from(leInt2Buff(scalar, 32)).reverse();
+}
+
+/**
+ * Format a byte array as Rust code with line wrapping.
+ */
+function formatByteArray(arr, indent, bytesPerLine = 16) {
+    let lines = [];
+    for (let i = 0; i < arr.length; i += bytesPerLine) {
+        const slice = arr.slice(i, Math.min(i + bytesPerLine, arr.length));
+        lines.push(indent + slice.join(", "));
+    }
+    return lines.join(",\n");
+}
+
+async function groth16ExportRustCallData(_proof, _pub) {
+    const proof = unstringifyBigInts$7(_proof);
+    const pub = unstringifyBigInts$7(_pub);
+
+    // Convert proof elements
+    const proofA = convertG1Point(proof.pi_a);
+    const proofB = convertG2Point(proof.pi_b);
+    const proofC = convertG1Point(proof.pi_c);
+
+    // Convert public inputs
+    const publicInputs = pub.map(signal => convertScalar(signal));
+
+    // Generate Rust code
+    let code = `// Groth16 Proof (generated by snarkJS)
+// Note: proof_a may need to be negated before verification depending on the verifier implementation.
+
+/// Proof element A in G1 (64 bytes)
+pub const PROOF_A: [u8; 64] = [
+${formatByteArray(proofA, "    ")},
+];
+
+/// Proof element B in G2 (128 bytes)
+pub const PROOF_B: [u8; 128] = [
+${formatByteArray(proofB, "    ")},
+];
+
+/// Proof element C in G1 (64 bytes)
+pub const PROOF_C: [u8; 64] = [
+${formatByteArray(proofC, "    ")},
+];
+
+/// Public inputs (${publicInputs.length} x 32 bytes)
+pub const PUBLIC_INPUTS: [[u8; 32]; ${publicInputs.length}] = [
+`;
+
+    for (let i = 0; i < publicInputs.length; i++) {
+        code += `    [\n${formatByteArray(publicInputs[i], "        ")},\n    ],\n`;
+    }
+    code += "];\n";
+
+    return code;
 }
 
 /*
@@ -12745,6 +12937,18 @@ const commands = [
         action: zkeyExportSolidityCalldata
     },
     {
+        cmd: "zkey export rustverifier [circuit_final.zkey] [verifier.rs]",
+        description: "Creates a Groth16 verifying key in Rust",
+        alias: ["zkerv"],
+        action: zkeyExportRustVerifier
+    },
+    {
+        cmd: "zkey export rustcalldata [public.json] [proof.json]",
+        description: "Generates Groth16 proof as Rust code",
+        alias: ["zkerc"],
+        action: zkeyExportRustCalldata
+    },
+    {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
         description: "Creates an initial groth16 pkey file with zero contributions",
         alias: ["g16s", "zkn", "zkey new"],
@@ -13175,6 +13379,67 @@ async function zkeyExportSolidityCalldata(params, options) {
     } else {
         throw new Error("Invalid Protocol");
     }
+    console.log(res);
+
+    return 0;
+}
+
+// rust verifier exporter [circuit_final.zkey] [verifier.rs]
+async function zkeyExportRustVerifier(params, options) {
+    let zkeyName;
+    let verifierName;
+
+    if (params.length < 1) {
+        zkeyName = "circuit_final.zkey";
+    } else {
+        zkeyName = params[0];
+    }
+
+    if (params.length < 2) {
+        verifierName = "verifier.rs";
+    } else {
+        verifierName = params[1];
+    }
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    let template;
+    if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
+        template = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.rs.ejs"), "utf8");
+    } else {
+        template = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.rs.ejs"), "utf8");
+    }
+
+    const verifierCode = await groth16ExportRustVerifier(zkeyName, template, logger);
+
+    fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
+
+    return 0;
+}
+
+// rust calldata [public.json] [proof.json]
+async function zkeyExportRustCalldata(params, options) {
+    let publicName;
+    let proofName;
+
+    if (params.length < 1) {
+        publicName = "public.json";
+    } else {
+        publicName = params[0];
+    }
+
+    if (params.length < 2) {
+        proofName = "proof.json";
+    } else {
+        proofName = params[1];
+    }
+
+    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+
+    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
+
+    const res = await groth16ExportRustCallData(proof, pub);
     console.log(res);
 
     return 0;
