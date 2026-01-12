@@ -161,10 +161,11 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             }
 
             for (let s in linearComb2) {
+                const val = Fr.neg(linearComb2[s]);
                 if (typeof res[s] == "undefined") {
-                    res[s] = linearComb2[s];
+                    res[s] = val;
                 } else {
-                    res[s] = Fr.add(res[s], linearComb2[s]);
+                    res[s] = Fr.add(res[s], val);
                 }
             }
             normalize(res);
