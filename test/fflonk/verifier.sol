@@ -159,7 +159,7 @@ contract FflonkVerifier {
     uint16 constant lastMem = 1920;
      
 
-    function verifyProof(bytes32[24] calldata proof, uint256[1] calldata pubSignals) public view returns (bool) {
+    function verifyProof(bytes32[24] calldata proof, uint256[1] calldata pubSignals) external view returns (bool) {
         assembly {
             // Computes the inverse of an array of values
             // See https://vitalik.ca/general/2018/07/21/starks_part_3.html in section where explain fields operations
