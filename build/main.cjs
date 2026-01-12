@@ -6539,10 +6539,11 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             }
 
             for (let s in linearComb2) {
+                const val = Fr.neg(linearComb2[s]);
                 if (typeof res[s] == "undefined") {
-                    res[s] = linearComb2[s];
+                    res[s] = val;
                 } else {
-                    res[s] = Fr.add(res[s], linearComb2[s]);
+                    res[s] = Fr.add(res[s], val);
                 }
             }
             normalize(res);
@@ -9772,16 +9773,6 @@ class r1csConstraintProcessor {
     joinLinearCombinations(linCom1, linCom2, k) {
         const res = {};
 
-        // for (let s in linCom1) {
-        //     const val = this.Fr.mul(k, linCom1[s]);
-        //     res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
-        // }
-        //
-        // for (let s in linCom2) {
-        //     const val = this.Fr.mul(k, linCom2[s]);
-        //     res[s] = !(s in res) ? val : this.Fr.add(val, res[s]);
-        // }
-
         for (let s in linCom1) {
             if (typeof res[s] == "undefined") {
                 res[s] = this.Fr.mul(k, linCom1[s]);
@@ -9791,10 +9782,11 @@ class r1csConstraintProcessor {
         }
 
         for (let s in linCom2) {
+            const val = this.Fr.neg(linCom2[s]);
             if (typeof res[s] == "undefined") {
-                res[s] = linCom2[s];
+                res[s] = val;
             } else {
-                res[s] = this.Fr.add(res[s], linCom2[s]);
+                res[s] = this.Fr.add(res[s], val);
             }
         }
 
