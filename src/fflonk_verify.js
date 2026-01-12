@@ -35,8 +35,6 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
 
     const vk = fromObjectVk(curve, _vk_verifier);
 
-    // TODO ??? Compute wr^3 and check if it matches with w
-
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
@@ -48,6 +46,13 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     }
 
     const Fr = curve.Fr;
+
+    // Validate that wr^3 = w (cube root relationship)
+    const wrCubed = Fr.mul(Fr.mul(vk.wr, vk.wr), vk.wr);
+    if (!Fr.eq(wrCubed, vk.w)) {
+        if (logger) logger.error("Invalid verification key: wr^3 does not equal w");
+        return false;
+    }
 
     if (logger) {
         logger.info("----------------------------");
