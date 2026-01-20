@@ -18,14 +18,15 @@
 */
 
 import { Scalar } from "ffjavascript";
-import { readR1cs }  from "r1csfile";
+import { readR1csHeader } from "r1csfile";
+import * as binFileUtils from "@iden3/binfileutils";
 
 const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 export default async function r1csInfo(r1csName, logger) {
-
-    const cir = await readR1cs(r1csName);
+    const { fd, sections } = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1 << 25, 1 << 22);
+    var cir = await readR1csHeader(fd, sections);
 
     if (Scalar.eq(cir.prime, bn128r)) {
         if (logger) logger.info("Curve: bn-128");
