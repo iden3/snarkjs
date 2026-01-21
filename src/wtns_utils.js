@@ -25,7 +25,7 @@ import * as binFileUtils from "@iden3/binfileutils";
 export async function write(fd, witness, prime) {
 
     await binFileUtils.startWriteSection(fd, 1);
-    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
+    const n8 = (~~( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
     await fd.writeULE32(n8);
     await binFileUtils.writeBigInt(fd, prime, n8);
     await fd.writeULE32(witness.length);
@@ -43,7 +43,7 @@ export async function write(fd, witness, prime) {
 export async function writeBin(fd, witnessBin, prime) {
 
     await binFileUtils.startWriteSection(fd, 1);
-    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
+    const n8 = (~~( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
     await fd.writeULE32(n8);
     await binFileUtils.writeBigInt(fd, prime, n8);
     if (witnessBin.byteLength % n8 != 0) {

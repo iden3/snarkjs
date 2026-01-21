@@ -58,13 +58,13 @@ class _BigArray {
     }
     getElement(idx) {
         idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        const idx1 = ~~(idx / SUBARRAY_SIZE);
         const idx2 = idx % SUBARRAY_SIZE;
         return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
     }
     setElement(idx, value) {
         idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
+        const idx1 = ~~(idx / SUBARRAY_SIZE);
         if (!this.arr[idx1]) {
             this.arr[idx1] = new Array(SUBARRAY_SIZE);
         }
