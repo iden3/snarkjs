@@ -11,8 +11,6 @@ var crypto = require('crypto');
 var fastFile = require('fastfile');
 var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
-var vm = require('vm');
-var ejs = require('ejs');
 var sha3 = require('@noble/hashes/sha3');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
@@ -39,7 +37,6 @@ var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
 var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
 var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
 var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
-var ejs__default = /*#__PURE__*/_interopDefaultLegacy(ejs);
 
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -928,6 +925,8 @@ async function read(fileName) {
 const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
+
+    if (logger) monitorMemoryUsage(logger, 50);
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
@@ -957,63 +956,155 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     if (logger) logger.debug("Reading Wtns");
     const buffWitness = await binFileUtils__namespace.readSection(fdWtns, sectionsWtns, 2);
-    if (logger) logger.debug("Reading Coeffs");
-    const buffCoeffs = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 4);
 
-    if (logger) logger.debug("Building ABC");
-    const [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+    let resH;
+    let resHPromise;
+    let buffPodd_T;
 
-    const inc = power == Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
+    let abcPromise = (async function (){
+        let buffA_T, buffB_T, buffC_T;
 
-    const buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-    const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-    const buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+        await (async function (){
+            if (logger) logger.debug("Reading Coeffs");
+            console.time("buildABC_outer");
+            const buffCoeffs = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 4);
 
-    const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
-    const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-    const buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+            if (logger) logger.debug("Building ABC");
 
-    const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
-    const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-    const buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+            options = options || {};
+            //options.buildABC="wasm1"; // for testing
 
-    if (logger) logger.debug("Join ABC");
-    const buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
+            if (options && options.buildABC==="wasm") {
+                // build ABC in WASM
+                [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
+            } else if (options && options.buildABC==="wasm1") {
+                // build ABC in WASM
+                [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
+            } else {
+                // default, build ABC in JS
+                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+            }
+            console.timeEnd("buildABC_outer");
+        })();
+
+        console.time("abcPromise");
+
+        if (globalThis.gc) {globalThis.gc();}
+
+        const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
+
+        let buffAodd_T;
+        await (async function () {
+            let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+            buffA_T = null;
+            const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
+            buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+        })();
+
+        let buffBodd_T;
+        await (async function () {
+            const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+            buffB_T = null;
+            const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
+            buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+        })();
+
+        let buffCodd_T;
+        await (async function () {
+            const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+            buffC_T = null;
+            const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
+            buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+        })();
+
+        if (logger) logger.debug("Join ABC");
+        buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
+        if (logger) logger.debug("Join ABC finished");
+        buffAodd_T = null;
+        buffBodd_T = null;
+        buffCodd_T = null;
+
+        if (globalThis.gc) {globalThis.gc();}
+        console.timeEnd("abcPromise");
+    })();
+    //await abcPromise;
 
     let proof = {};
 
-    if (logger) logger.debug("Reading A Points");
-    const buffBasesA = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 5);
-    proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
+    async function calcPiA(){
+        if (logger) logger.debug("Reading A Points");
+        const buffBasesA = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 5);
+        console.time("Calculate PiA");
+        proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
+        console.timeEnd("Calculate PiA");
+    }
 
-    if (logger) logger.debug("Reading B1 Points");
-    const buffBasesB1 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 6);
-    let pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
+    let piaPromise = calcPiA();
+    //await piaPromise;
 
-    if (logger) logger.debug("Reading B2 Points");
-    const buffBasesB2 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 7);
-    proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
+    let pib1;
 
-    if (logger) logger.debug("Reading C Points");
-    const buffBasesC = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 8);
-    proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+    async function calcPiB1() {
+        if (logger) logger.debug("Reading B1 Points");
+        const buffBasesB1 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 6);
+        console.time("Calculate PiB1");
+        pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
+        console.timeEnd("Calculate PiB1");
+    }
 
-    if (logger) logger.debug("Reading H Points");
-    const buffBasesH = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 9);
-    const resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+    let pib1Promise = calcPiB1();
+    //await pib1Promise;
+
+    async function calcPiB() {
+        if (logger) logger.debug("Reading B2 Points");
+        const buffBasesB2 = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 7);
+        console.time("Calculate PiB");
+        proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
+        console.timeEnd("Calculate PiB");
+    }
+
+    let pibPromise = calcPiB();
+    //await pibPromise;
+
+    let picPromise = (async function (){
+        if (logger) logger.debug("Reading C Points");
+        const buffBasesC = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 8);
+        console.time("Calculate PiC");
+        proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+        console.timeEnd("Calculate PiC");
+    })();
+    //await picPromise;
+
+
+    resHPromise = (async function (){
+        if (logger) logger.debug("Reading H Points");
+        await abcPromise;
+        console.time("resHPromise");
+        const buffBasesH = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 9);
+        //await Promise.all([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise]);
+        resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+        //buffPodd_T = null;
+        console.timeEnd("resHPromise");
+    })();
+    //await resHPromise;
+
 
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
+    await piaPromise;
     proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
     proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
+    await pibPromise;
     proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
     proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
+    await pib1Promise;
     pib1 = G1.add( pib1, zkey.vk_beta_1 );
     pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
+    await Promise.all([picPromise, resHPromise]);
     proof.pi_c = G1.add(proof.pi_c, resH);
 
 
@@ -1058,12 +1149,23 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
     const outBuf = [ outBuffA, outBuffB ];
     for (let i=0; i<nCoef; i++) {
         if ((logger)&&(i%1000000 == 0)) logger.debug(`QAP AB: ${i}/${nCoef}`);
-        const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
-        const buffCoefV = new DataView(buffCoef.buffer);
-        const m= buffCoefV.getUint32(0, true);
-        const c= buffCoefV.getUint32(4, true);
-        const s= buffCoefV.getUint32(8, true);
-        const coef = buffCoef.slice(12, 12+n8);
+
+        let buffCoefV, coef;
+        if (coeffs.buffer) {
+            // if we have direct access to array buffer, then we can create zero-copy views
+            const coeffOffset = 4 + i * sCoef;
+            buffCoefV = new DataView(coeffs.buffer, coeffs.byteOffset + coeffOffset, sCoef);
+            coef = new Uint8Array(coeffs.buffer, coeffs.byteOffset + coeffOffset + 12, n8);
+        } else {
+            // coeffs is a BigBuffer and we need to copy the slice
+            const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
+            buffCoefV = new DataView(buffCoef.buffer);
+            coef = buffCoef.slice(12, 12+n8);
+        }
+        const m = buffCoefV.getUint32(0, true);
+        const c = buffCoefV.getUint32(4, true);
+        const s = buffCoefV.getUint32(8, true);
+
         outBuf[m].set(
             curve.Fr.add(
                 outBuf[m].slice(c*n8, c*n8+n8),
@@ -1071,6 +1173,8 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
             ),
             c*n8
         );
+
+        if (i%1000000 == 0 && logger) memUsage(logger);
     }
 
     for (let i=0; i<zkey.domainSize; i++) {
@@ -1088,14 +1192,14 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
 
 }
 
-/*
+
 async function buildABC(curve, zkey, witness, coeffs, logger) {
-    const concurrency = curve.tm.concurrency;
+    let concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
     let getUint32;
 
-    if (coeffs instanceof BigBuffer) {
+    if (coeffs instanceof ffjavascript.BigBuffer) {
         const coeffsDV = [];
         const PAGE_LEN = coeffs.buffers[0].length;
         for (let i=0; i< coeffs.buffers.length; i++) {
@@ -1111,7 +1215,15 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         };
     }
 
-    const elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
+    let elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
+    console.log("@@@ elementsPerChunk", elementsPerChunk);
+    while (elementsPerChunk > 2**16) {
+        concurrency*=2;
+        elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
+    }
+    console.log("@@@ new elementsPerChunk", elementsPerChunk);
+
+
     const promises = [];
 
     const cutPoints = [];
@@ -1187,9 +1299,9 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         result = await Promise.all(promises2);
     }
 
-    const outBuffA = new BigBuffer(zkey.domainSize * curve.Fr.n8);
-    const outBuffB = new BigBuffer(zkey.domainSize * curve.Fr.n8);
-    const outBuffC = new BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffC = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
     let p=0;
     for (let i=0; i<result.length; i++) {
         outBuffA.set(result[i][0], p);
@@ -1217,10 +1329,184 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         return 4 + m*sCoef;
     }
 }
-*/
+
+
+// buildABCWASM1 is single-threaded implementation of buildABS using wasm
+// It has much better memory usage than multithreaded wasm implementation.
+// It's much faster than pure js one, but uses much more memory.
+async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
+    console.time("buildABC");
+    const concurrency = 1;//curve.tm.concurrency;
+    const sCoef = 4 * 3 + zkey.n8r;
+
+    let getUint32;
+
+    if (coeffs instanceof ffjavascript.BigBuffer) {
+        const coeffsDV = [];
+        const PAGE_LEN = coeffs.buffers[0].length;
+        for (let i = 0; i < coeffs.buffers.length; i++) {
+            coeffsDV.push(new DataView(coeffs.buffers[i].buffer));
+        }
+        getUint32 = function (pos) {
+            return coeffsDV[Math.floor(pos / PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
+        };
+    } else {
+        const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
+        getUint32 = function (pos) {
+            return coeffsDV.getUint32(pos, true);
+        };
+    }
+
+    const elementsPerChunk = Math.floor((zkey.domainSize - 1) / concurrency) + 1;
+    const promises = [];
+
+    const cutPoints = [];
+    for (let i = 0; i < concurrency; i++) {
+        cutPoints.push(getCutPoint(Math.floor(i * elementsPerChunk)));
+    }
+    cutPoints.push(coeffs.byteLength);
+
+    //const chunkSize = 2**18;
+    const chunkSize = elementsPerChunk;
+
+    console.log("zkey.domainSize", zkey.domainSize);
+    console.log("concurrency", concurrency);
+    console.log("elementsPerChunk", elementsPerChunk);
+    console.log("chunkSize", chunkSize);
+
+    for (let s = 0; s < zkey.nVars; s += chunkSize) {
+        if (logger) logger.debug(`QAP: ${s}/${zkey.nVars}`);
+        const ns = Math.min(zkey.nVars - s, chunkSize);
+
+        console.log("ns", ns);
+
+        //let i=0;
+        for (let i = 0; i < concurrency; i++) {
+            let n;
+            if (i < concurrency - 1) {
+                n = elementsPerChunk;
+            } else {
+                n = zkey.domainSize - i * elementsPerChunk;
+            }
+            if (n === 0) continue;
+
+            const task = [];
+
+            const coeffsBuff = coeffs.slice(cutPoints[i], cutPoints[i + 1]);
+            const witnessBuff = witness.slice(s * curve.Fr.n8, (s + ns) * curve.Fr.n8);
+
+            task.push({cmd: "ALLOCSET", var: 0, buff: coeffsBuff});
+            task.push({cmd: "ALLOCSET", var: 1, buff: witnessBuff});
+            task.push({cmd: "ALLOC", var: 2, len: n * curve.Fr.n8});
+            task.push({cmd: "ALLOC", var: 3, len: n * curve.Fr.n8});
+            task.push({cmd: "ALLOC", var: 4, len: n * curve.Fr.n8});
+            task.push({
+                cmd: "CALL", fnName: "qap_buildABC", params: [
+                    {var: 0},
+                    {val: (cutPoints[i + 1] - cutPoints[i]) / sCoef},
+                    {var: 1},
+                    {var: 2},
+                    {var: 3},
+                    {var: 4},
+                    {val: i * elementsPerChunk},
+                    {val: n},
+                    {val: s},
+                    {val: ns}
+                ]
+            });
+            task.push({cmd: "GET", out: 0, var: 2, len: n * curve.Fr.n8});
+            task.push({cmd: "GET", out: 1, var: 3, len: n * curve.Fr.n8});
+            task.push({cmd: "GET", out: 2, var: 4, len: n * curve.Fr.n8});
+            //task.push({cmd: "TERMINATE"}); // to free memory immediately
+            //promises.push(curve.tm.queueAction(task));
+            promises.push(curve.tm.queueAction(task, [coeffsBuff.buffer, witnessBuff.buffer]));
+        }
+    }
+
+    let result = await Promise.all(promises);
+
+
+    console.log("result.length", result.length);
+    console.log("result", result);
+
+    const nGroups = result.length / concurrency;
+
+    console.log("nGroups", nGroups);
+    let result2;
+    if (nGroups > 1) {
+        const promises2 = [];
+        for (let i = 0; i < concurrency; i++) {
+            const task = [];
+            task.push({cmd: "ALLOC", var: 0, len: result[i][0].byteLength});
+            task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
+            for (let m = 0; m < 3; m++) {
+                task.push({cmd: "SET", var: 0, buff: result[i][m]});
+                //transfers.push(result[i][m].buffer);
+                for (let s = 1; s < nGroups; s++) {
+                    task.push({cmd: "SET", var: 1, buff: result[s * concurrency + i][m]});
+                    //transfers.push(result[s*concurrency + i][m].buffer);
+                    task.push({
+                        cmd: "CALL", fnName: "qap_batchAdd", params: [
+                            {var: 0},
+                            {var: 1},
+                            {val: result[i][m].length / curve.Fr.n8},
+                            {var: 0}
+                        ]
+                    });
+                }
+                task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
+                //task.push({cmd: "TERMINATE"}); // to free memory immediately
+            }
+            console.log("task.length", task.length);
+            //promises2.push(curve.tm.queueAction(task));
+            promises2.push(curve.tm.queueAction(task, result.buffer));
+        }
+        console.log("promises2.length", promises2.length);
+        result2 = await Promise.all(promises2);
+        result = result2;
+    }
+
+    //console.log("result", result);
+    //console.log("result2", result2);
+    //result = result2 || result;
+
+    const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    const outBuffC = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
+    let p = 0;
+    for (let i = 0; i < result.length; i++) {
+        outBuffA.set(result[i][0], p);
+        outBuffB.set(result[i][1], p);
+        outBuffC.set(result[i][2], p);
+        p += result[i][0].byteLength;
+    }
+
+    console.timeEnd("buildABC");
+
+    return [outBuffA, outBuffB, outBuffC];
+
+    function getCutPoint(v) {
+        let m = 0;
+        let n = getUint32(0);
+        while (m < n) {
+            let k = Math.floor((n + m) / 2);
+            const va = getUint32(4 + k * sCoef + 4);
+            if (va > v) {
+                n = k - 1;
+            } else if (va < v) {
+                m = k + 1;
+            } else {
+                n = k;
+            }
+        }
+        return 4 + m * sCoef;
+    }
+}
+
 
 async function joinABC(curve, zkey, a, b, c, logger) {
-    const MAX_CHUNK_SIZE = 1 << 22;
+    console.time("joinABC");
+    const MAX_CHUNK_SIZE = 1 << 16;
 
     const n8 = curve.Fr.n8;
     const nElements = Math.floor(a.byteLength / curve.Fr.n8);
@@ -1254,7 +1540,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
             {var: 3}
         ]});
         task.push({cmd: "GET", out: 0, var: 3, len: n*n8});
-        promises.push(curve.tm.queueAction(task));
+        promises.push(curve.tm.queueAction(task, [aChunk.buffer, bChunk.buffer, cChunk.buffer]) );
     }
 
     const result = await Promise.all(promises);
@@ -1272,7 +1558,28 @@ async function joinABC(curve, zkey, a, b, c, logger) {
         p += result[i][0].byteLength;
     }
 
+    console.timeEnd("joinABC");
     return outBuff;
+}
+
+function memUsage(logger) {
+    if (!logger) return;
+    const used = process.memoryUsage();
+    logger.debug(
+        "         ",
+        "\x1b[0m Heap:\x1b[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
+        "\x1b[0m / \x1b[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
+        "\x1b[0m RSS:\x1b[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
+        "\x1b[0m External:\x1b[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
+        "\x1b[0m ArrBuffers:\x1b[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
+        "\x1b[0m"
+    );
+}
+
+function monitorMemoryUsage(logger, interval = 5000) {
+    return setInterval(() => {
+        memUsage(logger);
+    }, interval);
 }
 
 /*
@@ -4500,7 +4807,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // delta2
     await binFileUtils.endWriteSection(fdZKey);
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading r1cs");
     let sR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
     await fdR1cs.close();
@@ -4511,7 +4818,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     let C = new BigArray(r1cs.nVars- nPublic -1);
     let IC = new Array(nPublic+1);
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading tauG2");
@@ -4521,55 +4828,55 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     if (logger) logger.info("Reading betatauG1");
     let sBetaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("processConstraints");
     await processConstraints();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints");
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     IC = null;
-    const gc = vm.runInNewContext("gc"); // nocommit
-    gc();
+    // const gc = runInNewContext("gc"); // nocommit
+    // gc();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("writeHs");
     await writeHs();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("hashHPoints");
     await hashHPoints();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 8 G1 C");
     await composeAndWritePoints(8, "G1", C, "C");
 
     C = null;
-    gc();
+    // gc();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
 
     A = null;
-    gc();
+    // gc();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
 
     B1 = null;
-    gc();
+    // gc();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
     B2 = null;
-    gc();
+    // gc();
 
-    if (logger) logger.info(process.memoryUsage());
+    if (logger) logger.info(memUsage());
     if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
     // Contributions section
@@ -4636,7 +4943,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 const l2t = BETATAU_G1;
                 const l2 = sG1*c;
                 if (typeof A[s] === "undefined") A[s] = [];
-                console.log(s, A[s].length);
                 A[s].push([l1t, l1, coefp]);
 
                 if (s <= nPublic) {
@@ -4764,7 +5070,12 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                     nP += (arr[i+n] ? arr[i+n].length : 0);
                     n ++;
                 }
+
+                if (logger) logger.info("before slice:");
+                if (logger) logger.info(memUsage());
                 const subArr = arr.slice(i, i + n);
+                if (logger) logger.info("after slice:");
+                if (logger) logger.info(memUsage());
                 const _i = i;
                 opPromises.push(composeAndWritePointsThread(groupName, subArr, logger, sectionName).then( (r) => {
                     if (logger)  logger.debug(`Writing points end ${sectionName}: ${_i}/${arr.length}`);
@@ -4989,6 +5300,14 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
         buffV.setUint32(0, n, false);
         csHasher.update(buff);
+    }
+
+    function memUsage() {
+        let m = process.memoryUsage();
+        for (const i in m) {
+            m[i] = Math.round(m[i] / (1024*1024));
+        }
+        return m;
     }
 
 }
@@ -6369,7 +6688,8 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    return ejs__default["default"].render(template, vk);
+    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+    return ejs.render(template, vk);
 
     function fromVkey(str) {
         const val = unstringifyBigInts$6(str);
@@ -6395,7 +6715,9 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
     let template = templates[verificationKey.protocol];
 
-    return ejs__default["default"].render(template, verificationKey);
+    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+
+    return ejs.render(template, verificationKey);
 }
 
 /*
