@@ -42,7 +42,6 @@ import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
-import bfj from "bfj";
 
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
@@ -54,6 +53,10 @@ setFlagsFromString("--expose_gc");
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
+// const logger = console;
+// const Logger = {
+//     setLogLevel: function (x) {}
+// };
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
@@ -380,6 +383,14 @@ TODO COMMANDS
     }
 */
 
+// BFJ(Big-Friendly JSON) is pretty heavy module, so we are doing lazy loading for faster startup
+let _bfj;
+async function getBFJ() {
+    if (_bfj) return _bfj;
+    const {default: bfj} = await import("bfj");
+    _bfj = bfj;
+    return _bfj;
+}
 
 function changeExt(fileName, newExt) {
     let S = fileName;
@@ -429,6 +440,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1cs.exportJson(r1csName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, r1csObj, {space: 1});
 
     return 0;
@@ -478,6 +490,7 @@ async function wtnsExportJson(params, options) {
 
     const w = await wtns.exportJson(wtnsName);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, stringifyBigInts(w), {space: 1});
 
     return 0;
@@ -537,8 +550,8 @@ async function groth16Prove(params, options) {
 
     const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
 
-    await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
-    await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -558,8 +571,8 @@ async function groth16FullProve(params, options) {
 
     const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName, logger);
 
-    await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
-    await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -595,6 +608,7 @@ async function zkeyExportVKey(params, options) {
 
     const vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(vKeyFilename, stringifyBigInts(vKey), {space: 1});
 
     return 0;
@@ -609,6 +623,7 @@ async function zkeyExportJson(params, options) {
 
     const zKeyJson = await zkey.exportJson(zkeyName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
@@ -898,6 +913,7 @@ async function powersOfTauExportJson(params, options) {
 
     const pTauJson = await powersOfTau.exportJson(ptauName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, pTauJson, {space: 1});
 }
 
@@ -1148,6 +1164,7 @@ async function plonkProve(params, options) {
 
     const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
 
@@ -1170,6 +1187,7 @@ async function plonkFullProve(params, options) {
 
     const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
 
@@ -1222,7 +1240,8 @@ async function fflonkProve(params, options) {
     const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger);
 
     if(undefined !== proofFilename && undefined !== publicInputsFilename) {
-        // Write the proof and the publig signals in each file
+        const bfj = await getBFJ();
+        // Write the proof and the public signals in each file
         await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
         await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
     }
@@ -1244,7 +1263,8 @@ async function fflonkFullProve(params, options) {
 
     const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger);
 
-    // Write the proof and the publig signals in each file
+    const bfj = await getBFJ();
+    // Write the proof and the public signals in each file
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
 

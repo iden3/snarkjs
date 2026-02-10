@@ -20,6 +20,7 @@ export default {
     output: {
         file: "build/browser.esm.js",
         format: "es",
+        inlineDynamicImports: true,
     },
     external: ["ffjavascript"],
     plugins: [

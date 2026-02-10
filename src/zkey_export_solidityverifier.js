@@ -1,5 +1,3 @@
-import ejs from "ejs";
-
 import exportVerificationKey from "./zkey_export_verificationkey.js";
 import fflonkExportSolidityVerifierCmd from "./fflonk_export_solidity_verifier.js";
 // Not ready yet
@@ -14,6 +12,8 @@ export default async function exportSolidityVerifier(zKeyName, templates, logger
     }
 
     let template = templates[verificationKey.protocol];
+
+    const {default: ejs} = await import("ejs");
 
     return ejs.render(template, verificationKey);
 }

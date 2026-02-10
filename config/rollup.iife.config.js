@@ -25,7 +25,8 @@ export default {
         globals: {
             os: "null"
         },
-        name: "snarkjs"
+        name: "snarkjs",
+        inlineDynamicImports: true,
     },
     plugins: [
         virtual({

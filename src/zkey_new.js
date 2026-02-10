@@ -31,7 +31,6 @@ import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
 import { blake2b } from "@noble/hashes/blake2b";
 import BigArray from "./bigarray.js";
-import { runInNewContext } from "vm";
 
 export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
@@ -162,8 +161,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     IC = null;
-    const gc = runInNewContext("gc"); // nocommit
-    gc();
+    // const gc = runInNewContext("gc"); // nocommit
+    // gc();
 
     if (logger) logger.info(memUsage());
     if (logger) logger.info("writeHs");
@@ -178,28 +177,28 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(8, "G1", C, "C");
 
     C = null;
-    gc();
+    // gc();
 
     if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
 
     A = null;
-    gc();
+    // gc();
 
     if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
 
     B1 = null;
-    gc();
+    // gc();
 
     if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
     B2 = null;
-    gc();
+    // gc();
 
     if (logger) logger.info(memUsage());
     if (logger) logger.info("Contributions section");
