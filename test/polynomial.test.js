@@ -10,17 +10,17 @@ function radomPolynomial(maxDegree, curve) {
 }
 
 describe("snarkjs: Polynomial tests", function () {
-    this.timeout(150000);
+
 
     let curve;
     let sFr;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         sFr = curve.Fr.n8;
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

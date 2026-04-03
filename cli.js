@@ -17,7 +17,7 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* eslint-disable no-console */
+ 
 
 import fs from "fs";
 import url from "url";

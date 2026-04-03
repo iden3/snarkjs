@@ -29,7 +29,7 @@ import {
 } from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
-import { blake2b } from "@noble/hashes/blake2b";
+import { blake2b } from "@noble/hashes/blake2.js";
 import BigArray from "./bigarray.js";
 
 export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
@@ -452,8 +452,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             bBases = new Uint8Array(acc*sGin);
             bScalars = new Uint8Array(acc*curve.Fr.n8);
         }
-        let pB =0;
-        let pS =0;
+        let pB;
+        let pS;
 
         const sBuffs = [
             sTauG1,

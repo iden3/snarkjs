@@ -68,3 +68,11 @@ tmp
 
 .DS_Store
 stats.html
+
+credentialAtomicQueryV3OnChain
+generate.sh
+
+# Hardhat build outputs
+contracts/
+cache/
+artifacts/

@@ -120,8 +120,11 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
         if (logger) logger.debug("Join ABC finished");
+        // eslint-disable-next-line no-useless-assignment
         buffAodd_T = null;
+        // eslint-disable-next-line no-useless-assignment
         buffBodd_T = null;
+        // eslint-disable-next-line no-useless-assignment
         buffCodd_T = null;
 
         if (globalThis.gc) {globalThis.gc();}
@@ -533,7 +536,6 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 
     console.log("nGroups", nGroups);
 
-    const transfers = [];
     let result2;
     if (nGroups > 1) {
         const promises2 = [];
