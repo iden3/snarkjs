@@ -1305,7 +1305,7 @@ async function ct(e, t, n, r, i, a) {
 	return console.timeEnd("joinABC"), f;
 }
 function lt(e) {
-	if (!e) return;
+	if (!e || typeof process > "u" || !process.memoryUsage) return;
 	let t = process.memoryUsage();
 	e.debug("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(t.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(t.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(t.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(t.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(t.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
 }
@@ -3089,6 +3089,7 @@ async function qn(e, c, l, d) {
 		new DataView(t.buffer, t.byteOffset, t.byteLength).setUint32(0, e, !1), f.update(t);
 	}
 	function W() {
+		if (typeof process > "u" || !process.memoryUsage) return {};
 		let e = process.memoryUsage();
 		for (let t in e) e[t] = Math.round(e[t] / (1024 * 1024));
 		return e;
@@ -3519,45 +3520,14 @@ async function sr(e, t) {
 	});
 }
 //#endregion
-//#region src/fflonk_export_solidity_verifier.js
-var { unstringifyBigInts: cr, stringifyBigInts: lr } = p;
-async function ur(e, t, n) {
-	n && n.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
-	let r = await D(e.curve), i = u(e.w3);
-	e.w3_2 = d(r.Fr.square(i));
-	let a = u(e.w4);
-	e.w4_2 = d(r.Fr.square(a)), e.w4_3 = d(r.Fr.mul(r.Fr.square(a), a));
-	let o = u(e.w8), s = r.Fr.one;
-	for (let t = 1; t < 8; t++) s = r.Fr.mul(s, o), e["w8_" + t] = d(s);
-	let c = t[e.protocol];
-	n && n.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-	let { default: l } = await import("ejs");
-	return l.render(c, e);
-	function u(e) {
-		let t = cr(e);
-		return r.Fr.fromObject(t);
-	}
-	function d(e) {
-		return lr(r.Fr.toObject(e));
-	}
-}
-//#endregion
-//#region src/zkey_export_solidityverifier.js
-async function dr(e, t, n) {
-	let r = await ir(e, n);
-	if (r.protocol === "fflonk") return ur(r, t, n);
-	let i = t[r.protocol], { default: a } = await import("ejs");
-	return a.render(i, r);
-}
-//#endregion
 //#region src/zkey.js
-var fr = /* @__PURE__ */ y({
+var cr = /* @__PURE__ */ y({
 	beacon: () => er,
 	bellmanContribute: () => nr,
 	contribute: () => $n,
 	exportBellman: () => Jn,
 	exportJson: () => tr,
-	exportSolidityVerifier: () => dr,
+	exportSolidityVerifier: () => null,
 	exportVerificationKey: () => ir,
 	importBellman: () => Yn,
 	newZKey: () => qn,
@@ -3566,7 +3536,7 @@ var fr = /* @__PURE__ */ y({
 });
 //#endregion
 //#region src/plonk_setup.js
-async function pr(e, c, l, d) {
+async function lr(e, c, l, d) {
 	globalThis.gc && globalThis.gc();
 	let { fd: f, sections: p } = await r(c, "ptau", 1, 1 << 22, 1 << 24), { curve: m, power: g } = await rn(f, p), { fd: _, sections: v } = await r(e, "r1cs", 1, 1 << 22, 1 << 24), y = await h(_, v, {
 		loadConstraints: !0,
@@ -3756,7 +3726,7 @@ async function pr(e, c, l, d) {
 }
 //#endregion
 //#region src/proof.js
-var mr = class {
+var ur = class {
 	constructor(e, t) {
 		this.curve = e, this.logger = t, this.resetProof();
 	}
@@ -3795,36 +3765,36 @@ var mr = class {
 			this.evaluations[t] = this.curve.Fr.fromObject(e.evaluations[t]);
 		});
 	}
-}, hr = BigInt(0), gr = BigInt(1), _r = BigInt(2), vr = BigInt(7), yr = BigInt(256), br = BigInt(113), xr = [], Sr = [], Cr = [];
-for (let e = 0, t = gr, n = 1, r = 0; e < 24; e++) {
-	[n, r] = [r, (2 * n + 3 * r) % 5], xr.push(2 * (5 * r + n)), Sr.push((e + 1) * (e + 2) / 2 % 64);
-	let i = hr;
-	for (let e = 0; e < 7; e++) t = (t << gr ^ (t >> vr) * br) % yr, t & _r && (i ^= gr << (gr << BigInt(e)) - gr);
-	Cr.push(i);
+}, dr = BigInt(0), fr = BigInt(1), pr = BigInt(2), mr = BigInt(7), hr = BigInt(256), gr = BigInt(113), _r = [], vr = [], yr = [];
+for (let e = 0, t = fr, n = 1, r = 0; e < 24; e++) {
+	[n, r] = [r, (2 * n + 3 * r) % 5], _r.push(2 * (5 * r + n)), vr.push((e + 1) * (e + 2) / 2 % 64);
+	let i = dr;
+	for (let e = 0; e < 7; e++) t = (t << fr ^ (t >> mr) * gr) % hr, t & pr && (i ^= fr << (fr << BigInt(e)) - fr);
+	yr.push(i);
 }
-var wr = U(Cr, !0), Tr = wr[0], Er = wr[1], Dr = (e, t, n) => n > 32 ? ue(e, t, n) : ce(e, t, n), Or = (e, t, n) => n > 32 ? de(e, t, n) : le(e, t, n);
-function kr(e, t = 24) {
+var br = U(yr, !0), xr = br[0], Sr = br[1], Cr = (e, t, n) => n > 32 ? ue(e, t, n) : ce(e, t, n), wr = (e, t, n) => n > 32 ? de(e, t, n) : le(e, t, n);
+function Tr(e, t = 24) {
 	let n = new Uint32Array(10);
 	for (let r = 24 - t; r < 24; r++) {
 		for (let t = 0; t < 10; t++) n[t] = e[t] ^ e[t + 10] ^ e[t + 20] ^ e[t + 30] ^ e[t + 40];
 		for (let t = 0; t < 10; t += 2) {
-			let r = (t + 8) % 10, i = (t + 2) % 10, a = n[i], o = n[i + 1], s = Dr(a, o, 1) ^ n[r], c = Or(a, o, 1) ^ n[r + 1];
+			let r = (t + 8) % 10, i = (t + 2) % 10, a = n[i], o = n[i + 1], s = Cr(a, o, 1) ^ n[r], c = wr(a, o, 1) ^ n[r + 1];
 			for (let n = 0; n < 50; n += 10) e[t + n] ^= s, e[t + n + 1] ^= c;
 		}
 		let t = e[2], i = e[3];
 		for (let n = 0; n < 24; n++) {
-			let r = Sr[n], a = Dr(t, i, r), o = Or(t, i, r), s = xr[n];
+			let r = vr[n], a = Cr(t, i, r), o = wr(t, i, r), s = _r[n];
 			t = e[s], i = e[s + 1], e[s] = a, e[s + 1] = o;
 		}
 		for (let t = 0; t < 50; t += 10) {
 			for (let r = 0; r < 10; r++) n[r] = e[t + r];
 			for (let r = 0; r < 10; r++) e[t + r] ^= ~n[(r + 2) % 10] & n[(r + 4) % 10];
 		}
-		e[0] ^= Tr[r], e[1] ^= Er[r];
+		e[0] ^= xr[r], e[1] ^= Sr[r];
 	}
 	P(n);
 }
-var Ar = class e {
+var Er = class e {
 	state;
 	pos = 0;
 	posOut = 0;
@@ -3844,7 +3814,7 @@ var Ar = class e {
 		return this._cloneInto();
 	}
 	keccak() {
-		R(this.state32), kr(this.state32, this.rounds), R(this.state32), this.posOut = 0, this.pos = 0;
+		R(this.state32), Tr(this.state32, this.rounds), R(this.state32), this.posOut = 0, this.pos = 0;
 	}
 	update(e) {
 		j(this), A(e);
@@ -3893,7 +3863,7 @@ var Ar = class e {
 		let { blockLen: n, suffix: r, outputLen: i, rounds: a, enableXOF: o } = this;
 		return t ||= new e(n, r, i, o, a), t.state32.set(this.state32), t.pos = this.pos, t.posOut = this.posOut, t.finished = this.finished, t.rounds = a, t.suffix = r, t.outputLen = i, t.enableXOF = o, t.destroyed = this.destroyed, t;
 	}
-}, jr = /* @__PURE__ */ ((e, t, n, r = {}) => z(() => new Ar(t, e, n), r))(1, 136, 32), Mr = 0, Nr = 1, Pr = class {
+}, Dr = /* @__PURE__ */ ((e, t, n, r = {}) => z(() => new Er(t, e, n), r))(1, 136, 32), Or = 0, kr = 1, Ar = class {
 	constructor(e) {
 		this.G1 = e.G1, this.Fr = e.Fr, this.reset();
 	}
@@ -3902,26 +3872,26 @@ var Ar = class e {
 	}
 	addPolCommitment(e) {
 		this.data.push({
-			type: Mr,
+			type: Or,
 			data: e
 		});
 	}
 	addScalar(e) {
 		this.data.push({
-			type: Nr,
+			type: kr,
 			data: e
 		});
 	}
 	getChallenge() {
 		if (this.data.length === 0) throw Error("Keccak256Transcript: No data to generate a transcript");
 		let e = 0, t = 0;
-		this.data.forEach((n) => Mr === n.type ? e++ : t++);
+		this.data.forEach((n) => Or === n.type ? e++ : t++);
 		let n = new Uint8Array(t * this.Fr.n8 + e * this.G1.F.n8 * 2), r = 0;
-		for (let e = 0; e < this.data.length; e++) Mr === this.data[e].type ? (this.G1.toRprUncompressed(n, r, this.data[e].data), r += this.G1.F.n8 * 2) : (this.Fr.toRprBE(n, r, this.data[e].data), r += this.Fr.n8);
-		let i = u.fromRprBE(jr(n));
+		for (let e = 0; e < this.data.length; e++) Or === this.data[e].type ? (this.G1.toRprUncompressed(n, r, this.data[e].data), r += this.G1.F.n8 * 2) : (this.Fr.toRprBE(n, r, this.data[e].data), r += this.Fr.n8);
+		let i = u.fromRprBE(Dr(n));
 		return this.Fr.e(i);
 	}
-}, Fr = class {
+}, jr = class {
 	static getZ1(e) {
 		return [
 			e.zero,
@@ -4308,8 +4278,8 @@ var Ar = class e {
 		if (e !== Math.floor(this.eval.byteLength / this.Fr.n8)) throw Error("Polynomial evaluations buffer has incorrect size");
 		return e === 0 && this.logger.warn("Polynomial has length zero"), e;
 	}
-}, { stringifyBigInts: Ir } = p;
-async function Lr(t, n, r, i) {
+}, { stringifyBigInts: Mr } = p;
+async function Nr(t, n, r, i) {
 	let { fd: a, sections: o } = await e.readBinFile(n, "wtns", 2, 1 << 25, 1 << 23);
 	r && r.debug("> Reading witness file");
 	let c = await tt(a, o);
@@ -4322,7 +4292,7 @@ async function Lr(t, n, r, i) {
 	r && (r.debug("----------------------------"), r.debug("  PLONK PROVE SETTINGS"), r.debug(`  Curve:         ${p.name}`), r.debug(`  Circuit power: ${f.power}`), r.debug(`  Domain size:   ${f.domainSize}`), r.debug(`  Vars:          ${f.nVars}`), r.debug(`  Public vars:   ${f.nPublic}`), r.debug(`  Constraints:   ${f.nConstraints}`), r.debug(`  Additions:     ${f.nAdditions}`), r.debug("----------------------------")), r && r.debug("> Reading witness file data");
 	let _ = await e.readSection(a, o, 2);
 	_.set(m.zero, 0);
-	let v = new s(h * f.nAdditions), y = {}, b = {}, x = {}, S = {}, C = new mr(p, r), w = new Pr(p);
+	let v = new s(h * f.nAdditions), y = {}, b = {}, x = {}, S = {}, C = new ur(p, r), w = new Ar(p);
 	r && r.debug("> Reading Section 3. Additions"), await O(), r && r.debug("> Reading Section 12. Sigma1, Sigma2 & Sigma 3"), r && r.debug("··· Reading Sigma polynomials "), b.Sigma1 = new X(new s(g), p, r), b.Sigma2 = new X(new s(g), p, r), b.Sigma3 = new X(new s(g), p, r), await l.readToBuffer(b.Sigma1.coef, 0, g, d[12][0].p), await l.readToBuffer(b.Sigma2.coef, 0, g, d[12][0].p + 5 * g), await l.readToBuffer(b.Sigma3.coef, 0, g, d[12][0].p + 10 * g), r && r.debug("··· Reading Sigma evaluations"), x.Sigma1 = new Z(new s(g * 4), p, r), x.Sigma2 = new Z(new s(g * 4), p, r), x.Sigma3 = new Z(new s(g * 4), p, r), await l.readToBuffer(x.Sigma1.eval, 0, g * 4, d[12][0].p + g), await l.readToBuffer(x.Sigma2.eval, 0, g * 4, d[12][0].p + 6 * g), await l.readToBuffer(x.Sigma3.eval, 0, g * 4, d[12][0].p + 11 * g), r && r.debug("> Reading Section 14. Powers of Tau");
 	let T = await e.readSection(l, d, 14), E = [];
 	for (let e = 1; e <= f.nPublic; e++) {
@@ -4332,8 +4302,8 @@ async function Lr(t, n, r, i) {
 	r && r.debug(""), r && r.debug("> ROUND 1"), await j(), r && r.debug("> ROUND 2"), await N(), r && r.debug("> ROUND 3"), await F(), r && r.debug("> ROUND 4"), await L(), r && r.debug("> ROUND 5"), await ee(), await l.close(), await a.close();
 	let D = C.toObjectProof(!1);
 	return D.protocol = "plonk", D.curve = p.name, r && r.debug("PLONK PROVER FINISHED"), {
-		proof: Ir(D),
-		publicSignals: Ir(E)
+		proof: Mr(D),
+		publicSignals: Mr(E)
 	};
 	async function O() {
 		r && r.debug("··· Computing additions");
@@ -4437,7 +4407,7 @@ async function Lr(t, n, r, i) {
 				let n = e * 4 * f.domainSize + t, r = x.Lagrange.getEvaluation(n), i = y.A.slice(e * h, (e + 1) * h);
 				A = m.sub(A, m.mul(r, i));
 			}
-			let [j, M] = Fr.mul2(n, i, b, C, t % 4, m);
+			let [j, M] = jr.mul2(n, i, b, C, t % 4, m);
 			j = m.mul(j, c), M = m.mul(M, c), j = m.add(j, m.mul(n, l)), M = m.add(M, m.mul(b, l)), j = m.add(j, m.mul(i, u)), M = m.add(M, m.mul(C, u)), j = m.add(j, m.mul(a, d)), M = m.add(M, m.mul(w, d)), j = m.add(j, A), j = m.add(j, p);
 			let N = m.mul(S.beta, e), P = n;
 			P = m.add(P, N), P = m.add(P, S.gamma);
@@ -4445,7 +4415,7 @@ async function Lr(t, n, r, i) {
 			F = m.add(F, m.mul(N, f.k1)), F = m.add(F, S.gamma);
 			let I = a;
 			I = m.add(I, m.mul(N, f.k2)), I = m.add(I, S.gamma);
-			let L = o, [ee, R] = Fr.mul4(P, F, I, L, b, C, w, E, t % 4, m);
+			let L = o, [ee, R] = jr.mul4(P, F, I, L, b, C, w, E, t % 4, m);
 			ee = m.mul(ee, S.alpha), R = m.mul(R, S.alpha);
 			let z = n;
 			z = m.add(z, m.mul(S.beta, g)), z = m.add(z, S.gamma);
@@ -4453,7 +4423,7 @@ async function Lr(t, n, r, i) {
 			B = m.add(B, m.mul(S.beta, _)), B = m.add(B, S.gamma);
 			let V = a;
 			V = m.add(V, m.mul(S.beta, v)), V = m.add(V, S.gamma);
-			let te = s, [H, U] = Fr.mul4(z, B, V, te, b, C, w, k, t % 4, m);
+			let te = s, [H, U] = jr.mul4(z, B, V, te, b, C, w, k, t % 4, m);
 			H = m.mul(H, S.alpha), U = m.mul(U, S.alpha);
 			let ne = m.sub(o, m.one);
 			ne = m.mul(ne, x.Lagrange.getEvaluation(t)), ne = m.mul(ne, S.alpha2);
@@ -4525,80 +4495,80 @@ async function Lr(t, n, r, i) {
 }
 //#endregion
 //#region src/plonk_fullprove.js
-var { unstringifyBigInts: Rr } = p;
-async function zr(e, t, n, r, i, a) {
-	let o = Rr(e), s = { type: "mem" };
-	return await Bt(o, t, s, i), await Lr(n, s, r, a);
+var { unstringifyBigInts: Pr } = p;
+async function Fr(e, t, n, r, i, a) {
+	let o = Pr(e), s = { type: "mem" };
+	return await Bt(o, t, s, i), await Nr(n, s, r, a);
 }
 //#endregion
 //#region src/plonk_verify.js
-var { unstringifyBigInts: Br } = p;
-async function Vr(e, t, n, r) {
-	let i = Br(e);
-	n = Br(n);
-	let a = Br(t), o = await D(i.curve), s = o.Fr, c = o.G1;
+var { unstringifyBigInts: Ir } = p;
+async function Lr(e, t, n, r) {
+	let i = Ir(e);
+	n = Ir(n);
+	let a = Ir(t), o = await D(i.curve), s = o.Fr, c = o.G1;
 	r && r.info("PLONK VERIFIER STARTED");
-	let l = Hr(o, n);
-	if (i = Ur(o, i), !Wr(o, l)) return r.error("Proof commitments are not valid."), !1;
+	let l = Rr(o, n);
+	if (i = zr(o, i), !Br(o, l)) return r.error("Proof commitments are not valid."), !1;
 	if (a.length != i.nPublic) return r && r.error("Invalid number of public inputs"), !1;
-	if (!qr(o, l)) return r && r.error("Proof evaluations are not valid"), !1;
-	if (!Jr(o, a)) return r && r.error("Public inputs are not valid."), !1;
-	let u = Yr(o, l, a, i);
+	if (!Ur(o, l)) return r && r.error("Proof evaluations are not valid"), !1;
+	if (!Wr(o, a)) return r && r.error("Public inputs are not valid."), !1;
+	let u = Gr(o, l, a, i);
 	if (r) {
 		r.debug("beta: " + s.toString(u.beta, 16)), r.debug("gamma: " + s.toString(u.gamma, 16)), r.debug("alpha: " + s.toString(u.alpha, 16)), r.debug("xi: " + s.toString(u.xi, 16));
 		for (let e = 1; e < 6; e++) r && r.debug("v: " + s.toString(u.v[e], 16));
 		r.debug("u: " + s.toString(u.u, 16));
 	}
-	let d = Xr(o, u, i);
+	let d = Kr(o, u, i);
 	if (r) for (let e = 1; e < d.length; e++) r.debug(`L${e}(xi)=` + s.toString(d[e], 16));
 	if (a.length != i.nPublic) return r.error("Number of public signals does not match with vk"), !1;
-	let f = Zr(o, a, d);
+	let f = qr(o, a, d);
 	r && r.debug("PI(xi): " + s.toString(f, 16));
-	let p = Qr(o, l, u, f, d[1]);
+	let p = Jr(o, l, u, f, d[1]);
 	r && r.debug("r0: " + s.toString(p, 16));
-	let m = $r(o, l, u, i, d[1]);
+	let m = Yr(o, l, u, i, d[1]);
 	r && r.debug("D: " + c.toString(c.toAffine(m), 16));
-	let h = ei(o, l, u, i, m);
+	let h = Xr(o, l, u, i, m);
 	r && r.debug("F: " + c.toString(c.toAffine(h), 16));
-	let g = ti(o, l, u, p);
+	let g = Zr(o, l, u, p);
 	r && r.debug("E: " + c.toString(c.toAffine(g), 16));
-	let _ = await ni(o, l, u, i, g, h);
+	let _ = await Qr(o, l, u, i, g, h);
 	return r && (_ ? r.info("OK!") : r.warn("Invalid Proof")), _;
 }
-function Hr(e, t) {
+function Rr(e, t) {
 	let n = e.G1, r = e.Fr, i = {};
 	return i.A = n.fromObject(t.A), i.B = n.fromObject(t.B), i.C = n.fromObject(t.C), i.Z = n.fromObject(t.Z), i.T1 = n.fromObject(t.T1), i.T2 = n.fromObject(t.T2), i.T3 = n.fromObject(t.T3), i.eval_a = r.fromObject(t.eval_a), i.eval_b = r.fromObject(t.eval_b), i.eval_c = r.fromObject(t.eval_c), i.eval_zw = r.fromObject(t.eval_zw), i.eval_s1 = r.fromObject(t.eval_s1), i.eval_s2 = r.fromObject(t.eval_s2), i.Wxi = n.fromObject(t.Wxi), i.Wxiw = n.fromObject(t.Wxiw), i;
 }
-function Ur(e, t) {
+function zr(e, t) {
 	let n = e.G1, r = e.G2, i = e.Fr, a = t;
 	return a.Qm = n.fromObject(t.Qm), a.Ql = n.fromObject(t.Ql), a.Qr = n.fromObject(t.Qr), a.Qo = n.fromObject(t.Qo), a.Qc = n.fromObject(t.Qc), a.S1 = n.fromObject(t.S1), a.S2 = n.fromObject(t.S2), a.S3 = n.fromObject(t.S3), a.k1 = i.fromObject(t.k1), a.k2 = i.fromObject(t.k2), a.X_2 = r.fromObject(t.X_2), a;
 }
-function Wr(e, t) {
+function Br(e, t) {
 	let n = e.G1;
 	return !(!n.isValid(t.A) || !n.isValid(t.B) || !n.isValid(t.C) || !n.isValid(t.Z) || !n.isValid(t.T1) || !n.isValid(t.T2) || !n.isValid(t.T3) || !n.isValid(t.Wxi) || !n.isValid(t.Wxiw));
 }
-function Gr(e, t) {
+function Vr(e, t) {
 	return u.geq(t, 0) && u.lt(t, e.r);
 }
-function Kr(e, t) {
-	return Gr(e, u.fromRprLE(t));
+function Hr(e, t) {
+	return Vr(e, u.fromRprLE(t));
 }
-function qr(e, t) {
-	return Kr(e, t.eval_a) && Kr(e, t.eval_b) && Kr(e, t.eval_c) && Kr(e, t.eval_s1) && Kr(e, t.eval_s2) && Kr(e, t.eval_zw);
+function Ur(e, t) {
+	return Hr(e, t.eval_a) && Hr(e, t.eval_b) && Hr(e, t.eval_c) && Hr(e, t.eval_s1) && Hr(e, t.eval_s2) && Hr(e, t.eval_zw);
 }
-function Jr(e, t) {
-	for (let n = 0; n < t.length; n++) if (!Gr(e, t[n])) return !1;
+function Wr(e, t) {
+	for (let n = 0; n < t.length; n++) if (!Vr(e, t[n])) return !1;
 	return !0;
 }
-function Yr(e, t, n, r) {
-	let i = e.Fr, a = {}, o = new Pr(e);
+function Gr(e, t, n, r) {
+	let i = e.Fr, a = {}, o = new Ar(e);
 	o.addPolCommitment(r.Qm), o.addPolCommitment(r.Ql), o.addPolCommitment(r.Qr), o.addPolCommitment(r.Qo), o.addPolCommitment(r.Qc), o.addPolCommitment(r.S1), o.addPolCommitment(r.S2), o.addPolCommitment(r.S3);
 	for (let e = 0; e < n.length; e++) o.addScalar(i.e(n[e]));
 	o.addPolCommitment(t.A), o.addPolCommitment(t.B), o.addPolCommitment(t.C), a.beta = o.getChallenge(), o.reset(), o.addScalar(a.beta), a.gamma = o.getChallenge(), o.reset(), o.addScalar(a.beta), o.addScalar(a.gamma), o.addPolCommitment(t.Z), a.alpha = o.getChallenge(), o.reset(), o.addScalar(a.alpha), o.addPolCommitment(t.T1), o.addPolCommitment(t.T2), o.addPolCommitment(t.T3), a.xi = o.getChallenge(), o.reset(), o.addScalar(a.xi), o.addScalar(t.eval_a), o.addScalar(t.eval_b), o.addScalar(t.eval_c), o.addScalar(t.eval_s1), o.addScalar(t.eval_s2), o.addScalar(t.eval_zw), a.v = [], a.v[1] = o.getChallenge();
 	for (let e = 2; e < 6; e++) a.v[e] = i.mul(a.v[e - 1], a.v[1]);
 	return o.reset(), o.addPolCommitment(t.Wxi), o.addPolCommitment(t.Wxiw), a.u = o.getChallenge(), a;
 }
-function Xr(e, t, n) {
+function Kr(e, t, n) {
 	let r = e.Fr, i = t.xi, a = 1;
 	for (let e = 0; e < n.power; e++) i = r.square(i), a *= 2;
 	t.xin = i, t.zh = r.sub(i, r.one);
@@ -4606,7 +4576,7 @@ function Xr(e, t, n) {
 	for (let e = 1; e <= Math.max(1, n.nPublic); e++) o[e] = r.div(r.mul(c, t.zh), r.mul(s, r.sub(t.xi, c))), c = r.mul(c, r.w[n.power]);
 	return o;
 }
-function Zr(e, t, n) {
+function qr(e, t, n) {
 	let r = e.Fr, i = r.zero;
 	for (let e = 0; e < t.length; e++) {
 		let a = r.e(t[e]);
@@ -4614,7 +4584,7 @@ function Zr(e, t, n) {
 	}
 	return i;
 }
-function Qr(e, t, n, r, i) {
+function Jr(e, t, n, r, i) {
 	let a = e.Fr, o = r, s = a.mul(i, a.square(n.alpha)), c = a.add(t.eval_a, a.mul(n.beta, t.eval_s1));
 	c = a.add(c, n.gamma);
 	let l = a.add(t.eval_b, a.mul(n.beta, t.eval_s2));
@@ -4622,21 +4592,21 @@ function Qr(e, t, n, r, i) {
 	let u = a.add(t.eval_c, n.gamma), d = a.mul(a.mul(c, l), u);
 	return d = a.mul(d, t.eval_zw), d = a.mul(d, n.alpha), a.sub(a.sub(o, s), d);
 }
-function $r(e, t, n, r, i) {
+function Yr(e, t, n, r, i) {
 	let a = e.G1, o = e.Fr, s = a.timesFr(r.Qm, o.mul(t.eval_a, t.eval_b));
 	s = a.add(s, a.timesFr(r.Ql, t.eval_a)), s = a.add(s, a.timesFr(r.Qr, t.eval_b)), s = a.add(s, a.timesFr(r.Qo, t.eval_c)), s = a.add(s, r.Qc);
 	let c = o.mul(n.beta, n.xi), l = o.add(o.add(t.eval_a, c), n.gamma), u = o.add(o.add(t.eval_b, o.mul(c, r.k1)), n.gamma), d = o.add(o.add(t.eval_c, o.mul(c, r.k2)), n.gamma), f = o.mul(o.mul(o.mul(l, u), d), n.alpha), p = o.mul(i, o.square(n.alpha)), m = a.timesFr(t.Z, o.add(o.add(f, p), n.u)), h = o.add(o.add(t.eval_a, o.mul(n.beta, t.eval_s1)), n.gamma), g = o.add(o.add(t.eval_b, o.mul(n.beta, t.eval_s2)), n.gamma), _ = o.mul(o.mul(n.alpha, n.beta), t.eval_zw), v = a.timesFr(r.S3, o.mul(o.mul(h, g), _)), y = t.T1, b = a.timesFr(t.T2, n.xin), x = a.timesFr(t.T3, o.square(n.xin)), S = a.add(y, a.add(b, x));
 	return S = a.timesFr(S, n.zh), a.sub(a.sub(a.add(s, m), v), S);
 }
-function ei(e, t, n, r, i) {
+function Xr(e, t, n, r, i) {
 	let a = e.G1, o = a.add(i, a.timesFr(t.A, n.v[1]));
 	return o = a.add(o, a.timesFr(t.B, n.v[2])), o = a.add(o, a.timesFr(t.C, n.v[3])), o = a.add(o, a.timesFr(r.S1, n.v[4])), o = a.add(o, a.timesFr(r.S2, n.v[5])), o;
 }
-function ti(e, t, n, r) {
+function Zr(e, t, n, r) {
 	let i = e.G1, a = e.Fr, o = a.add(a.neg(r), a.mul(n.v[1], t.eval_a));
 	return o = a.add(o, a.mul(n.v[2], t.eval_b)), o = a.add(o, a.mul(n.v[3], t.eval_c)), o = a.add(o, a.mul(n.v[4], t.eval_s1)), o = a.add(o, a.mul(n.v[5], t.eval_s2)), o = a.add(o, a.mul(n.u, t.eval_zw)), i.timesFr(i.one, o);
 }
-async function ni(e, t, n, r, i, a) {
+async function Qr(e, t, n, r, i, a) {
 	let o = e.G1, s = e.Fr, c = t.Wxi;
 	c = o.add(c, o.timesFr(t.Wxiw, n.u));
 	let l = o.timesFr(t.Wxi, n.xi), u = s.mul(s.mul(n.u, n.xi), s.w[r.power]);
@@ -4644,14 +4614,14 @@ async function ni(e, t, n, r, i, a) {
 }
 //#endregion
 //#region src/plonk_exportsoliditycalldata.js
-var { unstringifyBigInts: ri } = p;
+var { unstringifyBigInts: $r } = p;
 function Q(e) {
 	let t = e.toString(16);
 	for (; t.length < 64;) t = "0" + t;
 	return t = `"0x${t}"`, t;
 }
-async function ii(e, t) {
-	let n = ri(e), r = ri(t);
+async function ei(e, t) {
+	let n = $r(e), r = $r(t);
 	await D(n.curve);
 	let i = "";
 	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += Q(r[e]);
@@ -4659,16 +4629,16 @@ async function ii(e, t) {
 }
 //#endregion
 //#region src/plonk.js
-var ai = /* @__PURE__ */ y({
-	exportSolidityCallData: () => ii,
-	fullProve: () => zr,
-	prove: () => Lr,
-	setup: () => pr,
-	verify: () => Vr
+var ti = /* @__PURE__ */ y({
+	exportSolidityCallData: () => ei,
+	fullProve: () => Fr,
+	prove: () => Nr,
+	setup: () => lr,
+	verify: () => Lr
 });
 //#endregion
 //#region src/plonk_equation.js
-function oi(e, t) {
+function ni(e, t) {
 	return [
 		e,
 		0,
@@ -4680,7 +4650,7 @@ function oi(e, t) {
 		t.zero
 	];
 }
-function si(e, t, n, r, i, a, o, s) {
+function ri(e, t, n, r, i, a, o, s) {
 	return [
 		e,
 		t,
@@ -4692,7 +4662,7 @@ function si(e, t, n, r, i, a, o, s) {
 		s
 	];
 }
-function ci(e, t, n, r, i, a, o, s, c) {
+function ii(e, t, n, r, i, a, o, s, c) {
 	return [
 		e,
 		t,
@@ -4706,18 +4676,18 @@ function ci(e, t, n, r, i, a, o, s, c) {
 }
 //#endregion
 //#region src/r1cs_constraint_processor.js
-var li = 0, ui = 1, di = 2, fi = class {
+var ai = 0, oi = 1, si = 2, ci = class {
 	constructor(e, t, n, r, i) {
 		this.Fr = e, this.logger = i, this.fnGetAdditionConstraint = n, this.fnGetMultiplicationConstraint = r;
 	}
 	processR1csConstraint(e, t, n, r) {
 		this.normalizeLinearCombination(t), this.normalizeLinearCombination(n), this.normalizeLinearCombination(r);
 		let i = this.getLinearCombinationType(t), a = this.getLinearCombinationType(n);
-		if (i === li || a === li) return this.processR1csAdditionConstraint(e, r);
-		if (i === ui) {
+		if (i === ai || a === ai) return this.processR1csAdditionConstraint(e, r);
+		if (i === oi) {
 			let i = this.joinLinearCombinations(n, r, t[0]);
 			return this.processR1csAdditionConstraint(e, i);
-		} else if (a === ui) {
+		} else if (a === oi) {
 			let i = this.joinLinearCombinations(t, r, n[0]);
 			return this.processR1csAdditionConstraint(e, i);
 		} else return this.processR1csMultiplicationConstraint(e, t, n, r);
@@ -4725,7 +4695,7 @@ var li = 0, ui = 1, di = 2, fi = class {
 	getLinearCombinationType(e) {
 		let t = this.Fr.zero, n = 0, r = Object.keys(e);
 		for (let i = 0; i < r.length; i++) e[r[i]] == 0n ? delete e[r[i]] : r[i] == 0 ? t = this.Fr.add(t, e[r[i]]) : n++;
-		return n > 0 ? di : this.Fr.isZero(t) ? li : ui;
+		return n > 0 ? si : this.Fr.isZero(t) ? ai : oi;
 	}
 	normalizeLinearCombination(e) {
 		let t = Object.keys(e);
@@ -4766,7 +4736,7 @@ var li = 0, ui = 1, di = 2, fi = class {
 		let i = [], a = [], o = this.reduceCoefs(e, i, a, t, 1), s = this.reduceCoefs(e, i, a, n, 1), c = this.reduceCoefs(e, i, a, r, 1), l = this.fnGetMultiplicationConstraint(o.signals[0], s.signals[0], c.signals[0], this.Fr.mul(o.coefs[0], s.k), this.Fr.mul(o.k, s.coefs[0]), this.Fr.mul(o.coefs[0], s.coefs[0]), this.Fr.neg(c.coefs[0]), this.Fr.sub(this.Fr.mul(o.k, s.k), c.k));
 		return i.push(l), [i, a];
 	}
-}, pi = class {
+}, li = class {
 	constructor(e, t, n) {
 		this.n = e, this.polynomials = Array(e).fill(void 0), this.curve = t, this.Fr = t.Fr, this.G1 = t.G1, this.logger = n;
 	}
@@ -4793,7 +4763,7 @@ var li = 0, ui = 1, di = 2, fi = class {
 };
 //#endregion
 //#region src/fflonk_setup.js
-async function mi(i, c, l, d) {
+async function ui(i, c, l, d) {
 	d && d.info("FFLONK SETUP STARTED"), globalThis.gc && globalThis.gc(), d && d.info("> Reading PTau file");
 	let { fd: f, sections: p } = await r(c, "ptau", 1, 1 << 22, 1 << 24);
 	if (!p[12]) throw Error("Powers of Tau is not well prepared. Section 12 missing.");
@@ -4823,8 +4793,8 @@ async function mi(i, c, l, d) {
 	let P = se(E.cirPower, m.Fr);
 	return await I(), await g.close(), await f.close(), d && d.info("FFLONK SETUP FINISHED"), 0;
 	async function F(t, n, r) {
-		for (let e = 0; e < E.nPublic; e++) D.push(oi(e + 1, t));
-		let i = new fi(t, oi, si, ci, r), a = await e.readSection(g, _, 2), o = 0;
+		for (let e = 0; e < E.nPublic; e++) D.push(ni(e + 1, t));
+		let i = new ci(t, ni, ri, ii, r), a = await e.readSection(g, _, 2), o = 0;
 		for (let e = 0; e < n.nConstraints; e++) {
 			r && e !== 0 && e % 5e5 == 0 && r.info(`    processing r1cs constraints ${e}/${n.nConstraints}`);
 			let [t, a] = i.processR1csConstraint(E, ...s());
@@ -4905,7 +4875,7 @@ async function mi(i, c, l, d) {
 		await a(e, 16), T = new s((E.domainSize * 9 + 18) * x), await f.readToBuffer(T, 0, (E.domainSize * 9 + 18) * x, p[2][0].p), await e.write(T), await n(e);
 	}
 	async function H(e) {
-		let t = new pi(8, m, d);
+		let t = new li(8, m, d);
 		if (t.addPolynomial(0, C.QL), t.addPolynomial(1, C.QR), t.addPolynomial(2, C.QO), t.addPolynomial(3, C.QM), t.addPolynomial(4, C.QC), t.addPolynomial(5, C.S1), t.addPolynomial(6, C.S2), t.addPolynomial(7, C.S3), C.C0 = t.getPolynomial(), C.C0.degree() >= 8 * E.domainSize) throw Error("C0 Polynomial is not well calculated");
 		await a(e, 17), await e.write(C.C0.coef), await n(e);
 	}
@@ -4957,8 +4927,8 @@ async function mi(i, c, l, d) {
 }
 //#endregion
 //#region src/fflonk_prove.js
-var { stringifyBigInts: hi } = p;
-async function gi(t, n, r, i) {
+var { stringifyBigInts: di } = p;
+async function fi(t, n, r, i) {
 	r && r.info("FFLONK PROVER STARTED"), r && r.info("> Reading witness file");
 	let { fd: a, sections: o } = await e.readBinFile(n, "wtns", 2, 1 << 25, 1 << 23), c = await tt(a, o);
 	r && r.info("> Reading zkey file");
@@ -4970,7 +4940,7 @@ async function gi(t, n, r, i) {
 	r && (r.info("----------------------------"), r.info("  FFLONK PROVE SETTINGS"), r.info(`  Curve:         ${p.name}`), r.info(`  Circuit power: ${f.power}`), r.info(`  Domain size:   ${f.domainSize}`), r.info(`  Vars:          ${f.nVars}`), r.info(`  Public vars:   ${f.nPublic}`), r.info(`  Constraints:   ${f.nConstraints}`), r.info(`  Additions:     ${f.nAdditions}`), r.info("----------------------------")), r && r.info("> Reading witness file data");
 	let v = await e.readSection(a, o, 2);
 	await a.close(), v.set(m.zero, 0);
-	let y = new s(f.nAdditions * h), b = {}, x = {}, S = {}, C = {}, w = {}, T = {}, E = new mr(p, r);
+	let y = new s(f.nAdditions * h), b = {}, x = {}, S = {}, C = {}, w = {}, T = {}, E = new ur(p, r);
 	r && r.info("> Reading Section 3. Additions"), await A(), r && r.info("> Reading Sections 12,13,14. Sigma1, Sigma2 & Sigma 3"), r && r.info("··· Reading Sigma polynomials "), x.Sigma1 = new X(new s(_), p, r), x.Sigma2 = new X(new s(_), p, r), x.Sigma3 = new X(new s(_), p, r), await l.readToBuffer(x.Sigma1.coef, 0, _, d[12][0].p), await l.readToBuffer(x.Sigma2.coef, 0, _, d[13][0].p), await l.readToBuffer(x.Sigma3.coef, 0, _, d[14][0].p), r && r.info("··· Reading Sigma evaluations"), S.Sigma1 = new Z(new s(_ * 4), p, r), S.Sigma2 = new Z(new s(_ * 4), p, r), S.Sigma3 = new Z(new s(_ * 4), p, r), await l.readToBuffer(S.Sigma1.eval, 0, _ * 4, d[12][0].p + _), await l.readToBuffer(S.Sigma2.eval, 0, _ * 4, d[13][0].p + _), await l.readToBuffer(S.Sigma3.eval, 0, _ * 4, d[14][0].p + _), r && r.info("> Reading Section 16. Powers of Tau");
 	let D = new s(f.domainSize * 16 * g);
 	await l.readToBuffer(D, 0, (f.domainSize * 9 + 18) * g, d[16][0].p), globalThis.gc && globalThis.gc(), r && r.info(""), r && r.info("> ROUND 1"), await N(), delete x.T0, delete S.QL, delete S.QR, delete S.QM, delete S.QO, delete S.QC, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 2"), await P(), delete b.A, delete b.B, delete b.C, delete S.A, delete S.B, delete S.C, delete S.Sigma1, delete S.Sigma2, delete S.Sigma3, delete S.lagrange1, delete S.Z, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 3"), await F(), delete x.A, delete x.B, delete x.C, delete x.Z, delete x.T1, delete x.T2, delete x.Sigma1, delete x.Sigma2, delete x.Sigma3, delete x.QL, delete x.QR, delete x.QM, delete x.QC, delete x.QO, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 4"), await I(), globalThis.gc && globalThis.gc(), r && r.info("> ROUND 5"), await L(), delete x.C0, delete x.C1, delete x.C2, delete x.R1, delete x.R2, delete x.F, delete x.L, delete x.ZT, delete x.ZTS2, await l.close(), globalThis.gc && globalThis.gc(), E.addEvaluation("inv", ee());
@@ -4982,8 +4952,8 @@ async function gi(t, n, r, i) {
 		k.push(u.fromRprLE(n));
 	}
 	return r && r.info("FFLONK PROVER FINISHED"), {
-		proof: hi(O),
-		publicSignals: hi(k)
+		proof: di(O),
+		publicSignals: di(k)
 	};
 	async function A() {
 		r && r.info("··· Computing additions");
@@ -5050,13 +5020,13 @@ async function gi(t, n, r, i) {
 			delete b.T0;
 		}
 		async function a() {
-			let e = new pi(4, p, r);
+			let e = new li(4, p, r);
 			if (e.addPolynomial(0, x.A), e.addPolynomial(1, x.B), e.addPolynomial(2, x.C), e.addPolynomial(3, x.T0), x.C1 = e.getPolynomial(), x.C1.degree() >= 8 * f.domainSize - 8) throw Error("C1 Polynomial is not well calculated");
 		}
 	}
 	async function P() {
 		r && r.info("> Computing challenges beta and gamma");
-		let e = new Pr(p);
+		let e = new Ar(p);
 		e.addPolCommitment(f.C0);
 		for (let t = 0; t < f.nPublic; t++) e.addScalar(b.A.slice(t * h, t * h + h));
 		e.addPolCommitment(E.getPolynomial("C1")), w.beta = e.getChallenge(), r && r.info("··· challenges.beta: " + m.toString(w.beta)), e.reset(), e.addScalar(w.beta), w.gamma = e.getChallenge(), r && r.info("··· challenges.gamma: " + m.toString(w.gamma)), r && r.info("> Computing Z polynomial"), await n(), r && r.info("> Computing T1 polynomial"), await i(), r && r.info("> Computing T2 polynomial"), await a(), r && r.info("> Computing C2 polynomial"), await o(), r && r.info("> Computing C2 multi exponentiation");
@@ -5132,13 +5102,13 @@ async function gi(t, n, r, i) {
 			delete b.T2, delete b.T2z, delete x.T2z;
 		}
 		async function o() {
-			let e = new pi(3, p, r);
+			let e = new li(3, p, r);
 			if (e.addPolynomial(0, x.Z), e.addPolynomial(1, x.T1), e.addPolynomial(2, x.T2), x.C2 = e.getPolynomial(), x.C2.degree() >= 9 * f.domainSize) throw Error("C2 Polynomial is not well calculated");
 		}
 	}
 	async function F() {
 		r && r.info("> Computing challenge xi");
-		let e = new Pr(p);
+		let e = new Ar(p);
 		e.addScalar(w.gamma), e.addPolCommitment(E.getPolynomial("C2")), w.xiSeed = e.getChallenge();
 		let t = m.square(w.xiSeed);
 		T.w8 = [], T.w8[0] = m.one;
@@ -5153,7 +5123,7 @@ async function gi(t, n, r, i) {
 	}
 	async function I() {
 		r && r.info("> Computing challenge alpha");
-		let e = new Pr(p);
+		let e = new Ar(p);
 		e.addScalar(w.xiSeed), e.addScalar(E.getEvaluation("ql")), e.addScalar(E.getEvaluation("qr")), e.addScalar(E.getEvaluation("qm")), e.addScalar(E.getEvaluation("qo")), e.addScalar(E.getEvaluation("qc")), e.addScalar(E.getEvaluation("s1")), e.addScalar(E.getEvaluation("s2")), e.addScalar(E.getEvaluation("s3")), e.addScalar(E.getEvaluation("a")), e.addScalar(E.getEvaluation("b")), e.addScalar(E.getEvaluation("c")), e.addScalar(E.getEvaluation("z")), e.addScalar(E.getEvaluation("zw")), e.addScalar(E.getEvaluation("t1w")), e.addScalar(E.getEvaluation("t2w")), w.alpha = e.getChallenge(), r && r.info("··· challenges.alpha: " + m.toString(w.alpha)), r && r.info("> Reading C0 polynomial"), x.C0 = new X(new s(_ * 8), p, r), await l.readToBuffer(x.C0.coef, 0, _ * 8, d[17][0].p), r && r.info("> Computing R0 polynomial"), n(), r && r.info("> Computing R1 polynomial"), i(), r && r.info("> Computing R2 polynomial"), a(), r && r.info("> Computing F polynomial"), await o(), r && r.info("> Computing W1 multi exponentiation");
 		let t = await x.F.multiExponentiation(D, "W1");
 		return E.addPolynomial("W1", t), 0;
@@ -5218,7 +5188,7 @@ async function gi(t, n, r, i) {
 	}
 	async function L() {
 		r && r.info("> Computing challenge y");
-		let e = new Pr(p);
+		let e = new Ar(p);
 		e.addScalar(w.alpha), e.addPolCommitment(E.getPolynomial("W1")), w.y = e.getChallenge(), r && r.info("··· challenges.y: " + m.toString(w.y)), r && r.info("> Computing L polynomial"), await o(), r && r.info("> Computing ZTS2 polynomial"), await c();
 		let t = x.ZTS2.evaluate(w.y);
 		t = m.inv(t), x.L.mulScalar(t);
@@ -5330,69 +5300,69 @@ async function gi(t, n, r, i) {
 }
 //#endregion
 //#region src/fflonk_full_prove.js
-var { unstringifyBigInts: _i } = p;
-async function vi(e, t, n, r, i, a) {
-	let o = _i(e), s = { type: "mem" };
-	return await Bt(o, t, s, i), await gi(n, s, r, a);
+var { unstringifyBigInts: pi } = p;
+async function mi(e, t, n, r, i, a) {
+	let o = pi(e), s = { type: "mem" };
+	return await Bt(o, t, s, i), await fi(n, s, r, a);
 }
 //#endregion
 //#region src/fflonk_verify.js
-var { unstringifyBigInts: yi } = p;
-async function bi(e, t, n, r) {
-	r && r.info("FFLONK VERIFIER STARTED"), e = yi(e), n = yi(n);
-	let i = await D(e.curve), a = xi(i, e), o = new mr(i, r);
+var { unstringifyBigInts: hi } = p;
+async function gi(e, t, n, r) {
+	r && r.info("FFLONK VERIFIER STARTED"), e = hi(e), n = hi(n);
+	let i = await D(e.curve), a = _i(i, e), o = new ur(i, r);
 	o.fromObjectProof(n);
-	let s = yi(t);
+	let s = hi(t);
 	if (s.length !== a.nPublic) return r.error("Number of public signals does not match with vk"), !1;
 	let c = i.Fr;
-	if (r && (r.info("----------------------------"), r.info("  FFLONK VERIFY SETTINGS"), r.info(`  Curve:         ${i.name}`), r.info(`  Circuit power: ${a.power}`), r.info(`  Domain size:   ${2 ** a.power}`), r.info(`  Public vars:   ${a.nPublic}`), r.info("----------------------------")), r && r.info("> Checking commitments belong to G1"), !Si(i, o, a)) return r && r.error("Proof commitments are not valid"), !1;
-	if (r && r.info("> Checking evaluations belong to F"), !Ti(i, o)) return r && r.error("Proof evaluations are not valid."), !1;
-	if (r && r.info("> Checking public inputs belong to F"), !Ei(i, s)) return r && r.error("Public inputs are not valid."), !1;
+	if (r && (r.info("----------------------------"), r.info("  FFLONK VERIFY SETTINGS"), r.info(`  Curve:         ${i.name}`), r.info(`  Circuit power: ${a.power}`), r.info(`  Domain size:   ${2 ** a.power}`), r.info(`  Public vars:   ${a.nPublic}`), r.info("----------------------------")), r && r.info("> Checking commitments belong to G1"), !vi(i, o, a)) return r && r.error("Proof commitments are not valid"), !1;
+	if (r && r.info("> Checking evaluations belong to F"), !xi(i, o)) return r && r.error("Proof evaluations are not valid."), !1;
+	if (r && r.info("> Checking public inputs belong to F"), !Si(i, s)) return r && r.error("Public inputs are not valid."), !1;
 	r && r.info("> Computing challenges");
-	let { challenges: l, roots: u } = Di(i, o, a, s, r);
+	let { challenges: l, roots: u } = Ci(i, o, a, s, r);
 	r && r.info("> Computing Zero polynomial evaluation Z_H(xi)"), l.zh = c.sub(l.xiN, c.one), l.invzh = c.inv(l.zh), r && r.info("> Computing Lagrange evaluations");
-	let d = await Oi(i, l, a);
+	let d = await wi(i, l, a);
 	r && r.info("> Computing polynomial identities PI(X)");
-	let f = ki(i, s, d);
+	let f = Ti(i, s, d);
 	r && r.info("> Computing r0(y)");
-	let p = Ai(o, l, u, i, r);
+	let p = Ei(o, l, u, i, r);
 	r && r.info("> Computing r1(y)");
-	let m = ji(o, l, u, f, i, r);
+	let m = Di(o, l, u, f, i, r);
 	r && r.info("> Computing r2(y)");
-	let h = Mi(o, l, u, d[1], a, i, r);
+	let h = Oi(o, l, u, d[1], a, i, r);
 	r && r.info("> Computing F");
-	let g = Ni(i, o, a, l, u);
+	let g = ki(i, o, a, l, u);
 	r && r.info("> Computing E");
-	let _ = Pi(i, o, l, a, p, m, h);
+	let _ = Ai(i, o, l, a, p, m, h);
 	r && r.info("> Computing J");
-	let v = Fi(i, o, l);
+	let v = ji(i, o, l);
 	r && r.info("> Validate all evaluations with a pairing");
-	let y = await Ii(i, o, l, a, g, _, v);
+	let y = await Mi(i, o, l, a, g, _, v);
 	return r && (y ? r.info("PROOF VERIFIED SUCCESSFULLY") : r.warn("Invalid Proof")), r && r.info("FFLONK VERIFIER FINISHED"), y;
 }
-function xi(e, t) {
+function _i(e, t) {
 	let n = t;
 	return n.k1 = e.Fr.fromObject(t.k1), n.k2 = e.Fr.fromObject(t.k2), n.w = e.Fr.fromObject(t.w), n.w3 = e.Fr.fromObject(t.w3), n.w4 = e.Fr.fromObject(t.w4), n.w8 = e.Fr.fromObject(t.w8), n.wr = e.Fr.fromObject(t.wr), n.X_2 = e.G2.fromObject(t.X_2), n.C0 = e.G1.fromObject(t.C0), n;
 }
-function Si(e, t, n) {
+function vi(e, t, n) {
 	let r = e.G1;
 	return r.isValid(t.polynomials.C1) && r.isValid(t.polynomials.C2) && r.isValid(t.polynomials.W1) && r.isValid(t.polynomials.W2) && r.isValid(n.C0);
 }
-function Ci(e, t) {
+function yi(e, t) {
 	return u.geq(t, 0) && u.lt(t, e.r);
 }
-function wi(e, t) {
-	return Ci(e, u.fromRprLE(t));
+function bi(e, t) {
+	return yi(e, u.fromRprLE(t));
 }
-function Ti(e, t) {
-	return wi(e, t.evaluations.ql) && wi(e, t.evaluations.qr) && wi(e, t.evaluations.qm) && wi(e, t.evaluations.qo) && wi(e, t.evaluations.qc) && wi(e, t.evaluations.s1) && wi(e, t.evaluations.s2) && wi(e, t.evaluations.s3) && wi(e, t.evaluations.a) && wi(e, t.evaluations.b) && wi(e, t.evaluations.c) && wi(e, t.evaluations.z) && wi(e, t.evaluations.zw) && wi(e, t.evaluations.t1w) && wi(e, t.evaluations.t2w);
+function xi(e, t) {
+	return bi(e, t.evaluations.ql) && bi(e, t.evaluations.qr) && bi(e, t.evaluations.qm) && bi(e, t.evaluations.qo) && bi(e, t.evaluations.qc) && bi(e, t.evaluations.s1) && bi(e, t.evaluations.s2) && bi(e, t.evaluations.s3) && bi(e, t.evaluations.a) && bi(e, t.evaluations.b) && bi(e, t.evaluations.c) && bi(e, t.evaluations.z) && bi(e, t.evaluations.zw) && bi(e, t.evaluations.t1w) && bi(e, t.evaluations.t2w);
 }
-function Ei(e, t) {
-	for (let n = 0; n < t.length; n++) if (!Ci(e, t[n])) return !1;
+function Si(e, t) {
+	for (let n = 0; n < t.length; n++) if (!yi(e, t[n])) return !1;
 	return !0;
 }
-function Di(e, t, n, r, i) {
-	let a = e.Fr, o = {}, s = {}, c = new Pr(e);
+function Ci(e, t, n, r, i) {
+	let a = e.Fr, o = {}, s = {}, c = new Ar(e);
 	c.addPolCommitment(n.C0);
 	for (let e = 0; e < r.length; e++) c.addScalar(a.e(r[e]));
 	c.addPolCommitment(t.polynomials.C1), o.beta = c.getChallenge(), c.reset(), c.addScalar(o.beta), o.gamma = c.getChallenge(), c.reset(), c.addScalar(o.gamma), c.addPolCommitment(t.polynomials.C2);
@@ -5412,7 +5382,7 @@ function Di(e, t, n, r, i) {
 		roots: s
 	};
 }
-async function Oi(e, t, n) {
+async function wi(e, t, n) {
 	let r = e.Fr, i = Math.max(1, n.nPublic), a = new s(i * r.n8), o = new s(i * r.n8), c = r.one;
 	for (let e = 0; e < i; e++) {
 		let i = e * r.n8;
@@ -5426,7 +5396,7 @@ async function Oi(e, t, n) {
 	}
 	return l;
 }
-function ki(e, t, n) {
+function Ti(e, t, n) {
 	let r = e.Fr, i = r.zero;
 	for (let e = 0; e < t.length; e++) {
 		let a = r.e(t[e]);
@@ -5434,8 +5404,8 @@ function ki(e, t, n) {
 	}
 	return i;
 }
-function Ai(e, t, n, r, i) {
-	let a = r.Fr, o = Li(n.S0.h0w8, t.y, t.xi, r);
+function Ei(e, t, n, r, i) {
+	let a = r.Fr, o = Ni(n.S0.h0w8, t.y, t.xi, r);
 	i && i.info("··· Computing r0(y)");
 	let s = a.zero;
 	for (let t = 0; t < 8; t++) {
@@ -5447,8 +5417,8 @@ function Ai(e, t, n, r, i) {
 	}
 	return s;
 }
-function ji(e, t, n, r, i, a) {
-	let o = i.Fr, s = Li(n.S1.h1w4, t.y, t.xi, i);
+function Di(e, t, n, r, i, a) {
+	let o = i.Fr, s = Ni(n.S1.h1w4, t.y, t.xi, i);
 	a && a.info("··· Computing T0(xi)");
 	let c = o.mul(e.evaluations.ql, e.evaluations.a);
 	c = o.add(c, o.mul(e.evaluations.qr, e.evaluations.b)), c = o.add(c, o.mul(e.evaluations.qm, o.mul(e.evaluations.a, e.evaluations.b))), c = o.add(c, o.mul(e.evaluations.qo, e.evaluations.c)), c = o.add(c, e.evaluations.qc), c = o.add(c, r), c = o.mul(c, t.invzh), a && a.info("··· Computing C1(h_1ω_4^i) values");
@@ -5461,8 +5431,8 @@ function ji(e, t, n, r, i, a) {
 	}
 	return l;
 }
-function Mi(e, t, n, r, i, a, o) {
-	let s = a.Fr, c = Ri([n.S2.h2w3, n.S2.h3w3], t.y, t.xi, t.xiw, a);
+function Oi(e, t, n, r, i, a, o) {
+	let s = a.Fr, c = Pi([n.S2.h2w3, n.S2.h3w3], t.y, t.xi, t.xiw, a);
 	o && o.info("··· Computing T1(xi)");
 	let l = s.sub(e.evaluations.z, s.one);
 	l = s.mul(l, r), l = s.mul(l, t.invzh), o && o.info("··· Computing T2(xi)");
@@ -5480,7 +5450,7 @@ function Mi(e, t, n, r, i, a, o) {
 	}
 	return b;
 }
-function Ni(e, t, n, r, i) {
+function ki(e, t, n, r, i) {
 	let a = e.G1, o = e.Fr, s = o.sub(r.y, i.S0.h0w8[0]);
 	for (let e = 1; e < 8; e++) s = o.mul(s, o.sub(r.y, i.S0.h0w8[e]));
 	r.temp = s;
@@ -5493,20 +5463,20 @@ function Ni(e, t, n, r, i) {
 	let u = a.timesFr(t.polynomials.C1, r.quotient1), d = a.timesFr(t.polynomials.C2, r.quotient2);
 	return a.add(n.C0, a.add(u, d));
 }
-function Pi(e, t, n, r, i, a, o) {
+function Ai(e, t, n, r, i, a, o) {
 	let s = e.G1, c = e.Fr, l = c.mul(a, n.quotient1), u = c.mul(o, n.quotient2);
 	return s.timesFr(s.one, c.add(i, c.add(l, u)));
 }
-function Fi(e, t, n) {
+function ji(e, t, n) {
 	return e.G1.timesFr(t.polynomials.W1, n.temp);
 }
-async function Ii(e, t, n, r, i, a, o) {
+async function Mi(e, t, n, r, i, a, o) {
 	let s = e.G1, c = s.timesFr(t.polynomials.W2, n.y);
 	c = s.add(s.sub(s.sub(i, a), o), c);
 	let l = e.G2.one, u = t.polynomials.W2, d = r.X_2;
 	return await e.pairingEq(s.neg(c), l, u, d);
 }
-function Li(e, t, n, r) {
+function Ni(e, t, n, r) {
 	let i = r.Fr, a = e.length, o = i.sub(i.exp(t, a), n), s = i.mul(i.e(a), i.exp(e[0], a - 2)), c = [];
 	for (let n = 0; n < a; n++) {
 		let r = e[(a - 1) * n % a], l = i.sub(t, e[n]);
@@ -5514,7 +5484,7 @@ function Li(e, t, n, r) {
 	}
 	return c;
 }
-function Ri(e, t, n, r, i) {
+function Pi(e, t, n, r, i) {
 	let a = i.Fr, o = [], s = e[0].length, c = s * e.length, l = a.exp(t, c), u = a.mul(a.add(n, r), a.exp(t, s)), d = a.mul(n, r), f = a.add(a.sub(l, u), d), p = a.mul(a.mul(a.e(s), e[0][0]), a.sub(n, r));
 	for (let n = 0; n < s; n++) {
 		let r = e[0][(s - 1) * n % s], i = a.sub(t, e[0][n]), c = a.mul(p, a.mul(r, i));
@@ -5529,14 +5499,14 @@ function Ri(e, t, n, r, i) {
 }
 //#endregion
 //#region src/fflonk_export_calldata.js
-var { unstringifyBigInts: zi } = p;
+var { unstringifyBigInts: Fi } = p;
 function $(e) {
 	let t = e.toString(16);
 	for (; t.length < 64;) t = "0" + t;
 	return t = `0x${t}`, t;
 }
-async function Bi(e, t) {
-	let n = zi(t), r = zi(e);
+async function Ii(e, t) {
+	let n = Fi(t), r = Fi(e);
 	await D(n.curve);
 	let i = "";
 	for (let e = 0; e < r.length; e++) i !== "" && (i += ","), i += $(r[e]);
@@ -5544,13 +5514,13 @@ async function Bi(e, t) {
 }
 //#endregion
 //#region src/fflonk.js
-var Vi = /* @__PURE__ */ y({
-	exportSolidityCallData: () => Bi,
-	exportSolidityVerifier: () => ur,
-	fullProve: () => vi,
-	prove: () => gi,
-	setup: () => mi,
-	verify: () => bi
+var Li = /* @__PURE__ */ y({
+	exportSolidityCallData: () => Ii,
+	exportSolidityVerifier: () => null,
+	fullProve: () => mi,
+	prove: () => fi,
+	setup: () => ui,
+	verify: () => gi
 });
 //#endregion
-export { b as curves, Vi as fflonk, Zt as groth16, ai as plonk, An as powersOfTau, In as r1cs, Hn as wtns, fr as zKey };
+export { b as curves, Li as fflonk, Zt as groth16, ti as plonk, An as powersOfTau, In as r1cs, Hn as wtns, cr as zKey };

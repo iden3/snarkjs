@@ -667,7 +667,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 }
 
 function memUsage(logger) {
-    if (!logger) return;
+    if (!logger || typeof process === "undefined" || !process.memoryUsage) return;
     const used = process.memoryUsage();
     logger.debug(
         "         ",

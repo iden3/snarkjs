@@ -15,9 +15,23 @@ const isNodeExternal = (id) =>
     nodeExternal.includes(id) || nodeExternal.some((e) => id.startsWith(e + "/"));
 
 // Deps bundled in browser build (everything except these externals)
-const browserExternal = ["ffjavascript", "@iden3/binfileutils", "r1csfile", "ejs"];
+const browserExternal = ["ffjavascript", "@iden3/binfileutils", "r1csfile"];
 const isBrowserExternal = (id) =>
     browserExternal.includes(id) || browserExternal.some((e) => id.startsWith(e + "/"));
+
+// Node-only source files excluded from browser builds (Solidity exporter requires ejs + fs).
+// Rollup's load hook intercepts these by resolved absolute path and returns an empty stub
+// so neither the files nor their transitive deps (ejs, r1csfile, etc.) enter the bundle.
+const nodeOnlyFiles = new Set([
+    resolve("src/zkey_export_solidityverifier.js"),
+    resolve("src/fflonk_export_solidity_verifier.js"),
+]);
+const stubNodeOnlyModules = {
+    name: "stub-node-only-modules",
+    load(id) {
+        if (nodeOnlyFiles.has(id)) return "export default null;";
+    },
+};
 
 export default defineConfig(({ mode }) => {
     if (mode === "cli") {
@@ -59,6 +73,7 @@ export default defineConfig(({ mode }) => {
 
     if (mode === "browser") {
         return {
+            plugins: [stubNodeOnlyModules],
             build: {
                 lib: {
                     entry: "./main.js",
@@ -79,6 +94,7 @@ export default defineConfig(({ mode }) => {
 
     if (mode === "browser-iife") {
         return {
+            plugins: [stubNodeOnlyModules],
             build: {
                 lib: {
                     entry: "./main.js",
@@ -88,7 +104,10 @@ export default defineConfig(({ mode }) => {
                 },
                 outDir: "build",
                 emptyOutDir: false,
-                minify: true,
+                minify: false,
+                rollupOptions: {
+                    external: isBrowserExternal,
+                },
             },
             define: { "process.browser": "true" },
             resolve: { conditions: ["browser"] },

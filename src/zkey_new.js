@@ -627,6 +627,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
     function memUsage() {
+        if (typeof process === "undefined" || !process.memoryUsage) return {};
         let m = process.memoryUsage();
         for (const i in m) {
             m[i] = Math.round(m[i] / (1024*1024));

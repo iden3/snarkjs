@@ -1231,7 +1231,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 	return outBuff;
 }
 function memUsage(logger) {
-	if (!logger) return;
+	if (!logger || typeof process === "undefined" || !process.memoryUsage) return;
 	const used = process.memoryUsage();
 	logger.debug("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
 }
@@ -3601,6 +3601,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 		csHasher.update(buff);
 	}
 	function memUsage() {
+		if (typeof process === "undefined" || !process.memoryUsage) return {};
 		let m = process.memoryUsage();
 		for (const i in m) m[i] = Math.round(m[i] / (1024 * 1024));
 		return m;
