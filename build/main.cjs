@@ -31,16 +31,16 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 }) : target, mod));
 //#endregion
 let _iden3_binfileutils = require("@iden3/binfileutils");
-_iden3_binfileutils = __toESM(_iden3_binfileutils);
+_iden3_binfileutils = __toESM(_iden3_binfileutils, 1);
 let ffjavascript = require("ffjavascript");
 let _noble_hashes_blake2_js = require("@noble/hashes/blake2.js");
 let _noble_hashes_utils_js = require("@noble/hashes/utils.js");
 let readline = require("readline");
-readline = __toESM(readline);
+readline = __toESM(readline, 1);
 let crypto = require("crypto");
-crypto = __toESM(crypto);
+crypto = __toESM(crypto, 1);
 let fastfile = require("fastfile");
-fastfile = __toESM(fastfile);
+fastfile = __toESM(fastfile, 1);
 let circom_runtime = require("circom_runtime");
 let r1csfile = require("r1csfile");
 let _noble_hashes_sha3_js = require("@noble/hashes/sha3.js");

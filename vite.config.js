@@ -107,6 +107,13 @@ export default defineConfig(({ mode }) => {
                 minify: false,
                 rollupOptions: {
                     external: isBrowserExternal,
+                    output: {
+                        globals: {
+                            "ffjavascript": "ffjavascript",
+                            "@iden3/binfileutils": "_iden3_binfileutils",
+                            "r1csfile": "r1csfile",
+                        },
+                    },
                 },
             },
             define: { "process.browser": "true" },

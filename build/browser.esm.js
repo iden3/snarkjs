@@ -46,19 +46,23 @@ async function D(e, t) {
 //#endregion
 //#region node_modules/@noble/hashes/utils.js
 function O(e) {
-	return e instanceof Uint8Array || ArrayBuffer.isView(e) && e.constructor.name === "Uint8Array";
+	return e instanceof Uint8Array || ArrayBuffer.isView(e) && e.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in e && e.BYTES_PER_ELEMENT === 1;
 }
 function k(e, t = "") {
+	if (typeof e != "number") {
+		let n = t && `"${t}" `;
+		throw TypeError(`${n}expected number, got ${typeof e}`);
+	}
 	if (!Number.isSafeInteger(e) || e < 0) {
 		let n = t && `"${t}" `;
-		throw Error(`${n}expected integer >= 0, got ${e}`);
+		throw RangeError(`${n}expected integer >= 0, got ${e}`);
 	}
 }
 function A(e, t, n = "") {
 	let r = O(e), i = e?.length, a = t !== void 0;
 	if (!r || a && i !== t) {
-		let o = n && `"${n}" `, s = a ? ` of length ${t}` : "", c = r ? `length=${i}` : `type=${typeof e}`;
-		throw Error(o + "expected Uint8Array" + s + ", got " + c);
+		let o = n && `"${n}" `, s = a ? ` of length ${t}` : "", c = r ? `length=${i}` : `type=${typeof e}`, l = o + "expected Uint8Array" + s + ", got " + c;
+		throw r ? RangeError(l) : TypeError(l);
 	}
 	return e;
 }
@@ -69,7 +73,7 @@ function j(e, t = !0) {
 function M(e, t) {
 	A(e, void 0, "digestInto() output");
 	let n = t.outputLen;
-	if (e.length < n) throw Error("\"digestInto() output\" expected to be of length >=" + n);
+	if (e.length < n) throw RangeError("\"digestInto() output\" expected to be of length >=" + n);
 }
 function N(e) {
 	return new Uint32Array(e.buffer, e.byteOffset, Math.floor(e.byteLength / 4));
@@ -81,7 +85,7 @@ var F = new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68;
 function I(e) {
 	return e << 24 & 4278190080 | e << 8 & 16711680 | e >>> 8 & 65280 | e >>> 24 & 255;
 }
-var L = F ? (e) => e : (e) => I(e);
+var L = F ? (e) => e : (e) => I(e) >>> 0;
 function ee(e) {
 	for (let t = 0; t < e.length; t++) e[t] = I(e[t]);
 	return e;
@@ -90,7 +94,7 @@ var R = F ? (e) => e : ee;
 typeof Uint8Array.from([]).toHex == "function" && Uint8Array.fromHex;
 function z(e, t = {}) {
 	let n = (t, n) => e(n).update(t).digest(), r = e(void 0);
-	return n.outputLen = r.outputLen, n.blockLen = r.blockLen, n.create = (t) => e(t), Object.assign(n, t), Object.freeze(n);
+	return n.outputLen = r.outputLen, n.blockLen = r.blockLen, n.canXOF = r.canXOF, n.create = (t) => e(t), Object.assign(n, t), Object.freeze(n);
 }
 //#endregion
 //#region node_modules/@noble/hashes/_blake.js
@@ -428,7 +432,7 @@ function ge(e, t, n, r, i, a) {
 	}, G[2 * e] = c, G[2 * e + 1] = l, G[2 * t] = u, G[2 * t + 1] = d, G[2 * n] = f, G[2 * n + 1] = p, G[2 * r] = m, G[2 * r + 1] = h;
 }
 function _e(e, t = {}, n, r, i) {
-	if (k(n), e < 0 || e > n) throw Error("outputLen bigger than keyLen");
+	if (k(n), e <= 0 || e > n) throw Error("outputLen bigger than keyLen");
 	let { key: a, salt: o, personalization: s } = t;
 	if (a !== void 0 && (a.length < 1 || a.length > n)) throw Error("\"key\" expected to be undefined or of length=1.." + n);
 	o !== void 0 && A(o, r, "salt"), s !== void 0 && A(s, i, "personalization");
@@ -442,6 +446,7 @@ var ve = class {
 	pos = 0;
 	blockLen;
 	outputLen;
+	canXOF = !1;
 	constructor(e, t) {
 		k(e), k(t), this.blockLen = e, this.outputLen = t, this.buffer = new Uint8Array(e), this.buffer32 = N(this.buffer);
 	}
@@ -465,9 +470,13 @@ var ve = class {
 	digestInto(e) {
 		j(this), M(e, this);
 		let { pos: t, buffer32: n } = this;
-		this.finished = !0, P(this.buffer.subarray(t)), R(n), this.compress(n, 0, !0), R(n);
-		let r = N(e);
-		this.get().forEach((e, t) => r[t] = L(e));
+		if (this.finished = !0, P(this.buffer.subarray(t)), R(n), this.compress(n, 0, !0), R(n), e.byteOffset & 3) throw RangeError("\"digestInto() output\" expected 4-byte aligned byteOffset, got " + e.byteOffset);
+		let r = this.get(), i = N(e), a = Math.floor(this.outputLen / 4);
+		for (let e = 0; e < a; e++) i[e] = L(r[e]);
+		let o = this.outputLen % 4;
+		if (!o) return;
+		let s = a * 4, c = r[a];
+		for (let t = 0; t < o; t++) e[s + t] = c >>> 8 * t;
 	}
 	digest() {
 		let { buffer: e, outputLen: t } = this;
@@ -3774,6 +3783,7 @@ for (let e = 0, t = fr, n = 1, r = 0; e < 24; e++) {
 }
 var br = U(yr, !0), xr = br[0], Sr = br[1], Cr = (e, t, n) => n > 32 ? ue(e, t, n) : ce(e, t, n), wr = (e, t, n) => n > 32 ? de(e, t, n) : le(e, t, n);
 function Tr(e, t = 24) {
+	if (k(t, "rounds"), t < 1 || t > 24) throw Error("\"rounds\" expected integer 1..24");
 	let n = new Uint32Array(10);
 	for (let r = 24 - t; r < 24; r++) {
 		for (let t = 0; t < 10; t++) n[t] = e[t] ^ e[t + 10] ^ e[t + 20] ^ e[t + 30] ^ e[t + 40];
@@ -3787,8 +3797,8 @@ function Tr(e, t = 24) {
 			t = e[s], i = e[s + 1], e[s] = a, e[s + 1] = o;
 		}
 		for (let t = 0; t < 50; t += 10) {
-			for (let r = 0; r < 10; r++) n[r] = e[t + r];
-			for (let r = 0; r < 10; r++) e[t + r] ^= ~n[(r + 2) % 10] & n[(r + 4) % 10];
+			let n = e[t], r = e[t + 1], i = e[t + 2], a = e[t + 3];
+			e[t] ^= ~e[t + 2] & e[t + 4], e[t + 1] ^= ~e[t + 3] & e[t + 5], e[t + 2] ^= ~e[t + 4] & e[t + 6], e[t + 3] ^= ~e[t + 5] & e[t + 7], e[t + 4] ^= ~e[t + 6] & e[t + 8], e[t + 5] ^= ~e[t + 7] & e[t + 9], e[t + 6] ^= ~e[t + 8] & n, e[t + 7] ^= ~e[t + 9] & r, e[t + 8] ^= ~n & i, e[t + 9] ^= ~r & a;
 		}
 		e[0] ^= xr[r], e[1] ^= Sr[r];
 	}
@@ -3804,10 +3814,11 @@ var Er = class e {
 	blockLen;
 	suffix;
 	outputLen;
+	canXOF;
 	enableXOF = !1;
 	rounds;
 	constructor(e, t, n, r = !1, i = 24) {
-		if (this.blockLen = e, this.suffix = t, this.outputLen = n, this.enableXOF = r, this.rounds = i, k(n, "outputLen"), !(0 < e && e < 200)) throw Error("only keccak-f1600 function is supported");
+		if (this.blockLen = e, this.suffix = t, this.outputLen = n, this.enableXOF = r, this.canXOF = r, this.rounds = i, k(n, "outputLen"), !(0 < e && e < 200)) throw Error("only keccak-f1600 function is supported");
 		this.state = new Uint8Array(200), this.state32 = N(this.state);
 	}
 	clone() {
@@ -3851,17 +3862,18 @@ var Er = class e {
 	}
 	digestInto(e) {
 		if (M(e, this), this.finished) throw Error("digest() was already called");
-		return this.writeInto(e), this.destroy(), e;
+		this.writeInto(e.subarray(0, this.outputLen)), this.destroy();
 	}
 	digest() {
-		return this.digestInto(new Uint8Array(this.outputLen));
+		let e = new Uint8Array(this.outputLen);
+		return this.digestInto(e), e;
 	}
 	destroy() {
 		this.destroyed = !0, P(this.state);
 	}
 	_cloneInto(t) {
 		let { blockLen: n, suffix: r, outputLen: i, rounds: a, enableXOF: o } = this;
-		return t ||= new e(n, r, i, o, a), t.state32.set(this.state32), t.pos = this.pos, t.posOut = this.posOut, t.finished = this.finished, t.rounds = a, t.suffix = r, t.outputLen = i, t.enableXOF = o, t.destroyed = this.destroyed, t;
+		return t ||= new e(n, r, i, o, a), t.blockLen = n, t.state32.set(this.state32), t.pos = this.pos, t.posOut = this.posOut, t.finished = this.finished, t.rounds = a, t.suffix = r, t.outputLen = i, t.enableXOF = o, t.canXOF = this.canXOF, t.destroyed = this.destroyed, t;
 	}
 }, Dr = /* @__PURE__ */ ((e, t, n, r = {}) => z(() => new Er(t, e, n), r))(1, 136, 32), Or = 0, kr = 1, Ar = class {
 	constructor(e) {

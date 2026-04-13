@@ -23,27 +23,27 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 }) : target, mod));
 //#endregion
 let fs = require("fs");
-fs = __toESM(fs);
+fs = __toESM(fs, 1);
 let url = require("url");
-url = __toESM(url);
+url = __toESM(url, 1);
 let r1csfile = require("r1csfile");
 let fastfile = require("fastfile");
-fastfile = __toESM(fastfile);
+fastfile = __toESM(fastfile, 1);
 let ffjavascript = require("ffjavascript");
 let _noble_hashes_blake2_js = require("@noble/hashes/blake2.js");
 let _noble_hashes_utils_js = require("@noble/hashes/utils.js");
 let readline = require("readline");
-readline = __toESM(readline);
+readline = __toESM(readline, 1);
 let crypto = require("crypto");
-crypto = __toESM(crypto);
+crypto = __toESM(crypto, 1);
 let path = require("path");
-path = __toESM(path);
+path = __toESM(path, 1);
 let _iden3_binfileutils = require("@iden3/binfileutils");
-_iden3_binfileutils = __toESM(_iden3_binfileutils);
+_iden3_binfileutils = __toESM(_iden3_binfileutils, 1);
 let circom_runtime = require("circom_runtime");
 let _noble_hashes_sha3_js = require("@noble/hashes/sha3.js");
 let logplease = require("logplease");
-logplease = __toESM(logplease);
+logplease = __toESM(logplease, 1);
 let v8 = require("v8");
 //#region src/loadsyms.js
 async function loadSymbols(symFileName) {
