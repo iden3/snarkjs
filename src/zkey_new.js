@@ -71,6 +71,49 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
     const domainSize = 2 ** cirPower;
 
+    // Validate ptau section sizes before reading to prevent infinite hangs
+    // when using corrupted or truncated ptau files
+    const requiredTauG1Size = domainSize * sG1;
+    const requiredTauG2Size = domainSize * sG2;
+    const requiredAlphaTauG1Size = domainSize * sG1;
+    const requiredBetaTauG1Size = domainSize * sG1;
+
+    // Check section 12 (tauG1)
+    if (!sectionsPTau[12] || sectionsPTau[12][0].size < requiredTauG1Size) {
+        const actualSize = sectionsPTau[12] ? sectionsPTau[12][0].size : 0;
+        if (logger) logger.error(`Corrupted ptau file: Section 12 (tauG1) size ${actualSize} bytes is less than required ${requiredTauG1Size} bytes`);
+        return -1;
+    }
+
+    // Check section 13 (tauG2)
+    if (!sectionsPTau[13] || sectionsPTau[13][0].size < requiredTauG2Size) {
+        const actualSize = sectionsPTau[13] ? sectionsPTau[13][0].size : 0;
+        if (logger) logger.error(`Corrupted ptau file: Section 13 (tauG2) size ${actualSize} bytes is less than required ${requiredTauG2Size} bytes`);
+        return -1;
+    }
+
+    // Check section 14 (alphaTauG1)
+    if (!sectionsPTau[14] || sectionsPTau[14][0].size < requiredAlphaTauG1Size) {
+        const actualSize = sectionsPTau[14] ? sectionsPTau[14][0].size : 0;
+        if (logger) logger.error(`Corrupted ptau file: Section 14 (alphaTauG1) size ${actualSize} bytes is less than required ${requiredAlphaTauG1Size} bytes`);
+        return -1;
+    }
+
+    // Check section 15 (betaTauG1)
+    if (!sectionsPTau[15] || sectionsPTau[15][0].size < requiredBetaTauG1Size) {
+        const actualSize = sectionsPTau[15] ? sectionsPTau[15][0].size : 0;
+        if (logger) logger.error(`Corrupted ptau file: Section 15 (betaTauG1) size ${actualSize} bytes is less than required ${requiredBetaTauG1Size} bytes`);
+        return -1;
+    }
+
+    // Check section 2 (tauG1 for H points) - needs domainSize*2 elements
+    const requiredSection2Size = (domainSize * 2) * sG1;
+    if (!sectionsPTau[2] || sectionsPTau[2][0].size < requiredSection2Size) {
+        const actualSize = sectionsPTau[2] ? sectionsPTau[2][0].size : 0;
+        if (logger) logger.error(`Corrupted ptau file: Section 2 (tauG1 for H) size ${actualSize} bytes is less than required ${requiredSection2Size} bytes`);
+        return -1;
+    }
+
     // Write the header
     ///////////
     await startWriteSection(fdZKey, 1);
@@ -584,5 +627,4 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
 }
-
 
