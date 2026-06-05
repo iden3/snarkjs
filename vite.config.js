@@ -104,7 +104,7 @@ export default defineConfig(({ mode }) => {
                 },
                 outDir: "build",
                 emptyOutDir: false,
-                minify: false,
+                minify: true,
                 rollupOptions: {
                     external: isBrowserExternal,
                     output: {

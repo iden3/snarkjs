@@ -3,7 +3,7 @@ import { createBinFile as t, endWriteSection as n, readBinFile as r, readSection
 import { BigBuffer as s, ChaCha as c, F1Field as l, Scalar as u, buildBls12381 as d, buildBn128 as f, utils as p } from "ffjavascript";
 import { readR1cs as m, readR1csFd as h, readR1csHeader as g } from "r1csfile";
 //#region \0rolldown/runtime.js
-var _ = Object.defineProperty, v = (e, t) => () => (t || e((t = { exports: {} }).exports, t), t.exports), y = (e, t) => {
+var _ = Object.defineProperty, v = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), y = (e, t) => {
 	let n = {};
 	for (var r in e) _(n, r, {
 		get: e[r],
@@ -91,7 +91,6 @@ function ee(e) {
 	return e;
 }
 var R = F ? (e) => e : ee;
-typeof Uint8Array.from([]).toHex == "function" && Uint8Array.fromHex;
 function z(e, t = {}) {
 	let n = (t, n) => e(n).update(t).digest(), r = e(void 0);
 	return n.outputLen = r.outputLen, n.blockLen = r.blockLen, n.canXOF = r.canXOF, n.create = (t) => e(t), Object.assign(n, t), Object.freeze(n);

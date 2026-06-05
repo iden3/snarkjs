@@ -42,7 +42,7 @@ async function groth16Verify(r1csFilename, wtnsFilename) {
     await tasks.getTask("compile").run();
     await artifacts.clearCache();
     const { ethers } = await network.connect();
-    const verifier = await (await ethers.getContractFactory("Groth16Verifier")).deploy();
+    const verifier = await (await ethers.getContractFactory("contracts/Groth16Verifier.sol:Groth16Verifier")).deploy();
 
     return verifier.verifyProof(
         [proof.pi_a[0], proof.pi_a[1]],
@@ -68,7 +68,7 @@ async function groth16VerifyAliased(r1csFilename, wtnsFilename) {
     await tasks.getTask("compile").run();
     await artifacts.clearCache();
     const { ethers } = await network.connect();
-    const verifier = await (await ethers.getContractFactory("Groth16Verifier")).deploy();
+    const verifier = await (await ethers.getContractFactory("contracts/Groth16Verifier.sol:Groth16Verifier")).deploy();
 
     // Shift the second public signal by the curve order — verifier must reject this
     const aliasedSignals = [...publicSignals];
@@ -98,7 +98,7 @@ async function plonkVerify(r1csFilename, wtnsFilename) {
     await tasks.getTask("compile").run();
     await artifacts.clearCache();
     const { ethers } = await network.connect();
-    const verifier = await (await ethers.getContractFactory("PlonkVerifier")).deploy();
+    const verifier = await (await ethers.getContractFactory("contracts/PlonkVerifier.sol:PlonkVerifier")).deploy();
 
     const proof = encodeFields([
         p.A[0], p.A[1],
@@ -133,7 +133,7 @@ async function fflonkVerify(r1csFilename, wtnsFilename) {
     await tasks.getTask("compile").run();
     await artifacts.clearCache();
     const { ethers } = await network.connect();
-    const verifier = await (await ethers.getContractFactory("FflonkVerifier")).deploy();
+    const verifier = await (await ethers.getContractFactory("contracts/FflonkVerifier.sol:FflonkVerifier")).deploy();
 
     const { evaluations: e, polynomials: poly } = p;
     const proof = encodeFields([
