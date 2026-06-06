@@ -6,3 +6,5 @@ export * as zKey from "./src/zkey.js";
 export * as plonk from "./src/plonk.js";
 export * as fflonk from "./src/fflonk.js";
 export * as curves from "./src/curves.js";
+export { Keccak256Transcript } from "./src/Keccak256Transcript.js";
+export { Keccak256CompressedTranscript } from "./src/Keccak256CompressedTranscript.js";
