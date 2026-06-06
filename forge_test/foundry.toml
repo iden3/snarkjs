@@ -1,0 +1,13 @@
+[profile.default]
+  src = "src"
+  out = "out"
+  libs = ["lib"]
+  test = "test"
+  solc = "0.8.17"
+  evm_version = "istanbul"
+  optimizer = true
+  optimizer_runs = 999999
+
+# The Groth16 verifier uses inline assembly (bn256Pairing precompile
+# at addresses 6, 7, 8).  These precompiles are available on all
+# post-Byzantium EVMs; Istanbul is a safe default for revm/anvil.

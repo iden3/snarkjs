@@ -1,0 +1,6 @@
+# Generated files from forge verify test
+src/
+test/
+out/
+cache/
+lib/

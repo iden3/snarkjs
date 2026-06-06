@@ -649,6 +649,63 @@ await wtnsCalculate(input, wasmFile, wtns, {memorySize: 0});
 
 
 
+## Development
+
+To work on snarkjs itself:
+
+```sh
+git clone https://github.com/iden3/snarkjs.git
+cd snarkjs
+npm install
+```
+
+### Run tests
+
+**Unit & integration tests** (off-chain proving/verifying):
+
+```sh
+npm test                      # mocha: powers of tau, groth16, plonk, fflonk, polynomials
+```
+
+**Smart-contract tests** (on-chain verification via Hardhat):
+
+```sh
+cd smart_contract_tests && npm install && npm test
+```
+
+### Forge-based on-chain verification (lightweight, auto-skips)
+
+A minimal Foundry-based test that validates exported Groth16 verifiers
+against a real EVM precompile engine (revm).  No Hardhat, no ethers —
+just a single `forge` binary.  If Foundry isn't installed the test
+prints `SKIP` and exits cleanly.
+
+```sh
+make test-forge               # 1-input circuit
+make test-forge-all           # both 1-input and 3-input circuits
+```
+
+Install Foundry:
+
+```sh
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+### Nix flake (reproducible dev environment)
+
+A `flake.nix` provides `node`, `circom`, `forge`, `solc`, and all npm
+dependencies in a single shell:
+
+```sh
+nix develop                   # enter the dev shell
+make nix-test                 # run unit tests
+make nix-test-forge           # run forge EVM verification
+make nix-test-smart-contracts # run Hardhat on-chain tests
+```
+
+All `make nix-<target>` commands delegate to `nix develop --command make <target>`.
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
