@@ -38,7 +38,7 @@ export default async function groth16ExportSolidityCallData(_proof, _pub) {
 
     let S;
     S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-        `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+        `[[${p256(proof.pi_b[0][0])}, ${p256(proof.pi_b[0][1])}],[${p256(proof.pi_b[1][0])}, ${p256(proof.pi_b[1][1])}]],` +
         `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
         `[${inputs}]`;
 

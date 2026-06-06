@@ -104,11 +104,11 @@ contract Groth16Verifier {
                 mstore(_pPairing, calldataload(pA))
                 mstore(add(_pPairing, 32), mod(sub(q, calldataload(add(pA, 32))), q))
 
-                // B
-                mstore(add(_pPairing, 64), calldataload(pB))
-                mstore(add(_pPairing, 96), calldataload(add(pB, 32)))
-                mstore(add(_pPairing, 128), calldataload(add(pB, 64)))
-                mstore(add(_pPairing, 160), calldataload(add(pB, 96)))
+                // B (snarkjs pi_b = [x_re, x_im, y_re, y_im]; EIP-197 expects [x_im, x_re, y_im, y_re])
+                mstore(add(_pPairing, 64), calldataload(add(pB, 32)))
+                mstore(add(_pPairing, 96), calldataload(pB))
+                mstore(add(_pPairing, 128), calldataload(add(pB, 96)))
+                mstore(add(_pPairing, 160), calldataload(add(pB, 64)))
 
                 // alpha1
                 mstore(add(_pPairing, 192), alphax)

@@ -92,7 +92,7 @@ describe("Smart contracts test suite", function () {
         const { proof: proof, publicSignals: publicInputs } = await snarkjs.groth16.prove(zkeyFilename, wtnsFilename);
 
         const proofA = [proof.pi_a[0], proof.pi_a[1]];
-        const proofB = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]]];
+        const proofB = [proof.pi_b[0], proof.pi_b[1]];
         const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
         // Generate groth16 verifier solidity file from groth16 template + zkey
@@ -118,7 +118,7 @@ describe("Smart contracts test suite", function () {
         const { proof: proof, publicSignals: publicInputs } = await snarkjs.groth16.prove(zkeyFilename, wtnsFilename);
 
         const proofA = [proof.pi_a[0], proof.pi_a[1]];
-        const proofB = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]],];
+        const proofB = [proof.pi_b[0], proof.pi_b[1]];
         const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
         // Generate groth16 verifier solidity file from groth16 template + zkey
