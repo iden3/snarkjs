@@ -22,11 +22,12 @@
 import * as curves from "./curves.js";
 import { utils }   from "ffjavascript";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { Keccak256CompressedTranscript } from "./Keccak256CompressedTranscript.js";
 import { Scalar } from "ffjavascript";
 
 const { unstringifyBigInts } = utils;
 
-export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
+export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger, options = {}) {
     let vk_verifier = unstringifyBigInts(_vk_verifier);
     _proof = unstringifyBigInts(_proof);
     let publicSignals = unstringifyBigInts(_publicSignals);
@@ -61,7 +62,7 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
         return false;
     }
 
-    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
+    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier, options);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -205,10 +206,12 @@ function publicInputsAreValid(curve, publicInputs) {
     return true;
 }
 
-function calculatechallenges(curve, proof, publicSignals, vk) {
+function calculatechallenges(curve, proof, publicSignals, vk, options = {}) {
     const Fr = curve.Fr;
     const res = {};
-    const transcript = new Keccak256Transcript(curve);
+    const transcript = options.transcript === "keccak256-compressed"
+        ? new Keccak256CompressedTranscript(curve)
+        : new Keccak256Transcript(curve);
 
     // Challenge round 2: beta and gamma
     transcript.addPolCommitment(vk.Qm);
