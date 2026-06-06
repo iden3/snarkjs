@@ -22,6 +22,7 @@
           which
           jq
           curl
+          gh
 
           # Node.js — runtime and build tool
           nodejs_22
@@ -49,6 +50,7 @@
             printf "  %-12s %s\n" "forge"   "$(forge --version 2>/dev/null | head -1)"
             printf "  %-12s %s\n" "cast"    "$(cast --version 2>/dev/null | head -1)"
             printf "  %-12s %s\n" "solc"    "$(solc --version 2>/dev/null | tail -1)"
+            printf "  %-12s %s\n" "gh"      "$(gh --version 2>/dev/null | head -1)"
 
             # Install root npm deps (snarkjs build deps: rollup, mocha, etc.)
             if [ ! -d node_modules ] && [ -f package.json ]; then
@@ -71,7 +73,7 @@
             fi
 
             echo ""
-            echo "Commands:  make all | make test | make test-smart-contracts | make build"
+            echo "Commands:  make all | make test | make test-forge | make nix-test-forge | make build"
           '';
         };
       });
