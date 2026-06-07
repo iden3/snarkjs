@@ -41,6 +41,7 @@ import * as plonk from "./src/plonk.js";
 import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
+import exportCardanoProof from "./src/export_cardano_proof.js";
 import path from "path";
 import bfj from "bfj";
 
@@ -252,6 +253,30 @@ const commands = [
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
+    },
+    {
+        cmd: "zkey export cardano-verificationkey [circuit_final.zkey] [cardano_vk.json]",
+        description: "Exports a Cardano/Plutus verification key with ZCash-compressed BLS12-381 points",
+        alias: ["zkecv"],
+        action: zkeyExportCardanoVKey
+    },
+    {
+        cmd: "groth16 export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a Groth16 proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["g16ecp"],
+        action: groth16ExportCardanoProof
+    },
+    {
+        cmd: "plonk export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a PLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["pkecp"],
+        action: plonkExportCardanoProof
+    },
+    {
+        cmd: "fflonk export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a FFLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["ffecp"],
+        action: fflonkExportCardanoProof
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -1260,6 +1285,51 @@ async function fflonkVerify(params, options) {
     const isValid = await fflonk.verify(vkey, publicInputs, proof, logger, { transcript: options.transcript });
 
     return isValid ? 0 : 1;
+}
+
+async function zkeyExportCardanoVKey(params, options) {
+    const zKeyFileName = params[0] || "circuit_final.zkey";
+    const vKeyFilename = params[1] || "cardano_vk.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const vKey = await zkey.exportCardanoVerificationKey(zKeyFileName, logger);
+    await bfj.write(vKeyFilename, vKey, {space: 1});
+
+    return 0;
+}
+
+async function groth16ExportCardanoProof(params, options) {
+    const proofFilename = params[0] || "proof.json";
+    const outFilename = params[1] || "cardano_proof.json";
+
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
+    const cardanoProof = await exportCardanoProof(proof);
+    await bfj.write(outFilename, cardanoProof, {space: 1});
+
+    return 0;
+}
+
+async function plonkExportCardanoProof(params, options) {
+    const proofFilename = params[0] || "proof.json";
+    const outFilename = params[1] || "cardano_proof.json";
+
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
+    const cardanoProof = await exportCardanoProof(proof);
+    await bfj.write(outFilename, cardanoProof, {space: 1});
+
+    return 0;
+}
+
+async function fflonkExportCardanoProof(params, options) {
+    const proofFilename = params[0] || "proof.json";
+    const outFilename = params[1] || "cardano_proof.json";
+
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
+    const cardanoProof = await exportCardanoProof(proof);
+    await bfj.write(outFilename, cardanoProof, {space: 1});
+
+    return 0;
 }
 
 async function fileInfo(params) {
