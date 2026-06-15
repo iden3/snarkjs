@@ -66,7 +66,6 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
 
         await (async function (){
             if (logger) logger.debug("Reading Coeffs");
-            console.time("buildABC_outer");
             const buffCoeffs = await binFileUtils.readSection(fdZKey, sectionsZKey, 4);
 
             if (logger) logger.debug("Building ABC");
@@ -84,10 +83,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
                 // default, build ABC in JS
                 [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
             }
-            console.timeEnd("buildABC_outer");
         })();
-
-        console.time("abcPromise");
 
         if (globalThis.gc) {globalThis.gc();}
 
@@ -120,12 +116,14 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
         if (logger) logger.debug("Join ABC finished");
+        // eslint-disable-next-line no-useless-assignment
         buffAodd_T = null;
+        // eslint-disable-next-line no-useless-assignment
         buffBodd_T = null;
+        // eslint-disable-next-line no-useless-assignment
         buffCodd_T = null;
 
         if (globalThis.gc) {globalThis.gc();}
-        console.timeEnd("abcPromise");
     })();
     //await abcPromise;
 
@@ -134,9 +132,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     async function calcPiA(){
         if (logger) logger.debug("Reading A Points");
         const buffBasesA = await binFileUtils.readSection(fdZKey, sectionsZKey, 5);
-        console.time("Calculate PiA");
         proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
-        console.timeEnd("Calculate PiA");
     }
 
     let piaPromise = calcPiA();
@@ -147,9 +143,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     async function calcPiB1() {
         if (logger) logger.debug("Reading B1 Points");
         const buffBasesB1 = await binFileUtils.readSection(fdZKey, sectionsZKey, 6);
-        console.time("Calculate PiB1");
         pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
-        console.timeEnd("Calculate PiB1");
     }
 
     let pib1Promise = calcPiB1();
@@ -158,9 +152,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     async function calcPiB() {
         if (logger) logger.debug("Reading B2 Points");
         const buffBasesB2 = await binFileUtils.readSection(fdZKey, sectionsZKey, 7);
-        console.time("Calculate PiB");
         proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
-        console.timeEnd("Calculate PiB");
     }
 
     let pibPromise = calcPiB();
@@ -169,9 +161,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
         const buffBasesC = await binFileUtils.readSection(fdZKey, sectionsZKey, 8);
-        console.time("Calculate PiC");
         proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
-        console.timeEnd("Calculate PiC");
     })();
     //await picPromise;
 
@@ -179,12 +169,10 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     resHPromise = (async function (){
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
-        console.time("resHPromise");
         const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
         //await Promise.all([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise]);
         resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
         //buffPodd_T = null;
-        console.timeEnd("resHPromise");
     })();
     //await resHPromise;
 
@@ -316,12 +304,10 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
     }
 
     let elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
-    console.log("@@@ elementsPerChunk", elementsPerChunk);
     while (elementsPerChunk > 2**16) {
         concurrency*=2;
         elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
     }
-    console.log("@@@ new elementsPerChunk", elementsPerChunk);
 
 
     const promises = [];
@@ -435,7 +421,6 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 // It has much better memory usage than multithreaded wasm implementation.
 // It's much faster than pure js one, but uses much more memory.
 async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
-    console.time("buildABC");
     const concurrency = 1;//curve.tm.concurrency;
     const sCoef = 4 * 3 + zkey.n8r;
 
@@ -469,16 +454,9 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
     //const chunkSize = 2**18;
     const chunkSize = elementsPerChunk;
 
-    console.log("zkey.domainSize", zkey.domainSize);
-    console.log("concurrency", concurrency);
-    console.log("elementsPerChunk", elementsPerChunk);
-    console.log("chunkSize", chunkSize);
-
     for (let s = 0; s < zkey.nVars; s += chunkSize) {
         if (logger) logger.debug(`QAP: ${s}/${zkey.nVars}`);
         const ns = Math.min(zkey.nVars - s, chunkSize);
-
-        console.log("ns", ns);
 
         //let i=0;
         for (let i = 0; i < concurrency; i++) {
@@ -525,15 +503,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 
     let result = await Promise.all(promises);
 
-
-    console.log("result.length", result.length);
-    console.log("result", result);
-
     const nGroups = result.length / concurrency;
 
-    console.log("nGroups", nGroups);
-
-    const transfers = [];
     let result2;
     if (nGroups > 1) {
         const promises2 = [];
@@ -559,17 +530,13 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
                 task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
                 //task.push({cmd: "TERMINATE"}); // to free memory immediately
             }
-            console.log("task.length", task.length);
             //promises2.push(curve.tm.queueAction(task));
             promises2.push(curve.tm.queueAction(task, result.buffer));
         }
-        console.log("promises2.length", promises2.length);
         result2 = await Promise.all(promises2);
         result = result2;
     }
 
-    //console.log("result", result);
-    //console.log("result2", result2);
     //result = result2 || result;
 
     const outBuffA = new BigBuffer(zkey.domainSize * curve.Fr.n8);
@@ -582,8 +549,6 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
         outBuffC.set(result[i][2], p);
         p += result[i][0].byteLength;
     }
-
-    console.timeEnd("buildABC");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -607,7 +572,6 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 
 
 async function joinABC(curve, zkey, a, b, c, logger) {
-    console.time("joinABC");
     const MAX_CHUNK_SIZE = 1 << 16;
 
     const n8 = curve.Fr.n8;
@@ -660,12 +624,11 @@ async function joinABC(curve, zkey, a, b, c, logger) {
         p += result[i][0].byteLength;
     }
 
-    console.timeEnd("joinABC");
     return outBuff;
 }
 
 function memUsage(logger) {
-    if (!logger) return;
+    if (!logger || typeof process === "undefined" || !process.memoryUsage) return;
     const used = process.memoryUsage();
     logger.debug(
         "         ",

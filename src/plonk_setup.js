@@ -51,7 +51,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
+    await readSection(fdR1cs, sectionsR1cs, 2);
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -183,7 +183,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 if (s == 0) {
                     res.k = Fr.add(res.k, linearComb[s]);
                 } else if (linearComb[s] != 0n) {
-                    cs.push([Number(s), linearComb[s]])
+                    cs.push([Number(s), linearComb[s]]);
                 }
             }
             while (cs.length > maxC) {
@@ -343,7 +343,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             // The value is stored in Montgomery. stored = v*R
             // so when montgomery multiplied by the witness, it's result = v*R*w/R = v*w
             buffOut.set(addition[2], o); o+= n8r;
-            buffOut.set(addition[3], o); o+= n8r;
+            buffOut.set(addition[3], o);
             await fdZKey.write(buffOut);
             if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkAdditions.length}`);
         }
@@ -373,7 +373,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 sigma.set(lastAparence[s], firstPos[s]*n8r);
             } else {
                 // throw new Error("Variable not used");
-                console.log("Variable not used");
             }
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }

@@ -1,7 +1,7 @@
 {
   "name": "snarkjs",
   "type": "module",
-  "version": "0.7.5",
+  "version": "0.7.6-poc",
   "description": "zkSNARKs implementation in JavaScript",
   "main": "./build/main.cjs",
   "module": "./main.js",
@@ -12,7 +12,7 @@
         "require": "./build/main.cjs"
       },
       "browser": "./build/browser.esm.js",
-      "umd": "./build/snarkjs.min.js"
+      "default": "./main.js"
     }
   },
   "files": [
@@ -25,14 +25,17 @@
     "templates/"
   ],
   "scripts": {
-    "test": "mocha",
-    "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
-    "build": "npm run buildcjs && npm run buildcli && npm run buildiife && npm run buildiifemin && npm run buildesm",
-    "buildcjs": "rollup -c config/rollup.cjs.config.js",
-    "buildcli": "rollup -c config/rollup.cli.config.js",
-    "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
-    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
-    "buildesm": "BROWSER=true rollup -c config/rollup.browser.esm.config"
+    "lint": "eslint .",
+    "clean": "rimraf build",
+    "pretest": "npm run build:node && npm run build:browser && npm run lint",
+    "test": "vitest run",
+    "test:node": "vitest run --project node-esm",
+    "test:watch": "vitest --project node-esm",
+    "build:node": "vite build",
+    "build:cli": "vite build --mode cli",
+    "build:browser": "vite build --mode browser",
+    "build:iife": "vite build --mode browser-iife",
+    "build": "npm run clean && npm run build:node && npm run build:cli && npm run build:browser && npm run build:iife"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -56,26 +59,28 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "file:../binfileutils",
-    "@noble/hashes": "^1.7.1",
-    "bfj": "^9.1.2",
+    "@iden3/binfileutils": "https://github.com/iden3/binfileutils.git#feat/esm-migration",
+    "@noble/hashes": "^2.0.1",
     "circom_runtime": "0.1.28",
-    "ejs": "^3.1.6",
-    "fastfile": "0.0.20",
-    "ffjavascript": "file:../ffjavascript",
+    "ejs": "^5.0.1",
+    "fastfile": "https://github.com/iden3/fastfile.git#feat/esm-migration",
+    "ffjavascript": "https://github.com/iden3/ffjavascript.git#feat/esm-migration",
     "logplease": "^1.2.15",
-    "r1csfile": "file:../r1csfile"
+    "r1csfile": "https://github.com/iden3/r1csfile.git#feat/esm-migration"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^22.0.0",
-    "@rollup/plugin-json": "^4.1.0",
-    "@rollup/plugin-node-resolve": "^14.0.0",
-    "@rollup/plugin-replace": "^4.0.0",
-    "@rollup/plugin-virtual": "^2.0.3",
-    "eslint": "^8.7.0",
-    "mocha": "^10.2.0",
-    "rollup": "^2.36.2",
-    "rollup-plugin-terser": "^7.0.2",
-    "rollup-plugin-visualizer": "^5.6.0"
+    "@eslint/js": "^10.0.1",
+    "@nomicfoundation/hardhat-ethers": "^4.0.7",
+    "@vitest/browser": "^4.1.2",
+    "@vitest/browser-playwright": "^4.1.2",
+    "bfj": "^9.1.3",
+    "eslint": "^10.1.0",
+    "ethers": "^6.13.5",
+    "globals": "^17.4.0",
+    "hardhat": "^3.3.0",
+    "playwright": "^1.59.0",
+    "rimraf": "^6.1.3",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   }
 }

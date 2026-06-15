@@ -22,10 +22,6 @@ import {utils} from "ffjavascript";
 
 const {unstringifyBigInts} = utils;
 
-function i2hex(i) {
-    return ("0" + i.toString(16)).slice(-2);
-}
-
 function p256(n) {
     let nstr = n.toString(16);
     while (nstr.length < 64) nstr = "0" + nstr;
@@ -37,9 +33,7 @@ export default async function fflonkExportCallData(_pub, _proof) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
+    await getCurveFromName(proof.curve);
 
     let inputs = "";
     for (let i = 0; i < pub.length; i++) {

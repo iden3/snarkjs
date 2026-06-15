@@ -120,7 +120,7 @@ async function plonkVk(zkey) {
     return vKey;
 }
 
-async function exportFFlonkVk(zkey, logger) {
+async function exportFFlonkVk(zkey, _logger) {
     const curve = await getCurve(zkey.q);
 
     let vKey = {
