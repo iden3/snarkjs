@@ -879,10 +879,10 @@ async function it(t, n, r, i) {
 	let _ = await e.readSection(a, o, 2), v, y, b, x = (async function() {
 		let t, n, a;
 		await (async function() {
-			r && r.debug("Reading Coeffs"), console.time("buildABC_outer");
+			r && r.debug("Reading Coeffs");
 			let o = await e.readSection(c, l, 4);
-			r && r.debug("Building ABC"), i ||= {}, i && i.buildABC === "wasm" ? [t, n, a] = await ot(f, d, _, o, r) : i && i.buildABC === "wasm1" ? [t, n, a] = await st(f, d, _, o, r) : [t, n, a] = await at(f, d, _, o, r), console.timeEnd("buildABC_outer");
-		})(), console.time("abcPromise"), globalThis.gc && globalThis.gc();
+			r && r.debug("Building ABC"), i ||= {}, i && i.buildABC === "wasm" ? [t, n, a] = await ot(f, d, _, o, r) : i && i.buildABC === "wasm1" ? [t, n, a] = await st(f, d, _, o, r) : [t, n, a] = await at(f, d, _, o, r);
+		})(), globalThis.gc && globalThis.gc();
 		let o = g === p.s ? f.Fr.shift : f.Fr.w[g + 1], s;
 		await (async function() {
 			let e = await p.ifft(t, "", "", r, "IFFT_A");
@@ -903,34 +903,34 @@ async function it(t, n, r, i) {
 			a = null;
 			let t = await p.batchApplyKey(e, p.e(1), o);
 			m = await p.fft(t, "", "", r, "FFT_C");
-		})(), r && r.debug("Join ABC"), b = await ct(f, d, s, u, m, r), r && r.debug("Join ABC finished"), s = null, u = null, m = null, globalThis.gc && globalThis.gc(), console.timeEnd("abcPromise");
+		})(), r && r.debug("Join ABC"), b = await ct(f, d, s, u, m, r), r && r.debug("Join ABC finished"), s = null, u = null, m = null, globalThis.gc && globalThis.gc();
 	})(), S = {};
 	async function C() {
 		r && r.debug("Reading A Points");
 		let t = await e.readSection(c, l, 5);
-		console.time("Calculate PiA"), S.pi_a = await f.G1.multiExpAffine(t, _, r, "multiexp A"), console.timeEnd("Calculate PiA");
+		S.pi_a = await f.G1.multiExpAffine(t, _, r, "multiexp A");
 	}
 	let w = C(), T;
 	async function E() {
 		r && r.debug("Reading B1 Points");
 		let t = await e.readSection(c, l, 6);
-		console.time("Calculate PiB1"), T = await f.G1.multiExpAffine(t, _, r, "multiexp B1"), console.timeEnd("Calculate PiB1");
+		T = await f.G1.multiExpAffine(t, _, r, "multiexp B1");
 	}
 	let D = E();
 	async function O() {
 		r && r.debug("Reading B2 Points");
 		let t = await e.readSection(c, l, 7);
-		console.time("Calculate PiB"), S.pi_b = await f.G2.multiExpAffine(t, _, r, "multiexp B2"), console.timeEnd("Calculate PiB");
+		S.pi_b = await f.G2.multiExpAffine(t, _, r, "multiexp B2");
 	}
 	let k = O(), A = (async function() {
 		r && r.debug("Reading C Points");
 		let t = await e.readSection(c, l, 8);
-		console.time("Calculate PiC"), S.pi_c = await f.G1.multiExpAffine(t, _.slice((d.nPublic + 1) * f.Fr.n8), r, "multiexp C"), console.timeEnd("Calculate PiC");
+		S.pi_c = await f.G1.multiExpAffine(t, _.slice((d.nPublic + 1) * f.Fr.n8), r, "multiexp C");
 	})();
 	y = (async function() {
-		r && r.debug("Reading H Points"), await x, console.time("resHPromise");
+		r && r.debug("Reading H Points"), await x;
 		let t = await e.readSection(c, l, 9);
-		v = await f.G1.multiExpAffine(t, b, r, "multiexp H"), console.timeEnd("resHPromise");
+		v = await f.G1.multiExpAffine(t, b, r, "multiexp H");
 	})();
 	let j = f.Fr.random(), M = f.Fr.random();
 	await w, S.pi_a = m.add(S.pi_a, d.vk_alpha_1), S.pi_a = m.add(S.pi_a, m.timesFr(d.vk_delta_1, j)), await k, S.pi_b = h.add(S.pi_b, d.vk_beta_2), S.pi_b = h.add(S.pi_b, h.timesFr(d.vk_delta_2, M)), await D, T = m.add(T, d.vk_beta_1), T = m.add(T, m.timesFr(d.vk_delta_1, M)), await Promise.all([A, y]), S.pi_c = m.add(S.pi_c, v), S.pi_c = m.add(S.pi_c, m.timesFr(S.pi_a, M)), S.pi_c = m.add(S.pi_c, m.timesFr(T, j)), S.pi_c = m.add(S.pi_c, m.timesFr(d.vk_delta_1, p.neg(p.mul(j, M))));
@@ -981,8 +981,7 @@ async function ot(e, t, n, r, i) {
 		};
 	}
 	let l = Math.floor(t.domainSize / a);
-	for (console.log("@@@ elementsPerChunk", l); l > 2 ** 16;) a *= 2, l = Math.floor(t.domainSize / a);
-	console.log("@@@ new elementsPerChunk", l);
+	for (; l > 2 ** 16;) a *= 2, l = Math.floor(t.domainSize / a);
 	let u = [], d = [];
 	for (let e = 0; e < a; e++) d.push(y(Math.floor(e * l)));
 	d.push(r.byteLength);
@@ -1110,7 +1109,6 @@ async function ot(e, t, n, r, i) {
 	}
 }
 async function st(e, t, n, r, i) {
-	console.time("buildABC");
 	let a = 12 + t.n8r, o;
 	if (r instanceof s) {
 		let e = [], t = r.buffers[0].length;
@@ -1128,11 +1126,9 @@ async function st(e, t, n, r, i) {
 	for (let e = 0; e < 1; e++) u.push(y(Math.floor(e * c)));
 	u.push(r.byteLength);
 	let d = c;
-	console.log("zkey.domainSize", t.domainSize), console.log("concurrency", 1), console.log("elementsPerChunk", c), console.log("chunkSize", d);
 	for (let o = 0; o < t.nVars; o += d) {
 		i && i.debug(`QAP: ${o}/${t.nVars}`);
 		let s = Math.min(t.nVars - o, d);
-		console.log("ns", s);
 		for (let i = 0; i < 1; i++) {
 			let d;
 			if (d = i < 0 ? c : t.domainSize - i * c, d === 0) continue;
@@ -1190,11 +1186,7 @@ async function st(e, t, n, r, i) {
 			}), l.push(e.tm.queueAction(f, [p.buffer, m.buffer]));
 		}
 	}
-	let f = await Promise.all(l);
-	console.log("result.length", f.length), console.log("result", f);
-	let p = f.length / 1;
-	console.log("nGroups", p);
-	let m;
+	let f = await Promise.all(l), p = f.length / 1, m;
 	if (p > 1) {
 		let t = [];
 		for (let n = 0; n < 1; n++) {
@@ -1235,13 +1227,13 @@ async function st(e, t, n, r, i) {
 					len: f[n][t].length
 				});
 			}
-			console.log("task.length", r.length), t.push(e.tm.queueAction(r, f.buffer));
+			t.push(e.tm.queueAction(r, f.buffer));
 		}
-		console.log("promises2.length", t.length), m = await Promise.all(t), f = m;
+		m = await Promise.all(t), f = m;
 	}
 	let h = new s(t.domainSize * e.Fr.n8), g = new s(t.domainSize * e.Fr.n8), _ = new s(t.domainSize * e.Fr.n8), v = 0;
 	for (let e = 0; e < f.length; e++) h.set(f[e][0], v), g.set(f[e][1], v), _.set(f[e][2], v), v += f[e][0].byteLength;
-	return console.timeEnd("buildABC"), [
+	return [
 		h,
 		g,
 		_
@@ -1256,7 +1248,6 @@ async function st(e, t, n, r, i) {
 	}
 }
 async function ct(e, t, n, r, i, a) {
-	console.time("joinABC");
 	let o = 65536, c = e.Fr.n8, l = Math.floor(n.byteLength / e.Fr.n8), u = [];
 	for (let t = 0; t < l; t += o) {
 		a && a.debug(`JoinABC: ${t}/${l}`);
@@ -1310,7 +1301,7 @@ async function ct(e, t, n, r, i, a) {
 	f = n instanceof s ? new s(n.byteLength) : new Uint8Array(n.byteLength);
 	let p = 0;
 	for (let e = 0; e < d.length; e++) f.set(d[e][0], p), p += d[e][0].byteLength;
-	return console.timeEnd("joinABC"), f;
+	return f;
 }
 function lt(e) {
 	if (!e || typeof process > "u" || !process.memoryUsage) return;
@@ -3685,7 +3676,7 @@ async function lr(e, c, l, d) {
 	async function te(e, t) {
 		let r = new s(w * j * 3), i = new Kn(D), o = new Kn(D), c = C.one;
 		for (let e = 0; e < j; e++) e < T.length ? (p(T[e][0], e), p(T[e][1], j + e), p(T[e][2], j * 2 + e)) : (p(0, e), p(0, j + e), p(0, j * 2 + e)), c = C.mul(c, C.w[A]), d && e % 1e6 == 0 && d.debug(`writing ${t} phase1: ${e}/${T.length}`);
-		for (let e = 0; e < D; e++) o[e] === void 0 ? console.log("Variable not used") : r.set(i[e], o[e] * w), d && e % 1e6 == 0 && d.debug(`writing ${t} phase2: ${e}/${D}`);
+		for (let e = 0; e < D; e++) o[e] !== void 0 && r.set(i[e], o[e] * w), d && e % 1e6 == 0 && d.debug(`writing ${t} phase2: ${e}/${D}`);
 		globalThis.gc && globalThis.gc(), await a(k, e);
 		let l = r.slice(0, j * w);
 		await B(l), globalThis.gc && globalThis.gc();
@@ -4112,15 +4103,11 @@ var Er = class e {
 		let r = this.Fr, i = new e(this.coef, this.curve, this.logger);
 		this.coef = this.length() > 32768 ? new s(this.length() * r.n8) : new Uint8Array(this.length() * r.n8);
 		let a = this.length() - t, o = Math.floor(a / 3), c = a - 2 * o;
-		console.log(a), console.log(o + "  " + c);
-		for (let e = 0; e < 3; e++) {
-			console.log("> Thread " + e);
-			for (let a = e === 0 ? c : o; a > 0; a--) {
-				let s = a - 1;
-				e !== 0 && (s += (e - 1) * o + c);
-				let l = s + t, u = i.getCoef(l);
-				r.eq(r.zero, u) || (i.setCoef(l, r.zero), i.setCoef(s, r.add(i.getCoef(s), r.mul(n, u))), this.setCoef(s, r.add(this.getCoef(s), u)), console.log(s + " <-- " + l));
-			}
+		for (let e = 0; e < 3; e++) for (let a = e === 0 ? c : o; a > 0; a--) {
+			let s = a - 1;
+			e !== 0 && (s += (e - 1) * o + c);
+			let l = s + t, u = i.getCoef(l);
+			r.eq(r.zero, u) || (i.setCoef(l, r.zero), i.setCoef(s, r.add(i.getCoef(s), r.mul(n, u))), this.setCoef(s, r.add(this.getCoef(s), u)));
 		}
 		return this.print(), i;
 	}

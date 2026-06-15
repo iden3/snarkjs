@@ -3788,16 +3788,13 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 		let buffA_T, buffB_T, buffC_T;
 		await (async function() {
 			if (logger) logger.debug("Reading Coeffs");
-			console.time("buildABC_outer");
 			const buffCoeffs = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 4);
 			if (logger) logger.debug("Building ABC");
 			options = options || {};
 			if (options && options.buildABC === "wasm") [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
 			else if (options && options.buildABC === "wasm1") [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
 			else [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
-			console.timeEnd("buildABC_outer");
 		})();
-		console.time("abcPromise");
 		if (globalThis.gc) globalThis.gc();
 		const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power + 1];
 		let buffAodd_T;
@@ -3828,48 +3825,37 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 		buffBodd_T = null;
 		buffCodd_T = null;
 		if (globalThis.gc) globalThis.gc();
-		console.timeEnd("abcPromise");
 	})();
 	let proof = {};
 	async function calcPiA() {
 		if (logger) logger.debug("Reading A Points");
 		const buffBasesA = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 5);
-		console.time("Calculate PiA");
 		proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
-		console.timeEnd("Calculate PiA");
 	}
 	let piaPromise = calcPiA();
 	let pib1;
 	async function calcPiB1() {
 		if (logger) logger.debug("Reading B1 Points");
 		const buffBasesB1 = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 6);
-		console.time("Calculate PiB1");
 		pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
-		console.timeEnd("Calculate PiB1");
 	}
 	let pib1Promise = calcPiB1();
 	async function calcPiB() {
 		if (logger) logger.debug("Reading B2 Points");
 		const buffBasesB2 = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 7);
-		console.time("Calculate PiB");
 		proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
-		console.timeEnd("Calculate PiB");
 	}
 	let pibPromise = calcPiB();
 	let picPromise = (async function() {
 		if (logger) logger.debug("Reading C Points");
 		const buffBasesC = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 8);
-		console.time("Calculate PiC");
 		proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic + 1) * curve.Fr.n8), logger, "multiexp C");
-		console.timeEnd("Calculate PiC");
 	})();
 	resHPromise = (async function() {
 		if (logger) logger.debug("Reading H Points");
 		await abcPromise;
-		console.time("resHPromise");
 		const buffBasesH = await _iden3_binfileutils.readSection(fdZKey, sectionsZKey, 9);
 		resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
-		console.timeEnd("resHPromise");
 	})();
 	const r = curve.Fr.random();
 	const s = curve.Fr.random();
@@ -3960,12 +3946,10 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 		};
 	}
 	let elementsPerChunk = Math.floor(zkey.domainSize / concurrency);
-	console.log("@@@ elementsPerChunk", elementsPerChunk);
 	while (elementsPerChunk > 2 ** 16) {
 		concurrency *= 2;
 		elementsPerChunk = Math.floor(zkey.domainSize / concurrency);
 	}
-	console.log("@@@ new elementsPerChunk", elementsPerChunk);
 	const promises = [];
 	const cutPoints = [];
 	for (let i = 0; i < concurrency; i++) cutPoints.push(getCutPoint(Math.floor(i * elementsPerChunk)));
@@ -4121,7 +4105,6 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 	}
 }
 async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
-	console.time("buildABC");
 	const concurrency = 1;
 	const sCoef = 12 + zkey.n8r;
 	let getUint32;
@@ -4144,14 +4127,9 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 	for (let i = 0; i < concurrency; i++) cutPoints.push(getCutPoint(Math.floor(i * elementsPerChunk)));
 	cutPoints.push(coeffs.byteLength);
 	const chunkSize = elementsPerChunk;
-	console.log("zkey.domainSize", zkey.domainSize);
-	console.log("concurrency", concurrency);
-	console.log("elementsPerChunk", elementsPerChunk);
-	console.log("chunkSize", chunkSize);
 	for (let s = 0; s < zkey.nVars; s += chunkSize) {
 		if (logger) logger.debug(`QAP: ${s}/${zkey.nVars}`);
 		const ns = Math.min(zkey.nVars - s, chunkSize);
-		console.log("ns", ns);
 		for (let i = 0; i < concurrency; i++) {
 			let n;
 			if (i < concurrency - 1) n = elementsPerChunk;
@@ -4223,10 +4201,7 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 		}
 	}
 	let result = await Promise.all(promises);
-	console.log("result.length", result.length);
-	console.log("result", result);
 	const nGroups = result.length / concurrency;
-	console.log("nGroups", nGroups);
 	let result2;
 	if (nGroups > 1) {
 		const promises2 = [];
@@ -4272,10 +4247,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 					len: result[i][m].length
 				});
 			}
-			console.log("task.length", task.length);
 			promises2.push(curve.tm.queueAction(task, result.buffer));
 		}
-		console.log("promises2.length", promises2.length);
 		result2 = await Promise.all(promises2);
 		result = result2;
 	}
@@ -4289,7 +4262,6 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 		outBuffC.set(result[i][2], p);
 		p += result[i][0].byteLength;
 	}
-	console.timeEnd("buildABC");
 	return [
 		outBuffA,
 		outBuffB,
@@ -4309,7 +4281,6 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 	}
 }
 async function joinABC(curve, zkey, a, b, c, logger) {
-	console.time("joinABC");
 	const MAX_CHUNK_SIZE = 65536;
 	const n8 = curve.Fr.n8;
 	const nElements = Math.floor(a.byteLength / curve.Fr.n8);
@@ -4382,7 +4353,6 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 		outBuff.set(result[i][0], p);
 		p += result[i][0].byteLength;
 	}
-	console.timeEnd("joinABC");
 	return outBuff;
 }
 function memUsage(logger) {
@@ -4801,7 +4771,6 @@ async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
 		}
 		for (let s = 0; s < plonkNVars; s++) {
 			if (typeof firstPos[s] !== "undefined") sigma.set(lastAparence[s], firstPos[s] * n8r);
-			else console.log("Variable not used");
 			if (logger && s % 1e6 == 0) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
 		}
 		if (globalThis.gc) globalThis.gc();
@@ -5333,21 +5302,15 @@ var Polynomial = class Polynomial {
 		let nTotal = this.length() - m;
 		let nElementsChunk = Math.floor(nTotal / nThreads);
 		let nElementsLast = nTotal - (nThreads - 1) * nElementsChunk;
-		console.log(nTotal);
-		console.log(nElementsChunk + "  " + nElementsLast);
-		for (let k = 0; k < nThreads; k++) {
-			console.log("> Thread " + k);
-			for (let i = k === 0 ? nElementsLast : nElementsChunk; i > 0; i--) {
-				let idxDst = i - 1;
-				if (k !== 0) idxDst += (k - 1) * nElementsChunk + nElementsLast;
-				let idxSrc = idxDst + m;
-				let leadingCoef = polR.getCoef(idxSrc);
-				if (Fr.eq(Fr.zero, leadingCoef)) continue;
-				polR.setCoef(idxSrc, Fr.zero);
-				polR.setCoef(idxDst, Fr.add(polR.getCoef(idxDst), Fr.mul(beta, leadingCoef)));
-				this.setCoef(idxDst, Fr.add(this.getCoef(idxDst), leadingCoef));
-				console.log(idxDst + " <-- " + idxSrc);
-			}
+		for (let k = 0; k < nThreads; k++) for (let i = k === 0 ? nElementsLast : nElementsChunk; i > 0; i--) {
+			let idxDst = i - 1;
+			if (k !== 0) idxDst += (k - 1) * nElementsChunk + nElementsLast;
+			let idxSrc = idxDst + m;
+			let leadingCoef = polR.getCoef(idxSrc);
+			if (Fr.eq(Fr.zero, leadingCoef)) continue;
+			polR.setCoef(idxSrc, Fr.zero);
+			polR.setCoef(idxDst, Fr.add(polR.getCoef(idxDst), Fr.mul(beta, leadingCoef)));
+			this.setCoef(idxDst, Fr.add(this.getCoef(idxDst), leadingCoef));
 		}
 		this.print();
 		return polR;
