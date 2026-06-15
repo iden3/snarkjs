@@ -434,10 +434,7 @@ export class Polynomial {
         let nElementsChunk = Math.floor(nTotal / nThreads);
         let nElementsLast = nTotal - (nThreads - 1) * nElementsChunk;
 
-        console.log(nTotal);
-        console.log(nElementsChunk + "  " + nElementsLast);
         for (let k = 0; k < nThreads; k++) {
-            console.log("> Thread " + k);
             for (let i = (k === 0 ? nElementsLast : nElementsChunk); i > 0; i--) {
                 let idxDst = i - 1;
                 if (k !== 0) idxDst += (k - 1) * nElementsChunk + nElementsLast;
@@ -449,7 +446,6 @@ export class Polynomial {
                 polR.setCoef(idxSrc, Fr.zero);
                 polR.setCoef(idxDst, Fr.add(polR.getCoef(idxDst), Fr.mul(beta, leadingCoef)));
                 this.setCoef(idxDst, Fr.add(this.getCoef(idxDst), leadingCoef));
-                console.log(idxDst + " <-- " + idxSrc);
             }
         }
 
