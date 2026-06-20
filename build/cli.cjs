@@ -5810,50 +5810,64 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
             if (logger) logger.debug("Building ABC");
 
             options = options || {};
-            //options.buildABC="wasm1"; // for testing
 
-            if (options && options.buildABC==="wasm") {
-                // build ABC in WASM
+            if (options.buildABC === "js") {
+                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+            } else if (options.buildABC === "wasm") {
                 [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
-            } else if (options && options.buildABC==="wasm1") {
-                // build ABC in WASM
+            } else if (options.buildABC === "wasm1") {
                 [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
             } else {
-                // default, build ABC in JS
-                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+                // buildABCWASM1 is single-threaded but single-pass (faster when it fits).
+                // It loads ALL coefficients + witness into one worker's WASM memory, so it
+                // is only safe when that total fits within the WASM 32-bit address space (~3 GB).
+                // buildABC (multi-threaded) handles any size safely via sequential outer batches.
+                const witnessCopyCost = buffWitness.byteLength * curve.tm.concurrency;
+                const wasm1MemCost = buffCoeffs.byteLength + buffWitness.byteLength
+                    + 3 * zkey.domainSize * curve.Fr.n8;
+                const WASM_SAFE_LIMIT = 3 * 1024 * 1024 * 1024;
+                if (witnessCopyCost > 512 * 1024 * 1024 && wasm1MemCost < WASM_SAFE_LIMIT) {
+                    if (logger) logger.debug(`buildABC: witness*concurrency=${Math.round(witnessCopyCost/1024/1024)}MB, wasm1 mem=${Math.round(wasm1MemCost/1024/1024)}MB, using single-threaded WASM`);
+                    [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
+                } else {
+                    [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
+                }
             }
             console.timeEnd("buildABC_outer");
         })();
 
         console.time("abcPromise");
 
-        if (globalThis.gc) {globalThis.gc();}
+        // Do not call gc() here. gc() is a stop-the-world pause that blocks the
+        // Node.js event loop. If the pause exceeds the worker idle-termination
+        // timeout (1s), a worker closes its port while the main thread is blocked,
+        // and the next task dispatched to it is silently dropped → hang. The
+        // coefficients buffer goes out of scope at the end of the inner IIFE above
+        // and is reclaimed by V8's incremental GC automatically.
 
         const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
-        let buffAodd_T;
-        await (async function () {
-            let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-            buffA_T = null;
-            const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-            buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
-        })();
-
-        let buffBodd_T;
-        await (async function () {
-            const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
-            buffB_T = null;
-            const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-            buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
-        })();
-
-        let buffCodd_T;
-        await (async function () {
-            const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
-            buffC_T = null;
-            const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-            buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
-        })();
+        let buffAodd_T, buffBodd_T, buffCodd_T;
+        await Promise.all([
+            (async function () {
+                let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+                buffA_T = null;
+                const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
+                buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+            })(),
+            (async function () {
+                let buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+                buffB_T = null;
+                const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
+                buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+            })(),
+            (async function () {
+                let buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+                buffC_T = null;
+                const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
+                buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+            })(),
+        ]);
 
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
@@ -5976,6 +5990,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
 
 async function buildABC1(curve, zkey, witness, coeffs, logger) {
+    console.time("buildABC1");
     const n8 = curve.Fr.n8;
     const sCoef = 4*3 + zkey.n8r;
     const nCoef = (coeffs.byteLength-4) / sCoef;
@@ -6026,12 +6041,15 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
         );
     }
 
+    console.timeEnd("buildABC1");
+
     return [outBuffA, outBuffB, outBuffC];
 
 }
 
 
 async function buildABC(curve, zkey, witness, coeffs, logger) {
+    console.time("buildABC");
     let concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
@@ -6054,15 +6072,11 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
     }
 
     let elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
-    console.log("@@@ elementsPerChunk", elementsPerChunk);
     while (elementsPerChunk > 2**16) {
         concurrency*=2;
         elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
     }
-    console.log("@@@ new elementsPerChunk", elementsPerChunk);
 
-
-    const promises = [];
 
     const cutPoints = [];
     for (let i=0; i<concurrency; i++) {
@@ -6070,11 +6084,21 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
     }
     cutPoints.push(coeffs.byteLength);
 
-    const chunkSize = 2**26;
+    // Bound the witness slice per pass so that concurrency workers each holding a copy
+    // doesn't exhaust RAM: keep total witness across workers under 512 MB.
+    const safeChunkElems = Math.floor(512 * 1024 * 1024 / curve.Fr.n8 / concurrency);
+    const chunkSize = Math.min(2**26, Math.max(safeChunkElems, 1));
+
+    // Process one witness slice at a time and accumulate results incrementally.
+    // This keeps intermediate result memory at O(concurrency × elementsPerChunk × 3)
+    // regardless of how many outer passes are needed, avoiding OOM for large witnesses.
+    let accumulated = null;
+
     for (let s=0 ; s<zkey.nVars ; s+= chunkSize) {
         if (logger) logger.debug(`QAP ${s}: ${s}/${zkey.nVars}`);
         const ns= Math.min(zkey.nVars-s, chunkSize );
 
+        const batchPromises = [];
         for (let i=0; i<concurrency; i++) {
             let n;
             if (i< concurrency-1) {
@@ -6106,36 +6130,62 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
             task.push({cmd: "GET", out: 0, var: 2, len: n*curve.Fr.n8});
             task.push({cmd: "GET", out: 1, var: 3, len: n*curve.Fr.n8});
             task.push({cmd: "GET", out: 2, var: 4, len: n*curve.Fr.n8});
-            promises.push(curve.tm.queueAction(task));
+            batchPromises.push(curve.tm.queueAction(task));
         }
-    }
 
-    let result = await Promise.all(promises);
+        const batchResult = await Promise.all(batchPromises);
 
-    const nGroups = result.length / concurrency;
-    if (nGroups>1) {
-        const promises2 = [];
-        for (let i=0; i<concurrency; i++) {
-            const task=[];
-            task.push({cmd: "ALLOC", var: 0, len: result[i][0].byteLength});
-            task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
-            for (let m=0; m<3; m++) {
-                task.push({cmd: "SET", var: 0, buff: result[i][m]});
-                for (let s=1; s<nGroups; s++) {
-                    task.push({cmd: "SET", var: 1, buff: result[s*concurrency + i][m]});
+        if (accumulated === null) {
+            accumulated = batchResult;
+        } else {
+            // Add batchResult into accumulated using WASM, domain chunk by domain chunk.
+            const mergePromises = [];
+            for (let i=0; i<batchResult.length; i++) {
+                const chunkLen = accumulated[i][0].byteLength;
+                const task = [];
+                task.push({cmd: "ALLOC", var: 0, len: chunkLen});
+                task.push({cmd: "ALLOC", var: 1, len: chunkLen});
+                for (let m=0; m<3; m++) {
+                    task.push({cmd: "SET", var: 0, buff: accumulated[i][m]});
+                    task.push({cmd: "SET", var: 1, buff: batchResult[i][m]});
                     task.push({cmd: "CALL", fnName: "qap_batchAdd", params:[
                         {var: 0},
                         {var: 1},
-                        {val: result[i][m].length/curve.Fr.n8},
+                        {val: chunkLen / curve.Fr.n8},
                         {var: 0}
                     ]});
+                    task.push({cmd: "GET", out: m, var: 0, len: chunkLen});
                 }
-                task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
+                mergePromises.push(curve.tm.queueAction(task));
             }
-            promises2.push(curve.tm.queueAction(task));
+            accumulated = await Promise.all(mergePromises);
         }
-        result = await Promise.all(promises2);
     }
+
+    // qap_buildABC derives C = A*B pointwise (not from independent C coefficients),
+    // so batchAdd-merging C across witness passes gives Σ(A_i*B_i) ≠ (ΣA_i)*(ΣB_i).
+    // Use qap_joinABC(pA, pB, pC=0, n, pP) → pP = A_total * B_total to recompute C.
+    const recomputePromises = [];
+    for (let i = 0; i < accumulated.length; i++) {
+        const n = accumulated[i][0].byteLength / curve.Fr.n8;
+        const zeroBuffer = new Uint8Array(n * curve.Fr.n8);
+        const task = [];
+        task.push({cmd: "ALLOCSET", var: 0, buff: accumulated[i][0]});
+        task.push({cmd: "ALLOCSET", var: 1, buff: accumulated[i][1]});
+        task.push({cmd: "ALLOCSET", var: 2, buff: zeroBuffer});
+        task.push({cmd: "ALLOC",    var: 3, len: n * curve.Fr.n8});
+        task.push({cmd: "CALL", fnName: "qap_joinABC", params: [
+            {var: 0}, {var: 1}, {var: 2}, {val: n}, {var: 3}
+        ]});
+        task.push({cmd: "GET", out: 0, var: 3, len: n * curve.Fr.n8});
+        recomputePromises.push(curve.tm.queueAction(task));
+    }
+    const recomputeResult = await Promise.all(recomputePromises);
+    for (let i = 0; i < accumulated.length; i++) {
+        accumulated[i][2] = recomputeResult[i][0];
+    }
+
+    const result = accumulated;
 
     const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
     const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
@@ -6147,6 +6197,8 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         outBuffC.set(result[i][2], p);
         p += result[i][0].byteLength;
     }
+
+    console.timeEnd("buildABC");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -6173,7 +6225,7 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 // It has much better memory usage than multithreaded wasm implementation.
 // It's much faster than pure js one, but uses much more memory.
 async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
-    console.time("buildABC");
+    console.time("buildABCWASM1");
     const concurrency = 1;//curve.tm.concurrency;
     const sCoef = 4 * 3 + zkey.n8r;
 
@@ -6204,21 +6256,11 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
     }
     cutPoints.push(coeffs.byteLength);
 
-    //const chunkSize = 2**18;
     const chunkSize = elementsPerChunk;
-
-    console.log("zkey.domainSize", zkey.domainSize);
-    console.log("concurrency", concurrency);
-    console.log("elementsPerChunk", elementsPerChunk);
-    console.log("chunkSize", chunkSize);
 
     for (let s = 0; s < zkey.nVars; s += chunkSize) {
         if (logger) logger.debug(`QAP: ${s}/${zkey.nVars}`);
         const ns = Math.min(zkey.nVars - s, chunkSize);
-
-        console.log("ns", ns);
-
-        //let i=0;
         for (let i = 0; i < concurrency; i++) {
             let n;
             if (i < concurrency - 1) {
@@ -6263,13 +6305,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 
     let result = await Promise.all(promises);
 
-
-    console.log("result.length", result.length);
-    console.log("result", result);
-
     const nGroups = result.length / concurrency;
 
-    console.log("nGroups", nGroups);
     let result2;
     if (nGroups > 1) {
         const promises2 = [];
@@ -6279,10 +6316,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
             task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
             for (let m = 0; m < 3; m++) {
                 task.push({cmd: "SET", var: 0, buff: result[i][m]});
-                //transfers.push(result[i][m].buffer);
                 for (let s = 1; s < nGroups; s++) {
                     task.push({cmd: "SET", var: 1, buff: result[s * concurrency + i][m]});
-                    //transfers.push(result[s*concurrency + i][m].buffer);
                     task.push({
                         cmd: "CALL", fnName: "qap_batchAdd", params: [
                             {var: 0},
@@ -6293,20 +6328,12 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
                     });
                 }
                 task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
-                //task.push({cmd: "TERMINATE"}); // to free memory immediately
             }
-            console.log("task.length", task.length);
-            //promises2.push(curve.tm.queueAction(task));
-            promises2.push(curve.tm.queueAction(task, result.buffer));
+            promises2.push(curve.tm.queueAction(task));
         }
-        console.log("promises2.length", promises2.length);
         result2 = await Promise.all(promises2);
         result = result2;
     }
-
-    //console.log("result", result);
-    //console.log("result2", result2);
-    //result = result2 || result;
 
     const outBuffA = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
     const outBuffB = new ffjavascript.BigBuffer(zkey.domainSize * curve.Fr.n8);
@@ -6319,7 +6346,7 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
         p += result[i][0].byteLength;
     }
 
-    console.timeEnd("buildABC");
+    console.timeEnd("buildABCWASM1");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -13123,14 +13150,14 @@ const commands = [
         cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a zk Proof from witness",
         alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16Prove
     },
     {
         cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
         description: "Generates a zk Proof from input",
         alias: ["g16f", "g16i"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16FullProve
     },
     {
@@ -13399,7 +13426,9 @@ async function groth16Prove(params, options) {
 
     if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await groth16Prove$1(zkeyName, witnessName, logger);
+    const proveOptions = {};
+    if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    const {proof, publicSignals} = await groth16Prove$1(zkeyName, witnessName, logger, proveOptions);
 
     fs__default["default"].writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
     fs__default["default"].writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
@@ -13420,7 +13449,9 @@ async function groth16FullProve(params, options) {
 
     const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
 
-    const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName, logger);
+    const proveOptions = {};
+    if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName, logger, undefined, proveOptions);
 
     fs__default["default"].writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
     fs__default["default"].writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
