@@ -189,15 +189,12 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     })();
     //await picPromise;
 
-
     resHPromise = (async function (){
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
         console.time("resHPromise");
         const buffBasesH = await binFileUtils.readSection(fdZKey, sectionsZKey, 9);
-        //await Promise.all([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise]);
         resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
-        //buffPodd_T = null;
         console.timeEnd("resHPromise");
     })();
     //await resHPromise;

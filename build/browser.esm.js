@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 
 var fs = {};
 
-async function open$2(fileName, openFlags, cacheSize, pageSize) {
+async function open$1(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
@@ -11,11 +11,11 @@ async function open$2(fileName, openFlags, cacheSize, pageSize) {
 
     const stats = await fd.stat();
 
-    return  new FastFile$2(fd, stats, cacheSize, pageSize, fileName);
+    return  new FastFile$1(fd, stats, cacheSize, pageSize, fileName);
 }
 
 
-class FastFile$2 {
+class FastFile$1 {
 
     constructor(fd, stats, cacheSize, pageSize, fileName) {
         this.fileName = fileName;
@@ -473,9 +473,9 @@ class FastFile$2 {
     }
 }
 
-function createNew$3(o) {
+function createNew$1(o) {
     const initialSize = o.initialSize || 1<<20;
-    const fd = new MemFile$2();
+    const fd = new MemFile$1();
     fd.o = o;
     fd.o.data = new Uint8Array(initialSize);
     fd.allocSize = initialSize;
@@ -485,8 +485,8 @@ function createNew$3(o) {
     return fd;
 }
 
-function readExisting$8(o) {
-    const fd = new MemFile$2();
+function readExisting$5(o) {
+    const fd = new MemFile$1();
     fd.o = o;
     fd.allocSize = o.data.byteLength;
     fd.totalSize = o.data.byteLength;
@@ -495,12 +495,12 @@ function readExisting$8(o) {
     return fd;
 }
 
-const tmpBuff32$5 = new Uint8Array(4);
-const tmpBuff32v$5 = new DataView(tmpBuff32$5.buffer);
-const tmpBuff64$5 = new Uint8Array(8);
-const tmpBuff64v$5 = new DataView(tmpBuff64$5.buffer);
+const tmpBuff32$3 = new Uint8Array(4);
+const tmpBuff32v$3 = new DataView(tmpBuff32$3.buffer);
+const tmpBuff64$3 = new Uint8Array(8);
+const tmpBuff64v$3 = new DataView(tmpBuff64$3.buffer);
 
-class MemFile$2 {
+class MemFile$1 {
 
     constructor() {
         this.pageSize = 1 << 14;  // for compatibility
@@ -571,27 +571,27 @@ class MemFile$2 {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$5.setUint32(0, v, true);
+        tmpBuff32v$3.setUint32(0, v, true);
 
-        await self.write(tmpBuff32$5, pos);
+        await self.write(tmpBuff32$3, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$5.setUint32(0, v, false);
+        tmpBuff32v$3.setUint32(0, v, false);
 
-        await self.write(tmpBuff32$5, pos);
+        await self.write(tmpBuff32$3, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v$5.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$5.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v$3.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$3.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64$5, pos);
+        await self.write(tmpBuff64$3, pos);
     }
 
 
@@ -653,39 +653,39 @@ class MemFile$2 {
     }
 }
 
-const PAGE_SIZE$2 = 1<<22;
+const PAGE_SIZE$1 = 1<<22;
 
-function createNew$2(o) {
+function createNew(o) {
     const initialSize = o.initialSize || 0;
-    const fd = new BigMemFile$2();
+    const fd = new BigMemFile$1();
     fd.o = o;
-    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$2)+1 : 0;
+    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$1)+1 : 0;
     fd.o.data = [];
     for (let i=0; i<nPages-1; i++) {
-        fd.o.data.push( new Uint8Array(PAGE_SIZE$2));
+        fd.o.data.push( new Uint8Array(PAGE_SIZE$1));
     }
-    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$2*(nPages-1)));
+    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$1*(nPages-1)));
     fd.totalSize = 0;
     fd.readOnly = false;
     fd.pos = 0;
     return fd;
 }
 
-function readExisting$7(o) {
-    const fd = new BigMemFile$2();
+function readExisting$4(o) {
+    const fd = new BigMemFile$1();
     fd.o = o;
-    fd.totalSize = (o.data.length-1)* PAGE_SIZE$2 + o.data[o.data.length-1].byteLength;
+    fd.totalSize = (o.data.length-1)* PAGE_SIZE$1 + o.data[o.data.length-1].byteLength;
     fd.readOnly = true;
     fd.pos = 0;
     return fd;
 }
 
-const tmpBuff32$4 = new Uint8Array(4);
-const tmpBuff32v$4 = new DataView(tmpBuff32$4.buffer);
-const tmpBuff64$4 = new Uint8Array(8);
-const tmpBuff64v$4 = new DataView(tmpBuff64$4.buffer);
+const tmpBuff32$2 = new Uint8Array(4);
+const tmpBuff32v$2 = new DataView(tmpBuff32$2.buffer);
+const tmpBuff64$2 = new Uint8Array(8);
+const tmpBuff64v$2 = new DataView(tmpBuff64$2.buffer);
 
-class BigMemFile$2 {
+class BigMemFile$1 {
 
     constructor() {
         this.pageSize = 1 << 14;  // for compatibility
@@ -697,9 +697,9 @@ class BigMemFile$2 {
 
         if (this.readOnly) throw new Error("Reading out of file bounds");
 
-        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$2)+1;
+        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$1)+1;
         for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
-            const newSize = i<nPages-1 ? PAGE_SIZE$2 : newLen - (nPages-1)*PAGE_SIZE$2;
+            const newSize = i<nPages-1 ? PAGE_SIZE$1 : newLen - (nPages-1)*PAGE_SIZE$1;
             const p = new Uint8Array(newSize);
             if (i == this.o.data.length-1) p.set(this.o.data[i]);
             this.o.data[i] = p;
@@ -714,13 +714,13 @@ class BigMemFile$2 {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        const firstPage = Math.floor(pos / PAGE_SIZE$2);
+        const firstPage = Math.floor(pos / PAGE_SIZE$1);
 
         let p = firstPage;
-        let o = pos % PAGE_SIZE$2;
+        let o = pos % PAGE_SIZE$1;
         let r = buff.byteLength;
         while (r>0) {
-            const l = (o+r > PAGE_SIZE$2) ? (PAGE_SIZE$2 -o) : r;
+            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
             const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
             dstView.set(srcView);
@@ -740,15 +740,15 @@ class BigMemFile$2 {
         }
         this._resizeIfNeeded(pos + len);
 
-        const firstPage = Math.floor(pos / PAGE_SIZE$2);
+        const firstPage = Math.floor(pos / PAGE_SIZE$1);
 
         let p = firstPage;
-        let o = pos % PAGE_SIZE$2;
+        let o = pos % PAGE_SIZE$1;
         // Remaining bytes to read
         let r = len;
         while (r>0) {
             // bytes to copy from this page
-            const l = (o+r > PAGE_SIZE$2) ? (PAGE_SIZE$2 -o) : r;
+            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
             const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
             buffDst.set(srcView, offset+len-r);
             r = r-l;
@@ -778,27 +778,27 @@ class BigMemFile$2 {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$4.setUint32(0, v, true);
+        tmpBuff32v$2.setUint32(0, v, true);
 
-        await self.write(tmpBuff32$4, pos);
+        await self.write(tmpBuff32$2, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$4.setUint32(0, v, false);
+        tmpBuff32v$2.setUint32(0, v, false);
 
-        await self.write(tmpBuff32$4, pos);
+        await self.write(tmpBuff32$2, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v$4.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$4.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v$2.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$2.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64$4, pos);
+        await self.write(tmpBuff64$2, pos);
     }
 
 
@@ -846,8 +846,8 @@ class BigMemFile$2 {
         let str = "";
 
         while (!endOfStringFound) {
-            let currentPage = Math.floor(currentPosition / PAGE_SIZE$2);
-            let offsetOnPage = currentPosition % PAGE_SIZE$2;
+            let currentPage = Math.floor(currentPosition / PAGE_SIZE$1);
+            let offsetOnPage = currentPosition % PAGE_SIZE$1;
 
             if (self.o.data[currentPage] === undefined) {
                 throw new Error("ERROR");
@@ -861,10 +861,10 @@ class BigMemFile$2 {
 
             if (endOfStringFound) {
                 str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * PAGE_SIZE$2 + offsetOnPage + indexEndOfString + 1;
+                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + indexEndOfString + 1;
             } else {
                 str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * PAGE_SIZE$2 + offsetOnPage + dataArray.length;
+                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + dataArray.length;
             }
 
             currentPosition = self.pos;
@@ -873,33 +873,33 @@ class BigMemFile$2 {
     }
 }
 
-const { O_TRUNC: O_TRUNC$1, O_CREAT: O_CREAT$1, O_RDWR: O_RDWR$1, O_EXCL, O_RDONLY: O_RDONLY$1 } = constants;
+const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY: O_RDONLY$1 } = constants;
 
-const DEFAULT_CACHE_SIZE$1 = (1 << 16);
-const DEFAULT_PAGE_SIZE$1 = (1 << 13);
+const DEFAULT_CACHE_SIZE = (1 << 16);
+const DEFAULT_PAGE_SIZE = (1 << 13);
 
 
-async function createOverride$1(o, b, c) {
+async function createOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b || DEFAULT_CACHE_SIZE$1,
-            pageSize: c || DEFAULT_PAGE_SIZE$1
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
     if (o.type == "file") {
-        return await open$2(o.fileName, O_TRUNC$1 | O_CREAT$1 | O_RDWR$1, o.cacheSize, o.pageSize);
+        return await open$1(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return createNew$3(o);
+        return createNew$1(o);
     } else if (o.type == "bigMem") {
-        return createNew$2(o);
+        return createNew(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
-async function readExisting$6(o, b, c) {
+async function readExisting$3(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -920,11 +920,11 @@ async function readExisting$6(o, b, c) {
         }
     }
     if (o.type == "file") {
-        return await open$2(o.fileName, O_RDONLY$1, o.cacheSize, o.pageSize);
+        return await open$1(o.fileName, O_RDONLY$1, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return await readExisting$8(o);
+        return await readExisting$5(o);
     } else if (o.type == "bigMem") {
-        return await readExisting$7(o);
+        return await readExisting$4(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -934,7 +934,7 @@ const MAX_BUFFER_SIZE = ( typeof Buffer !== "undefined" && Buffer.constants && B
 
 async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
-    const fd = await readExisting$6(fileName);
+    const fd = await readExisting$3(fileName);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -966,7 +966,7 @@ async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
 async function createBinFile(fileName, type, version, nSections, cacheSize, pageSize) {
 
-    const fd = await createOverride$1(fileName, cacheSize, pageSize);
+    const fd = await createOverride(fileName, cacheSize, pageSize);
 
     const buff = new Uint8Array(4);
     for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
@@ -2500,50 +2500,64 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
             if (logger) logger.debug("Building ABC");
 
             options = options || {};
-            //options.buildABC="wasm1"; // for testing
 
-            if (options && options.buildABC==="wasm") {
-                // build ABC in WASM
+            if (options.buildABC === "js") {
+                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+            } else if (options.buildABC === "wasm") {
                 [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
-            } else if (options && options.buildABC==="wasm1") {
-                // build ABC in WASM
+            } else if (options.buildABC === "wasm1") {
                 [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
             } else {
-                // default, build ABC in JS
-                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
+                // buildABCWASM1 is single-threaded but single-pass (faster when it fits).
+                // It loads ALL coefficients + witness into one worker's WASM memory, so it
+                // is only safe when that total fits within the WASM 32-bit address space (~3 GB).
+                // buildABC (multi-threaded) handles any size safely via sequential outer batches.
+                const witnessCopyCost = buffWitness.byteLength * curve.tm.concurrency;
+                const wasm1MemCost = buffCoeffs.byteLength + buffWitness.byteLength
+                    + 3 * zkey.domainSize * curve.Fr.n8;
+                const WASM_SAFE_LIMIT = 3 * 1024 * 1024 * 1024;
+                if (witnessCopyCost > 512 * 1024 * 1024 && wasm1MemCost < WASM_SAFE_LIMIT) {
+                    if (logger) logger.debug(`buildABC: witness*concurrency=${Math.round(witnessCopyCost/1024/1024)}MB, wasm1 mem=${Math.round(wasm1MemCost/1024/1024)}MB, using single-threaded WASM`);
+                    [buffA_T, buffB_T, buffC_T] = await buildABCWASM1(curve, zkey, buffWitness, buffCoeffs, logger);
+                } else {
+                    [buffA_T, buffB_T, buffC_T] = await buildABC(curve, zkey, buffWitness, buffCoeffs, logger);
+                }
             }
             console.timeEnd("buildABC_outer");
         })();
 
         console.time("abcPromise");
 
-        if (globalThis.gc) {globalThis.gc();}
+        // Do not call gc() here. gc() is a stop-the-world pause that blocks the
+        // Node.js event loop. If the pause exceeds the worker idle-termination
+        // timeout (1s), a worker closes its port while the main thread is blocked,
+        // and the next task dispatched to it is silently dropped → hang. The
+        // coefficients buffer goes out of scope at the end of the inner IIFE above
+        // and is reclaimed by V8's incremental GC automatically.
 
         const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
-        let buffAodd_T;
-        await (async function () {
-            let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
-            buffA_T = null;
-            const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-            buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
-        })();
-
-        let buffBodd_T;
-        await (async function () {
-            const buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
-            buffB_T = null;
-            const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-            buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
-        })();
-
-        let buffCodd_T;
-        await (async function () {
-            const buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
-            buffC_T = null;
-            const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-            buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
-        })();
+        let buffAodd_T, buffBodd_T, buffCodd_T;
+        await Promise.all([
+            (async function () {
+                let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+                buffA_T = null;
+                const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
+                buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+            })(),
+            (async function () {
+                let buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+                buffB_T = null;
+                const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
+                buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+            })(),
+            (async function () {
+                let buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+                buffC_T = null;
+                const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
+                buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+            })(),
+        ]);
 
         if (logger) logger.debug("Join ABC");
         buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
@@ -2603,15 +2617,12 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     })();
     //await picPromise;
 
-
     resHPromise = (async function (){
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
         console.time("resHPromise");
         const buffBasesH = await readSection$1(fdZKey, sectionsZKey, 9);
-        //await Promise.all([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise]);
         resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
-        //buffPodd_T = null;
         console.timeEnd("resHPromise");
     })();
     //await resHPromise;
@@ -2666,6 +2677,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
 
 async function buildABC1(curve, zkey, witness, coeffs, logger) {
+    console.time("buildABC1");
     const n8 = curve.Fr.n8;
     const sCoef = 4*3 + zkey.n8r;
     const nCoef = (coeffs.byteLength-4) / sCoef;
@@ -2716,12 +2728,15 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
         );
     }
 
+    console.timeEnd("buildABC1");
+
     return [outBuffA, outBuffB, outBuffC];
 
 }
 
 
 async function buildABC(curve, zkey, witness, coeffs, logger) {
+    console.time("buildABC");
     let concurrency = curve.tm.concurrency;
     const sCoef = 4*3 + zkey.n8r;
 
@@ -2744,15 +2759,11 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
     }
 
     let elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
-    console.log("@@@ elementsPerChunk", elementsPerChunk);
     while (elementsPerChunk > 2**16) {
         concurrency*=2;
         elementsPerChunk = Math.floor(zkey.domainSize/concurrency);
     }
-    console.log("@@@ new elementsPerChunk", elementsPerChunk);
 
-
-    const promises = [];
 
     const cutPoints = [];
     for (let i=0; i<concurrency; i++) {
@@ -2760,11 +2771,21 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
     }
     cutPoints.push(coeffs.byteLength);
 
-    const chunkSize = 2**26;
+    // Bound the witness slice per pass so that concurrency workers each holding a copy
+    // doesn't exhaust RAM: keep total witness across workers under 512 MB.
+    const safeChunkElems = Math.floor(512 * 1024 * 1024 / curve.Fr.n8 / concurrency);
+    const chunkSize = Math.min(2**26, Math.max(safeChunkElems, 1));
+
+    // Process one witness slice at a time and accumulate results incrementally.
+    // This keeps intermediate result memory at O(concurrency × elementsPerChunk × 3)
+    // regardless of how many outer passes are needed, avoiding OOM for large witnesses.
+    let accumulated = null;
+
     for (let s=0 ; s<zkey.nVars ; s+= chunkSize) {
         if (logger) logger.debug(`QAP ${s}: ${s}/${zkey.nVars}`);
         const ns= Math.min(zkey.nVars-s, chunkSize );
 
+        const batchPromises = [];
         for (let i=0; i<concurrency; i++) {
             let n;
             if (i< concurrency-1) {
@@ -2796,36 +2817,62 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
             task.push({cmd: "GET", out: 0, var: 2, len: n*curve.Fr.n8});
             task.push({cmd: "GET", out: 1, var: 3, len: n*curve.Fr.n8});
             task.push({cmd: "GET", out: 2, var: 4, len: n*curve.Fr.n8});
-            promises.push(curve.tm.queueAction(task));
+            batchPromises.push(curve.tm.queueAction(task));
         }
-    }
 
-    let result = await Promise.all(promises);
+        const batchResult = await Promise.all(batchPromises);
 
-    const nGroups = result.length / concurrency;
-    if (nGroups>1) {
-        const promises2 = [];
-        for (let i=0; i<concurrency; i++) {
-            const task=[];
-            task.push({cmd: "ALLOC", var: 0, len: result[i][0].byteLength});
-            task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
-            for (let m=0; m<3; m++) {
-                task.push({cmd: "SET", var: 0, buff: result[i][m]});
-                for (let s=1; s<nGroups; s++) {
-                    task.push({cmd: "SET", var: 1, buff: result[s*concurrency + i][m]});
+        if (accumulated === null) {
+            accumulated = batchResult;
+        } else {
+            // Add batchResult into accumulated using WASM, domain chunk by domain chunk.
+            const mergePromises = [];
+            for (let i=0; i<batchResult.length; i++) {
+                const chunkLen = accumulated[i][0].byteLength;
+                const task = [];
+                task.push({cmd: "ALLOC", var: 0, len: chunkLen});
+                task.push({cmd: "ALLOC", var: 1, len: chunkLen});
+                for (let m=0; m<3; m++) {
+                    task.push({cmd: "SET", var: 0, buff: accumulated[i][m]});
+                    task.push({cmd: "SET", var: 1, buff: batchResult[i][m]});
                     task.push({cmd: "CALL", fnName: "qap_batchAdd", params:[
                         {var: 0},
                         {var: 1},
-                        {val: result[i][m].length/curve.Fr.n8},
+                        {val: chunkLen / curve.Fr.n8},
                         {var: 0}
                     ]});
+                    task.push({cmd: "GET", out: m, var: 0, len: chunkLen});
                 }
-                task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
+                mergePromises.push(curve.tm.queueAction(task));
             }
-            promises2.push(curve.tm.queueAction(task));
+            accumulated = await Promise.all(mergePromises);
         }
-        result = await Promise.all(promises2);
     }
+
+    // qap_buildABC derives C = A*B pointwise (not from independent C coefficients),
+    // so batchAdd-merging C across witness passes gives Σ(A_i*B_i) ≠ (ΣA_i)*(ΣB_i).
+    // Use qap_joinABC(pA, pB, pC=0, n, pP) → pP = A_total * B_total to recompute C.
+    const recomputePromises = [];
+    for (let i = 0; i < accumulated.length; i++) {
+        const n = accumulated[i][0].byteLength / curve.Fr.n8;
+        const zeroBuffer = new Uint8Array(n * curve.Fr.n8);
+        const task = [];
+        task.push({cmd: "ALLOCSET", var: 0, buff: accumulated[i][0]});
+        task.push({cmd: "ALLOCSET", var: 1, buff: accumulated[i][1]});
+        task.push({cmd: "ALLOCSET", var: 2, buff: zeroBuffer});
+        task.push({cmd: "ALLOC",    var: 3, len: n * curve.Fr.n8});
+        task.push({cmd: "CALL", fnName: "qap_joinABC", params: [
+            {var: 0}, {var: 1}, {var: 2}, {val: n}, {var: 3}
+        ]});
+        task.push({cmd: "GET", out: 0, var: 3, len: n * curve.Fr.n8});
+        recomputePromises.push(curve.tm.queueAction(task));
+    }
+    const recomputeResult = await Promise.all(recomputePromises);
+    for (let i = 0; i < accumulated.length; i++) {
+        accumulated[i][2] = recomputeResult[i][0];
+    }
+
+    const result = accumulated;
 
     const outBuffA = new BigBuffer(zkey.domainSize * curve.Fr.n8);
     const outBuffB = new BigBuffer(zkey.domainSize * curve.Fr.n8);
@@ -2837,6 +2884,8 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
         outBuffC.set(result[i][2], p);
         p += result[i][0].byteLength;
     }
+
+    console.timeEnd("buildABC");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -2863,7 +2912,7 @@ async function buildABC(curve, zkey, witness, coeffs, logger) {
 // It has much better memory usage than multithreaded wasm implementation.
 // It's much faster than pure js one, but uses much more memory.
 async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
-    console.time("buildABC");
+    console.time("buildABCWASM1");
     const concurrency = 1;//curve.tm.concurrency;
     const sCoef = 4 * 3 + zkey.n8r;
 
@@ -2894,21 +2943,11 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
     }
     cutPoints.push(coeffs.byteLength);
 
-    //const chunkSize = 2**18;
     const chunkSize = elementsPerChunk;
-
-    console.log("zkey.domainSize", zkey.domainSize);
-    console.log("concurrency", concurrency);
-    console.log("elementsPerChunk", elementsPerChunk);
-    console.log("chunkSize", chunkSize);
 
     for (let s = 0; s < zkey.nVars; s += chunkSize) {
         if (logger) logger.debug(`QAP: ${s}/${zkey.nVars}`);
         const ns = Math.min(zkey.nVars - s, chunkSize);
-
-        console.log("ns", ns);
-
-        //let i=0;
         for (let i = 0; i < concurrency; i++) {
             let n;
             if (i < concurrency - 1) {
@@ -2953,13 +2992,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
 
     let result = await Promise.all(promises);
 
-
-    console.log("result.length", result.length);
-    console.log("result", result);
-
     const nGroups = result.length / concurrency;
 
-    console.log("nGroups", nGroups);
     let result2;
     if (nGroups > 1) {
         const promises2 = [];
@@ -2969,10 +3003,8 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
             task.push({cmd: "ALLOC", var: 1, len: result[i][0].byteLength});
             for (let m = 0; m < 3; m++) {
                 task.push({cmd: "SET", var: 0, buff: result[i][m]});
-                //transfers.push(result[i][m].buffer);
                 for (let s = 1; s < nGroups; s++) {
                     task.push({cmd: "SET", var: 1, buff: result[s * concurrency + i][m]});
-                    //transfers.push(result[s*concurrency + i][m].buffer);
                     task.push({
                         cmd: "CALL", fnName: "qap_batchAdd", params: [
                             {var: 0},
@@ -2983,20 +3015,12 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
                     });
                 }
                 task.push({cmd: "GET", out: m, var: 0, len: result[i][m].length});
-                //task.push({cmd: "TERMINATE"}); // to free memory immediately
             }
-            console.log("task.length", task.length);
-            //promises2.push(curve.tm.queueAction(task));
-            promises2.push(curve.tm.queueAction(task, result.buffer));
+            promises2.push(curve.tm.queueAction(task));
         }
-        console.log("promises2.length", promises2.length);
         result2 = await Promise.all(promises2);
         result = result2;
     }
-
-    //console.log("result", result);
-    //console.log("result2", result2);
-    //result = result2 || result;
 
     const outBuffA = new BigBuffer(zkey.domainSize * curve.Fr.n8);
     const outBuffB = new BigBuffer(zkey.domainSize * curve.Fr.n8);
@@ -3009,7 +3033,7 @@ async function buildABCWASM1(curve, zkey, witness, coeffs, logger) {
         p += result[i][0].byteLength;
     }
 
-    console.timeEnd("buildABC");
+    console.timeEnd("buildABCWASM1");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -3110,936 +3134,200 @@ function monitorMemoryUsage(logger, interval = 5000) {
     }, interval);
 }
 
-async function open$1(fileName, openFlags, cacheSize, pageSize) {
-    cacheSize = cacheSize || 4096*64;
-    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
-        throw new Error("Invalid open option");
-    const fd =await fs.promises.open(fileName, openFlags);
-
-    const stats = await fd.stat();
-
-    return  new FastFile$1(fd, stats, cacheSize, pageSize, fileName);
+//#region src/memfile.js
+function e(e) {
+	let t = e.initialSize || 1 << 20, n = new s();
+	return n.o = e, n.o.data = new Uint8Array(t), n.allocSize = t, n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
 }
-
-
-class FastFile$1 {
-
-    constructor(fd, stats, cacheSize, pageSize, fileName) {
-        this.fileName = fileName;
-        this.fd = fd;
-        this.pos = 0;
-        this.pageSize = pageSize || (1 << 8);
-        while (this.pageSize < stats.blksize) {
-            this.pageSize *= 2;
-        }
-        this.totalSize = stats.size;
-        this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
-        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
-        this.pages = {};
-        this.pendingLoads = [];
-        this.writing = false;
-        this.reading = false;
-        this.avBuffs = [];
-        this.history = {};
-    }
-
-    _loadPage(p) {
-        const self = this;
-        const P = new Promise((resolve, reject)=> {
-            self.pendingLoads.push({
-                page: p,
-                resolve: resolve,
-                reject: reject
-            });
-        });
-        self.__statusPage("After Load request: ", p);
-        return P;
-    }
-
-    __statusPage(s, p) {
-        const logEntry = [];
-        const self=this;
-        if (!self.logHistory) return;
-        logEntry.push("==" + s+ " " +p);
-        let S = "";
-        for (let i=0; i<self.pendingLoads.length; i++) {
-            if (self.pendingLoads[i].page == p) S = S + " " + i;
-        }
-        if (S) logEntry.push("Pending loads:"+S);
-        if (typeof self.pages[p] != "undefined") {
-            const page = self.pages[p];
-            logEntry.push("Loaded");
-            logEntry.push("pendingOps: "+page.pendingOps);
-            if (page.loading) logEntry.push("loading: "+page.loading);
-            if (page.writing) logEntry.push("writing");
-            if (page.dirty) logEntry.push("dirty");
-        }
-        logEntry.push("==");
-
-        if (!self.history[p]) self.history[p] = [];
-        self.history[p].push(logEntry);
-    }
-
-    __printHistory(p) {
-        const self = this;
-        if (!self.history[p]) console.log("Empty History ", p);
-        console.log("History "+p);
-        for (let i=0; i<self.history[p].length; i++) {
-            for (let j=0; j<self.history[p][i].length; j++) {
-                console.log("-> " + self.history[p][i][j]);
-            }
-        }
-    }
-
-
-
-    _triggerLoad() {
-        const self = this;
-
-        if (self.reading) return;
-        if (self.pendingLoads.length==0) return;
-
-        const pageIdxs = Object.keys(self.pages);
-
-        const deletablePages = [];
-        for (let i=0; i<pageIdxs.length; i++) {
-            const page = self.pages[parseInt(pageIdxs[i])];
-            if ((page.dirty == false)&&(page.pendingOps==0)&&(!page.writing)&&(!page.loading)) deletablePages.push(parseInt(pageIdxs[i]));
-        }
-
-        let freePages = self.maxPagesLoaded - pageIdxs.length;
-
-        const ops = [];
-
-        // while pending loads and
-        //     the page is loaded or I can recover one.
-        while (
-            (self.pendingLoads.length>0) &&
-            (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
-              ||(  (freePages>0)
-                 ||(deletablePages.length>0)))) {
-            const load = self.pendingLoads.shift();
-            if (typeof self.pages[load.page] != "undefined") {
-                self.pages[load.page].pendingOps ++;
-                const idx = deletablePages.indexOf(load.page);
-                if (idx>=0) deletablePages.splice(idx, 1);
-                if (self.pages[load.page].loading) {
-                    self.pages[load.page].loading.push(load);
-                } else {
-                    load.resolve();
-                }
-                self.__statusPage("After Load (cached): ", load.page);
-
-            } else {
-                if (freePages) {
-                    freePages--;
-                } else {
-                    const fp = deletablePages.shift();
-                    self.__statusPage("Before Unload: ", fp);
-                    self.avBuffs.unshift(self.pages[fp]);
-                    delete self.pages[fp];
-                    self.__statusPage("After Unload: ", fp);
-                }
-
-                if (load.page>=self.totalPages) {
-                    self.pages[load.page] = getNewPage();
-                    load.resolve();
-                    self.__statusPage("After Load (new): ", load.page);
-                } else {
-                    self.reading = true;
-                    self.pages[load.page] = getNewPage();
-                    self.pages[load.page].loading = [load];
-                    ops.push(self.fd.read(self.pages[load.page].buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
-                        self.pages[load.page].size = res.bytesRead;
-                        const loading = self.pages[load.page].loading;
-                        delete self.pages[load.page].loading;
-                        for (let i=0; i<loading.length; i++) {
-                            loading[i].resolve();
-                        }
-                        self.__statusPage("After Load (loaded): ", load.page);
-                        return res;
-                    }, (err) => {
-                        load.reject(err);
-                    }));
-                    self.__statusPage("After Load (loading): ", load.page);
-                }
-            }
-        }
-        // if (ops.length>1) console.log(ops.length);
-
-        Promise.all(ops).then( () => {
-            self.reading = false;
-            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-            self._tryClose();
-        });
-
-        function getNewPage() {
-            if (self.avBuffs.length>0) {
-                const p = self.avBuffs.shift();
-                p.dirty = false;
-                p.pendingOps = 1;
-                p.size =0;
-                return p;
-            } else {
-                return {
-                    dirty: false,
-                    buff: new Uint8Array(self.pageSize),
-                    pendingOps: 1,
-                    size: 0
-                };
-            }
-        }
-
-    }
-
-
-    _triggerWrite() {
-        const self = this;
-        if (self.writing) return;
-
-        const pageIdxs = Object.keys(self.pages);
-
-        const ops = [];
-
-        for (let i=0; i<pageIdxs.length; i++) {
-            const page = self.pages[parseInt(pageIdxs[i])];
-            if (page.dirty) {
-                page.dirty = false;
-                page.writing = true;
-                self.writing = true;
-                ops.push( self.fd.write(page.buff, 0, page.size, parseInt(pageIdxs[i])*self.pageSize).then(() => {
-                    page.writing = false;
-                    return;
-                }, (err) => {
-                    console.log("ERROR Writing: "+err);
-                    self.error = err;
-                    self._tryClose();
-                }));
-            }
-        }
-
-        if (self.writing) {
-            Promise.all(ops).then( () => {
-                self.writing = false;
-                setImmediate(self._triggerWrite.bind(self));
-                self._tryClose();
-                if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-            });
-        }
-    }
-
-    _getDirtyPage() {
-        for (let p in this.pages) {
-            if (this.pages[p].dirty) return p;
-        }
-        return -1;
-    }
-
-    async write(buff, pos) {
-        if (buff.byteLength == 0) return;
-        const self = this;
-/*
-        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(buff.byteLength * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-*/
-        if (typeof pos == "undefined") pos = self.pos;
-        self.pos = pos+buff.byteLength;
-        if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
-        if (self.pendingClose)
-            throw new Error("Writing a closing file");
-        const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
-
-        const pagePromises = [];
-        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
-        self._triggerLoad();
-
-        let p = firstPage;
-        let o = pos % self.pageSize;
-        let r = buff.byteLength;
-        while (r>0) {
-            await pagePromises[p-firstPage];
-            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
-            const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            dstView.set(srcView);
-            self.pages[p].dirty = true;
-            self.pages[p].pendingOps --;
-            self.pages[p].size = Math.max(o+l, self.pages[p].size);
-            if (p>=self.totalPages) {
-                self.totalPages = p+1;
-            }
-            r = r-l;
-            p ++;
-            o = 0;
-            if (!self.writing) setImmediate(self._triggerWrite.bind(self));
-        }
-    }
-
-    async read(len, pos) {
-        const self = this;
-        let buff = new Uint8Array(len);
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    async readToBuffer(buffDst, offset, len, pos) {
-        if (len == 0) {
-            return;
-        }
-        const self = this;
-        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(len * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-        if (typeof pos == "undefined") pos = self.pos;
-        self.pos = pos+len;
-        if (self.pendingClose)
-            throw new Error("Reading a closing file");
-        const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos + len -1) / self.pageSize);
-
-        const pagePromises = [];
-        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
-
-        self._triggerLoad();
-
-        let p = firstPage;
-        let o = pos % self.pageSize;
-        // Remaining bytes to read
-        let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
-        while (r>0) {
-            await pagePromises[p - firstPage];
-            self.__statusPage("After Await (read): ", p);
-
-            // bytes to copy from this page
-            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
-            buffDst.set(srcView, offset+len-r);
-            self.pages[p].pendingOps --;
-
-            self.__statusPage("After Op done: ", p);
-
-            r = r-l;
-            p ++;
-            o = 0;
-            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-        }
-
-        this.pos = pos + len;
-
-    }
-
-
-    _tryClose() {
-        const self = this;
-        if (!self.pendingClose) return;
-        if (self.error) {
-            self.pendingCloseReject(self.error);
-        }
-        const p = self._getDirtyPage();
-        if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
-        self.pendingClose();
-    }
-
-    close() {
-        const self = this;
-        if (self.pendingClose)
-            throw new Error("Closing the file twice");
-        return new Promise((resolve, reject) => {
-            self.pendingClose = resolve;
-            self.pendingCloseReject = reject;
-            self._tryClose();
-        }).then(()=> {
-            self.fd.close();
-        }, (err) => {
-            self.fd.close();
-            throw (err);
-        });
-    }
-
-    async discard() {
-        const self = this;
-        await self.close();
-        await fs.promises.unlink(this.fileName);
-    }
-
-    async writeULE32(v, pos) {
-        const self = this;
-        const tmpBuff32 = new Uint8Array(4);
-        const tmpBuff32v = new DataView(tmpBuff32.buffer);
-
-        tmpBuff32v.setUint32(0, v, true);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        const tmpBuff32 = new Uint8Array(4);
-        const tmpBuff32v = new DataView(tmpBuff32.buffer);
-
-        tmpBuff32v.setUint32(0, v, false);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        const tmpBuff64 = new Uint8Array(8);
-        const tmpBuff64v = new DataView(tmpBuff64.buffer);
-
-        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64, pos);
-    }
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-
-        if (self.pendingClose) {
-            throw new Error("Reading a closing file");
-        }
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-        let currentPage = Math.floor(currentPosition / self.pageSize);
-
-        let endOfStringFound = false;
-        let str = "";
-
-        while (!endOfStringFound) {
-            //Read page
-            let pagePromise = self._loadPage(currentPage);
-            self._triggerLoad();
-            await pagePromise;
-            self.__statusPage("After Await (read): ", currentPage);
-
-            let offsetOnPage = currentPosition % self.pageSize;
-
-            const dataArray = new Uint8Array(
-                self.pages[currentPage].buff.buffer,
-                self.pages[currentPage].buff.byteOffset + offsetOnPage,
-                self.pageSize - offsetOnPage
-            );
-
-            let indexEndOfString = dataArray.findIndex(element => element === 0);
-            endOfStringFound = indexEndOfString !== -1;
-
-            if (endOfStringFound) {
-                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * this.pageSize + offsetOnPage + indexEndOfString + 1;
-            } else {
-                str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * this.pageSize + offsetOnPage + dataArray.length;
-            }
-
-            self.pages[currentPage].pendingOps--;
-            self.__statusPage("After Op done: ", currentPage);
-
-            currentPosition = self.pos;
-            currentPage++;
-
-            if (self.pendingLoads.length > 0) setImmediate(self._triggerLoad.bind(self));
-        }
-
-        return str;
-    }
+function t(e) {
+	let t = new s();
+	return t.o = e, t.allocSize = e.data.byteLength, t.totalSize = e.data.byteLength, t.readOnly = !0, t.pos = 0, t;
 }
-
-function createNew$1(o) {
-    const initialSize = o.initialSize || 1<<20;
-    const fd = new MemFile$1();
-    fd.o = o;
-    fd.o.data = new Uint8Array(initialSize);
-    fd.allocSize = initialSize;
-    fd.totalSize = 0;
-    fd.readOnly = false;
-    fd.pos = 0;
-    return fd;
+var r = new Uint8Array(4), i = new DataView(r.buffer), a = new Uint8Array(8), o = new DataView(a.buffer), s = class {
+	constructor() {
+		this.pageSize = 16384;
+	}
+	_resizeIfNeeded(e) {
+		if (e > this.allocSize) {
+			let t = Math.max(this.allocSize + (1 << 20), Math.floor(this.allocSize * 1.1), e), n = new Uint8Array(t);
+			n.set(this.o.data), this.o.data = n, this.allocSize = t;
+		}
+	}
+	async write(e, t) {
+		if (t === void 0 && (t = this.pos), this.readOnly) throw Error("Writing a read only file");
+		this._resizeIfNeeded(t + e.byteLength), this.o.data.set(e.slice(), t), t + e.byteLength > this.totalSize && (this.totalSize = t + e.byteLength), this.pos = t + e.byteLength;
+	}
+	async readToBuffer(e, t, n, r) {
+		if (r === void 0 && (r = this.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
+		this._resizeIfNeeded(r + n);
+		let i = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + r, n);
+		e.set(i, t), this.pos = r + n;
+	}
+	async read(e, t) {
+		let n = this, r = new Uint8Array(e);
+		return await n.readToBuffer(r, 0, e, t), r;
+	}
+	close() {
+		this.o.data.byteLength != this.totalSize && (this.o.data = this.o.data.slice(0, this.totalSize));
+	}
+	async discard() {}
+	async writeULE32(e, t) {
+		let n = this;
+		i.setUint32(0, e, !0), await n.write(r, t);
+	}
+	async writeUBE32(e, t) {
+		let n = this;
+		i.setUint32(0, e, !1), await n.write(r, t);
+	}
+	async writeULE64(e, t) {
+		let n = this;
+		o.setUint32(0, e & 4294967295, !0), o.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(a, t);
+	}
+	async readULE32(e) {
+		let t = await this.read(4, e);
+		return new Uint32Array(t.buffer)[0];
+	}
+	async readUBE32(e) {
+		let t = await this.read(4, e);
+		return new DataView(t.buffer).getUint32(0, !1);
+	}
+	async readULE64(e) {
+		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
+		return n[1] * 4294967296 + n[0];
+	}
+	async readString(e) {
+		let t = this, n = e === void 0 ? t.pos : e;
+		if (n > this.totalSize) {
+			if (this.readOnly) throw Error("Reading out of bounds");
+			this._resizeIfNeeded(e);
+		}
+		let r = new Uint8Array(t.o.data.buffer, n, this.totalSize - n), i = r.findIndex((e) => e === 0), a = i !== -1, o = "";
+		return a ? (o = new TextDecoder().decode(r.slice(0, i)), t.pos = n + i + 1) : t.pos = n, o;
+	}
+}, c = 1 << 22;
+function l(e) {
+	let t = e.initialSize || 0, n = new g();
+	n.o = e;
+	let r = t ? Math.floor((t - 1) / c) + 1 : 0;
+	n.o.data = [];
+	for (let e = 0; e < r - 1; e++) n.o.data.push(new Uint8Array(c));
+	return r && n.o.data.push(new Uint8Array(t - c * (r - 1))), n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
 }
-
-function readExisting$5(o) {
-    const fd = new MemFile$1();
-    fd.o = o;
-    fd.allocSize = o.data.byteLength;
-    fd.totalSize = o.data.byteLength;
-    fd.readOnly = true;
-    fd.pos = 0;
-    return fd;
+function u(e) {
+	let t = new g();
+	return t.o = e, t.totalSize = (e.data.length - 1) * c + e.data[e.data.length - 1].byteLength, t.readOnly = !0, t.pos = 0, t;
 }
-
-const tmpBuff32$3 = new Uint8Array(4);
-const tmpBuff32v$3 = new DataView(tmpBuff32$3.buffer);
-const tmpBuff64$3 = new Uint8Array(8);
-const tmpBuff64v$3 = new DataView(tmpBuff64$3.buffer);
-
-class MemFile$1 {
-
-    constructor() {
-        this.pageSize = 1 << 14;  // for compatibility
-    }
-
-    _resizeIfNeeded(newLen) {
-        if (newLen > this.allocSize) {
-            const newAllocSize = Math.max(
-                this.allocSize + (1 << 20),
-                Math.floor(this.allocSize * 1.1),
-                newLen
-            );
-            const newData = new Uint8Array(newAllocSize);
-            newData.set(this.o.data);
-            this.o.data = newData;
-            this.allocSize = newAllocSize;
-        }
-    }
-
-    async write(buff, pos) {
-        const self =this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) throw new Error("Writing a read only file");
-
-        this._resizeIfNeeded(pos + buff.byteLength);
-
-        this.o.data.set(buff.slice(), pos);
-
-        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
-
-        this.pos = pos + buff.byteLength;
-    }
-
-    async readToBuffer(buffDest, offset, len, pos) {
-        const self = this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) {
-            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
-        }
-        this._resizeIfNeeded(pos + len);
-
-        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
-
-        buffDest.set(buffSrc, offset);
-
-        this.pos = pos + len;
-    }
-
-    async read(len, pos) {
-        const self = this;
-
-        const buff = new Uint8Array(len);
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    close() {
-        if (this.o.data.byteLength != this.totalSize) {
-            this.o.data = this.o.data.slice(0, this.totalSize);
-        }
-    }
-
-    async discard() {
-    }
-
-
-    async writeULE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$3.setUint32(0, v, true);
-
-        await self.write(tmpBuff32$3, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$3.setUint32(0, v, false);
-
-        await self.write(tmpBuff32$3, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        tmpBuff64v$3.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$3.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64$3, pos);
-    }
-
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-
-        if (currentPosition > this.totalSize) {
-            if (this.readOnly) {
-                throw new Error("Reading out of bounds");
-            }
-            this._resizeIfNeeded(pos);
-        }
-        const dataArray = new Uint8Array(
-            self.o.data.buffer,
-            currentPosition,
-            this.totalSize - currentPosition
-        );
-
-        let indexEndOfString = dataArray.findIndex(element => element === 0);
-        let endOfStringFound = indexEndOfString !== -1;
-
-        let str = "";
-        if (endOfStringFound) {
-            str = new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-            self.pos = currentPosition + indexEndOfString + 1;
-        } else {
-            self.pos = currentPosition;
-        }
-        return str;
-    }
+var f = new Uint8Array(4), p = new DataView(f.buffer), m = new Uint8Array(8), h = new DataView(m.buffer), g = class {
+	constructor() {
+		this.pageSize = 16384;
+	}
+	_resizeIfNeeded(e) {
+		if (e <= this.totalSize) return;
+		if (this.readOnly) throw Error("Reading out of file bounds");
+		let t = Math.floor((e - 1) / c) + 1;
+		for (let n = Math.max(this.o.data.length - 1, 0); n < t; n++) {
+			let r = n < t - 1 ? c : e - (t - 1) * c, i = new Uint8Array(r);
+			n == this.o.data.length - 1 && i.set(this.o.data[n]), this.o.data[n] = i;
+		}
+		this.totalSize = e;
+	}
+	async write(e, t) {
+		let n = this;
+		if (t === void 0 && (t = n.pos), this.readOnly) throw Error("Writing a read only file");
+		this._resizeIfNeeded(t + e.byteLength);
+		let r = Math.floor(t / c), i = t % c, a = e.byteLength;
+		for (; a > 0;) {
+			let t = i + a > c ? c - i : a, o = e.slice(e.byteLength - a, e.byteLength - a + t);
+			new Uint8Array(n.o.data[r].buffer, i, t).set(o), a -= t, r++, i = 0;
+		}
+		this.pos = t + e.byteLength;
+	}
+	async readToBuffer(e, t, n, r) {
+		let i = this;
+		if (r === void 0 && (r = i.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
+		this._resizeIfNeeded(r + n);
+		let a = Math.floor(r / c), o = r % c, s = n;
+		for (; s > 0;) {
+			let r = o + s > c ? c - o : s, l = new Uint8Array(i.o.data[a].buffer, o, r);
+			e.set(l, t + n - s), s -= r, a++, o = 0;
+		}
+		this.pos = r + n;
+	}
+	async read(e, t) {
+		let n = this, r = new Uint8Array(e);
+		return await n.readToBuffer(r, 0, e, t), r;
+	}
+	close() {}
+	async discard() {}
+	async writeULE32(e, t) {
+		let n = this;
+		p.setUint32(0, e, !0), await n.write(f, t);
+	}
+	async writeUBE32(e, t) {
+		let n = this;
+		p.setUint32(0, e, !1), await n.write(f, t);
+	}
+	async writeULE64(e, t) {
+		let n = this;
+		h.setUint32(0, e & 4294967295, !0), h.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(m, t);
+	}
+	async readULE32(e) {
+		let t = await this.read(4, e);
+		return new Uint32Array(t.buffer)[0];
+	}
+	async readUBE32(e) {
+		let t = await this.read(4, e);
+		return new DataView(t.buffer).getUint32(0, !1);
+	}
+	async readULE64(e) {
+		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
+		return n[1] * 4294967296 + n[0];
+	}
+	async readString(e) {
+		let t = this, n = e === void 0 ? t.pos : e;
+		if (n > this.totalSize) {
+			if (this.readOnly) throw Error("Reading out of bounds");
+			this._resizeIfNeeded(e);
+		}
+		let r = !1, i = "";
+		for (; !r;) {
+			let e = Math.floor(n / c), a = n % c;
+			if (t.o.data[e] === void 0) throw Error("ERROR");
+			let o = Math.min(2048, t.o.data[e].length - a), s = new Uint8Array(t.o.data[e].buffer, a, o), l = s.findIndex((e) => e === 0);
+			r = l !== -1, r ? (i += new TextDecoder().decode(s.slice(0, l)), t.pos = e * c + a + l + 1) : (i += new TextDecoder().decode(s), t.pos = e * c + a + s.length), n = t.pos;
+		}
+		return i;
+	}
+}, _ = 65536;
+function v() {
+	throw Error("File I/O is not supported in the browser");
 }
-
-const PAGE_SIZE$1 = 1<<22;
-
-function createNew(o) {
-    const initialSize = o.initialSize || 0;
-    const fd = new BigMemFile$1();
-    fd.o = o;
-    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$1)+1 : 0;
-    fd.o.data = [];
-    for (let i=0; i<nPages-1; i++) {
-        fd.o.data.push( new Uint8Array(PAGE_SIZE$1));
-    }
-    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$1*(nPages-1)));
-    fd.totalSize = 0;
-    fd.readOnly = false;
-    fd.pos = 0;
-    return fd;
+function y(e, t) {
+	return e instanceof Uint8Array ? {
+		type: "mem",
+		data: e
+	} : typeof e == "string" ? {
+		type: "mem",
+		initialSize: t || _
+	} : e;
 }
-
-function readExisting$4(o) {
-    const fd = new BigMemFile$1();
-    fd.o = o;
-    fd.totalSize = (o.data.length-1)* PAGE_SIZE$1 + o.data[o.data.length-1].byteLength;
-    fd.readOnly = true;
-    fd.pos = 0;
-    return fd;
+async function b(e) {
+	let t = await fetch(e).then((e) => e.arrayBuffer());
+	return {
+		type: "mem",
+		data: new Uint8Array(t)
+	};
 }
-
-const tmpBuff32$2 = new Uint8Array(4);
-const tmpBuff32v$2 = new DataView(tmpBuff32$2.buffer);
-const tmpBuff64$2 = new Uint8Array(8);
-const tmpBuff64v$2 = new DataView(tmpBuff64$2.buffer);
-
-class BigMemFile$1 {
-
-    constructor() {
-        this.pageSize = 1 << 14;  // for compatibility
-    }
-
-    _resizeIfNeeded(newLen) {
-
-        if (newLen <= this.totalSize) return;
-
-        if (this.readOnly) throw new Error("Reading out of file bounds");
-
-        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$1)+1;
-        for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
-            const newSize = i<nPages-1 ? PAGE_SIZE$1 : newLen - (nPages-1)*PAGE_SIZE$1;
-            const p = new Uint8Array(newSize);
-            if (i == this.o.data.length-1) p.set(this.o.data[i]);
-            this.o.data[i] = p;
-        }
-        this.totalSize = newLen;
-    }
-
-    async write(buff, pos) {
-        const self =this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) throw new Error("Writing a read only file");
-
-        this._resizeIfNeeded(pos + buff.byteLength);
-
-        const firstPage = Math.floor(pos / PAGE_SIZE$1);
-
-        let p = firstPage;
-        let o = pos % PAGE_SIZE$1;
-        let r = buff.byteLength;
-        while (r>0) {
-            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
-            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
-            const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
-            dstView.set(srcView);
-            r = r-l;
-            p ++;
-            o = 0;
-        }
-
-        this.pos = pos + buff.byteLength;
-    }
-
-    async readToBuffer(buffDst, offset, len, pos) {
-        const self = this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) {
-            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
-        }
-        this._resizeIfNeeded(pos + len);
-
-        const firstPage = Math.floor(pos / PAGE_SIZE$1);
-
-        let p = firstPage;
-        let o = pos % PAGE_SIZE$1;
-        // Remaining bytes to read
-        let r = len;
-        while (r>0) {
-            // bytes to copy from this page
-            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
-            const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
-            buffDst.set(srcView, offset+len-r);
-            r = r-l;
-            p ++;
-            o = 0;
-        }
-
-        this.pos = pos + len;
-    }
-
-    async read(len, pos) {
-        const self = this;
-        const buff = new Uint8Array(len);
-
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    close() {
-    }
-
-    async discard() {
-    }
-
-
-    async writeULE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$2.setUint32(0, v, true);
-
-        await self.write(tmpBuff32$2, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$2.setUint32(0, v, false);
-
-        await self.write(tmpBuff32$2, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        tmpBuff64v$2.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$2.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64$2, pos);
-    }
-
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-        const fixedSize = 2048;
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-
-        if (currentPosition > this.totalSize) {
-            if (this.readOnly) {
-                throw new Error("Reading out of bounds");
-            }
-            this._resizeIfNeeded(pos);
-        }
-
-        let endOfStringFound = false;
-        let str = "";
-
-        while (!endOfStringFound) {
-            let currentPage = Math.floor(currentPosition / PAGE_SIZE$1);
-            let offsetOnPage = currentPosition % PAGE_SIZE$1;
-
-            if (self.o.data[currentPage] === undefined) {
-                throw new Error("ERROR");
-            }
-
-            let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
-            const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
-
-            let indexEndOfString = dataArray.findIndex(element => element === 0);
-            endOfStringFound = indexEndOfString !== -1;
-
-            if (endOfStringFound) {
-                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + indexEndOfString + 1;
-            } else {
-                str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + dataArray.length;
-            }
-
-            currentPosition = self.pos;
-        }
-        return str;
-    }
+function x(e, t, n) {
+	if (e.type === "file" && v(), e.type === "mem") return t(e);
+	if (e.type === "bigMem") return n(e);
+	throw Error("Invalid FastFile type: " + e.type);
 }
-
-const O_TRUNC = 512;
-const O_CREAT = 64;
-const O_RDWR = 2;
-const O_RDONLY = 0;
-
-/* global fetch */
-
-const DEFAULT_CACHE_SIZE = (1 << 16);
-const DEFAULT_PAGE_SIZE = (1 << 13);
-
-
-async function createOverride(o, b, c) {
-    if (typeof o === "string") {
-        o = {
-            type: "file",
-            fileName: o,
-            cacheSize: b || DEFAULT_CACHE_SIZE,
-            pageSize: c || DEFAULT_PAGE_SIZE
-        };
-    }
-    if (o.type == "file") {
-        return await open$1(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
-    } else if (o.type == "mem") {
-        return createNew$1(o);
-    } else if (o.type == "bigMem") {
-        return createNew(o);
-    } else {
-        throw new Error("Invalid FastFile type: "+o.type);
-    }
+function S(t, n) {
+	return x(y(t, n), e, l);
 }
-
-async function readExisting$3(o, b, c) {
-    if (o instanceof Uint8Array) {
-        o = {
-            type: "mem",
-            data: o
-        };
-    }
-    {
-        if (typeof o === "string") {
-            const buff = await fetch(o).then( function(res) {
-                return res.arrayBuffer();
-            }).then(function (ab) {
-                return new Uint8Array(ab);
-            });
-            o = {
-                type: "mem",
-                data: buff
-            };
-        }
-    }
-    if (o.type == "file") {
-        return await open$1(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
-    } else if (o.type == "mem") {
-        return await readExisting$5(o);
-    } else if (o.type == "bigMem") {
-        return await readExisting$4(o);
-    } else {
-        throw new Error("Invalid FastFile type: "+o.type);
-    }
+async function w(e) {
+	return e = typeof e == "string" ? await b(e) : y(e), x(e, t, u);
 }
 
 /*
@@ -4681,7 +3969,7 @@ const { unstringifyBigInts: unstringifyBigInts$b} = utils;
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const input = unstringifyBigInts$b(_input);
 
-    const fdWasm = await readExisting$3(wasmFileName);
+    const fdWasm = await w(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -4694,7 +3982,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
         await writeBin(fdWtns, w, wc.prime);
         await fdWtns.close();
     } else {
-        const fdWtns = await createOverride(wtnsFileName);
+        const fdWtns = await S(wtnsFileName);
 
         const w = await wc.calculateWTNSBin(input);
 
@@ -5459,7 +4747,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     if (logger) logger.info(formatHash(curChallengeHash, "New Challenge Hash: "));
 
 
-    const fdTo = await createOverride(challengeFilename);
+    const fdTo = await S(challengeFilename);
 
     const toHash = blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
@@ -5542,7 +4830,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const sG2 = curve.F2.n8*2;
     const scG2 = curve.F2.n8; // Compressed size
 
-    const fdResponse = await readExisting$3(contributionFilename);
+    const fdResponse = await w(contributionFilename);
 
     if  (fdResponse.totalSize !=
         64 +                            // Old Hash
@@ -6312,7 +5600,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 */
 
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    const fdFrom = await readExisting$3(challengeFilename);
+    const fdFrom = await w(challengeFilename);
 
 
     const sG1 = curve.F1.n64*8*2;
@@ -6330,7 +5618,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
 
     const rng = await getRandomRng(entropy);
 
-    const fdTo = await createOverride(responseFileName);
+    const fdTo = await S(responseFileName);
 
     // Calculate the hash
     const challengeHasher = blake2b.create({ dkLen: 64 });
@@ -8171,6 +7459,8 @@ class BigMemFile {
     }
 }
 
+const O_RDONLY = 0;
+
 /* global fetch */
 
 async function readExisting(o, b, c) {
@@ -8674,7 +7964,7 @@ async function loadSymbols(symFileName) {
         varIdx2Name: [ "one" ],
         componentIdx2Name: []
     };
-    const fd = await readExisting$3(symFileName);
+    const fd = await w(symFileName);
     const buff = await fd.read(fd.totalSize);
     const symsStr = new TextDecoder("utf-8").decode(buff);
     const lines = symsStr.split("\n");
@@ -8728,7 +8018,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
 
     const input = unstringifyBigInts$7(_input);
 
-    const fdWasm = await readExisting$3(wasmFileName);
+    const fdWasm = await w(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -8760,11 +8050,11 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     wcOps.sym = sym;
 
     const wc = await builder(wasm, wcOps);
-    const w = await wc.calculateWitness(input, true);
+    const w$1 = await wc.calculateWitness(input, true);
 
     const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
 
-    await write(fdWtns, w, wc.prime);
+    await write(fdWtns, w$1, wc.prime);
 
     await fdWtns.close();
 }
@@ -9704,7 +8994,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     const mpcParams = await readMPCParams(fdZKey, curve, sectionsZKey);
 
-    const fdMPCParams = await createOverride(mpcparamsName);
+    const fdMPCParams = await S(mpcparamsName);
 
     /////////////////////
     // Verification Key Section
@@ -9858,7 +9148,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await readExisting$3(mpcparamsName);
+    const fdMPCParams = await w(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -10733,8 +10023,8 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await readExisting$3(challengeFilename);
-    const fdTo = await createOverride(responseFileName);
+    const fdFrom = await w(challengeFilename);
+    const fdTo = await S(responseFileName);
 
 
     await copy(sG1); // alpha1
