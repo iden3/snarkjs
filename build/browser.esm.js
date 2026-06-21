@@ -1,5 +1,4 @@
 import { Scalar, BigBuffer, buildBn128, buildBls12381, ChaCha, F1Field, utils, getCurveFromR as getCurveFromR$1 } from 'ffjavascript';
-import { constants } from 'node:fs';
 
 var fs = {};
 
@@ -28,6 +27,12 @@ class FastFile$1 {
         this.totalSize = stats.size;
         this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
         this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
+        // Reads/writes at least this large bypass the page cache and move bytes
+        // straight between disk and the caller's buffer (see readToBuffer /
+        // write), avoiding the extra buffer<->page copy that dominates large
+        // sequential transfers (e.g. zkey/ptau sections).
+        this.directReadThreshold = 1 << 20;
+        this.directWriteThreshold = 1 << 20;
         this.pages = {};
         this.pendingLoads = [];
         this.writing = false;
@@ -228,20 +233,40 @@ class FastFile$1 {
         return -1;
     }
 
+    _rangeHasCachedPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (let p = firstPage; p <= lastPage; p++) {
+            if (this.pages[p]) return true;
+        }
+        return false;
+    }
+
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
-        /*
-        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(buff.byteLength * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-        */
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
         if (self.pendingClose)
             throw new Error("Writing a closing file");
+
+        // Direct-write fast path: for large writes to a region with no cached
+        // pages, write straight to disk, skipping the buff->page copy and the
+        // deferred page flush. Any cached page in range (even clean) would go
+        // stale after a direct write, so we fall back to the cached path then.
+        if (buff.byteLength >= self.directWriteThreshold && !self._rangeHasCachedPages(pos, buff.byteLength)) {
+            let done = 0;
+            while (done < buff.byteLength) {
+                const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
+                if (bytesWritten === 0) break;   // should not happen
+                done += bytesWritten;
+            }
+            const lastPage = Math.floor((pos + buff.byteLength - 1) / self.pageSize);
+            if (lastPage + 1 > self.totalPages) self.totalPages = lastPage + 1;
+            return;
+        }
+
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
 
@@ -279,19 +304,46 @@ class FastFile$1 {
         return buff;
     }
 
+    _rangeHasDirtyPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (let p = firstPage; p <= lastPage; p++) {
+            const page = this.pages[p];
+            if (page && (page.dirty || page.writing)) return true;
+        }
+        return false;
+    }
+
     async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
             return;
         }
         const self = this;
-        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(len * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+len;
         if (self.pendingClose)
             throw new Error("Reading a closing file");
+
+        // Direct-read fast path: for large reads with no overlapping unwritten
+        // (dirty) pages, copy straight from disk into the destination buffer.
+        // This skips the page cache and the page->destination copy it incurs,
+        // which dominates large sequential reads (e.g. zkey/ptau sections).
+        if (len >= self.directReadThreshold && !self._rangeHasDirtyPages(pos, len)) {
+            let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
+            if (toRead < 0) toRead = 0;
+            let done = 0;
+            while (done < toRead) {
+                const { bytesRead } = await self.fd.read(buffDst, offset + done, toRead - done, pos + done);
+                if (bytesRead === 0) break;   // EOF
+                done += bytesRead;
+            }
+            return;
+        }
+
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + len -1) / self.pageSize);
 
@@ -873,7 +925,10 @@ class BigMemFile$1 {
     }
 }
 
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY: O_RDONLY$1 } = constants;
+// Read open-mode flags from fs.constants instead of a separate builtin import,
+// so bundlers that stub the "fs" module for the browser cover these too. The
+// flags are only used on the Node file path, never in the browser.
+const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY: O_RDONLY$1 } = fs.constants || {};
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
