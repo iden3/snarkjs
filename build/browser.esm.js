@@ -233,11 +233,15 @@ class FastFile$1 {
         return -1;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
     _rangeHasCachedPages(pos, len) {
         const firstPage = Math.floor(pos / this.pageSize);
         const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (let p = firstPage; p <= lastPage; p++) {
-            if (this.pages[p]) return true;
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) return true;
         }
         return false;
     }
@@ -255,7 +259,9 @@ class FastFile$1 {
         // pages, write straight to disk, skipping the buff->page copy and the
         // deferred page flush. Any cached page in range (even clean) would go
         // stale after a direct write, so we fall back to the cached path then.
-        if (buff.byteLength >= self.directWriteThreshold && !self._rangeHasCachedPages(pos, buff.byteLength)) {
+        // ArrayBuffer.isView gate: fd.write needs a real TypedArray/DataView; a
+        // BigBuffer (paged, not a view) must use the cached path.
+        if (buff.byteLength >= self.directWriteThreshold && ArrayBuffer.isView(buff) && !self._rangeHasCachedPages(pos, buff.byteLength)) {
             let done = 0;
             while (done < buff.byteLength) {
                 const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
@@ -304,12 +310,18 @@ class FastFile$1 {
         return buff;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
     _rangeHasDirtyPages(pos, len) {
         const firstPage = Math.floor(pos / this.pageSize);
         const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (let p = firstPage; p <= lastPage; p++) {
-            const page = this.pages[p];
-            if (page && (page.dirty || page.writing)) return true;
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) {
+                const page = this.pages[p];
+                if (page.dirty || page.writing) return true;
+            }
         }
         return false;
     }
@@ -328,7 +340,10 @@ class FastFile$1 {
         // (dirty) pages, copy straight from disk into the destination buffer.
         // This skips the page cache and the page->destination copy it incurs,
         // which dominates large sequential reads (e.g. zkey/ptau sections).
-        if (len >= self.directReadThreshold && !self._rangeHasDirtyPages(pos, len)) {
+        // ArrayBuffer.isView gate: the direct path hands buffDst to fd.read, which
+        // needs a real TypedArray/DataView. A BigBuffer (paged, not a view) must
+        // go through the cached path, which copies into it via its own .set().
+        if (len >= self.directReadThreshold && ArrayBuffer.isView(buffDst) && !self._rangeHasDirtyPages(pos, len)) {
             let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
             if (toRead < 0) toRead = 0;
             let done = 0;
@@ -925,13 +940,17 @@ class BigMemFile$1 {
     }
 }
 
-// Read open-mode flags from fs.constants instead of a separate builtin import,
-// so bundlers that stub the "fs" module for the browser cover these too. The
-// flags are only used on the Node file path, never in the browser.
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY: O_RDONLY$1 } = fs.constants || {};
+const O_TRUNC = 512;
+const O_CREAT = 64;
+const O_RDWR = 2;
+const O_RDONLY = 0;
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
+
+// Robust Node detection that never throws (unlike `true`, which is a
+// webpack-ism and is undefined under Vite/esbuild/SES).
+const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 
 
 async function createOverride(o, b, c) {
@@ -961,7 +980,7 @@ async function readExisting$3(o, b, c) {
             data: o
         };
     }
-    {
+    if (!isNode) {
         if (typeof o === "string") {
             const buff = await fetch(o).then( function(res) {
                 return res.arrayBuffer();
@@ -973,9 +992,18 @@ async function readExisting$3(o, b, c) {
                 data: buff
             };
         }
+    } else {
+        if (typeof o === "string") {
+            o = {
+                type: "file",
+                fileName: o,
+                cacheSize: b || DEFAULT_CACHE_SIZE,
+                pageSize: c || DEFAULT_PAGE_SIZE
+            };
+        }
     }
     if (o.type == "file") {
-        return await open$1(o.fileName, O_RDONLY$1, o.cacheSize, o.pageSize);
+        return await open$1(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await readExisting$5(o);
     } else if (o.type == "bigMem") {
@@ -989,7 +1017,7 @@ const MAX_BUFFER_SIZE = ( typeof Buffer !== "undefined" && Buffer.constants && B
 
 async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
-    const fd = await readExisting$3(fileName);
+    const fd = await readExisting$3(fileName, cacheSize, pageSize);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -1693,6 +1721,10 @@ class BLAKE2b extends BLAKE {
  */
 const blake2b = /* @__PURE__ */ wrapConstructorWithOpts((opts) => new BLAKE2b(opts));
 
+var readline = {};
+
+var crypto = {};
+
 /*
     Copyright 2018 0KIMS association.
 
@@ -1801,22 +1833,45 @@ async function sameRatio$2(curve, g1s, g1sx, g2s, g2sx) {
 
 
 function askEntropy() {
-    {
+    // Use the browser prompt only when a real DOM window exists. "not Node" is
+    // NOT the same as "browser" (Bun/Deno/edge/SES have neither window nor are
+    // classic Node), so detect the actual API.
+    if (typeof window !== "undefined" && typeof window.prompt === "function") {
         return window.prompt("Enter a random text. (Entropy): ", "");
+    } else {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        return new Promise((resolve) => {
+            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
+        });
     }
 }
 
 function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    { // Supported
-        globalThis.crypto.getRandomValues(array);
+    if (crypto && crypto.randomFillSync) { // Node: no per-call size limit
+        crypto.randomFillSync(array);
+    } else if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
+        // Web Crypto caps each call at 65536 bytes; fill in windows.
+        for (let i = 0; i < n; i += 65536) {
+            globalThis.crypto.getRandomValues(array.subarray(i, Math.min(i + 65536, n)));
+        }
+    } else {
+        throw new Error("No secure random source available");
     }
     return array;
 }
 
 async function sha256digest(data) {
-    { // Supported
-        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
+    if (crypto && crypto.createHash) { // Node
+        return crypto.createHash("sha256").update(data).digest();
+    } else {
+        // Web Crypto: pass the view (data), not data.buffer, so byteOffset and
+        // byteLength of subarray views are respected.
+        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data);
         return new Uint8Array(buffer);
     }
 }
@@ -2510,11 +2565,11 @@ const {stringifyBigInts: stringifyBigInts$4} = utils;
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     if (logger) monitorMemoryUsage(logger, 50);
-    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2);
+    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
 
-    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile$1(zkeyFileName, "zkey", 2);
+    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile$1(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
     const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
 
@@ -3189,202 +3244,6 @@ function monitorMemoryUsage(logger, interval = 5000) {
     }, interval);
 }
 
-//#region src/memfile.js
-function e(e) {
-	let t = e.initialSize || 1 << 20, n = new s();
-	return n.o = e, n.o.data = new Uint8Array(t), n.allocSize = t, n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
-}
-function t(e) {
-	let t = new s();
-	return t.o = e, t.allocSize = e.data.byteLength, t.totalSize = e.data.byteLength, t.readOnly = !0, t.pos = 0, t;
-}
-var r = new Uint8Array(4), i = new DataView(r.buffer), a = new Uint8Array(8), o = new DataView(a.buffer), s = class {
-	constructor() {
-		this.pageSize = 16384;
-	}
-	_resizeIfNeeded(e) {
-		if (e > this.allocSize) {
-			let t = Math.max(this.allocSize + (1 << 20), Math.floor(this.allocSize * 1.1), e), n = new Uint8Array(t);
-			n.set(this.o.data), this.o.data = n, this.allocSize = t;
-		}
-	}
-	async write(e, t) {
-		if (t === void 0 && (t = this.pos), this.readOnly) throw Error("Writing a read only file");
-		this._resizeIfNeeded(t + e.byteLength), this.o.data.set(e.slice(), t), t + e.byteLength > this.totalSize && (this.totalSize = t + e.byteLength), this.pos = t + e.byteLength;
-	}
-	async readToBuffer(e, t, n, r) {
-		if (r === void 0 && (r = this.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
-		this._resizeIfNeeded(r + n);
-		let i = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + r, n);
-		e.set(i, t), this.pos = r + n;
-	}
-	async read(e, t) {
-		let n = this, r = new Uint8Array(e);
-		return await n.readToBuffer(r, 0, e, t), r;
-	}
-	close() {
-		this.o.data.byteLength != this.totalSize && (this.o.data = this.o.data.slice(0, this.totalSize));
-	}
-	async discard() {}
-	async writeULE32(e, t) {
-		let n = this;
-		i.setUint32(0, e, !0), await n.write(r, t);
-	}
-	async writeUBE32(e, t) {
-		let n = this;
-		i.setUint32(0, e, !1), await n.write(r, t);
-	}
-	async writeULE64(e, t) {
-		let n = this;
-		o.setUint32(0, e & 4294967295, !0), o.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(a, t);
-	}
-	async readULE32(e) {
-		let t = await this.read(4, e);
-		return new Uint32Array(t.buffer)[0];
-	}
-	async readUBE32(e) {
-		let t = await this.read(4, e);
-		return new DataView(t.buffer).getUint32(0, !1);
-	}
-	async readULE64(e) {
-		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
-		return n[1] * 4294967296 + n[0];
-	}
-	async readString(e) {
-		let t = this, n = e === void 0 ? t.pos : e;
-		if (n > this.totalSize) {
-			if (this.readOnly) throw Error("Reading out of bounds");
-			this._resizeIfNeeded(e);
-		}
-		let r = new Uint8Array(t.o.data.buffer, n, this.totalSize - n), i = r.findIndex((e) => e === 0), a = i !== -1, o = "";
-		return a ? (o = new TextDecoder().decode(r.slice(0, i)), t.pos = n + i + 1) : t.pos = n, o;
-	}
-}, c = 1 << 22;
-function l(e) {
-	let t = e.initialSize || 0, n = new g();
-	n.o = e;
-	let r = t ? Math.floor((t - 1) / c) + 1 : 0;
-	n.o.data = [];
-	for (let e = 0; e < r - 1; e++) n.o.data.push(new Uint8Array(c));
-	return r && n.o.data.push(new Uint8Array(t - c * (r - 1))), n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
-}
-function u(e) {
-	let t = new g();
-	return t.o = e, t.totalSize = (e.data.length - 1) * c + e.data[e.data.length - 1].byteLength, t.readOnly = !0, t.pos = 0, t;
-}
-var f = new Uint8Array(4), p = new DataView(f.buffer), m = new Uint8Array(8), h = new DataView(m.buffer), g = class {
-	constructor() {
-		this.pageSize = 16384;
-	}
-	_resizeIfNeeded(e) {
-		if (e <= this.totalSize) return;
-		if (this.readOnly) throw Error("Reading out of file bounds");
-		let t = Math.floor((e - 1) / c) + 1;
-		for (let n = Math.max(this.o.data.length - 1, 0); n < t; n++) {
-			let r = n < t - 1 ? c : e - (t - 1) * c, i = new Uint8Array(r);
-			n == this.o.data.length - 1 && i.set(this.o.data[n]), this.o.data[n] = i;
-		}
-		this.totalSize = e;
-	}
-	async write(e, t) {
-		let n = this;
-		if (t === void 0 && (t = n.pos), this.readOnly) throw Error("Writing a read only file");
-		this._resizeIfNeeded(t + e.byteLength);
-		let r = Math.floor(t / c), i = t % c, a = e.byteLength;
-		for (; a > 0;) {
-			let t = i + a > c ? c - i : a, o = e.slice(e.byteLength - a, e.byteLength - a + t);
-			new Uint8Array(n.o.data[r].buffer, i, t).set(o), a -= t, r++, i = 0;
-		}
-		this.pos = t + e.byteLength;
-	}
-	async readToBuffer(e, t, n, r) {
-		let i = this;
-		if (r === void 0 && (r = i.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
-		this._resizeIfNeeded(r + n);
-		let a = Math.floor(r / c), o = r % c, s = n;
-		for (; s > 0;) {
-			let r = o + s > c ? c - o : s, l = new Uint8Array(i.o.data[a].buffer, o, r);
-			e.set(l, t + n - s), s -= r, a++, o = 0;
-		}
-		this.pos = r + n;
-	}
-	async read(e, t) {
-		let n = this, r = new Uint8Array(e);
-		return await n.readToBuffer(r, 0, e, t), r;
-	}
-	close() {}
-	async discard() {}
-	async writeULE32(e, t) {
-		let n = this;
-		p.setUint32(0, e, !0), await n.write(f, t);
-	}
-	async writeUBE32(e, t) {
-		let n = this;
-		p.setUint32(0, e, !1), await n.write(f, t);
-	}
-	async writeULE64(e, t) {
-		let n = this;
-		h.setUint32(0, e & 4294967295, !0), h.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(m, t);
-	}
-	async readULE32(e) {
-		let t = await this.read(4, e);
-		return new Uint32Array(t.buffer)[0];
-	}
-	async readUBE32(e) {
-		let t = await this.read(4, e);
-		return new DataView(t.buffer).getUint32(0, !1);
-	}
-	async readULE64(e) {
-		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
-		return n[1] * 4294967296 + n[0];
-	}
-	async readString(e) {
-		let t = this, n = e === void 0 ? t.pos : e;
-		if (n > this.totalSize) {
-			if (this.readOnly) throw Error("Reading out of bounds");
-			this._resizeIfNeeded(e);
-		}
-		let r = !1, i = "";
-		for (; !r;) {
-			let e = Math.floor(n / c), a = n % c;
-			if (t.o.data[e] === void 0) throw Error("ERROR");
-			let o = Math.min(2048, t.o.data[e].length - a), s = new Uint8Array(t.o.data[e].buffer, a, o), l = s.findIndex((e) => e === 0);
-			r = l !== -1, r ? (i += new TextDecoder().decode(s.slice(0, l)), t.pos = e * c + a + l + 1) : (i += new TextDecoder().decode(s), t.pos = e * c + a + s.length), n = t.pos;
-		}
-		return i;
-	}
-}, _ = 65536;
-function v() {
-	throw Error("File I/O is not supported in the browser");
-}
-function y(e, t) {
-	return e instanceof Uint8Array ? {
-		type: "mem",
-		data: e
-	} : typeof e == "string" ? {
-		type: "mem",
-		initialSize: t || _
-	} : e;
-}
-async function b(e) {
-	let t = await fetch(e).then((e) => e.arrayBuffer());
-	return {
-		type: "mem",
-		data: new Uint8Array(t)
-	};
-}
-function x(e, t, n) {
-	if (e.type === "file" && v(), e.type === "mem") return t(e);
-	if (e.type === "bigMem") return n(e);
-	throw Error("Invalid FastFile type: " + e.type);
-}
-function S(t, n) {
-	return x(y(t, n), e, l);
-}
-async function w(e) {
-	return e = typeof e == "string" ? await b(e) : y(e), x(e, t, u);
-}
-
 /*
 
 Copyright 2020 0KIMS association.
@@ -4024,7 +3883,7 @@ const { unstringifyBigInts: unstringifyBigInts$b} = utils;
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const input = unstringifyBigInts$b(_input);
 
-    const fdWasm = await w(wasmFileName);
+    const fdWasm = await readExisting$3(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -4037,7 +3896,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
         await writeBin(fdWtns, w, wc.prime);
         await fdWtns.close();
     } else {
-        const fdWtns = await S(wtnsFileName);
+        const fdWtns = await createOverride(wtnsFileName);
 
         const w = await wc.calculateWTNSBin(input);
 
@@ -4802,7 +4661,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     if (logger) logger.info(formatHash(curChallengeHash, "New Challenge Hash: "));
 
 
-    const fdTo = await S(challengeFilename);
+    const fdTo = await createOverride(challengeFilename);
 
     const toHash = blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
@@ -4885,7 +4744,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     const sG2 = curve.F2.n8*2;
     const scG2 = curve.F2.n8; // Compressed size
 
-    const fdResponse = await w(contributionFilename);
+    const fdResponse = await readExisting$3(contributionFilename);
 
     if  (fdResponse.totalSize !=
         64 +                            // Old Hash
@@ -5655,7 +5514,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 */
 
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    const fdFrom = await w(challengeFilename);
+    const fdFrom = await readExisting$3(challengeFilename);
 
 
     const sG1 = curve.F1.n64*8*2;
@@ -5673,7 +5532,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
 
     const rng = await getRandomRng(entropy);
 
-    const fdTo = await S(responseFileName);
+    const fdTo = await createOverride(responseFileName);
 
     // Calculate the hash
     const challengeHasher = blake2b.create({ dkLen: 64 });
@@ -7514,8 +7373,6 @@ class BigMemFile {
     }
 }
 
-const O_RDONLY = 0;
-
 /* global fetch */
 
 async function readExisting(o, b, c) {
@@ -8019,7 +7876,7 @@ async function loadSymbols(symFileName) {
         varIdx2Name: [ "one" ],
         componentIdx2Name: []
     };
-    const fd = await w(symFileName);
+    const fd = await readExisting$3(symFileName);
     const buff = await fd.read(fd.totalSize);
     const symsStr = new TextDecoder("utf-8").decode(buff);
     const lines = symsStr.split("\n");
@@ -8073,7 +7930,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
 
     const input = unstringifyBigInts$7(_input);
 
-    const fdWasm = await w(wasmFileName);
+    const fdWasm = await readExisting$3(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 
@@ -8105,11 +7962,11 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     wcOps.sym = sym;
 
     const wc = await builder(wasm, wcOps);
-    const w$1 = await wc.calculateWitness(input, true);
+    const w = await wc.calculateWitness(input, true);
 
     const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
 
-    await write(fdWtns, w$1, wc.prime);
+    await write(fdWtns, w, wc.prime);
 
     await fdWtns.close();
 }
@@ -8168,7 +8025,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
     const {
         fd: fdR1cs,
         sections: sectionsR1cs
-    } = await readBinFile$1(r1csFilename, "r1cs", 1);
+    } = await readBinFile$1(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
 
     // Read witness file
@@ -8176,7 +8033,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
     const {
         fd: fdWtns,
         sections: wtnsSections
-    } = await readBinFile$1(wtnsFilename, "wtns", 2);
+    } = await readBinFile$1(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24);
     const wtnsHeader = await readHeader(fdWtns, wtnsSections);
 
     if (!Scalar.eq(r1cs.prime, wtnsHeader.q)) {
@@ -8439,9 +8296,9 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const BETATAU_G1 = 3;
     const csHasher = blake2b.create({ dkLen: 64 });
 
-    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1, 1<<22, 1<<24);
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
@@ -9049,7 +8906,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
     const mpcParams = await readMPCParams(fdZKey, curve, sectionsZKey);
 
-    const fdMPCParams = await S(mpcparamsName);
+    const fdMPCParams = await createOverride(mpcparamsName);
 
     /////////////////////
     // Verification Key Section
@@ -9203,7 +9060,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await w(mpcparamsName);
+    const fdMPCParams = await readExisting$3(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -10078,8 +9935,8 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
 
-    const fdFrom = await w(challengeFilename);
-    const fdTo = await S(responseFileName);
+    const fdFrom = await readExisting$3(challengeFilename);
+    const fdTo = await createOverride(responseFileName);
 
 
     await copy(sG1); // alpha1
@@ -10501,9 +10358,9 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
 
-    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1);
+    const {fd: fdPTau, sections: sectionsPTau} = await readBinFile$1(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csName, "r1cs", 1, 1<<22, 1<<24);
 
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
@@ -12554,7 +12411,7 @@ class Evaluations {
 const {stringifyBigInts: stringifyBigInts$1} = utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
-    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2);
+    const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     // Read witness file
     if (logger) logger.debug("> Reading witness file");
@@ -12562,7 +12419,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     // Read zkey file
     if (logger) logger.debug("> Reading zkey file");
-    const {fd: fdZKey, sections: zkeySections} = await readBinFile$1(zkeyFileName, "zkey", 2);
+    const {fd: fdZKey, sections: zkeySections} = await readBinFile$1(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
     const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
@@ -14273,7 +14130,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
-    const {fd: fdPTau, sections: pTauSections} = await readBinFile$1(ptauFilename, "ptau", 1);
+    const {fd: fdPTau, sections: pTauSections} = await readBinFile$1(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -14284,7 +14141,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csFilename, "r1cs", 1);
+    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile$1(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
@@ -14797,7 +14654,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     const {
         fd: fdWtns,
         sections: wtnsSections
-    } = await readBinFile$1(witnessFileName, "wtns", 2);
+    } = await readBinFile$1(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
     const wtns = await readHeader(fdWtns, wtnsSections);
 
     //Read zkey file
@@ -14805,7 +14662,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     const {
         fd: fdZKey,
         sections: zkeySections
-    } = await readBinFile$1(zkeyFileName, "zkey", 2);
+    } = await readBinFile$1(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
 
     const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
 

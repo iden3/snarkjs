@@ -138,7 +138,10 @@ export async function sameRatio(curve, g1s, g1sx, g2s, g2sx) {
 
 
 export function askEntropy() {
-    if (process.browser) {
+    // Use the browser prompt only when a real DOM window exists. "not Node" is
+    // NOT the same as "browser" (Bun/Deno/edge/SES have neither window nor are
+    // classic Node), so detect the actual API.
+    if (typeof window !== "undefined" && typeof window.prompt === "function") {
         return window.prompt("Enter a random text. (Entropy): ", "");
     } else {
         const rl = readline.createInterface({
@@ -154,20 +157,27 @@ export function askEntropy() {
 
 export function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (process.browser) { // Supported
-        globalThis.crypto.getRandomValues(array);
-    } else { // NodeJS
+    if (crypto && crypto.randomFillSync) { // Node: no per-call size limit
         crypto.randomFillSync(array);
+    } else if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
+        // Web Crypto caps each call at 65536 bytes; fill in windows.
+        for (let i = 0; i < n; i += 65536) {
+            globalThis.crypto.getRandomValues(array.subarray(i, Math.min(i + 65536, n)));
+        }
+    } else {
+        throw new Error("No secure random source available");
     }
     return array;
 }
 
 export async function sha256digest(data) {
-    if (process.browser) { // Supported
-        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data.buffer);
-        return new Uint8Array(buffer);
-    } else { // NodeJS
+    if (crypto && crypto.createHash) { // Node
         return crypto.createHash("sha256").update(data).digest();
+    } else {
+        // Web Crypto: pass the view (data), not data.buffer, so byteOffset and
+        // byteLength of subarray views are respected.
+        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data);
+        return new Uint8Array(buffer);
     }
 }
 
