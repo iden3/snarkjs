@@ -2595,6 +2595,21 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     if (logger) logger.debug("Reading Wtns");
     const buffWitness = await readSection$1(fdWtns, sectionsWtns, 2);
 
+    // Reader for a zkey section that returns an arbitrary sub-range directly from
+    // disk, used to feed multiExp bases to the workers in chunks instead of
+    // reading the whole (potentially hundreds of MB) section into one buffer and
+    // slicing it. Bounds the bases resident in RAM to a few in-flight chunks.
+    const mkSectionReader = (idSection) => {
+        const start = sectionsZKey[idSection][0].p;
+        const size = sectionsZKey[idSection][0].size;
+        return async (off, len) => {
+            if (off + len > size) throw new Error(`groth16Prove: read out of range of section ${idSection}`);
+            const buff = new Uint8Array(len);
+            await fdZKey.readToBuffer(buff, 0, len, start + off);
+            return buff;
+        };
+    };
+
     let resH;
     let resHPromise;
     let buffPodd_T;
@@ -2685,9 +2700,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiA(){
         if (logger) logger.debug("Reading A Points");
-        const buffBasesA = await readSection$1(fdZKey, sectionsZKey, 5);
         console.time("Calculate PiA");
-        proof.pi_a = await curve.G1.multiExpAffine(buffBasesA, buffWitness, logger, "multiexp A");
+        proof.pi_a = await curve.G1.multiExpAffineChunked(mkSectionReader(5), sectionsZKey[5][0].size, buffWitness, logger, "multiexp A");
         console.timeEnd("Calculate PiA");
     }
 
@@ -2698,9 +2712,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiB1() {
         if (logger) logger.debug("Reading B1 Points");
-        const buffBasesB1 = await readSection$1(fdZKey, sectionsZKey, 6);
         console.time("Calculate PiB1");
-        pib1 = await curve.G1.multiExpAffine(buffBasesB1, buffWitness, logger, "multiexp B1");
+        pib1 = await curve.G1.multiExpAffineChunked(mkSectionReader(6), sectionsZKey[6][0].size, buffWitness, logger, "multiexp B1");
         console.timeEnd("Calculate PiB1");
     }
 
@@ -2709,9 +2722,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiB() {
         if (logger) logger.debug("Reading B2 Points");
-        const buffBasesB2 = await readSection$1(fdZKey, sectionsZKey, 7);
         console.time("Calculate PiB");
-        proof.pi_b = await curve.G2.multiExpAffine(buffBasesB2, buffWitness, logger, "multiexp B2");
+        proof.pi_b = await curve.G2.multiExpAffineChunked(mkSectionReader(7), sectionsZKey[7][0].size, buffWitness, logger, "multiexp B2");
         console.timeEnd("Calculate PiB");
     }
 
@@ -2720,9 +2732,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
-        const buffBasesC = await readSection$1(fdZKey, sectionsZKey, 8);
         console.time("Calculate PiC");
-        proof.pi_c = await curve.G1.multiExpAffine(buffBasesC, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+        proof.pi_c = await curve.G1.multiExpAffineChunked(mkSectionReader(8), sectionsZKey[8][0].size, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
         console.timeEnd("Calculate PiC");
     })();
     //await picPromise;
@@ -2731,8 +2742,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
         console.time("resHPromise");
-        const buffBasesH = await readSection$1(fdZKey, sectionsZKey, 9);
-        resH = await curve.G1.multiExpAffine(buffBasesH, buffPodd_T, logger, "multiexp H");
+        resH = await curve.G1.multiExpAffineChunked(mkSectionReader(9), sectionsZKey[9][0].size, buffPodd_T, logger, "multiexp H");
         console.timeEnd("resHPromise");
     })();
     //await resHPromise;
