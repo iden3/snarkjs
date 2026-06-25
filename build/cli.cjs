@@ -6469,9 +6469,14 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
     for (let i = 0; i < nChunks; i++) cutPoints.push(getCutPoint(i * elementsPerChunk));
     cutPoints.push(coeffs.byteLength);
 
-    const outBuffA = new ffjavascript.BigBuffer(domainSize * n8);
-    const outBuffB = new ffjavascript.BigBuffer(domainSize * n8);
-    const outBuffC = new ffjavascript.BigBuffer(domainSize * n8);
+    // Return a flat Uint8Array when the domain fits under BigBuffer's 1 GiB page,
+    // so the downstream IFFT can consume it in place (skip its defensive copy).
+    // Larger domains stay paged BigBuffers (the IFFT flattens those as before).
+    const outBytes = domainSize * n8;
+    const mkOut = () => (outBytes < (1 << 30)) ? new Uint8Array(outBytes) : new ffjavascript.BigBuffer(outBytes);
+    const outBuffA = mkOut();
+    const outBuffB = mkOut();
+    const outBuffC = mkOut();
 
     const inFlight = new Set();
     const tasks = [];
