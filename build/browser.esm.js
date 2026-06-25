@@ -1013,7 +1013,9 @@ async function readExisting$3(o, b, c) {
     }
 }
 
-const MAX_BUFFER_SIZE = ( typeof Buffer !== "undefined" && Buffer.constants && Buffer.constants.MAX_LENGTH ) ? Buffer.constants.MAX_LENGTH : (1 << 30);
+// 1 GiB threshold (matched to BigBuffer's page size): sections at/above this are
+// read into a paged BigBuffer instead of one flat Uint8Array.
+const MAX_BUFFER_SIZE = 1 << 30;
 
 async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
