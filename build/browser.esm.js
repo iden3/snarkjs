@@ -2668,24 +2668,27 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
         const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
         let buffAodd_T, buffBodd_T, buffCodd_T;
+        // The IFFT input (buffX_T) is dropped immediately, and the FFT input
+        // (buffXodd) goes out of scope right after -- so both can be consumed
+        // (consume=true), skipping ffjavascript's defensive full-input copy.
         await Promise.all([
             (async function () {
-                let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A");
+                let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A", true);
                 buffA_T = null;
                 const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-                buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A");
+                buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A", true);
             })(),
             (async function () {
-                let buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B");
+                let buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B", true);
                 buffB_T = null;
                 const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-                buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B");
+                buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B", true);
             })(),
             (async function () {
-                let buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C");
+                let buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C", true);
                 buffC_T = null;
                 const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-                buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C");
+                buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C", true);
             })(),
         ]);
 
