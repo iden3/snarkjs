@@ -25,7 +25,10 @@ const bn128r = Scalar.e("2188824287183927522224640574525727508854836440041603434
 
 export default async function r1csInfo(r1csName, logger) {
 
-    const cir = await readR1cs(r1csName);
+    // Only the header (section 1) is needed for these counts; loading the
+    // constraints + wire-to-label map would read the whole (potentially many-GB)
+    // file for nothing.
+    const cir = await readR1cs(r1csName, {loadConstraints: false, loadMap: false});
 
     if (Scalar.eq(cir.prime, bn128r)) {
         if (logger) logger.info("Curve: bn-128");
