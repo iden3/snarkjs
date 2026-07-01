@@ -2592,6 +2592,19 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     const G1 = curve.G1;
     const G2 = curve.G2;
 
+    options = options || {};
+
+    // MSM batching mode, threaded to every multiexp below:
+    //   "auto"     (default) use the batch-affine MSM module only for
+    //              cache-friendly chunk sizes (where it is measurably faster);
+    //   "enabled"  always use it (best for small/medium circuits);
+    //   "disabled" never use it (plain in-module multiexp; lowest memory).
+    const msmBatching = options.msmBatching || "auto";
+    if (msmBatching !== "auto" && msmBatching !== "enabled" && msmBatching !== "disabled") {
+        throw new Error(`groth16Prove: invalid msmBatching "${msmBatching}" (expected "auto", "enabled" or "disabled")`);
+    }
+    const msmOpts = { batch: msmBatching };
+
     const power = log2(zkey.domainSize);
 
     if (logger) logger.debug("Reading Wtns");
@@ -2625,8 +2638,6 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
             const buffCoeffs = await readSection$1(fdZKey, sectionsZKey, 4);
 
             if (logger) logger.debug("Building ABC");
-
-            options = options || {};
 
             if (options.buildABC === "js") {
                 [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
@@ -2711,7 +2722,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     async function calcPiA(){
         if (logger) logger.debug("Reading A Points");
         console.time("Calculate PiA");
-        proof.pi_a = await curve.G1.multiExpAffineChunked(mkSectionReader(5), sectionsZKey[5][0].size, buffWitness, logger, "multiexp A");
+        proof.pi_a = await curve.G1.multiExpAffineChunked(mkSectionReader(5), sectionsZKey[5][0].size, buffWitness, logger, "multiexp A", msmOpts);
         console.timeEnd("Calculate PiA");
     }
 
@@ -2723,7 +2734,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     async function calcPiB1() {
         if (logger) logger.debug("Reading B1 Points");
         console.time("Calculate PiB1");
-        pib1 = await curve.G1.multiExpAffineChunked(mkSectionReader(6), sectionsZKey[6][0].size, buffWitness, logger, "multiexp B1");
+        pib1 = await curve.G1.multiExpAffineChunked(mkSectionReader(6), sectionsZKey[6][0].size, buffWitness, logger, "multiexp B1", msmOpts);
         console.timeEnd("Calculate PiB1");
     }
 
@@ -2733,7 +2744,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     async function calcPiB() {
         if (logger) logger.debug("Reading B2 Points");
         console.time("Calculate PiB");
-        proof.pi_b = await curve.G2.multiExpAffineChunked(mkSectionReader(7), sectionsZKey[7][0].size, buffWitness, logger, "multiexp B2");
+        proof.pi_b = await curve.G2.multiExpAffineChunked(mkSectionReader(7), sectionsZKey[7][0].size, buffWitness, logger, "multiexp B2", msmOpts);
         console.timeEnd("Calculate PiB");
     }
 
@@ -2743,7 +2754,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
         console.time("Calculate PiC");
-        proof.pi_c = await curve.G1.multiExpAffineChunked(mkSectionReader(8), sectionsZKey[8][0].size, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C");
+        proof.pi_c = await curve.G1.multiExpAffineChunked(mkSectionReader(8), sectionsZKey[8][0].size, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C", msmOpts);
         console.timeEnd("Calculate PiC");
     })();
     //await picPromise;
@@ -2752,7 +2763,7 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
         console.time("resHPromise");
-        resH = await curve.G1.multiExpAffineChunked(mkSectionReader(9), sectionsZKey[9][0].size, buffPodd_T, logger, "multiexp H");
+        resH = await curve.G1.multiExpAffineChunked(mkSectionReader(9), sectionsZKey[9][0].size, buffPodd_T, logger, "multiexp H", msmOpts);
         console.timeEnd("resHPromise");
     })();
     //await resHPromise;
@@ -7776,7 +7787,10 @@ const bn128r = Scalar.e("2188824287183927522224640574525727508854836440041603434
 
 async function r1csInfo(r1csName, logger) {
 
-    const cir = await readR1cs(r1csName);
+    // Only the header (section 1) is needed for these counts; loading the
+    // constraints + wire-to-label map would read the whole (potentially many-GB)
+    // file for nothing.
+    const cir = await readR1cs(r1csName, {loadConstraints: false, loadMap: false});
 
     if (Scalar.eq(cir.prime, bn128r)) {
         if (logger) logger.info("Curve: bn-128");
