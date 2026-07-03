@@ -973,7 +973,13 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     if (msmBatching !== "auto" && msmBatching !== "enabled" && msmBatching !== "disabled") {
         throw new Error(`groth16Prove: invalid msmBatching "${msmBatching}" (expected "auto", "enabled" or "disabled")`);
     }
-    const msmOpts = { batch: msmBatching };
+    // msmGls (default true): set false to disable the G2 endomorphism (GLS)
+    // MSM path -- an A/B and debugging aid, like msmBatching.
+    const msmGls = options.msmGls !== undefined ? options.msmGls : true;
+    if (typeof msmGls !== "boolean") {
+        throw new Error(`groth16Prove: invalid msmGls "${msmGls}" (expected boolean)`);
+    }
+    const msmOpts = { batch: msmBatching, gls: msmGls };
 
     const power = log2(zkey.domainSize);
 
