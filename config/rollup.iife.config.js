@@ -7,6 +7,19 @@ import visualizer from "rollup-plugin-visualizer";
 import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
 const empty = "export default {}";
+// Runtime wasm codegen toolchain (wasmbuilder + the wasmcurves generators).
+// Only reachable through ffjavascript's custom-`plugins` curve-build path,
+// which snarkjs never takes: the prebuilt vendored wasm is always used.
+// `inlineDynamicImports` would otherwise fold the whole toolchain into the
+// single-file bundle. IIFE output cannot keep external dynamic imports, so
+// stub the packages with a clear error instead.
+const wasmToolchainStub = (name) => `
+const err = () => { throw new Error("${name} is not included in the snarkjs browser bundle (only needed when building a curve with custom wasm plugins)"); };
+export class ModuleBuilder { constructor() { err(); } }
+export const buildBn128 = err;
+export const buildBls12381 = err;
+export default {};
+`;
 // We create a stub with these constants instead of including the entire constants definition
 const constants = `
 export const O_TRUNC = ${O_TRUNC};
@@ -39,6 +52,8 @@ export default {
             stream: empty,
             util: empty,
             constants: constants,
+            wasmbuilder: wasmToolchainStub("wasmbuilder"),
+            wasmcurves: wasmToolchainStub("wasmcurves"),
         }),
         nodeResolve({
             browser: true,
