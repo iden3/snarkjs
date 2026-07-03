@@ -16,7 +16,6 @@ var binFileUtils = require('@iden3/binfileutils');
 var circom_runtime = require('circom_runtime');
 var sha3 = require('@noble/hashes/sha3');
 var Logger = require('logplease');
-var v8 = require('v8');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -6185,14 +6184,33 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
             // -- typically much less than a full witness copy per task.
             const coeffChunk = coeffs.slice(cpA, cpB);
             const nCoefChunk = (cpB - cpA) / sCoef;
-            const chunkDV = new DataView(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength);
             const gathered = new Uint8Array(nCoefChunk * n8);
-            const witnessIsView = !!witness.buffer;
-            for (let j = 0; j < nCoefChunk; j++) {
-                const s = chunkDV.getUint32(j * sCoef + 8, true);
-                if (witnessIsView) gathered.set(witness.subarray(s * n8, (s + 1) * n8), j * n8);
-                else gathered.set(witness.slice(s * n8, (s + 1) * n8), j * n8);
-                chunkDV.setUint32(j * sCoef + 8, j, true);
+            // Hot loop (one iteration per coefficient): use typed-array lane
+            // copies instead of set(subarray) -- per-element memcpy dispatch
+            // dominated the profile otherwise. The s-field offsets are 4-byte
+            // aligned (sCoef and the +8 offset are multiples of 4), and the
+            // witness/gather lanes are 8-byte aligned in the fast path.
+            const chunkU32 = new Uint32Array(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength >> 2);
+            const sStep = sCoef >> 2;
+            const laneFast = !!witness.buffer && ((witness.byteOffset & 7) === 0) && (n8 === 32);
+            if (laneFast) {
+                const wF64 = new Float64Array(witness.buffer, witness.byteOffset, witness.byteLength >> 3);
+                const gF64 = new Float64Array(gathered.buffer);
+                for (let j = 0; j < nCoefChunk; j++) {
+                    const si = chunkU32[j * sStep + 2];
+                    const so = si << 2, go = j << 2;
+                    gF64[go] = wF64[so]; gF64[go + 1] = wF64[so + 1];
+                    gF64[go + 2] = wF64[so + 2]; gF64[go + 3] = wF64[so + 3];
+                    chunkU32[j * sStep + 2] = j;
+                }
+            } else {
+                const witnessIsView = !!witness.buffer;
+                for (let j = 0; j < nCoefChunk; j++) {
+                    const s = chunkU32[j * sStep + 2];
+                    if (witnessIsView) gathered.set(witness.subarray(s * n8, (s + 1) * n8), j * n8);
+                    else gathered.set(witness.slice(s * n8, (s + 1) * n8), j * n8);
+                    chunkU32[j * sStep + 2] = j;
+                }
             }
             const task = [
                 {cmd: "ALLOCSET", var: 0, buff: coeffChunk},
@@ -12780,7 +12798,9 @@ async function wtnsCheck$1(r1csFilename, wtnsFilename, logger) {
 
 const {stringifyBigInts} = ffjavascript.utils;
 
-v8.setFlagsFromString("--expose_gc");
+//import { setFlagsFromString } from "v8";
+
+//setFlagsFromString("--expose_gc");
 
 
 const logger = Logger__default["default"].create("snarkJS", {showTimestamp: false});
