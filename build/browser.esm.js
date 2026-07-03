@@ -2976,20 +2976,24 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
             const gathered = new Uint8Array(nCoefChunk * n8);
             // Hot loop (one iteration per coefficient): use typed-array lane
             // copies instead of set(subarray) -- per-element memcpy dispatch
-            // dominated the profile otherwise. The s-field offsets are 4-byte
-            // aligned (sCoef and the +8 offset are multiples of 4), and the
-            // witness/gather lanes are 8-byte aligned in the fast path.
+            // dominated the profile otherwise. Uint32 lanes on purpose: the
+            // data is integer bit patterns, and Float64Array stores may
+            // legally canonicalize NaN-patterned lanes (SetValueInBuffer is
+            // implementation-defined for NaN encodings). The s-field offsets
+            // are 4-byte aligned (sCoef and the +8 offset are multiples of 4).
             const chunkU32 = new Uint32Array(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength >> 2);
             const sStep = sCoef >> 2;
-            const laneFast = !!witness.buffer && ((witness.byteOffset & 7) === 0) && (n8 === 32);
+            const laneFast = !!witness.buffer && ((witness.byteOffset & 3) === 0) && (n8 === 32);
             if (laneFast) {
-                const wF64 = new Float64Array(witness.buffer, witness.byteOffset, witness.byteLength >> 3);
-                const gF64 = new Float64Array(gathered.buffer);
+                const wU32 = new Uint32Array(witness.buffer, witness.byteOffset, witness.byteLength >> 2);
+                const gU32 = new Uint32Array(gathered.buffer);
                 for (let j = 0; j < nCoefChunk; j++) {
                     const si = chunkU32[j * sStep + 2];
-                    const so = si << 2, go = j << 2;
-                    gF64[go] = wF64[so]; gF64[go + 1] = wF64[so + 1];
-                    gF64[go + 2] = wF64[so + 2]; gF64[go + 3] = wF64[so + 3];
+                    const so = si << 3, go = j << 3;
+                    gU32[go] = wU32[so]; gU32[go + 1] = wU32[so + 1];
+                    gU32[go + 2] = wU32[so + 2]; gU32[go + 3] = wU32[so + 3];
+                    gU32[go + 4] = wU32[so + 4]; gU32[go + 5] = wU32[so + 5];
+                    gU32[go + 6] = wU32[so + 6]; gU32[go + 7] = wU32[so + 7];
                     chunkU32[j * sStep + 2] = j;
                 }
             } else {
