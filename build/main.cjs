@@ -973,13 +973,18 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     if (msmBatching !== "auto" && msmBatching !== "enabled" && msmBatching !== "disabled") {
         throw new Error(`groth16Prove: invalid msmBatching "${msmBatching}" (expected "auto", "enabled" or "disabled")`);
     }
-    // msmGls (default true): set false to disable the G2 endomorphism (GLS)
-    // MSM path -- an A/B and debugging aid, like msmBatching.
-    const msmGls = options.msmGls !== undefined ? options.msmGls : true;
-    if (typeof msmGls !== "boolean") {
-        throw new Error(`groth16Prove: invalid msmGls "${msmGls}" (expected boolean)`);
+    // msmGlv / msmGls: "auto" (default -- use the G1/G2 endomorphism MSM paths
+    // where the curve supports them; the wasm still gates internally on chunk
+    // sizes) or "disabled" (generic batch accumulation). A/B and debugging
+    // aids, like msmBatching.
+    const msmGlv = options.msmGlv || "auto";
+    const msmGls = options.msmGls || "auto";
+    for (const [name, v] of [["msmGlv", msmGlv], ["msmGls", msmGls]]) {
+        if (v !== "auto" && v !== "disabled") {
+            throw new Error(`groth16Prove: invalid ${name} "${v}" (expected "auto" or "disabled")`);
+        }
     }
-    const msmOpts = { batch: msmBatching, gls: msmGls };
+    const msmOpts = { batch: msmBatching, glv: msmGlv, gls: msmGls };
 
     const power = log2(zkey.domainSize);
 
