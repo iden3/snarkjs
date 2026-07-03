@@ -1015,21 +1015,12 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
                 const p = pickStreamParams(curve, zkey, buffCoeffs, options);
                 [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
             } else {
-                // Default: streaming single-pass build (low, bounded worker memory +
-                // tunable parallelism) whenever the witness fits one wasm pass -- which
-                // it does for all circuits provable in this stack. Witnesses beyond the
-                // wasm memory limit (> ~90M wires) fall back to the pure-JS builder,
-                // which has no wasm size constraints.
-                const WASM_SAFE_LIMIT = 3 * 1024 * 1024 * 1024;
-                const witnessBytes = buffWitness.byteLength;
-                if (witnessBytes + 256 * 1024 * 1024 < WASM_SAFE_LIMIT) {
-                    const p = pickStreamParams(curve, zkey, buffCoeffs, options);
-                    if (logger) logger.debug(`buildABC: stream nChunks=${p.nChunks} maxInFlight=${p.maxInFlight}`);
-                    [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
-                } else {
-                    if (logger) logger.warn("buildABC: witness exceeds a single wasm pass; using the JS builder");
-                    [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
-                }
+                // Default: streaming build (bounded worker memory, tunable
+                // parallelism). The per-chunk witness gather keeps the witness
+                // out of WASM entirely, so there is no witness size limit.
+                const p = pickStreamParams(curve, zkey, buffCoeffs, options);
+                if (logger) logger.debug(`buildABC: stream nChunks=${p.nChunks} maxInFlight=${p.maxInFlight}`);
+                [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
             }
             console.timeEnd("buildABC_outer");
         })();
@@ -1241,12 +1232,23 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
 }
 
 
+// Adaptive parameters for buildABCStream, scaled to circuit size and a worker-memory
+// budget. Key fact from profiling: each concurrently-active worker grows its WASM
+// memory and never shrinks, so the memory buildABC leaves behind for the rest of the
+// prove is ~ maxInFlight × perWorker, where perWorker = witness + (coeffs+3·domain)/nChunks.
+//   - nChunks shrinks perWorker (and gives the pool chunks to load-balance);
+//   - maxInFlight is then chosen to keep that persistent floor under floorBudget,
+//     using as much parallelism (speed) as the budget allows (capped by concurrency).
+// Small circuits get nChunks≈concurrency and high parallelism (memory is a non-issue);
+// large ones get more chunks and a parallelism bounded by floorBudget.
 function pickStreamParams(curve, zkey, coeffs, options) {
     options = options || {};
     const n8 = curve.Fr.n8;
     const concurrency = curve.tm.concurrency || 1;
-    const witnessBytes = zkey.nVars * n8;
-    const variableBytes = coeffs.byteLength + 3 * zkey.domainSize * n8;
+    // Per-task bytes: coeff chunk + gathered witness values (n8 per coefficient)
+    // + 3 output chunks. The witness itself stays JS-side (gathered per chunk).
+    const nCoefs = (coeffs.byteLength - 4) / (12 + n8);
+    const variableBytes = coeffs.byteLength + nCoefs * n8 + 3 * zkey.domainSize * n8;
 
     // Persistent worker memory buildABC may leave behind (default 256 MB; override
     // via options.buildABCFloorBudget — raise it for more parallelism/speed, lower it
@@ -1254,13 +1256,9 @@ function pickStreamParams(curve, zkey, coeffs, options) {
     // directly bounds the floor the rest of the prove inherits.
     const floorBudget = options.buildABCFloorBudget || (256 * 1024 * 1024);
 
-    // Size each chunk so a worker holds ~2× witness (chunk variable part ≈ witness),
-    // then derive parallelism from the floor budget / per-worker, and finally bump the
-    // chunk count to a few per BUSY worker for load balance (NOT full concurrency --
-    // that would re-copy the witness once per chunk for nothing at low parallelism).
-    const targetPerChunk = Math.max(witnessBytes, 16 * 1024 * 1024);
+    const targetPerChunk = 32 * 1024 * 1024;
     let nChunks = Math.max(1, Math.ceil(variableBytes / targetPerChunk));
-    const perWorker = witnessBytes + Math.ceil(variableBytes / nChunks);
+    const perWorker = Math.ceil(variableBytes / nChunks);
     let maxInFlight = Math.max(1, Math.min(concurrency, Math.floor(floorBudget / perWorker)));
     nChunks = Math.min(256, Math.max(nChunks, maxInFlight * 3));
     maxInFlight = Math.min(maxInFlight, nChunks);
@@ -1270,17 +1268,17 @@ function pickStreamParams(curve, zkey, coeffs, options) {
     return { nChunks, maxInFlight };
 }
 
-// Streaming buildABC: a SINGLE full-witness pass, with the domain split into
-// `nChunks` disjoint output ranges processed with bounded
-// concurrency. Each in-flight task holds only the witness + one coeff chunk + one
-// output chunk, so the worker high-water is ~witness + chunk instead of the whole
-// coeffs (357MB) + all outputs in one worker. Requires the witness to be loaded
-// per task (one full-witness pass); the caller uses the JS builder if it doesn't fit.
+// Streaming buildABC: the domain is split into `nChunks` disjoint output ranges
+// processed with bounded concurrency. The witness values each chunk references
+// are gathered JS-side into a compact per-coefficient buffer (s-indices remapped
+// to sequential positions), so a task holds only its coeff chunk + gathered
+// values + output chunk -- the witness itself never enters WASM and its size is
+// unbounded.
 async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, maxInFlight) {
     console.time("buildABCStream");
     const n8 = curve.Fr.n8;
     const sCoef = 4 * 3 + zkey.n8r;
-    const nVars = zkey.nVars;
+    zkey.nVars;
     const domainSize = zkey.domainSize;
 
     let getUint32;
@@ -1327,24 +1325,39 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
         while (inFlight.size >= maxInFlight) await Promise.race(inFlight);
         if (logger) logger.debug(`buildABCStream: ${i}/${nChunks}`);
         const op = (async () => {
+            // Gather the witness values this chunk references into a compact
+            // buffer (one entry per coefficient, in coefficient order) and
+            // rewrite each coefficient's s-index to its sequential position.
+            // The witness itself never enters WASM, so its size is unbounded
+            // (it can stay a BigBuffer) and each task ships only what it uses
+            // -- typically much less than a full witness copy per task.
             const coeffChunk = coeffs.slice(cpA, cpB);
-            const witnessCopy = witness.slice(0, nVars * n8); // full witness, single pass -> no merge
+            const nCoefChunk = (cpB - cpA) / sCoef;
+            const chunkDV = new DataView(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength);
+            const gathered = new Uint8Array(nCoefChunk * n8);
+            const witnessIsView = !!witness.buffer;
+            for (let j = 0; j < nCoefChunk; j++) {
+                const s = chunkDV.getUint32(j * sCoef + 8, true);
+                if (witnessIsView) gathered.set(witness.subarray(s * n8, (s + 1) * n8), j * n8);
+                else gathered.set(witness.slice(s * n8, (s + 1) * n8), j * n8);
+                chunkDV.setUint32(j * sCoef + 8, j, true);
+            }
             const task = [
                 {cmd: "ALLOCSET", var: 0, buff: coeffChunk},
-                {cmd: "ALLOCSET", var: 1, buff: witnessCopy},
+                {cmd: "ALLOCSET", var: 1, buff: gathered},
                 {cmd: "ALLOC", var: 2, len: n * n8},
                 {cmd: "ALLOC", var: 3, len: n * n8},
                 {cmd: "ALLOC", var: 4, len: n * n8},
                 {cmd: "CALL", fnName: "qap_buildABC", params: [
-                    {var: 0}, {val: (cpB - cpA) / sCoef}, {var: 1},
+                    {var: 0}, {val: nCoefChunk}, {var: 1},
                     {var: 2}, {var: 3}, {var: 4},
-                    {val: outOffset}, {val: n}, {val: 0}, {val: nVars},
+                    {val: outOffset}, {val: n}, {val: 0}, {val: nCoefChunk},
                 ]},
                 {cmd: "GET", out: 0, var: 2, len: n * n8},
                 {cmd: "GET", out: 1, var: 3, len: n * n8},
                 {cmd: "GET", out: 2, var: 4, len: n * n8},
             ];
-            const r = await curve.tm.queueAction(task, [coeffChunk.buffer, witnessCopy.buffer]);
+            const r = await curve.tm.queueAction(task, [coeffChunk.buffer, gathered.buffer]);
             outBuffA.set(r[0], outOffset * n8);
             outBuffB.set(r[1], outOffset * n8);
             outBuffC.set(r[2], outOffset * n8);
