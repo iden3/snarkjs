@@ -79,5 +79,9 @@
     "mocha": "^11.7.6",
     "rollup": "^4.62.2",
     "rollup-plugin-visualizer": "^7.0.1"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "diff": "^8.0.3"
   }
 }
