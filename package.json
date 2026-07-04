@@ -56,7 +56,7 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#dee81e974e69377d63cdd3fc1325303aeb4294c7",
+    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#41589e50e1970a00c730b722c72fb007de59189e",
     "@noble/hashes": "^2.2.0",
     "bfj": "^9.1.3",
     "circom_runtime": "0.1.28",
