@@ -5882,7 +5882,6 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
         await (async function (){
             if (logger) logger.debug("Reading Coeffs");
-            console.time("buildABC_outer");
             const buffCoeffs = await binFileUtils__namespace.readSection(fdZKey, sectionsZKey, 4);
 
             if (logger) logger.debug("Building ABC");
@@ -5900,10 +5899,8 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
                 if (logger) logger.debug(`buildABC: stream nChunks=${p.nChunks} maxInFlight=${p.maxInFlight}`);
                 [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
             }
-            console.timeEnd("buildABC_outer");
         })();
 
-        console.time("abcPromise");
 
         // Do not call gc() here. gc() is a stop-the-world pause that blocks the
         // Node.js event loop. If the pause exceeds the worker idle-termination
@@ -5947,7 +5944,6 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
         buffCodd_T = null;
 
         if (globalThis.gc) {globalThis.gc();}
-        console.timeEnd("abcPromise");
     })();
     //await abcPromise;
 
@@ -5955,9 +5951,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiA(){
         if (logger) logger.debug("Reading A Points");
-        console.time("Calculate PiA");
         proof.pi_a = await curve.G1.multiExpAffineChunked(mkSectionReader(5), sectionsZKey[5][0].size, buffWitness, logger, "multiexp A", msmOpts);
-        console.timeEnd("Calculate PiA");
     }
 
     let piaPromise = calcPiA();
@@ -5967,9 +5961,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiB1() {
         if (logger) logger.debug("Reading B1 Points");
-        console.time("Calculate PiB1");
         pib1 = await curve.G1.multiExpAffineChunked(mkSectionReader(6), sectionsZKey[6][0].size, buffWitness, logger, "multiexp B1", msmOpts);
-        console.timeEnd("Calculate PiB1");
     }
 
     let pib1Promise = calcPiB1();
@@ -5977,9 +5969,7 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
     async function calcPiB() {
         if (logger) logger.debug("Reading B2 Points");
-        console.time("Calculate PiB");
         proof.pi_b = await curve.G2.multiExpAffineChunked(mkSectionReader(7), sectionsZKey[7][0].size, buffWitness, logger, "multiexp B2", msmOpts);
-        console.timeEnd("Calculate PiB");
     }
 
     let pibPromise = calcPiB();
@@ -5987,18 +5977,14 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
     let picPromise = (async function (){
         if (logger) logger.debug("Reading C Points");
-        console.time("Calculate PiC");
         proof.pi_c = await curve.G1.multiExpAffineChunked(mkSectionReader(8), sectionsZKey[8][0].size, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C", msmOpts);
-        console.timeEnd("Calculate PiC");
     })();
     //await picPromise;
 
     resHPromise = (async function (){
         if (logger) logger.debug("Reading H Points");
         await abcPromise;
-        console.time("resHPromise");
         resH = await curve.G1.multiExpAffineChunked(mkSectionReader(9), sectionsZKey[9][0].size, buffPodd_T, logger, "multiexp H", msmOpts);
-        console.timeEnd("resHPromise");
     })();
     //await resHPromise;
 
@@ -6052,7 +6038,6 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 
 
 async function buildABC1(curve, zkey, witness, coeffs, logger) {
-    console.time("buildABC1");
     const n8 = curve.Fr.n8;
     const sCoef = 4*3 + zkey.n8r;
     const nCoef = (coeffs.byteLength-4) / sCoef;
@@ -6103,7 +6088,6 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
         );
     }
 
-    console.timeEnd("buildABC1");
 
     return [outBuffA, outBuffB, outBuffC];
 
@@ -6153,7 +6137,6 @@ function pickStreamParams(curve, zkey, coeffs, options) {
 // values + output chunk -- the witness itself never enters WASM and its size is
 // unbounded.
 async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, maxInFlight) {
-    console.time("buildABCStream");
     const n8 = curve.Fr.n8;
     const sCoef = 4 * 3 + zkey.n8r;
     const domainSize = zkey.domainSize;
@@ -6267,12 +6250,10 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
         tasks.push(slot);
     }
     await Promise.all(tasks);
-    console.timeEnd("buildABCStream");
     return [outBuffA, outBuffB, outBuffC];
 }
 
 async function joinABC(curve, zkey, a, b, c, logger) {
-    console.time("joinABC");
     const MAX_CHUNK_SIZE = 1 << 16;
 
     const n8 = curve.Fr.n8;
@@ -6325,7 +6306,6 @@ async function joinABC(curve, zkey, a, b, c, logger) {
         p += result[i][0].byteLength;
     }
 
-    console.timeEnd("joinABC");
     return outBuff;
 }
 
