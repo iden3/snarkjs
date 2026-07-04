@@ -1,22 +1,17 @@
 'use strict';
 
-Object.defineProperty(exports, '__esModule', { value: true });
-
 var binFileUtils = require('@iden3/binfileutils');
 var ffjavascript = require('ffjavascript');
-var blake2b = require('@noble/hashes/blake2b');
-var utils = require('@noble/hashes/utils');
+var blake2_js = require('@noble/hashes/blake2.js');
+var utils_js = require('@noble/hashes/utils.js');
 var readline = require('readline');
 var crypto = require('crypto');
 var fastFile = require('fastfile');
 var circom_runtime = require('circom_runtime');
 var r1csfile = require('r1csfile');
-var sha3 = require('@noble/hashes/sha3');
+var sha3_js = require('@noble/hashes/sha3.js');
 
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
-
-function _interopNamespace(e) {
-    if (e && e.__esModule) return e;
+function _interopNamespaceDefault(e) {
     var n = Object.create(null);
     if (e) {
         Object.keys(e).forEach(function (k) {
@@ -29,14 +24,12 @@ function _interopNamespace(e) {
             }
         });
     }
-    n["default"] = e;
+    n.default = e;
     return Object.freeze(n);
 }
 
-var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
-var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
-var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
-var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
+var binFileUtils__namespace = /*#__PURE__*/_interopNamespaceDefault(binFileUtils);
+var fastFile__namespace = /*#__PURE__*/_interopNamespaceDefault(fastFile);
 
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -92,9 +85,9 @@ async function getCurveFromName(name, options) {
 
 var curves = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    getCurveFromR: getCurveFromR,
+    getCurveFromName: getCurveFromName,
     getCurveFromQ: getCurveFromQ,
-    getCurveFromName: getCurveFromName
+    getCurveFromR: getCurveFromR
 });
 
 /*
@@ -115,6 +108,7 @@ var curves = /*#__PURE__*/Object.freeze({
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 function log2( V )
@@ -156,8 +150,8 @@ function cloneHasher(h) {
 function fromPartialHash(partial) {
     // NOTE: this is unsafe and uses internal API
     const buf = partial.subarray(0, 128);
-    const rest = utils.u32(partial.subarray(128));
-    const res = blake2b.blake2b.create({ dkLen: 64 });
+    const rest = utils_js.u32(partial.subarray(128));
+    const res = blake2_js.blake2b.create({ dkLen: 64 });
     res.buffer.set(buf);
     (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
     (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
@@ -178,7 +172,7 @@ function fromPartialHash(partial) {
 function toPartialHash(hash){
     // NOTE: this is unsafe and uses internal API
     const res = new Uint8Array(216);
-    const res32 = utils.u32(res.subarray(128));
+    const res32 = utils_js.u32(res.subarray(128));
     res.set(hash.buffer);
     (res32[0] = hash.v0l), (res32[1] = hash.v0h);
     (res32[2] = hash.v1l), (res32[3] = hash.v1h);
@@ -211,7 +205,7 @@ function askEntropy() {
     if (typeof window !== "undefined" && typeof window.prompt === "function") {
         return window.prompt("Enter a random text. (Entropy): ", "");
     } else {
-        const rl = readline__default["default"].createInterface({
+        const rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout
         });
@@ -224,8 +218,8 @@ function askEntropy() {
 
 function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (crypto__default["default"] && crypto__default["default"].randomFillSync) { // Node: no per-call size limit
-        crypto__default["default"].randomFillSync(array);
+    if (crypto && crypto.randomFillSync) { // Node: no per-call size limit
+        crypto.randomFillSync(array);
     } else if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
         // Web Crypto caps each call at 65536 bytes; fill in windows.
         for (let i = 0; i < n; i += 65536) {
@@ -238,8 +232,8 @@ function getRandomBytes(n) {
 }
 
 async function sha256digest(data) {
-    if (crypto__default["default"] && crypto__default["default"].createHash) { // Node
-        return crypto__default["default"].createHash("sha256").update(data).digest();
+    if (crypto && crypto.createHash) { // Node
+        return crypto.createHash("sha256").update(data).digest();
     } else {
         // Web Crypto: pass the view (data), not data.buffer, so byteOffset and
         // byteLength of subarray views are respected.
@@ -261,7 +255,7 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = blake2b.blake2b.create(64);
+    const hasher = blake2_js.blake2b.create(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
@@ -403,6 +397,7 @@ const ZKEY_FF_C0_SECTION = 17;
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function writeHeader(fd, zkey) {
 
@@ -846,6 +841,7 @@ function hashPubKey(hasher, curve, c) {
 */
 
 
+
 async function write(fd, witness, prime) {
 
     await binFileUtils__namespace.startWriteSection(fd, 1);
@@ -932,6 +928,7 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -1289,7 +1286,6 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
     console.time("buildABCStream");
     const n8 = curve.Fr.n8;
     const sCoef = 4 * 3 + zkey.n8r;
-    zkey.nVars;
     const domainSize = zkey.domainSize;
 
     let getUint32;
@@ -1501,6 +1497,7 @@ function monitorMemoryUsage(logger, interval = 5000) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
@@ -1546,6 +1543,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
 async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -1576,6 +1574,7 @@ async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalc
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
 async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
@@ -1730,10 +1729,10 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
 
 var groth16 = /*#__PURE__*/Object.freeze({
     __proto__: null,
+    exportSolidityCallData: groth16ExportSolidityCallData,
     fullProve: groth16FullProve,
     prove: groth16Prove,
-    verify: groth16Verify,
-    exportSolidityCallData: groth16ExportSolidityCallData
+    verify: groth16Verify
 });
 
 /*
@@ -1755,6 +1754,7 @@ var groth16 = /*#__PURE__*/Object.freeze({
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 function hashToG2(curve, hash) {
     const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
     const seed = [];
@@ -1771,7 +1771,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = blake2b.blake2b.create({ dkLen: 64 });
+    const h = blake2_js.blake2b.create({ dkLen: 64 });
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -1825,6 +1825,7 @@ function createPTauKey(curve, challengeHash, rng) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
@@ -2115,14 +2116,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = blake2b.blake2b.create({ dkLen: 64 });
+    const hasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(blake2b.blake2b.create({ dkLen: 64 }).digest());
+    hasher.update(blake2_js.blake2b.create({ dkLen: 64 }).digest());
 
     let n;
 
@@ -2189,6 +2190,7 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function newAccumulator(curve, power, fileName, logger) {
 
     const fd = await binFileUtils__namespace.createBinFile(fileName, "ptau", 1, 7);
@@ -2254,7 +2256,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(blake2b.blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(blake2_js.blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -2263,6 +2265,13 @@ async function newAccumulator(curve, power, fileName, logger) {
 }
 
 // Format of the outpu
+//     Hash of the last contribution  64Bytes
+//     2^N * 2 -1  TauG1 points (uncompressed)
+//     2^N  TauG2 Points (uncompressed)
+//     2^N  AlphaTauG1 Points (uncompressed)
+//     2^N  BetaTauG1 Points (uncompressed)
+//     BetaG2 (uncompressed)
+
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const {fd: fdFrom, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
@@ -2272,7 +2281,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = blake2b.blake2b.create({ dkLen: 64 }).digest();
+        lastResponseHash = blake2_js.blake2b.create({ dkLen: 64 }).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -2286,7 +2295,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
     const fdTo = await fastFile__namespace.createOverride(challengeFilename);
 
-    const toHash = blake2b.blake2b.create({ dkLen: 64 });
+    const toHash = blake2_js.blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -2350,6 +2359,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
     const noHash = new Uint8Array(64);
@@ -2400,7 +2410,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
-    const hasherResponse = blake2b.blake2b.create({ dkLen: 64 });
+    const hasherResponse = blake2_js.blake2b.create({ dkLen: 64 });
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -2429,7 +2439,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+        const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -2573,6 +2583,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio$1 = sameRatio$2;
 
 async function verifyContribution(curve, cur, prev, logger) {
@@ -2694,7 +2705,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: blake2b.blake2b.create({ dkLen: 64 }).digest()
+        responseHash: blake2_js.blake2b.create({ dkLen: 64 }).digest()
     };
 
     if (contrs.length == 0) {
@@ -2714,7 +2725,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextContributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -3060,6 +3071,7 @@ async function verify(tauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 /*
     This function creates a new section in the fdTo file with id idSection.
     It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
@@ -3136,6 +3148,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
 
@@ -3158,7 +3171,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     const fdTo = await fastFile__namespace.createOverride(responseFileName);
 
     // Calculate the hash
-    const challengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const challengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -3184,7 +3197,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
         });
     }
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -3225,6 +3238,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,numIterationsExp, logger) {
     const beaconHash = hex2ByteArray(beaconHashStr);
@@ -3273,7 +3287,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3304,7 +3318,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -3411,6 +3425,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -3444,7 +3459,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -3475,7 +3490,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -3584,6 +3599,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -3630,9 +3646,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            curve.Fr;
             const sGin = G.F.n8*2;
-            G.F.n8*3;
 
             let buff;
             buff = new ffjavascript.BigBuffer(nPoints*sGin);
@@ -3650,7 +3664,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -3722,6 +3736,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function truncate(ptauFilename, template, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(ptauFilename, "ptau", 1);
@@ -3784,6 +3799,7 @@ async function truncate(ptauFilename, template, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function convert(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -3828,7 +3844,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
         }
         await binFileUtils__namespace.endReadSection(fdOld);
 
-        if (oldSectionId == 2) {
+        {
             await processSectionPower(power+1);
         }
 
@@ -3843,7 +3859,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = new ffjavascript.BigBuffer(nPoints*sGin);
 
             await binFileUtils__namespace.startReadUniqueSection(fdOld, sections, oldSectionId);
-            if ((oldSectionId == 2)&&(p==power+1)) {
+            if ((p==power+1)) {
                 await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
                 buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
             } else {
@@ -3854,7 +3870,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -3928,6 +3944,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
@@ -4016,17 +4033,17 @@ async function exportJson(pTauFilename, verbose) {
 
 var powersoftau = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    newAccumulator: newAccumulator,
-    exportChallenge: exportChallenge,
-    importResponse: importResponse,
-    verify: verify,
-    challengeContribute: challengeContribute,
     beacon: beacon$1,
+    challengeContribute: challengeContribute,
     contribute: contribute,
+    convert: convert,
+    exportChallenge: exportChallenge,
+    exportJson: exportJson,
+    importResponse: importResponse,
+    newAccumulator: newAccumulator,
     preparePhase2: preparePhase2,
     truncate: truncate,
-    convert: convert,
-    exportJson: exportJson
+    verify: verify
 });
 
 /*
@@ -4094,6 +4111,7 @@ function r1csPrint(r1cs, syms, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const bls12381r = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
@@ -4141,6 +4159,7 @@ async function r1csInfo(r1csName, logger) {
 */
 
 
+
 async function r1csExportJson(r1csFileName, logger) {
 
     const cir = await r1csfile.readR1cs(r1csFileName, true, true, true, logger);
@@ -4172,9 +4191,9 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var r1cs = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    print: r1csPrint,
+    exportJson: r1csExportJson,
     info: r1csInfo,
-    exportJson: r1csExportJson
+    print: r1csPrint
 });
 
 /*
@@ -4195,6 +4214,7 @@ var r1cs = /*#__PURE__*/Object.freeze({
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function loadSymbols(symFileName) {
     const sym = {
@@ -4249,6 +4269,7 @@ async function loadSymbols(symFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
 
 
@@ -4316,6 +4337,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function wtnsExportJson(wtnsFileName) {
 
     const w = await read(wtnsFileName);
@@ -4341,6 +4363,7 @@ async function wtnsExportJson(wtnsFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
@@ -4490,9 +4513,9 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 var wtns = /*#__PURE__*/Object.freeze({
     __proto__: null,
     calculate: wtnsCalculate,
+    check: wtnsCheck,
     debug: wtnsDebug,
-    exportJson: wtnsExportJson,
-    check: wtnsCheck
+    exportJson: wtnsExportJson
 });
 
 /*
@@ -4612,13 +4635,14 @@ class BigArray {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const TAU_G1 = 0;
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    const csHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const csHasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -5369,6 +5393,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
@@ -5583,6 +5608,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio = sameRatio$2;
 
 
@@ -5601,7 +5627,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const accumulatedHasher = blake2_js.blake2b.create({ dkLen: 64 });
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -5647,7 +5673,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+        const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -5993,6 +6019,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
     // const initFileName = "~" + zkeyFileName + ".init";
@@ -6021,6 +6048,7 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
 
     const {fd: fdOld, sections: sections} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
@@ -6038,7 +6066,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -6091,7 +6119,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
@@ -6120,6 +6148,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
@@ -6158,7 +6187,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
@@ -6213,7 +6242,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -6249,6 +6278,7 @@ async function zkeyExportJson(zkeyFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const rng = await getRandomRng(entropy);
@@ -6308,7 +6338,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });
     const mpcParams = {};
     // csHash
     mpcParams.csHash =  await fdFrom.read(64);
@@ -6358,7 +6388,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -6421,6 +6451,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
 
@@ -6565,6 +6596,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -6592,7 +6624,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+    const {default: ejs} = await import('ejs');
     return ejs.render(template, vk);
 
     function fromVkey(str) {
@@ -6619,7 +6651,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
     let template = templates[verificationKey.protocol];
 
-    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+    const {default: ejs} = await import('ejs');
 
     return ejs.render(template, verificationKey);
 }
@@ -6645,17 +6677,17 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
 var zkey = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    newZKey: newZKey,
-    exportBellman: phase2exportMPCParams,
-    importBellman: phase2importMPCParams,
-    verifyFromR1cs: phase2verifyFromR1cs,
-    verifyFromInit: phase2verifyFromInit,
-    contribute: phase2contribute,
     beacon: beacon,
-    exportJson: zkeyExportJson,
     bellmanContribute: bellmanContribute,
+    contribute: phase2contribute,
+    exportBellman: phase2exportMPCParams,
+    exportJson: zkeyExportJson,
+    exportSolidityVerifier: exportSolidityVerifier,
     exportVerificationKey: zkeyExportVerificationKey,
-    exportSolidityVerifier: exportSolidityVerifier
+    importBellman: phase2importMPCParams,
+    newZKey: newZKey,
+    verifyFromInit: phase2verifyFromInit,
+    verifyFromR1cs: phase2verifyFromR1cs
 });
 
 /*
@@ -6678,6 +6710,7 @@ var zkey = /*#__PURE__*/Object.freeze({
 */
 
 
+
 async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
@@ -6695,7 +6728,6 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -7263,6 +7295,7 @@ class Proof {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const POLYNOMIAL = 0;
 const SCALAR = 1;
 
@@ -7309,7 +7342,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
+        const value = ffjavascript.Scalar.fromRprBE(sha3_js.keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
@@ -7495,6 +7528,7 @@ const ZKEY_PL_PTAU_SECTION = 14;
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 class Polynomial {
     constructor(coefficients, curve, logger) {
@@ -8147,26 +8181,26 @@ class Polynomial {
         return this;
     }
 
-// function divideByVanishing(f, n, p) {
-//     // polynomial division f(X) / (X^n - 1) with remainder
-//     // very cheap, 0 multiplications
-//     // strategy:
-//     // start with q(X) = 0, r(X) = f(X)
-//     // then start changing q, r while preserving the identity:
-//     // f(X) = q(X) * (X^n - 1) + r(X)
-//     // in every step, move highest-degree term of r into the product
-//     // => r eventually has degree < n and we're done
-//     let q = Array(f.length).fill(0n);
-//     let r = [...f];
-//     for (let i = f.length - 1; i >= n; i--) {
-//         let leadingCoeff = r[i];
-//         if (leadingCoeff === 0n) continue;
-//         r[i] = 0n;
-//         r[i - n] = mod(r[i - n] + leadingCoeff, p);
-//         q[i - n] = mod(q[i - n] + leadingCoeff, p);
-//     }
-//     return [q, r];
-// }
+    // function divideByVanishing(f, n, p) {
+    //     // polynomial division f(X) / (X^n - 1) with remainder
+    //     // very cheap, 0 multiplications
+    //     // strategy:
+    //     // start with q(X) = 0, r(X) = f(X)
+    //     // then start changing q, r while preserving the identity:
+    //     // f(X) = q(X) * (X^n - 1) + r(X)
+    //     // in every step, move highest-degree term of r into the product
+    //     // => r eventually has degree < n and we're done
+    //     let q = Array(f.length).fill(0n);
+    //     let r = [...f];
+    //     for (let i = f.length - 1; i >= n; i--) {
+    //         let leadingCoeff = r[i];
+    //         if (leadingCoeff === 0n) continue;
+    //         r[i] = 0n;
+    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
+    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
+    //     }
+    //     return [q, r];
+    // }
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
@@ -8177,9 +8211,9 @@ class Polynomial {
         this.coef = coefs;
     }
 
-// Compute a new polynomial f(x^n) from f(x)
-// f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
-// f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
+    // Compute a new polynomial f(x^n) from f(x)
+    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
+    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
     static
     async expX(polynomial, n, truncate = false) {
         const Fr = polynomial.Fr;
@@ -8189,7 +8223,7 @@ class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromEvaluations(polynomial.coef, curve, polynomial.logger);
+            return await Polynomial.fromEvaluations(polynomial.coef, polynomial.curve, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients
@@ -8292,69 +8326,69 @@ class Polynomial {
         // proof.T3 = await expTau(polTHigh, "multiexp T3");
     }
 
-// split2(degPols, blindingFactors) {
-//     let currentDegree = this.degree();
-//     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
-//
-//     //blinding factors can be void or must have a length of numPols - 1
-//     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
-//         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
-//     }
-//
-//     const chunkByteLength = (degPols + 1) * this.Fr.n8;
-//
-//     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-//     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
-//         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
-//     }
-//
-//     let res = [];
-//     for (let i = 0; i < numFilledPols; i++) {
-//         const isLast = (numFilledPols - 1) === i;
-//         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-//
-//         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
-//         const fr = i * chunkByteLength;
-//         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-//         res[i].coef.set(this.coef.slice(fr, to), 0);
-//
-//         // Add a blinding factor as higher degree
-//         if (!isLast) {
-//             res[i].coef.set(blindingFactors[i], chunkByteLength);
-//         }
-//
-//         // Sub blinding factor to the lowest degree
-//         if (0 !== i) {
-//             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-//             res[i].coef.set(lowestDegree, 0);
-//         }
-//     }
-//
-//     return res;
-// }
+    // split2(degPols, blindingFactors) {
+    //     let currentDegree = this.degree();
+    //     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
+    //
+    //     //blinding factors can be void or must have a length of numPols - 1
+    //     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
+    //         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
+    //     }
+    //
+    //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
+    //
+    //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
+    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
+    //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
+    //     }
+    //
+    //     let res = [];
+    //     for (let i = 0; i < numFilledPols; i++) {
+    //         const isLast = (numFilledPols - 1) === i;
+    //         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+    //
+    //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
+    //         const fr = i * chunkByteLength;
+    //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
+    //         res[i].coef.set(this.coef.slice(fr, to), 0);
+    //
+    //         // Add a blinding factor as higher degree
+    //         if (!isLast) {
+    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
+    //         }
+    //
+    //         // Sub blinding factor to the lowest degree
+    //         if (0 !== i) {
+    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+    //             res[i].coef.set(lowestDegree, 0);
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
-// merge(pols, overlap = true) {
-//     let length = 0;
-//     for (let i = 0; i < pols.length; i++) {
-//         length += pols[i].length();
-//     }
-//
-//     if (overlap) {
-//         length -= pols.length - 1;
-//     }
-//
-//     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
-//     for (let i = 0; i < pols.length; i++) {
-//         const byteLength = pols[i].coef.byteLength;
-//         if (0 === i) {
-//             res.coef.set(pols[i].coef, 0);
-//         } else {
-//
-//         }
-//     }
-//
-//     return res;
-// }
+    // merge(pols, overlap = true) {
+    //     let length = 0;
+    //     for (let i = 0; i < pols.length; i++) {
+    //         length += pols[i].length();
+    //     }
+    //
+    //     if (overlap) {
+    //         length -= pols.length - 1;
+    //     }
+    //
+    //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
+    //     for (let i = 0; i < pols.length; i++) {
+    //         const byteLength = pols[i].coef.byteLength;
+    //         if (0 === i) {
+    //             res.coef.set(pols[i].coef, 0);
+    //         } else {
+    //
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
     truncate() {
         const deg = this.degree();
@@ -8470,6 +8504,7 @@ class Polynomial {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class Evaluations {
     constructor(evaluations, curve, logger) {
         this.eval = evaluations;
@@ -8527,6 +8562,7 @@ class Evaluations {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -9391,6 +9427,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
 
 async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -9421,6 +9458,7 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOp
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$4 } = ffjavascript.utils;
 
@@ -9836,6 +9874,7 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
 function p256$1(n) {
@@ -9849,9 +9888,7 @@ async function plonkExportSolidityCallData(_proof, _pub) {
     const proof = unstringifyBigInts$3(_proof);
     const pub = unstringifyBigInts$3(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
+    await getCurveFromName(proof.curve);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -9898,11 +9935,11 @@ async function plonkExportSolidityCallData(_proof, _pub) {
 
 var plonk = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    setup: plonkSetup,
+    exportSolidityCallData: plonkExportSolidityCallData,
     fullProve: plonkFullProve,
     prove: plonk16Prove,
-    verify: plonkVerify,
-    exportSolidityCallData: plonkExportSolidityCallData
+    setup: plonkSetup,
+    verify: plonkVerify
 });
 
 /*
@@ -10167,6 +10204,7 @@ class r1csConstraintProcessor {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class CPolynomial {
     constructor(n, curve, logger) {
         this.n = n;
@@ -10242,6 +10280,7 @@ class CPolynomial {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -10763,6 +10802,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { stringifyBigInts } = ffjavascript.utils;
 
@@ -12020,6 +12060,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
 
 async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
@@ -12052,6 +12093,7 @@ async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsC
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$1 } = ffjavascript.utils;
 
@@ -12645,6 +12687,7 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts} = ffjavascript.utils;
 
 function p256(n) {
@@ -12658,9 +12701,7 @@ async function fflonkExportCallData(_pub, _proof) {
     const proof = unstringifyBigInts(_proof);
     const pub = unstringifyBigInts(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
+    await getCurveFromName(proof.curve);
 
     let inputs = "";
     for (let i = 0; i < pub.length; i++) {
@@ -12702,12 +12743,12 @@ async function fflonkExportCallData(_pub, _proof) {
 
 var fflonk = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    setup: fflonkSetup,
-    prove: fflonkProve,
-    fullProve: fflonkFullProve,
-    verify: fflonkVerify,
+    exportSolidityCallData: fflonkExportCallData,
     exportSolidityVerifier: fflonkExportSolidityVerifier,
-    exportSolidityCallData: fflonkExportCallData
+    fullProve: fflonkFullProve,
+    prove: fflonkProve,
+    setup: fflonkSetup,
+    verify: fflonkVerify
 });
 
 exports.curves = curves;

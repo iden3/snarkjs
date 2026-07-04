@@ -1,8 +1,8 @@
-import { Scalar, BigBuffer, buildBn128, buildBls12381, ChaCha, F1Field, utils, getCurveFromR as getCurveFromR$1 } from 'ffjavascript';
+import { BigBuffer, Scalar, buildBn128, buildBls12381, ChaCha, F1Field, utils, getCurveFromR as getCurveFromR$1 } from 'ffjavascript';
 
 var fs = {};
 
-async function open$1(fileName, openFlags, cacheSize, pageSize) {
+async function open$2(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
@@ -10,11 +10,11 @@ async function open$1(fileName, openFlags, cacheSize, pageSize) {
 
     const stats = await fd.stat();
 
-    return  new FastFile$1(fd, stats, cacheSize, pageSize, fileName);
+    return  new FastFile$2(fd, stats, cacheSize, pageSize, fileName);
 }
 
 
-class FastFile$1 {
+let FastFile$2 = class FastFile {
 
     constructor(fd, stats, cacheSize, pageSize, fileName) {
         this.fileName = fileName;
@@ -538,11 +538,11 @@ class FastFile$1 {
 
         return str;
     }
-}
+};
 
-function createNew$1(o) {
+function createNew$3(o) {
     const initialSize = o.initialSize || 1<<20;
-    const fd = new MemFile$1();
+    const fd = new MemFile$2();
     fd.o = o;
     fd.o.data = new Uint8Array(initialSize);
     fd.allocSize = initialSize;
@@ -552,8 +552,8 @@ function createNew$1(o) {
     return fd;
 }
 
-function readExisting$5(o) {
-    const fd = new MemFile$1();
+function readExisting$8(o) {
+    const fd = new MemFile$2();
     fd.o = o;
     fd.allocSize = o.data.byteLength;
     fd.totalSize = o.data.byteLength;
@@ -562,12 +562,12 @@ function readExisting$5(o) {
     return fd;
 }
 
-const tmpBuff32$3 = new Uint8Array(4);
-const tmpBuff32v$3 = new DataView(tmpBuff32$3.buffer);
-const tmpBuff64$3 = new Uint8Array(8);
-const tmpBuff64v$3 = new DataView(tmpBuff64$3.buffer);
+const tmpBuff32$5 = new Uint8Array(4);
+const tmpBuff32v$5 = new DataView(tmpBuff32$5.buffer);
+const tmpBuff64$5 = new Uint8Array(8);
+const tmpBuff64v$5 = new DataView(tmpBuff64$5.buffer);
 
-class MemFile$1 {
+let MemFile$2 = class MemFile {
 
     constructor() {
         this.pageSize = 1 << 14;  // for compatibility
@@ -638,27 +638,27 @@ class MemFile$1 {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$3.setUint32(0, v, true);
+        tmpBuff32v$5.setUint32(0, v, true);
 
-        await self.write(tmpBuff32$3, pos);
+        await self.write(tmpBuff32$5, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$3.setUint32(0, v, false);
+        tmpBuff32v$5.setUint32(0, v, false);
 
-        await self.write(tmpBuff32$3, pos);
+        await self.write(tmpBuff32$5, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v$3.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$3.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v$5.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$5.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64$3, pos);
+        await self.write(tmpBuff64$5, pos);
     }
 
 
@@ -718,41 +718,41 @@ class MemFile$1 {
         }
         return str;
     }
-}
+};
 
-const PAGE_SIZE$1 = 1<<22;
+const PAGE_SIZE$2 = 1<<22;
 
-function createNew(o) {
+function createNew$2(o) {
     const initialSize = o.initialSize || 0;
-    const fd = new BigMemFile$1();
+    const fd = new BigMemFile$2();
     fd.o = o;
-    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$1)+1 : 0;
+    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$2)+1 : 0;
     fd.o.data = [];
     for (let i=0; i<nPages-1; i++) {
-        fd.o.data.push( new Uint8Array(PAGE_SIZE$1));
+        fd.o.data.push( new Uint8Array(PAGE_SIZE$2));
     }
-    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$1*(nPages-1)));
+    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$2*(nPages-1)));
     fd.totalSize = 0;
     fd.readOnly = false;
     fd.pos = 0;
     return fd;
 }
 
-function readExisting$4(o) {
-    const fd = new BigMemFile$1();
+function readExisting$7(o) {
+    const fd = new BigMemFile$2();
     fd.o = o;
-    fd.totalSize = (o.data.length-1)* PAGE_SIZE$1 + o.data[o.data.length-1].byteLength;
+    fd.totalSize = (o.data.length-1)* PAGE_SIZE$2 + o.data[o.data.length-1].byteLength;
     fd.readOnly = true;
     fd.pos = 0;
     return fd;
 }
 
-const tmpBuff32$2 = new Uint8Array(4);
-const tmpBuff32v$2 = new DataView(tmpBuff32$2.buffer);
-const tmpBuff64$2 = new Uint8Array(8);
-const tmpBuff64v$2 = new DataView(tmpBuff64$2.buffer);
+const tmpBuff32$4 = new Uint8Array(4);
+const tmpBuff32v$4 = new DataView(tmpBuff32$4.buffer);
+const tmpBuff64$4 = new Uint8Array(8);
+const tmpBuff64v$4 = new DataView(tmpBuff64$4.buffer);
 
-class BigMemFile$1 {
+let BigMemFile$2 = class BigMemFile {
 
     constructor() {
         this.pageSize = 1 << 14;  // for compatibility
@@ -764,9 +764,9 @@ class BigMemFile$1 {
 
         if (this.readOnly) throw new Error("Reading out of file bounds");
 
-        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$1)+1;
+        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$2)+1;
         for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
-            const newSize = i<nPages-1 ? PAGE_SIZE$1 : newLen - (nPages-1)*PAGE_SIZE$1;
+            const newSize = i<nPages-1 ? PAGE_SIZE$2 : newLen - (nPages-1)*PAGE_SIZE$2;
             const p = new Uint8Array(newSize);
             if (i == this.o.data.length-1) p.set(this.o.data[i]);
             this.o.data[i] = p;
@@ -781,13 +781,13 @@ class BigMemFile$1 {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        const firstPage = Math.floor(pos / PAGE_SIZE$1);
+        const firstPage = Math.floor(pos / PAGE_SIZE$2);
 
         let p = firstPage;
-        let o = pos % PAGE_SIZE$1;
+        let o = pos % PAGE_SIZE$2;
         let r = buff.byteLength;
         while (r>0) {
-            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
+            const l = (o+r > PAGE_SIZE$2) ? (PAGE_SIZE$2 -o) : r;
             const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
             dstView.set(srcView);
@@ -807,15 +807,15 @@ class BigMemFile$1 {
         }
         this._resizeIfNeeded(pos + len);
 
-        const firstPage = Math.floor(pos / PAGE_SIZE$1);
+        const firstPage = Math.floor(pos / PAGE_SIZE$2);
 
         let p = firstPage;
-        let o = pos % PAGE_SIZE$1;
+        let o = pos % PAGE_SIZE$2;
         // Remaining bytes to read
         let r = len;
         while (r>0) {
             // bytes to copy from this page
-            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
+            const l = (o+r > PAGE_SIZE$2) ? (PAGE_SIZE$2 -o) : r;
             const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
             buffDst.set(srcView, offset+len-r);
             r = r-l;
@@ -845,27 +845,27 @@ class BigMemFile$1 {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$2.setUint32(0, v, true);
+        tmpBuff32v$4.setUint32(0, v, true);
 
-        await self.write(tmpBuff32$2, pos);
+        await self.write(tmpBuff32$4, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$2.setUint32(0, v, false);
+        tmpBuff32v$4.setUint32(0, v, false);
 
-        await self.write(tmpBuff32$2, pos);
+        await self.write(tmpBuff32$4, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v$2.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$2.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v$4.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$4.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64$2, pos);
+        await self.write(tmpBuff64$4, pos);
     }
 
 
@@ -913,8 +913,8 @@ class BigMemFile$1 {
         let str = "";
 
         while (!endOfStringFound) {
-            let currentPage = Math.floor(currentPosition / PAGE_SIZE$1);
-            let offsetOnPage = currentPosition % PAGE_SIZE$1;
+            let currentPage = Math.floor(currentPosition / PAGE_SIZE$2);
+            let offsetOnPage = currentPosition % PAGE_SIZE$2;
 
             if (self.o.data[currentPage] === undefined) {
                 throw new Error("ERROR");
@@ -928,52 +928,52 @@ class BigMemFile$1 {
 
             if (endOfStringFound) {
                 str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + indexEndOfString + 1;
+                self.pos = currentPage * PAGE_SIZE$2 + offsetOnPage + indexEndOfString + 1;
             } else {
                 str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + dataArray.length;
+                self.pos = currentPage * PAGE_SIZE$2 + offsetOnPage + dataArray.length;
             }
 
             currentPosition = self.pos;
         }
         return str;
     }
-}
+};
 
 const O_TRUNC = 512;
 const O_CREAT = 64;
 const O_RDWR = 2;
 const O_RDONLY = 0;
 
-const DEFAULT_CACHE_SIZE = (1 << 16);
-const DEFAULT_PAGE_SIZE = (1 << 13);
+const DEFAULT_CACHE_SIZE$1 = (1 << 16);
+const DEFAULT_PAGE_SIZE$1 = (1 << 13);
 
 // Robust Node detection that never throws (unlike `true`, which is a
 // webpack-ism and is undefined under Vite/esbuild/SES).
 const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 
 
-async function createOverride(o, b, c) {
+async function createOverride$1(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b || DEFAULT_CACHE_SIZE,
-            pageSize: c || DEFAULT_PAGE_SIZE
+            cacheSize: b || DEFAULT_CACHE_SIZE$1,
+            pageSize: c || DEFAULT_PAGE_SIZE$1
         };
     }
     if (o.type == "file") {
-        return await open$1(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
+        return await open$2(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return createNew$1(o);
+        return createNew$3(o);
     } else if (o.type == "bigMem") {
-        return createNew(o);
+        return createNew$2(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
-async function readExisting$3(o, b, c) {
+async function readExisting$6(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -997,17 +997,17 @@ async function readExisting$3(o, b, c) {
             o = {
                 type: "file",
                 fileName: o,
-                cacheSize: b || DEFAULT_CACHE_SIZE,
-                pageSize: c || DEFAULT_PAGE_SIZE
+                cacheSize: b || DEFAULT_CACHE_SIZE$1,
+                pageSize: c || DEFAULT_PAGE_SIZE$1
             };
         }
     }
     if (o.type == "file") {
-        return await open$1(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
+        return await open$2(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return await readExisting$5(o);
+        return await readExisting$8(o);
     } else if (o.type == "bigMem") {
-        return await readExisting$4(o);
+        return await readExisting$7(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -1019,7 +1019,7 @@ const MAX_BUFFER_SIZE = 1 << 30;
 
 async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
-    const fd = await readExisting$3(fileName, cacheSize, pageSize);
+    const fd = await readExisting$6(fileName, cacheSize, pageSize);
 
     const b = await fd.read(4);
     let readedType = "";
@@ -1051,7 +1051,7 @@ async function readBinFile$1(fileName, type, maxVersion, cacheSize, pageSize) {
 
 async function createBinFile(fileName, type, version, nSections, cacheSize, pageSize) {
 
-    const fd = await createOverride(fileName, cacheSize, pageSize);
+    const fd = await createOverride$1(fileName, cacheSize, pageSize);
 
     const buff = new Uint8Array(4);
     for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
@@ -1226,116 +1226,244 @@ async function getCurveFromName(name, options) {
 
 var curves = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    getCurveFromR: getCurveFromR,
+    getCurveFromName: getCurveFromName,
     getCurveFromQ: getCurveFromQ,
-    getCurveFromName: getCurveFromName
+    getCurveFromR: getCurveFromR
 });
 
 /**
- * Internal assertion helpers.
- * @module
+ * Checks if something is Uint8Array. Be careful: nodejs Buffer will return true.
+ * @param a - value to test
+ * @returns `true` when the value is a Uint8Array-compatible view.
+ * @example
+ * Check whether a value is a Uint8Array-compatible view.
+ * ```ts
+ * isBytes(new Uint8Array([1, 2, 3]));
+ * ```
  */
-/** Asserts something is positive integer. */
-function anumber(n) {
-    if (!Number.isSafeInteger(n) || n < 0)
-        throw new Error('positive integer expected, got ' + n);
-}
-/** Is number an Uint8Array? Copied from utils for perf. */
 function isBytes(a) {
-    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
+    // Plain `instanceof Uint8Array` is too strict for some Buffer / proxy / cross-realm cases.
+    // The fallback still requires a real ArrayBuffer view, so plain
+    // JSON-deserialized `{ constructor: ... }` spoofing is rejected, and
+    // `BYTES_PER_ELEMENT === 1` keeps the fallback on byte-oriented views.
+    return (a instanceof Uint8Array ||
+        (ArrayBuffer.isView(a) &&
+            a.constructor.name === 'Uint8Array' &&
+            'BYTES_PER_ELEMENT' in a &&
+            a.BYTES_PER_ELEMENT === 1));
 }
-/** Asserts something is Uint8Array. */
-function abytes(b, ...lengths) {
-    if (!isBytes(b))
-        throw new Error('Uint8Array expected');
-    if (lengths.length > 0 && !lengths.includes(b.length))
-        throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
+/**
+ * Asserts something is a non-negative integer.
+ * @param n - number to validate
+ * @param title - label included in thrown errors
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
+ * @example
+ * Validate a non-negative integer option.
+ * ```ts
+ * anumber(32, 'length');
+ * ```
+ */
+function anumber(n, title = '') {
+    if (typeof n !== 'number') {
+        const prefix = title && `"${title}" `;
+        throw new TypeError(`${prefix}expected number, got ${typeof n}`);
+    }
+    if (!Number.isSafeInteger(n) || n < 0) {
+        const prefix = title && `"${title}" `;
+        throw new RangeError(`${prefix}expected integer >= 0, got ${n}`);
+    }
 }
-/** Asserts a hash instance has not been destroyed / finished */
+/**
+ * Asserts something is Uint8Array.
+ * @param value - value to validate
+ * @param length - optional exact length constraint
+ * @param title - label included in thrown errors
+ * @returns The validated byte array.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
+ * @example
+ * Validate that a value is a byte array.
+ * ```ts
+ * abytes(new Uint8Array([1, 2, 3]));
+ * ```
+ */
+function abytes(value, length, title = '') {
+    const bytes = isBytes(value);
+    const len = value?.length;
+    const needsLen = length !== undefined;
+    if (!bytes || (needsLen && len !== length)) {
+        const prefix = title && `"${title}" `;
+        const ofLen = needsLen ? ` of length ${length}` : '';
+        const got = bytes ? `length=${len}` : `type=${typeof value}`;
+        const message = prefix + 'expected Uint8Array' + ofLen + ', got ' + got;
+        if (!bytes)
+            throw new TypeError(message);
+        throw new RangeError(message);
+    }
+    return value;
+}
+/**
+ * Asserts a hash instance has not been destroyed or finished.
+ * @param instance - hash instance to validate
+ * @param checkFinished - whether to reject finalized instances
+ * @throws If the hash instance has already been destroyed or finalized. {@link Error}
+ * @example
+ * Validate that a hash instance is still usable.
+ * ```ts
+ * import { aexists } from '@noble/hashes/utils.js';
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * const hash = sha256.create();
+ * aexists(hash);
+ * ```
+ */
 function aexists(instance, checkFinished = true) {
     if (instance.destroyed)
         throw new Error('Hash instance has been destroyed');
     if (checkFinished && instance.finished)
         throw new Error('Hash#digest() has already been called');
 }
-/** Asserts output is properly-sized byte array */
+/**
+ * Asserts output is a sufficiently-sized byte array.
+ * @param out - destination buffer
+ * @param instance - hash instance providing output length
+ * Oversized buffers are allowed; downstream code only promises to fill the first `outputLen` bytes.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
+ * @example
+ * Validate a caller-provided digest buffer.
+ * ```ts
+ * import { aoutput } from '@noble/hashes/utils.js';
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * const hash = sha256.create();
+ * aoutput(new Uint8Array(hash.outputLen), hash);
+ * ```
+ */
 function aoutput(out, instance) {
-    abytes(out);
+    abytes(out, undefined, 'digestInto() output');
     const min = instance.outputLen;
     if (out.length < min) {
-        throw new Error('digestInto() expects output buffer of length at least ' + min);
+        throw new RangeError('"digestInto() output" expected to be of length >=' + min);
     }
 }
-
 /**
- * Utilities for hex, bytes, CSPRNG.
- * @module
+ * Casts a typed array view to Uint32Array.
+ * `arr.byteOffset` must already be 4-byte aligned or the platform
+ * Uint32Array constructor will throw.
+ * @param arr - source typed array
+ * @returns Uint32Array view over the same buffer.
+ * @example
+ * Reinterpret a byte array as 32-bit words.
+ * ```ts
+ * u32(new Uint8Array(8));
+ * ```
  */
 function u32(arr) {
     return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
 }
-/** Is current platform little-endian? Most are. Big-Endian platform: IBM */
+/**
+ * Zeroizes typed arrays in place. Warning: JS provides no guarantees.
+ * @param arrays - arrays to overwrite with zeros
+ * @example
+ * Zeroize sensitive buffers in place.
+ * ```ts
+ * clean(new Uint8Array([1, 2, 3]));
+ * ```
+ */
+function clean(...arrays) {
+    for (let i = 0; i < arrays.length; i++) {
+        arrays[i].fill(0);
+    }
+}
+/** Whether the current platform is little-endian. */
 const isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44)();
-// The byte swap operation for uint32
+/**
+ * Byte-swap operation for uint32 values.
+ * @param word - source word
+ * @returns Word with reversed byte order.
+ * @example
+ * Reverse the byte order of a 32-bit word.
+ * ```ts
+ * byteSwap(0x11223344);
+ * ```
+ */
 function byteSwap(word) {
     return (((word << 24) & 0xff000000) |
         ((word << 8) & 0xff0000) |
         ((word >>> 8) & 0xff00) |
         ((word >>> 24) & 0xff));
 }
-/** Conditionally byte swap if on a big-endian platform */
-const byteSwapIfBE = isLE
+/**
+ * Conditionally byte-swaps one 32-bit word on big-endian platforms.
+ * @param n - source word
+ * @returns Original or byte-swapped word depending on platform endianness.
+ * @example
+ * Normalize a 32-bit word for host endianness.
+ * ```ts
+ * swap8IfBE(0x11223344);
+ * ```
+ */
+const swap8IfBE = isLE
     ? (n) => n
-    : (n) => byteSwap(n);
-/** In place byte swap for Uint32Array */
+    : (n) => byteSwap(n) >>> 0;
+/**
+ * Byte-swaps every word of a Uint32Array in place.
+ * @param arr - array to mutate
+ * @returns The same array after mutation; callers pass live state arrays here.
+ * @example
+ * Reverse the byte order of every word in place.
+ * ```ts
+ * byteSwap32(new Uint32Array([0x11223344]));
+ * ```
+ */
 function byteSwap32(arr) {
     for (let i = 0; i < arr.length; i++) {
         arr[i] = byteSwap(arr[i]);
     }
+    return arr;
 }
 /**
- * Convert JS string to byte array.
- * @example utf8ToBytes('abc') // new Uint8Array([97, 98, 99])
+ * Conditionally byte-swaps a Uint32Array on big-endian platforms.
+ * @param u - array to normalize for host endianness
+ * @returns Original or byte-swapped array depending on platform endianness.
+ *   On big-endian runtimes this mutates `u` in place via `byteSwap32(...)`.
+ * @example
+ * Normalize a word array for host endianness.
+ * ```ts
+ * swap32IfBE(new Uint32Array([0x11223344]));
+ * ```
  */
-function utf8ToBytes(str) {
-    if (typeof str !== 'string')
-        throw new Error('utf8ToBytes expected string, got ' + typeof str);
-    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
-}
+const swap32IfBE = isLE
+    ? (u) => u
+    : byteSwap32;
 /**
- * Normalizes (non-hex) string or Uint8Array to Uint8Array.
- * Warning: when Uint8Array is passed, it would NOT get copied.
- * Keep in mind for future mutable operations.
+ * Creates a callable hash function from a stateful class constructor.
+ * @param hashCons - hash constructor or factory
+ * @param info - optional metadata such as DER OID
+ * @returns Frozen callable hash wrapper with `.create()`.
+ *   Wrapper construction eagerly calls `hashCons(undefined)` once to read
+ *   `outputLen` / `blockLen`, so constructor side effects happen at module
+ *   init time.
+ * @example
+ * Wrap a stateful hash constructor into a callable helper.
+ * ```ts
+ * import { createHasher } from '@noble/hashes/utils.js';
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * const wrapped = createHasher(sha256.create, { oid: sha256.oid });
+ * wrapped(new Uint8Array([1]));
+ * ```
  */
-function toBytes(data) {
-    if (typeof data === 'string')
-        data = utf8ToBytes(data);
-    abytes(data);
-    return data;
-}
-/** For runtime check if class implements interface */
-class Hash {
-    // Safe version that clones internal state
-    clone() {
-        return this._cloneInto();
-    }
-}
-/** Wraps hash function, creating an interface on top of it */
-function wrapConstructor(hashCons) {
-    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
-    const tmp = hashCons();
+function createHasher(hashCons, info = {}) {
+    const hashC = (msg, opts) => hashCons(opts)
+        .update(msg)
+        .digest();
+    const tmp = hashCons(undefined);
     hashC.outputLen = tmp.outputLen;
     hashC.blockLen = tmp.blockLen;
-    hashC.create = () => hashCons();
-    return hashC;
-}
-function wrapConstructorWithOpts(hashCons) {
-    const hashC = (msg, opts) => hashCons(opts).update(toBytes(msg)).digest();
-    const tmp = hashCons({});
-    hashC.outputLen = tmp.outputLen;
-    hashC.blockLen = tmp.blockLen;
+    hashC.canXOF = tmp.canXOF;
     hashC.create = (opts) => hashCons(opts);
-    return hashC;
+    Object.assign(hashC, info);
+    return Object.freeze(hashC);
 }
 
 /**
@@ -1343,11 +1471,13 @@ function wrapConstructorWithOpts(hashCons) {
  * @module
  */
 /**
- * Internal blake variable.
- * For BLAKE2b, the two extra permutations for rounds 10 and 11 are SIGMA[10..11] = SIGMA[0..1].
+ * Internal blake permutation table.
+ * Rows `0..9` serve BLAKE2s, rows `0..11` serve BLAKE2b with `10..11 = 0..1`, and Blake1 also
+ * reuses the later rows shown below. Blake1 expands rounds `10..15` as `SIGMA[i % 10]`, so rows
+ * `10..15` intentionally repeat rows `0..5` for the 14-round (256) and 16-round (512) variants.
  */
 // prettier-ignore
-const SIGMA = /* @__PURE__ */ new Uint8Array([
+const BSIGMA = /* @__PURE__ */ Uint8Array.from([
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
     11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
@@ -1366,64 +1496,187 @@ const SIGMA = /* @__PURE__ */ new Uint8Array([
     9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
     2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
 ]);
-/** Class, from which others are subclassed. */
-class BLAKE extends Hash {
-    constructor(blockLen, outputLen, opts = {}, keyLen, saltLen, persLen) {
-        super();
-        this.blockLen = blockLen;
-        this.outputLen = outputLen;
-        this.length = 0;
-        this.pos = 0;
-        this.finished = false;
-        this.destroyed = false;
+
+const U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
+const _32n = /* @__PURE__ */ BigInt(32);
+// Split bigint into two 32-bit halves. With `le=true`, returned fields become `{ h: low, l: high
+// }` to match little-endian word order rather than the property names.
+function fromBig(n, le = false) {
+    if (le)
+        return { h: Number(n & U32_MASK64), l: Number((n >> _32n) & U32_MASK64) };
+    return { h: Number((n >> _32n) & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
+}
+// Split bigint list into `[highWords, lowWords]` when `le=false`; with `le=true`, the first array
+// holds the low halves because `fromBig(...)` swaps the semantic meaning of `h` and `l`.
+function split(lst, le = false) {
+    const len = lst.length;
+    let Ah = new Uint32Array(len);
+    let Al = new Uint32Array(len);
+    for (let i = 0; i < len; i++) {
+        const { h, l } = fromBig(lst[i], le);
+        [Ah[i], Al[i]] = [h, l];
+    }
+    return [Ah, Al];
+}
+// High 32-bit half of a 64-bit right rotate, valid for `s` in `1..31`.
+const rotrSH = (h, l, s) => (h >>> s) | (l << (32 - s));
+// Low 32-bit half of a 64-bit right rotate, valid for `s` in `1..31`.
+const rotrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
+// High 32-bit half of a 64-bit right rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
+const rotrBH = (h, l, s) => (h << (64 - s)) | (l >>> (s - 32));
+// Low 32-bit half of a 64-bit right rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
+const rotrBL = (h, l, s) => (h >>> (s - 32)) | (l << (64 - s));
+// High 32-bit half of a 64-bit right rotate for `s === 32`; this is just the swapped low half.
+const rotr32H = (_h, l) => l;
+// Low 32-bit half of a 64-bit right rotate for `s === 32`; this is just the swapped high half.
+const rotr32L = (h, _l) => h;
+// High 32-bit half of a 64-bit left rotate, valid for `s` in `1..31`.
+const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
+// Low 32-bit half of a 64-bit left rotate, valid for `s` in `1..31`.
+const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
+// High 32-bit half of a 64-bit left rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
+const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
+// Low 32-bit half of a 64-bit left rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
+const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
+// Add two split 64-bit words and return the split `{ h, l }` sum.
+// JS uses 32-bit signed integers for bitwise operations, so we cannot simply shift the carry out
+// of the low sum and instead use division.
+function add(Ah, Al, Bh, Bl) {
+    const l = (Al >>> 0) + (Bl >>> 0);
+    return { h: (Ah + Bh + ((l / 2 ** 32) | 0)) | 0, l: l | 0 };
+}
+// Addition with more than 2 elements
+// Unmasked low-word accumulator for 3-way addition; pass the raw result into `add3H(...)`.
+const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
+// High-word finalize step for 3-way addition; `low` must be the untruncated output of `add3L(...)`.
+const add3H = (low, Ah, Bh, Ch) => (Ah + Bh + Ch + ((low / 2 ** 32) | 0)) | 0;
+
+/**
+ * blake2b (64-bit) & blake2s (8 to 32-bit) hash functions.
+ * b could have been faster, but there is no fast u64 in js, so s is 1.5x faster.
+ * @module
+ */
+// Same IV words as `SHA512_IV`, but endian-swapped into LE u32 low/high halves
+// for the BLAKE2b u64 helpers below.
+const B2B_IV = /* @__PURE__ */ Uint32Array.from([
+    0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
+    0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19,
+]);
+// Shared synchronous BLAKE2b work vector as LE u32 low/high halves.
+const BBUF = /* @__PURE__ */ new Uint32Array(32);
+// BLAKE2b G mix split into two half-rounds over LE u32 low/high limbs.
+function G1b(a, b, c, d, msg, x) {
+    // NOTE: V is LE here
+    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
+    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
+    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
+    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
+    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
+    // v[a] = (v[a] + v[b] + x) | 0;
+    let ll = add3L(Al, Bl, Xl);
+    Ah = add3H(ll, Ah, Bh, Xh);
+    Al = ll | 0;
+    // v[d] = rotr(v[d] ^ v[a], 32)
+    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
+    ({ Dh, Dl } = { Dh: rotr32H(Dh, Dl), Dl: rotr32L(Dh) });
+    // v[c] = (v[c] + v[d]) | 0;
+    ({ h: Ch, l: Cl } = add(Ch, Cl, Dh, Dl));
+    // v[b] = rotr(v[b] ^ v[c], 24)
+    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
+    ({ Bh, Bl } = { Bh: rotrSH(Bh, Bl, 24), Bl: rotrSL(Bh, Bl, 24) });
+    ((BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah));
+    ((BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh));
+    ((BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch));
+    ((BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh));
+}
+// Second half-round of the same LE-limb BLAKE2b G mix; `x` is the message word offset.
+function G2b(a, b, c, d, msg, x) {
+    // NOTE: V is LE here
+    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
+    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
+    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
+    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
+    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
+    // v[a] = (v[a] + v[b] + x) | 0;
+    let ll = add3L(Al, Bl, Xl);
+    Ah = add3H(ll, Ah, Bh, Xh);
+    Al = ll | 0;
+    // v[d] = rotr(v[d] ^ v[a], 16)
+    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
+    ({ Dh, Dl } = { Dh: rotrSH(Dh, Dl, 16), Dl: rotrSL(Dh, Dl, 16) });
+    // v[c] = (v[c] + v[d]) | 0;
+    ({ h: Ch, l: Cl } = add(Ch, Cl, Dh, Dl));
+    // v[b] = rotr(v[b] ^ v[c], 63)
+    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
+    ({ Bh, Bl } = { Bh: rotrBH(Bh, Bl, 63), Bl: rotrBL(Bh, Bl, 63) });
+    ((BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah));
+    ((BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh));
+    ((BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch));
+    ((BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh));
+}
+function checkBlake2Opts(outputLen, opts = {}, keyLen, saltLen, persLen) {
+    anumber(keyLen);
+    // RFC 7693 §2.1 requires digest length nn in 1..keyLen.
+    if (outputLen <= 0 || outputLen > keyLen)
+        throw new Error('outputLen bigger than keyLen');
+    const { key, salt, personalization } = opts;
+    // This API uses `undefined` for the RFC 7693 `kk = 0` case, so a provided key must be non-empty.
+    if (key !== undefined && (key.length < 1 || key.length > keyLen))
+        throw new Error('"key" expected to be undefined or of length=1..' + keyLen);
+    if (salt !== undefined)
+        abytes(salt, saltLen, 'salt');
+    if (personalization !== undefined)
+        abytes(personalization, persLen, 'personalization');
+}
+/** Internal base class for BLAKE2. */
+class _BLAKE2 {
+    buffer;
+    buffer32;
+    finished = false;
+    destroyed = false;
+    length = 0;
+    pos = 0;
+    blockLen;
+    outputLen;
+    canXOF = false;
+    constructor(blockLen, outputLen) {
         anumber(blockLen);
         anumber(outputLen);
-        anumber(keyLen);
-        if (outputLen < 0 || outputLen > keyLen)
-            throw new Error('outputLen bigger than keyLen');
-        if (opts.key !== undefined && (opts.key.length < 1 || opts.key.length > keyLen))
-            throw new Error('key length must be undefined or 1..' + keyLen);
-        if (opts.salt !== undefined && opts.salt.length !== saltLen)
-            throw new Error('salt must be undefined or ' + saltLen);
-        if (opts.personalization !== undefined && opts.personalization.length !== persLen)
-            throw new Error('personalization must be undefined or ' + persLen);
+        this.blockLen = blockLen;
+        this.outputLen = outputLen;
         this.buffer = new Uint8Array(blockLen);
         this.buffer32 = u32(this.buffer);
     }
     update(data) {
         aexists(this);
+        abytes(data);
         // Main difference with other hashes: there is flag for last block,
         // so we cannot process current block before we know that there
         // is the next one. This significantly complicates logic and reduces ability
         // to do zero-copy processing
         const { blockLen, buffer, buffer32 } = this;
-        data = toBytes(data);
         const len = data.length;
         const offset = data.byteOffset;
         const buf = data.buffer;
         for (let pos = 0; pos < len;) {
             // If buffer is full and we still have input (don't process last block, same as blake2s)
             if (this.pos === blockLen) {
-                if (!isLE)
-                    byteSwap32(buffer32);
+                swap32IfBE(buffer32);
                 this.compress(buffer32, 0, false);
-                if (!isLE)
-                    byteSwap32(buffer32);
+                swap32IfBE(buffer32);
                 this.pos = 0;
             }
             const take = Math.min(blockLen - this.pos, len - pos);
             const dataOffset = offset + pos;
-            // full block && aligned to 4 bytes && not last in input
+            // Zero-copy only for full, 4-byte-aligned, non-final blocks.
             if (take === blockLen && !(dataOffset % 4) && pos + take < len) {
                 const data32 = new Uint32Array(buf, dataOffset, Math.floor((len - pos) / 4));
-                if (!isLE)
-                    byteSwap32(data32);
+                swap32IfBE(data32);
                 for (let pos32 = 0; pos + blockLen < len; pos32 += buffer32.length, pos += blockLen) {
                     this.length += blockLen;
                     this.compress(data32, pos32, false);
                 }
-                if (!isLE)
-                    byteSwap32(data32);
+                swap32IfBE(data32);
                 continue;
             }
             buffer.set(data.subarray(pos, pos + take), this.pos);
@@ -1439,201 +1692,104 @@ class BLAKE extends Hash {
         const { pos, buffer32 } = this;
         this.finished = true;
         // Padding
-        this.buffer.subarray(pos).fill(0);
-        if (!isLE)
-            byteSwap32(buffer32);
+        clean(this.buffer.subarray(pos));
+        swap32IfBE(buffer32);
         this.compress(buffer32, 0, true);
-        if (!isLE)
-            byteSwap32(buffer32);
+        swap32IfBE(buffer32);
+        // Reject unaligned views explicitly instead of hiding them behind a full scratch copy.
+        if (out.byteOffset & 3)
+            throw new RangeError('"digestInto() output" expected 4-byte aligned byteOffset, got ' + out.byteOffset);
+        const state = this.get();
         const out32 = u32(out);
-        this.get().forEach((v, i) => (out32[i] = byteSwapIfBE(v)));
+        const full = Math.floor(this.outputLen / 4);
+        for (let i = 0; i < full; i++)
+            out32[i] = swap8IfBE(state[i]);
+        const tail = this.outputLen % 4;
+        if (!tail)
+            return;
+        const off = full * 4;
+        const word = state[full];
+        for (let i = 0; i < tail; i++)
+            out[off + i] = word >>> (8 * i);
     }
     digest() {
         const { buffer, outputLen } = this;
         this.digestInto(buffer);
+        // Return a copy so callers do not alias the instance scratch buffer used during finalization.
         const res = buffer.slice(0, outputLen);
         this.destroy();
         return res;
     }
     _cloneInto(to) {
         const { buffer, length, finished, destroyed, outputLen, pos } = this;
-        to || (to = new this.constructor({ dkLen: outputLen }));
+        // Recreate only `dkLen`; key/salt/personalization are already absorbed into the copied state.
+        to ||= new this.constructor({ dkLen: outputLen });
         to.set(...this.get());
-        to.length = length;
-        to.finished = finished;
-        to.destroyed = destroyed;
-        to.outputLen = outputLen;
         to.buffer.set(buffer);
+        to.destroyed = destroyed;
+        to.finished = finished;
+        to.length = length;
         to.pos = pos;
+        // @ts-ignore
+        to.outputLen = outputLen;
         return to;
     }
-}
-
-/**
- * Internal helpers for u64. BigUint64Array is too slow as per 2025, so we implement it using Uint32Array.
- * @todo re-check https://issues.chromium.org/issues/42212588
- * @module
- */
-const U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
-const _32n = /* @__PURE__ */ BigInt(32);
-function fromBig(n, le = false) {
-    if (le)
-        return { h: Number(n & U32_MASK64), l: Number((n >> _32n) & U32_MASK64) };
-    return { h: Number((n >> _32n) & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
-}
-function split(lst, le = false) {
-    let Ah = new Uint32Array(lst.length);
-    let Al = new Uint32Array(lst.length);
-    for (let i = 0; i < lst.length; i++) {
-        const { h, l } = fromBig(lst[i], le);
-        [Ah[i], Al[i]] = [h, l];
+    clone() {
+        return this._cloneInto();
     }
-    return [Ah, Al];
 }
-const toBig = (h, l) => (BigInt(h >>> 0) << _32n) | BigInt(l >>> 0);
-// for Shift in [0, 32)
-const shrSH = (h, _l, s) => h >>> s;
-const shrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
-// Right rotate for Shift in [1, 32)
-const rotrSH = (h, l, s) => (h >>> s) | (l << (32 - s));
-const rotrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
-// Right rotate for Shift in (32, 64), NOTE: 32 is special case.
-const rotrBH = (h, l, s) => (h << (64 - s)) | (l >>> (s - 32));
-const rotrBL = (h, l, s) => (h >>> (s - 32)) | (l << (64 - s));
-// Right rotate for shift===32 (just swaps l&h)
-const rotr32H = (_h, l) => l;
-const rotr32L = (h, _l) => h;
-// Left rotate for Shift in [1, 32)
-const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
-const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
-// Left rotate for Shift in (32, 64), NOTE: 32 is special case.
-const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
-const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
-// JS uses 32-bit signed integers for bitwise operations which means we cannot
-// simple take carry out of low bit sum by shift, we need to use division.
-function add(Ah, Al, Bh, Bl) {
-    const l = (Al >>> 0) + (Bl >>> 0);
-    return { h: (Ah + Bh + ((l / 2 ** 32) | 0)) | 0, l: l | 0 };
-}
-// Addition with more than 2 elements
-const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
-const add3H = (low, Ah, Bh, Ch) => (Ah + Bh + Ch + ((low / 2 ** 32) | 0)) | 0;
-const add4L = (Al, Bl, Cl, Dl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0);
-const add4H = (low, Ah, Bh, Ch, Dh) => (Ah + Bh + Ch + Dh + ((low / 2 ** 32) | 0)) | 0;
-const add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
-const add5H = (low, Ah, Bh, Ch, Dh, Eh) => (Ah + Bh + Ch + Dh + Eh + ((low / 2 ** 32) | 0)) | 0;
-// prettier-ignore
-const u64 = {
-    fromBig, split, toBig,
-    shrSH, shrSL,
-    rotrSH, rotrSL, rotrBH, rotrBL,
-    rotr32H, rotr32L,
-    rotlSH, rotlSL, rotlBH, rotlBL,
-    add, add3L, add3H, add4L, add4H, add5H, add5L,
-};
-var u64$1 = u64;
-
-/**
- * Blake2b hash function. Focuses on 64-bit platforms, but in JS speed different from Blake2s is negligible.
- * @module
- */
-// Same as SHA-512 but LE
-// prettier-ignore
-const B2B_IV = /* @__PURE__ */ new Uint32Array([
-    0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
-    0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19
-]);
-// Temporary buffer
-const BBUF = /* @__PURE__ */ new Uint32Array(32);
-// Mixing function G splitted in two halfs
-function G1b(a, b, c, d, msg, x) {
-    // NOTE: V is LE here
-    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
-    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
-    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
-    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
-    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
-    // v[a] = (v[a] + v[b] + x) | 0;
-    let ll = u64$1.add3L(Al, Bl, Xl);
-    Ah = u64$1.add3H(ll, Ah, Bh, Xh);
-    Al = ll | 0;
-    // v[d] = rotr(v[d] ^ v[a], 32)
-    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
-    ({ Dh, Dl } = { Dh: u64$1.rotr32H(Dh, Dl), Dl: u64$1.rotr32L(Dh, Dl) });
-    // v[c] = (v[c] + v[d]) | 0;
-    ({ h: Ch, l: Cl } = u64$1.add(Ch, Cl, Dh, Dl));
-    // v[b] = rotr(v[b] ^ v[c], 24)
-    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
-    ({ Bh, Bl } = { Bh: u64$1.rotrSH(Bh, Bl, 24), Bl: u64$1.rotrSL(Bh, Bl, 24) });
-    (BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah);
-    (BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh);
-    (BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch);
-    (BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh);
-}
-function G2b(a, b, c, d, msg, x) {
-    // NOTE: V is LE here
-    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
-    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
-    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
-    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
-    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
-    // v[a] = (v[a] + v[b] + x) | 0;
-    let ll = u64$1.add3L(Al, Bl, Xl);
-    Ah = u64$1.add3H(ll, Ah, Bh, Xh);
-    Al = ll | 0;
-    // v[d] = rotr(v[d] ^ v[a], 16)
-    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
-    ({ Dh, Dl } = { Dh: u64$1.rotrSH(Dh, Dl, 16), Dl: u64$1.rotrSL(Dh, Dl, 16) });
-    // v[c] = (v[c] + v[d]) | 0;
-    ({ h: Ch, l: Cl } = u64$1.add(Ch, Cl, Dh, Dl));
-    // v[b] = rotr(v[b] ^ v[c], 63)
-    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
-    ({ Bh, Bl } = { Bh: u64$1.rotrBH(Bh, Bl, 63), Bl: u64$1.rotrBL(Bh, Bl, 63) });
-    (BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah);
-    (BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh);
-    (BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch);
-    (BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh);
-}
-class BLAKE2b extends BLAKE {
+/** Internal blake2b hash class with state stored as LE u32 low/high halves. */
+class _BLAKE2b extends _BLAKE2 {
+    // Same IV words as SHA-512 / BLAKE2b, encoded as LE u32 low/high halves.
+    v0l = B2B_IV[0] | 0;
+    v0h = B2B_IV[1] | 0;
+    v1l = B2B_IV[2] | 0;
+    v1h = B2B_IV[3] | 0;
+    v2l = B2B_IV[4] | 0;
+    v2h = B2B_IV[5] | 0;
+    v3l = B2B_IV[6] | 0;
+    v3h = B2B_IV[7] | 0;
+    v4l = B2B_IV[8] | 0;
+    v4h = B2B_IV[9] | 0;
+    v5l = B2B_IV[10] | 0;
+    v5h = B2B_IV[11] | 0;
+    v6l = B2B_IV[12] | 0;
+    v6h = B2B_IV[13] | 0;
+    v7l = B2B_IV[14] | 0;
+    v7h = B2B_IV[15] | 0;
     constructor(opts = {}) {
-        super(128, opts.dkLen === undefined ? 64 : opts.dkLen, opts, 64, 16, 16);
-        // Same as SHA-512, but LE
-        this.v0l = B2B_IV[0] | 0;
-        this.v0h = B2B_IV[1] | 0;
-        this.v1l = B2B_IV[2] | 0;
-        this.v1h = B2B_IV[3] | 0;
-        this.v2l = B2B_IV[4] | 0;
-        this.v2h = B2B_IV[5] | 0;
-        this.v3l = B2B_IV[6] | 0;
-        this.v3h = B2B_IV[7] | 0;
-        this.v4l = B2B_IV[8] | 0;
-        this.v4h = B2B_IV[9] | 0;
-        this.v5l = B2B_IV[10] | 0;
-        this.v5h = B2B_IV[11] | 0;
-        this.v6l = B2B_IV[12] | 0;
-        this.v6h = B2B_IV[13] | 0;
-        this.v7l = B2B_IV[14] | 0;
-        this.v7h = B2B_IV[15] | 0;
-        const keyLength = opts.key ? opts.key.length : 0;
+        const olen = opts.dkLen === undefined ? 64 : opts.dkLen;
+        super(128, olen);
+        checkBlake2Opts(olen, opts, 64, 16, 16);
+        let { key, personalization, salt } = opts;
+        let keyLength = 0;
+        if (key !== undefined) {
+            abytes(key, undefined, 'key');
+            keyLength = key.length;
+        }
+        // RFC 7693 §2.5: xor `p[0] = 0x0101kknn` into the low 32 bits of `h[0]`;
+        // the high 32 bits stay at `IV[0]`.
         this.v0l ^= this.outputLen | (keyLength << 8) | (0x01 << 16) | (0x01 << 24);
-        if (opts.salt) {
-            const salt = u32(toBytes(opts.salt));
-            this.v4l ^= byteSwapIfBE(salt[0]);
-            this.v4h ^= byteSwapIfBE(salt[1]);
-            this.v5l ^= byteSwapIfBE(salt[2]);
-            this.v5h ^= byteSwapIfBE(salt[3]);
+        if (salt !== undefined) {
+            abytes(salt, undefined, 'salt');
+            const slt = u32(salt);
+            this.v4l ^= swap8IfBE(slt[0]);
+            this.v4h ^= swap8IfBE(slt[1]);
+            this.v5l ^= swap8IfBE(slt[2]);
+            this.v5h ^= swap8IfBE(slt[3]);
         }
-        if (opts.personalization) {
-            const pers = u32(toBytes(opts.personalization));
-            this.v6l ^= byteSwapIfBE(pers[0]);
-            this.v6h ^= byteSwapIfBE(pers[1]);
-            this.v7l ^= byteSwapIfBE(pers[2]);
-            this.v7h ^= byteSwapIfBE(pers[3]);
+        if (personalization !== undefined) {
+            abytes(personalization, undefined, 'personalization');
+            const pers = u32(personalization);
+            this.v6l ^= swap8IfBE(pers[0]);
+            this.v6h ^= swap8IfBE(pers[1]);
+            this.v7l ^= swap8IfBE(pers[2]);
+            this.v7h ^= swap8IfBE(pers[3]);
         }
-        if (opts.key) {
+        if (key !== undefined) {
             // Pad to blockLen and update
             const tmp = new Uint8Array(this.blockLen);
-            tmp.set(toBytes(opts.key));
+            tmp.set(key);
             this.update(tmp);
         }
     }
@@ -1664,7 +1820,7 @@ class BLAKE2b extends BLAKE {
     compress(msg, offset, isLast) {
         this.get().forEach((v, i) => (BBUF[i] = v)); // First half from state.
         BBUF.set(B2B_IV, 16); // Second half from IV.
-        let { h, l } = u64$1.fromBig(BigInt(this.length));
+        let { h, l } = fromBig(BigInt(this.length));
         BBUF[24] = B2B_IV[8] ^ l; // Low word of the offset.
         BBUF[25] = B2B_IV[9] ^ h; // High word.
         // Invert all bits for last block
@@ -1673,7 +1829,9 @@ class BLAKE2b extends BLAKE {
             BBUF[29] = ~BBUF[29];
         }
         let j = 0;
-        const s = SIGMA;
+        const s = BSIGMA;
+        // SIGMA selects 64-bit message words; multiply by 2 because `msg` stores
+        // each word as [low32, high32].
         for (let i = 0; i < 12; i++) {
             G1b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
             G2b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
@@ -1708,20 +1866,28 @@ class BLAKE2b extends BLAKE {
         this.v6h ^= BBUF[13] ^ BBUF[29];
         this.v7l ^= BBUF[14] ^ BBUF[30];
         this.v7h ^= BBUF[15] ^ BBUF[31];
-        BBUF.fill(0);
+        clean(BBUF);
     }
     destroy() {
         this.destroyed = true;
-        this.buffer32.fill(0);
+        clean(this.buffer32);
         this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 }
 /**
- * Blake2b hash function. Focuses on 64-bit platforms, but in JS speed different from Blake2s is negligible.
+ * Blake2b hash function. 64-bit. 1.5x slower than blake2s in JS.
  * @param msg - message that would be hashed
- * @param opts - dkLen output length, key for MAC mode, salt, personalization
+ * @param opts - Optional output, MAC, salt, and personalization settings.
+ *   `dkLen` must be 1..64 bytes; `salt` and `personalization`, if present,
+ *   must be 16 bytes each. See {@link Blake2Opts}.
+ * @returns Digest bytes.
+ * @example
+ * Hash a message with Blake2b.
+ * ```ts
+ * blake2b(new Uint8Array([97, 98, 99]));
+ * ```
  */
-const blake2b = /* @__PURE__ */ wrapConstructorWithOpts((opts) => new BLAKE2b(opts));
+const blake2b = /* @__PURE__ */ createHasher((opts) => new _BLAKE2b(opts));
 
 var readline = {};
 
@@ -1745,6 +1911,7 @@ var crypto = {};
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 function log2( V )
@@ -2033,6 +2200,7 @@ const ZKEY_FF_C0_SECTION = 17;
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function writeHeader(fd, zkey) {
 
@@ -2476,6 +2644,7 @@ function hashPubKey(hasher, curve, c) {
 */
 
 
+
 async function write(fd, witness, prime) {
 
     await startWriteSection(fd, 1);
@@ -2562,6 +2731,7 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$4} = utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -3112,6 +3282,933 @@ function monitorMemoryUsage(logger, interval = 5000) {
     }, interval);
 }
 
+async function open$1(fileName, openFlags, cacheSize, pageSize) {
+    cacheSize = cacheSize || 4096*64;
+    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
+        throw new Error("Invalid open option");
+    const fd =await fs.promises.open(fileName, openFlags);
+
+    const stats = await fd.stat();
+
+    return  new FastFile$1(fd, stats, cacheSize, pageSize, fileName);
+}
+
+
+let FastFile$1 = class FastFile {
+
+    constructor(fd, stats, cacheSize, pageSize, fileName) {
+        this.fileName = fileName;
+        this.fd = fd;
+        this.pos = 0;
+        this.pageSize = pageSize || (1 << 8);
+        while (this.pageSize < stats.blksize) {
+            this.pageSize *= 2;
+        }
+        this.totalSize = stats.size;
+        this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
+        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
+        this.pages = {};
+        this.pendingLoads = [];
+        this.writing = false;
+        this.reading = false;
+        this.avBuffs = [];
+        this.history = {};
+    }
+
+    _loadPage(p) {
+        const self = this;
+        const P = new Promise((resolve, reject)=> {
+            self.pendingLoads.push({
+                page: p,
+                resolve: resolve,
+                reject: reject
+            });
+        });
+        self.__statusPage("After Load request: ", p);
+        return P;
+    }
+
+    __statusPage(s, p) {
+        const logEntry = [];
+        const self=this;
+        if (!self.logHistory) return;
+        logEntry.push("==" + s+ " " +p);
+        let S = "";
+        for (let i=0; i<self.pendingLoads.length; i++) {
+            if (self.pendingLoads[i].page == p) S = S + " " + i;
+        }
+        if (S) logEntry.push("Pending loads:"+S);
+        if (typeof self.pages[p] != "undefined") {
+            const page = self.pages[p];
+            logEntry.push("Loaded");
+            logEntry.push("pendingOps: "+page.pendingOps);
+            if (page.loading) logEntry.push("loading: "+page.loading);
+            if (page.writing) logEntry.push("writing");
+            if (page.dirty) logEntry.push("dirty");
+        }
+        logEntry.push("==");
+
+        if (!self.history[p]) self.history[p] = [];
+        self.history[p].push(logEntry);
+    }
+
+    __printHistory(p) {
+        const self = this;
+        if (!self.history[p]) console.log("Empty History ", p);
+        console.log("History "+p);
+        for (let i=0; i<self.history[p].length; i++) {
+            for (let j=0; j<self.history[p][i].length; j++) {
+                console.log("-> " + self.history[p][i][j]);
+            }
+        }
+    }
+
+
+
+    _triggerLoad() {
+        const self = this;
+
+        if (self.reading) return;
+        if (self.pendingLoads.length==0) return;
+
+        const pageIdxs = Object.keys(self.pages);
+
+        const deletablePages = [];
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if ((page.dirty == false)&&(page.pendingOps==0)&&(!page.writing)&&(!page.loading)) deletablePages.push(parseInt(pageIdxs[i]));
+        }
+
+        let freePages = self.maxPagesLoaded - pageIdxs.length;
+
+        const ops = [];
+
+        // while pending loads and
+        //     the page is loaded or I can recover one.
+        while (
+            (self.pendingLoads.length>0) &&
+            (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
+              ||(  (freePages>0)
+                 ||(deletablePages.length>0)))) {
+            const load = self.pendingLoads.shift();
+            if (typeof self.pages[load.page] != "undefined") {
+                self.pages[load.page].pendingOps ++;
+                const idx = deletablePages.indexOf(load.page);
+                if (idx>=0) deletablePages.splice(idx, 1);
+                if (self.pages[load.page].loading) {
+                    self.pages[load.page].loading.push(load);
+                } else {
+                    load.resolve();
+                }
+                self.__statusPage("After Load (cached): ", load.page);
+
+            } else {
+                if (freePages) {
+                    freePages--;
+                } else {
+                    const fp = deletablePages.shift();
+                    self.__statusPage("Before Unload: ", fp);
+                    self.avBuffs.unshift(self.pages[fp]);
+                    delete self.pages[fp];
+                    self.__statusPage("After Unload: ", fp);
+                }
+
+                if (load.page>=self.totalPages) {
+                    self.pages[load.page] = getNewPage();
+                    load.resolve();
+                    self.__statusPage("After Load (new): ", load.page);
+                } else {
+                    self.reading = true;
+                    self.pages[load.page] = getNewPage();
+                    self.pages[load.page].loading = [load];
+                    ops.push(self.fd.read(self.pages[load.page].buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
+                        self.pages[load.page].size = res.bytesRead;
+                        const loading = self.pages[load.page].loading;
+                        delete self.pages[load.page].loading;
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].resolve();
+                        }
+                        self.__statusPage("After Load (loaded): ", load.page);
+                        return res;
+                    }, (err) => {
+                        load.reject(err);
+                    }));
+                    self.__statusPage("After Load (loading): ", load.page);
+                }
+            }
+        }
+        // if (ops.length>1) console.log(ops.length);
+
+        Promise.all(ops).then( () => {
+            self.reading = false;
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            self._tryClose();
+        });
+
+        function getNewPage() {
+            if (self.avBuffs.length>0) {
+                const p = self.avBuffs.shift();
+                p.dirty = false;
+                p.pendingOps = 1;
+                p.size =0;
+                return p;
+            } else {
+                return {
+                    dirty: false,
+                    buff: new Uint8Array(self.pageSize),
+                    pendingOps: 1,
+                    size: 0
+                };
+            }
+        }
+
+    }
+
+
+    _triggerWrite() {
+        const self = this;
+        if (self.writing) return;
+
+        const pageIdxs = Object.keys(self.pages);
+
+        const ops = [];
+
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if (page.dirty) {
+                page.dirty = false;
+                page.writing = true;
+                self.writing = true;
+                ops.push( self.fd.write(page.buff, 0, page.size, parseInt(pageIdxs[i])*self.pageSize).then(() => {
+                    page.writing = false;
+                    return;
+                }, (err) => {
+                    console.log("ERROR Writing: "+err);
+                    self.error = err;
+                    self._tryClose();
+                }));
+            }
+        }
+
+        if (self.writing) {
+            Promise.all(ops).then( () => {
+                self.writing = false;
+                setImmediate(self._triggerWrite.bind(self));
+                self._tryClose();
+                if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            });
+        }
+    }
+
+    _getDirtyPage() {
+        for (let p in this.pages) {
+            if (this.pages[p].dirty) return p;
+        }
+        return -1;
+    }
+
+    async write(buff, pos) {
+        if (buff.byteLength == 0) return;
+        const self = this;
+/*
+        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(buff.byteLength * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+*/
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+buff.byteLength;
+        if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
+        if (self.pendingClose)
+            throw new Error("Writing a closing file");
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
+
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+        self._triggerLoad();
+
+        let p = firstPage;
+        let o = pos % self.pageSize;
+        let r = buff.byteLength;
+        while (r>0) {
+            await pagePromises[p-firstPage];
+            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
+            const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
+            const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
+            dstView.set(srcView);
+            self.pages[p].dirty = true;
+            self.pages[p].pendingOps --;
+            self.pages[p].size = Math.max(o+l, self.pages[p].size);
+            if (p>=self.totalPages) {
+                self.totalPages = p+1;
+            }
+            r = r-l;
+            p ++;
+            o = 0;
+            if (!self.writing) setImmediate(self._triggerWrite.bind(self));
+        }
+    }
+
+    async read(len, pos) {
+        const self = this;
+        let buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
+        if (len == 0) {
+            return;
+        }
+        const self = this;
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+len;
+        if (self.pendingClose)
+            throw new Error("Reading a closing file");
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + len -1) / self.pageSize);
+
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+
+        self._triggerLoad();
+
+        let p = firstPage;
+        let o = pos % self.pageSize;
+        // Remaining bytes to read
+        let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
+        while (r>0) {
+            await pagePromises[p - firstPage];
+            self.__statusPage("After Await (read): ", p);
+
+            // bytes to copy from this page
+            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
+            const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
+            buffDst.set(srcView, offset+len-r);
+            self.pages[p].pendingOps --;
+
+            self.__statusPage("After Op done: ", p);
+
+            r = r-l;
+            p ++;
+            o = 0;
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+        }
+
+        this.pos = pos + len;
+
+    }
+
+
+    _tryClose() {
+        const self = this;
+        if (!self.pendingClose) return;
+        if (self.error) {
+            self.pendingCloseReject(self.error);
+        }
+        const p = self._getDirtyPage();
+        if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
+        self.pendingClose();
+    }
+
+    close() {
+        const self = this;
+        if (self.pendingClose)
+            throw new Error("Closing the file twice");
+        return new Promise((resolve, reject) => {
+            self.pendingClose = resolve;
+            self.pendingCloseReject = reject;
+            self._tryClose();
+        }).then(()=> {
+            self.fd.close();
+        }, (err) => {
+            self.fd.close();
+            throw (err);
+        });
+    }
+
+    async discard() {
+        const self = this;
+        await self.close();
+        await fs.promises.unlink(this.fileName);
+    }
+
+    async writeULE32(v, pos) {
+        const self = this;
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
+
+        tmpBuff32v.setUint32(0, v, true);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
+
+        tmpBuff32v.setUint32(0, v, false);
+
+        await self.write(tmpBuff32, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        const tmpBuff64 = new Uint8Array(8);
+        const tmpBuff64v = new DataView(tmpBuff64.buffer);
+
+        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64, pos);
+    }
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+
+        if (self.pendingClose) {
+            throw new Error("Reading a closing file");
+        }
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+        let currentPage = Math.floor(currentPosition / self.pageSize);
+
+        let endOfStringFound = false;
+        let str = "";
+
+        while (!endOfStringFound) {
+            //Read page
+            let pagePromise = self._loadPage(currentPage);
+            self._triggerLoad();
+            await pagePromise;
+            self.__statusPage("After Await (read): ", currentPage);
+
+            let offsetOnPage = currentPosition % self.pageSize;
+
+            const dataArray = new Uint8Array(
+                self.pages[currentPage].buff.buffer,
+                self.pages[currentPage].buff.byteOffset + offsetOnPage,
+                self.pageSize - offsetOnPage
+            );
+
+            let indexEndOfString = dataArray.findIndex(element => element === 0);
+            endOfStringFound = indexEndOfString !== -1;
+
+            if (endOfStringFound) {
+                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+                self.pos = currentPage * this.pageSize + offsetOnPage + indexEndOfString + 1;
+            } else {
+                str += new TextDecoder().decode(dataArray);
+                self.pos = currentPage * this.pageSize + offsetOnPage + dataArray.length;
+            }
+
+            self.pages[currentPage].pendingOps--;
+            self.__statusPage("After Op done: ", currentPage);
+
+            currentPosition = self.pos;
+            currentPage++;
+
+            if (self.pendingLoads.length > 0) setImmediate(self._triggerLoad.bind(self));
+        }
+
+        return str;
+    }
+};
+
+function createNew$1(o) {
+    const initialSize = o.initialSize || 1<<20;
+    const fd = new MemFile$1();
+    fd.o = o;
+    fd.o.data = new Uint8Array(initialSize);
+    fd.allocSize = initialSize;
+    fd.totalSize = 0;
+    fd.readOnly = false;
+    fd.pos = 0;
+    return fd;
+}
+
+function readExisting$5(o) {
+    const fd = new MemFile$1();
+    fd.o = o;
+    fd.allocSize = o.data.byteLength;
+    fd.totalSize = o.data.byteLength;
+    fd.readOnly = true;
+    fd.pos = 0;
+    return fd;
+}
+
+const tmpBuff32$3 = new Uint8Array(4);
+const tmpBuff32v$3 = new DataView(tmpBuff32$3.buffer);
+const tmpBuff64$3 = new Uint8Array(8);
+const tmpBuff64v$3 = new DataView(tmpBuff64$3.buffer);
+
+let MemFile$1 = class MemFile {
+
+    constructor() {
+        this.pageSize = 1 << 14;  // for compatibility
+    }
+
+    _resizeIfNeeded(newLen) {
+        if (newLen > this.allocSize) {
+            const newAllocSize = Math.max(
+                this.allocSize + (1 << 20),
+                Math.floor(this.allocSize * 1.1),
+                newLen
+            );
+            const newData = new Uint8Array(newAllocSize);
+            newData.set(this.o.data);
+            this.o.data = newData;
+            this.allocSize = newAllocSize;
+        }
+    }
+
+    async write(buff, pos) {
+        const self =this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) throw new Error("Writing a read only file");
+
+        this._resizeIfNeeded(pos + buff.byteLength);
+
+        this.o.data.set(buff.slice(), pos);
+
+        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
+
+        this.pos = pos + buff.byteLength;
+    }
+
+    async readToBuffer(buffDest, offset, len, pos) {
+        const self = this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) {
+            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
+        }
+        this._resizeIfNeeded(pos + len);
+
+        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
+
+        buffDest.set(buffSrc, offset);
+
+        this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    close() {
+        if (this.o.data.byteLength != this.totalSize) {
+            this.o.data = this.o.data.slice(0, this.totalSize);
+        }
+    }
+
+    async discard() {
+    }
+
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$3.setUint32(0, v, true);
+
+        await self.write(tmpBuff32$3, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$3.setUint32(0, v, false);
+
+        await self.write(tmpBuff32$3, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        tmpBuff64v$3.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$3.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64$3, pos);
+    }
+
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+
+        if (currentPosition > this.totalSize) {
+            if (this.readOnly) {
+                throw new Error("Reading out of bounds");
+            }
+            this._resizeIfNeeded(pos);
+        }
+        const dataArray = new Uint8Array(
+            self.o.data.buffer,
+            currentPosition,
+            this.totalSize - currentPosition
+        );
+
+        let indexEndOfString = dataArray.findIndex(element => element === 0);
+        let endOfStringFound = indexEndOfString !== -1;
+
+        let str = "";
+        if (endOfStringFound) {
+            str = new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+            self.pos = currentPosition + indexEndOfString + 1;
+        } else {
+            self.pos = currentPosition;
+        }
+        return str;
+    }
+};
+
+const PAGE_SIZE$1 = 1<<22;
+
+function createNew(o) {
+    const initialSize = o.initialSize || 0;
+    const fd = new BigMemFile$1();
+    fd.o = o;
+    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE$1)+1 : 0;
+    fd.o.data = [];
+    for (let i=0; i<nPages-1; i++) {
+        fd.o.data.push( new Uint8Array(PAGE_SIZE$1));
+    }
+    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE$1*(nPages-1)));
+    fd.totalSize = 0;
+    fd.readOnly = false;
+    fd.pos = 0;
+    return fd;
+}
+
+function readExisting$4(o) {
+    const fd = new BigMemFile$1();
+    fd.o = o;
+    fd.totalSize = (o.data.length-1)* PAGE_SIZE$1 + o.data[o.data.length-1].byteLength;
+    fd.readOnly = true;
+    fd.pos = 0;
+    return fd;
+}
+
+const tmpBuff32$2 = new Uint8Array(4);
+const tmpBuff32v$2 = new DataView(tmpBuff32$2.buffer);
+const tmpBuff64$2 = new Uint8Array(8);
+const tmpBuff64v$2 = new DataView(tmpBuff64$2.buffer);
+
+let BigMemFile$1 = class BigMemFile {
+
+    constructor() {
+        this.pageSize = 1 << 14;  // for compatibility
+    }
+
+    _resizeIfNeeded(newLen) {
+
+        if (newLen <= this.totalSize) return;
+
+        if (this.readOnly) throw new Error("Reading out of file bounds");
+
+        const nPages = Math.floor((newLen - 1) / PAGE_SIZE$1)+1;
+        for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
+            const newSize = i<nPages-1 ? PAGE_SIZE$1 : newLen - (nPages-1)*PAGE_SIZE$1;
+            const p = new Uint8Array(newSize);
+            if (i == this.o.data.length-1) p.set(this.o.data[i]);
+            this.o.data[i] = p;
+        }
+        this.totalSize = newLen;
+    }
+
+    async write(buff, pos) {
+        const self =this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) throw new Error("Writing a read only file");
+
+        this._resizeIfNeeded(pos + buff.byteLength);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE$1);
+
+        let p = firstPage;
+        let o = pos % PAGE_SIZE$1;
+        let r = buff.byteLength;
+        while (r>0) {
+            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
+            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
+            const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
+            dstView.set(srcView);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + buff.byteLength;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
+        const self = this;
+        if (typeof pos == "undefined") pos = self.pos;
+        if (this.readOnly) {
+            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
+        }
+        this._resizeIfNeeded(pos + len);
+
+        const firstPage = Math.floor(pos / PAGE_SIZE$1);
+
+        let p = firstPage;
+        let o = pos % PAGE_SIZE$1;
+        // Remaining bytes to read
+        let r = len;
+        while (r>0) {
+            // bytes to copy from this page
+            const l = (o+r > PAGE_SIZE$1) ? (PAGE_SIZE$1 -o) : r;
+            const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
+            buffDst.set(srcView, offset+len-r);
+            r = r-l;
+            p ++;
+            o = 0;
+        }
+
+        this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        const buff = new Uint8Array(len);
+
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    close() {
+    }
+
+    async discard() {
+    }
+
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$2.setUint32(0, v, true);
+
+        await self.write(tmpBuff32$2, pos);
+    }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        tmpBuff32v$2.setUint32(0, v, false);
+
+        await self.write(tmpBuff32$2, pos);
+    }
+
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        tmpBuff64v$2.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$2.setUint32(4, Math.floor(v / 0x100000000) , true);
+
+        await self.write(tmpBuff64$2, pos);
+    }
+
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+        const fixedSize = 2048;
+
+        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
+
+        if (currentPosition > this.totalSize) {
+            if (this.readOnly) {
+                throw new Error("Reading out of bounds");
+            }
+            this._resizeIfNeeded(pos);
+        }
+
+        let endOfStringFound = false;
+        let str = "";
+
+        while (!endOfStringFound) {
+            let currentPage = Math.floor(currentPosition / PAGE_SIZE$1);
+            let offsetOnPage = currentPosition % PAGE_SIZE$1;
+
+            if (self.o.data[currentPage] === undefined) {
+                throw new Error("ERROR");
+            }
+
+            let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
+            const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
+
+            let indexEndOfString = dataArray.findIndex(element => element === 0);
+            endOfStringFound = indexEndOfString !== -1;
+
+            if (endOfStringFound) {
+                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
+                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + indexEndOfString + 1;
+            } else {
+                str += new TextDecoder().decode(dataArray);
+                self.pos = currentPage * PAGE_SIZE$1 + offsetOnPage + dataArray.length;
+            }
+
+            currentPosition = self.pos;
+        }
+        return str;
+    }
+};
+
+/* global fetch */
+
+const DEFAULT_CACHE_SIZE = (1 << 16);
+const DEFAULT_PAGE_SIZE = (1 << 13);
+
+
+async function createOverride(o, b, c) {
+    if (typeof o === "string") {
+        o = {
+            type: "file",
+            fileName: o,
+            cacheSize: DEFAULT_CACHE_SIZE,
+            pageSize: DEFAULT_PAGE_SIZE
+        };
+    }
+    if (o.type == "file") {
+        return await open$1(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
+    } else if (o.type == "mem") {
+        return createNew$1(o);
+    } else if (o.type == "bigMem") {
+        return createNew(o);
+    } else {
+        throw new Error("Invalid FastFile type: "+o.type);
+    }
+}
+
+async function readExisting$3(o, b, c) {
+    if (o instanceof Uint8Array) {
+        o = {
+            type: "mem",
+            data: o
+        };
+    }
+    {
+        if (typeof o === "string") {
+            const buff = await fetch(o).then( function(res) {
+                return res.arrayBuffer();
+            }).then(function (ab) {
+                return new Uint8Array(ab);
+            });
+            o = {
+                type: "mem",
+                data: buff
+            };
+        }
+    }
+    if (o.type == "file") {
+        return await open$1(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
+    } else if (o.type == "mem") {
+        return await readExisting$5(o);
+    } else if (o.type == "bigMem") {
+        return await readExisting$4(o);
+    } else {
+        throw new Error("Invalid FastFile type: "+o.type);
+    }
+}
+
 /*
 
 Copyright 2020 0KIMS association.
@@ -3187,6 +4284,24 @@ function toArray32(s, size) {
 }
 
 /* globals WebAssembly */
+/*
+
+Copyright 2020 0KIMS association.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+*/
+
 
 async function builder(code, options) {
     let instance;
@@ -3746,6 +4861,7 @@ class WitnessCalculatorCircom2 {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$b} = utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
@@ -3791,6 +4907,7 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$a} = utils;
 
 async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -3821,6 +4938,7 @@ async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalc
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$9} = utils;
 
 async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
@@ -3975,10 +5093,10 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
 
 var groth16 = /*#__PURE__*/Object.freeze({
     __proto__: null,
+    exportSolidityCallData: groth16ExportSolidityCallData,
     fullProve: groth16FullProve,
     prove: groth16Prove,
-    verify: groth16Verify,
-    exportSolidityCallData: groth16ExportSolidityCallData
+    verify: groth16Verify
 });
 
 /*
@@ -3999,6 +5117,7 @@ var groth16 = /*#__PURE__*/Object.freeze({
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 function hashToG2(curve, hash) {
     const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
@@ -4070,6 +5189,7 @@ function createPTauKey(curve, challengeHash, rng) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
@@ -4434,6 +5554,7 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function newAccumulator(curve, power, fileName, logger) {
 
     const fd = await createBinFile(fileName, "ptau", 1, 7);
@@ -4508,6 +5629,13 @@ async function newAccumulator(curve, power, fileName, logger) {
 }
 
 // Format of the outpu
+//     Hash of the last contribution  64Bytes
+//     2^N * 2 -1  TauG1 points (uncompressed)
+//     2^N  TauG2 Points (uncompressed)
+//     2^N  AlphaTauG1 Points (uncompressed)
+//     2^N  BetaTauG1 Points (uncompressed)
+//     BetaG2 (uncompressed)
+
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const {fd: fdFrom, sections} = await readBinFile$1(pTauFilename, "ptau", 1);
@@ -4594,6 +5722,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
@@ -4818,6 +5947,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio$1 = sameRatio$2;
 
 async function verifyContribution(curve, cur, prev, logger) {
@@ -5305,6 +6435,7 @@ async function verify(tauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 /*
     This function creates a new section in the fdTo file with id idSection.
     It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
@@ -5380,6 +6511,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const fdFrom = await readExisting$3(challengeFilename);
@@ -5470,6 +6602,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,numIterationsExp, logger) {
     const beaconHash = hex2ByteArray(beaconHashStr);
@@ -5656,6 +6789,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
 
     const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
@@ -5829,6 +6963,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
@@ -5893,7 +7028,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -5965,6 +7100,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function truncate(ptauFilename, template, logger) {
 
     const {fd: fdOld, sections} = await readBinFile$1(ptauFilename, "ptau", 1);
@@ -6027,6 +7163,7 @@ async function truncate(ptauFilename, template, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function convert(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await readBinFile$1(oldPtauFilename, "ptau", 1);
@@ -6071,7 +7208,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
         }
         await endReadSection$1(fdOld);
 
-        if (oldSectionId == 2) {
+        {
             await processSectionPower(power+1);
         }
 
@@ -6086,7 +7223,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = new BigBuffer(nPoints*sGin);
 
             await startReadUniqueSection$1(fdOld, sections, oldSectionId);
-            if ((oldSectionId == 2)&&(p==power+1)) {
+            if ((p==power+1)) {
                 await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
                 buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
             } else {
@@ -6097,7 +7234,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -6171,6 +7308,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await readBinFile$1(pTauFilename, "ptau", 1);
@@ -6259,17 +7397,17 @@ async function exportJson(pTauFilename, verbose) {
 
 var powersoftau = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    newAccumulator: newAccumulator,
-    exportChallenge: exportChallenge,
-    importResponse: importResponse,
-    verify: verify,
-    challengeContribute: challengeContribute,
     beacon: beacon$1,
+    challengeContribute: challengeContribute,
     contribute: contribute,
+    convert: convert,
+    exportChallenge: exportChallenge,
+    exportJson: exportJson,
+    importResponse: importResponse,
+    newAccumulator: newAccumulator,
     preparePhase2: preparePhase2,
     truncate: truncate,
-    convert: convert,
-    exportJson: exportJson
+    verify: verify
 });
 
 /*
@@ -6336,7 +7474,7 @@ const BigArrayHandler$1 = {
     }
 };
 
-class _BigArray$1 {
+let _BigArray$1 = class _BigArray {
     constructor (initSize) {
         this.length = initSize || 0;
         this.arr = new Array(SUBARRAY_SIZE$1);
@@ -6375,7 +7513,7 @@ class _BigArray$1 {
         return true;
     }
     getKeys() {
-        const newA = new BigArray$2();
+        const newA = new BigArray$1();
         for (let i=0; i<this.arr.length; i++) {
             if (this.arr[i]) {
                 for (let j=0; j<this.arr[i].length; j++) {
@@ -6387,22 +7525,18 @@ class _BigArray$1 {
         }
         return newA;
     }
-}
+};
 
-class BigArray$2 {
+let BigArray$1 = class BigArray {
     constructor( initSize ) {
         const obj = new _BigArray$1(initSize);
         const extObj = new Proxy(obj, BigArrayHandler$1);
         return extObj;
     }
-}
-
-var BigArray$3 = BigArray$2;
+};
 
 async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
-    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
-        throw new Error("Invalid open option");
     const fd =await fs.promises.open(fileName, openFlags);
 
     const stats = await fd.stat();
@@ -7318,7 +8452,7 @@ async function startReadUniqueSection(fd, sections, idSection) {
 
 async function endReadSection(fd, noCheck) {
     if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
-    if (!noCheck) {
+    {
         if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
     }
     delete fd.readingSection;
@@ -7384,7 +8518,7 @@ async function readR1csHeader(fd,sections,singleThread) {
         try {
             res.curve = await getCurveFromR$1(res.prime, options.singleThread);
             res.F = res.curve.Fr;
-        } catch (err) {
+        } catch {
             res.F = new F1Field(res.prime);
         }
     }
@@ -7420,7 +8554,7 @@ async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
     let bR1csPos = 0;
     let constraints;
     if (r1cs.nConstraints>1<<20) {
-        constraints = new BigArray$3();
+        constraints = new BigArray$1();
     } else {
         constraints = [];
     }
@@ -7477,7 +8611,7 @@ async function readMap(fd, sections, r1cs, logger, loggerCtx) {
     let map;
 
     if (r1cs.nVars>1<<20) {
-        map = new BigArray$3();
+        map = new BigArray$1();
     } else {
         map = [];
     }
@@ -7600,7 +8734,7 @@ async function readCustomGatesUsesSection(fd,sections, options) {
     let bR1csPos = 1;
     let customGatesUses;
     if (nCustomGateUses>1<<20) {
-        customGatesUses = new BigArray$3();
+        customGatesUses = new BigArray$1();
     } else {
         customGatesUses = [];
     }
@@ -7638,6 +8772,7 @@ async function readCustomGatesUsesSection(fd,sections, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
@@ -7686,6 +8821,7 @@ async function r1csInfo(r1csName, logger) {
 */
 
 
+
 async function r1csExportJson(r1csFileName, logger) {
 
     const cir = await readR1cs(r1csFileName, true, true, true, logger);
@@ -7717,9 +8853,9 @@ async function r1csExportJson(r1csFileName, logger) {
 
 var r1cs = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    print: r1csPrint,
+    exportJson: r1csExportJson,
     info: r1csInfo,
-    exportJson: r1csExportJson
+    print: r1csPrint
 });
 
 /*
@@ -7740,6 +8876,7 @@ var r1cs = /*#__PURE__*/Object.freeze({
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function loadSymbols(symFileName) {
     const sym = {
@@ -7794,6 +8931,7 @@ async function loadSymbols(symFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$7} = utils;
 
 
@@ -7861,6 +8999,7 @@ async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, l
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function wtnsExportJson(wtnsFileName) {
 
     const w = await read(wtnsFileName);
@@ -7886,6 +9025,7 @@ async function wtnsExportJson(wtnsFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
@@ -8035,9 +9175,9 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 var wtns = /*#__PURE__*/Object.freeze({
     __proto__: null,
     calculate: wtnsCalculate,
+    check: wtnsCheck,
     debug: wtnsDebug,
-    exportJson: wtnsExportJson,
-    check: wtnsCheck
+    exportJson: wtnsExportJson
 });
 
 /*
@@ -8138,8 +9278,6 @@ class BigArray {
     }
 }
 
-var BigArray$1 = BigArray;
-
 /*
     Copyright 2018 0KIMS association.
 
@@ -8158,6 +9296,7 @@ var BigArray$1 = BigArray;
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
@@ -8263,10 +9402,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     let sR1cs = await readSection$1(fdR1cs, sectionsR1cs, 2);
     await fdR1cs.close();
 
-    let A = new BigArray$1(r1cs.nVars);
-    let B1 = new BigArray$1(r1cs.nVars);
-    let B2 = new BigArray$1(r1cs.nVars);
-    let C = new BigArray$1(r1cs.nVars- nPublic -1);
+    let A = new BigArray(r1cs.nVars);
+    let B1 = new BigArray(r1cs.nVars);
+    let B2 = new BigArray(r1cs.nVars);
+    let C = new BigArray(r1cs.nVars- nPublic -1);
     let IC = new Array(nPublic+1);
 
     if (logger) logger.info(memUsage());
@@ -8380,7 +9519,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
             return buffV.getUint32(0, true);
         }
 
-        const coefs = new BigArray$1();
+        const coefs = new BigArray();
         for (let c=0; c<r1cs.nConstraints; c++) {
             if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
             const nA = r1cs_readULE32();
@@ -8916,6 +10055,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await readBinFile$1(zkeyNameOld, "zkey", 2);
@@ -9130,6 +10270,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio = sameRatio$2;
 
 
@@ -9540,6 +10681,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
     // const initFileName = "~" + zkeyFileName + ".init";
@@ -9567,6 +10709,7 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
 
@@ -9667,6 +10810,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
@@ -9796,6 +10940,7 @@ async function zkeyExportJson(zkeyFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const rng = await getRandomRng(entropy);
@@ -9969,6 +11114,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {stringifyBigInts: stringifyBigInts$3} = utils;
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
@@ -10112,6 +11258,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2} = utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -10192,17 +11339,17 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
 var zkey = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    newZKey: newZKey,
-    exportBellman: phase2exportMPCParams,
-    importBellman: phase2importMPCParams,
-    verifyFromR1cs: phase2verifyFromR1cs,
-    verifyFromInit: phase2verifyFromInit,
-    contribute: phase2contribute,
     beacon: beacon,
-    exportJson: zkeyExportJson,
     bellmanContribute: bellmanContribute,
+    contribute: phase2contribute,
+    exportBellman: phase2exportMPCParams,
+    exportJson: zkeyExportJson,
+    exportSolidityVerifier: exportSolidityVerifier,
     exportVerificationKey: zkeyExportVerificationKey,
-    exportSolidityVerifier: exportSolidityVerifier
+    importBellman: phase2importMPCParams,
+    newZKey: newZKey,
+    verifyFromInit: phase2verifyFromInit,
+    verifyFromR1cs: phase2verifyFromR1cs
 });
 
 /*
@@ -10225,6 +11372,7 @@ var zkey = /*#__PURE__*/Object.freeze({
 */
 
 
+
 async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
@@ -10242,10 +11390,9 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    await readSection$1(fdR1cs, sectionsR1cs, 2);
 
-    const plonkConstraints = new BigArray$1();
-    const plonkAdditions = new BigArray$1();
+    const plonkConstraints = new BigArray();
+    const plonkAdditions = new BigArray();
     let plonkNVars = r1cs.nVars;
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
@@ -10543,8 +11690,8 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     async function writeSigma(sectionNum, name) {
         const sigma = new BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray$1(plonkNVars);
-        const firstPos = new BigArray$1(plonkNVars);
+        const lastAparence =  new BigArray(plonkNVars);
+        const firstPos = new BigArray(plonkNVars);
         let w = Fr.one;
         for (let i=0; i<domainSize;i++) {
             if (i<plonkConstraints.length) {
@@ -10795,23 +11942,29 @@ class Proof {
  * SHA3 (keccak) hash function, based on a new "Sponge function" design.
  * Different from older hashes, the internal state is bigger than output size.
  *
- * Check out [FIPS-202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf),
- * [Website](https://keccak.team/keccak.html),
- * [the differences between SHA-3 and Keccak](https://crypto.stackexchange.com/questions/15727/what-are-the-key-differences-between-the-draft-sha-3-standard-and-the-keccak-sub).
+ * Check out
+ * {@link https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf | FIPS-202},
+ * {@link https://keccak.team/keccak.html | Website}, and
+ * {@link https://crypto.stackexchange.com/q/15727 | the differences between
+ * SHA-3 and Keccak}.
  *
  * Check out `sha3-addons` module for cSHAKE, k12, and others.
  * @module
  */
+// No __PURE__ annotations in sha3 header:
+// EVERYTHING is in fact used on every export.
 // Various per round constants calculations
+const _0n = BigInt(0);
+const _1n = BigInt(1);
+const _2n = BigInt(2);
+const _7n = BigInt(7);
+const _256n = BigInt(256);
+// FIPS 202 Algorithm 5 rc(): when the outgoing bit is 1, the 8-bit LFSR xors
+// taps 0, 4, 5, and 6, which compresses to the feedback mask `0x71`.
+const _0x71n = BigInt(0x71);
 const SHA3_PI = [];
 const SHA3_ROTL = [];
-const _SHA3_IOTA = [];
-const _0n = /* @__PURE__ */ BigInt(0);
-const _1n = /* @__PURE__ */ BigInt(1);
-const _2n = /* @__PURE__ */ BigInt(2);
-const _7n = /* @__PURE__ */ BigInt(7);
-const _256n = /* @__PURE__ */ BigInt(256);
-const _0x71n = /* @__PURE__ */ BigInt(0x71);
+const _SHA3_IOTA = []; // no pure annotation: var is always used
 for (let round = 0, R = _1n, x = 1, y = 0; round < 24; round++) {
     // Pi
     [x, y] = [y, (2 * x + 3 * y) % 5];
@@ -10823,16 +11976,36 @@ for (let round = 0, R = _1n, x = 1, y = 0; round < 24; round++) {
     for (let j = 0; j < 7; j++) {
         R = ((R << _1n) ^ ((R >> _7n) * _0x71n)) % _256n;
         if (R & _2n)
-            t ^= _1n << ((_1n << /* @__PURE__ */ BigInt(j)) - _1n);
+            t ^= _1n << ((_1n << BigInt(j)) - _1n);
     }
     _SHA3_IOTA.push(t);
 }
-const [SHA3_IOTA_H, SHA3_IOTA_L] = /* @__PURE__ */ split(_SHA3_IOTA, true);
+const IOTAS = split(_SHA3_IOTA, true);
+// `split(..., true)` keeps the local little-endian lane-word layout used by
+// `state32`, so these `H` / `L` tables follow the file's first-word /
+// second-word lane slots rather than `_u64.ts`'s usual high/low naming.
+const SHA3_IOTA_H = IOTAS[0];
+const SHA3_IOTA_L = IOTAS[1];
 // Left rotation (without 0, 32, 64)
 const rotlH = (h, l, s) => (s > 32 ? rotlBH(h, l, s) : rotlSH(h, l, s));
 const rotlL = (h, l, s) => (s > 32 ? rotlBL(h, l, s) : rotlSL(h, l, s));
-/** `keccakf1600` internal function, additionally allows to adjust round count. */
+/**
+ * `keccakf1600` internal permutation, additionally allows adjusting the round count.
+ * @param s - 5x5 Keccak state encoded as 25 lanes split into 50 uint32 words
+ *   in this file's local little-endian lane-word order
+ * @param rounds - number of rounds to execute
+ * @throws If `rounds` is outside the supported `1..24` range. {@link Error}
+ * @example
+ * Permute a Keccak state with the default 24 rounds.
+ * ```ts
+ * keccakP(new Uint32Array(50));
+ * ```
+ */
 function keccakP(s, rounds = 24) {
+    anumber(rounds, 'rounds');
+    // This implementation precomputes only the standard Keccak-f[1600] 24-round Iota table.
+    if (rounds < 1 || rounds > 24)
+        throw new Error('"rounds" expected integer 1..24');
     const B = new Uint32Array(5 * 2);
     // NOTE: all indices are x2 since we store state as u32 instead of u64 (bigints to slow in js)
     for (let round = 24 - rounds; round < 24; round++) {
@@ -10865,54 +12038,89 @@ function keccakP(s, rounds = 24) {
             s[PI + 1] = Tl;
         }
         // Chi (χ)
+        // Same as:
+        // for (let x = 0; x < 10; x++) B[x] = s[y + x];
+        // for (let x = 0; x < 10; x++) s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
         for (let y = 0; y < 50; y += 10) {
-            for (let x = 0; x < 10; x++)
-                B[x] = s[y + x];
-            for (let x = 0; x < 10; x++)
-                s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
+            const b0 = s[y], b1 = s[y + 1], b2 = s[y + 2], b3 = s[y + 3];
+            s[y] ^= ~s[y + 2] & s[y + 4];
+            s[y + 1] ^= ~s[y + 3] & s[y + 5];
+            s[y + 2] ^= ~s[y + 4] & s[y + 6];
+            s[y + 3] ^= ~s[y + 5] & s[y + 7];
+            s[y + 4] ^= ~s[y + 6] & s[y + 8];
+            s[y + 5] ^= ~s[y + 7] & s[y + 9];
+            s[y + 6] ^= ~s[y + 8] & b0;
+            s[y + 7] ^= ~s[y + 9] & b1;
+            s[y + 8] ^= ~b0 & b2;
+            s[y + 9] ^= ~b1 & b3;
         }
         // Iota (ι)
         s[0] ^= SHA3_IOTA_H[round];
         s[1] ^= SHA3_IOTA_L[round];
     }
-    B.fill(0);
+    clean(B);
 }
-/** Keccak sponge function. */
-class Keccak extends Hash {
+/**
+ * Keccak sponge function.
+ * @param blockLen - absorb/squeeze rate in bytes
+ * @param suffix - domain separation suffix byte
+ * @param outputLen - default digest length in bytes. This base sponge only
+ *   requires a non-negative integer; wrappers that need positive output
+ *   lengths must enforce that themselves.
+ * @param enableXOF - whether XOF output is allowed
+ * @param rounds - number of Keccak-f rounds
+ * @example
+ * Build a sponge state, absorb bytes, then finalize a digest.
+ * ```ts
+ * const hash = new Keccak(136, 0x06, 32);
+ * hash.update(new Uint8Array([1, 2, 3]));
+ * hash.digest();
+ * ```
+ */
+class Keccak {
+    state;
+    pos = 0;
+    posOut = 0;
+    finished = false;
+    state32;
+    destroyed = false;
+    blockLen;
+    suffix;
+    outputLen;
+    canXOF;
+    enableXOF = false;
+    rounds;
     // NOTE: we accept arguments in bytes instead of bits here.
     constructor(blockLen, suffix, outputLen, enableXOF = false, rounds = 24) {
-        super();
         this.blockLen = blockLen;
         this.suffix = suffix;
         this.outputLen = outputLen;
         this.enableXOF = enableXOF;
+        this.canXOF = enableXOF;
         this.rounds = rounds;
-        this.pos = 0;
-        this.posOut = 0;
-        this.finished = false;
-        this.destroyed = false;
         // Can be passed from user as dkLen
-        anumber(outputLen);
+        anumber(outputLen, 'outputLen');
         // 1600 = 5x5 matrix of 64bit.  1600 bits === 200 bytes
         // 0 < blockLen < 200
-        if (0 >= this.blockLen || this.blockLen >= 200)
-            throw new Error('Sha3 supports only keccak-f1600 function');
+        if (!(0 < blockLen && blockLen < 200))
+            throw new Error('only keccak-f1600 function is supported');
         this.state = new Uint8Array(200);
         this.state32 = u32(this.state);
     }
+    clone() {
+        return this._cloneInto();
+    }
     keccak() {
-        if (!isLE)
-            byteSwap32(this.state32);
+        swap32IfBE(this.state32);
         keccakP(this.state32, this.rounds);
-        if (!isLE)
-            byteSwap32(this.state32);
+        swap32IfBE(this.state32);
         this.posOut = 0;
         this.pos = 0;
     }
     update(data) {
         aexists(this);
+        abytes(data);
         const { blockLen, state } = this;
-        data = toBytes(data);
         const len = data.length;
         for (let pos = 0; pos < len;) {
             const take = Math.min(blockLen - this.pos, len - pos);
@@ -10928,8 +12136,13 @@ class Keccak extends Hash {
             return;
         this.finished = true;
         const { state, suffix, pos, blockLen } = this;
-        // Do the padding
+        // FIPS 202 appends the SHA3/SHAKE domain-separation suffix before pad10*1.
+        // These byte values already include the first padding bit, while the
+        // final `0x80` below supplies the closing `1` bit in the last rate byte.
         state[pos] ^= suffix;
+        // If that combined suffix lands in the last rate byte and already sets
+        // bit 7, absorb it first so the final pad10*1 bit can be xored into a
+        // fresh block.
         if ((suffix & 0x80) !== 0 && pos === blockLen - 1)
             this.keccak();
         state[blockLen - 1] ^= 0x80;
@@ -10952,7 +12165,9 @@ class Keccak extends Hash {
         return out;
     }
     xofInto(out) {
-        // Sha3/Keccak usage with XOF is probably mistake, only SHAKE instances can do XOF
+        // Plain SHA3/Keccak usage with XOF is probably a mistake, but this base
+        // class is also reused by SHAKE/cSHAKE/KMAC/TupleHash/ParallelHash/
+        // TurboSHAKE/KangarooTwelve wrappers that intentionally enable XOF.
         if (!this.enableXOF)
             throw new Error('XOF is not possible for this instance');
         return this.writeInto(out);
@@ -10965,20 +12180,25 @@ class Keccak extends Hash {
         aoutput(out, this);
         if (this.finished)
             throw new Error('digest() was already called');
-        this.writeInto(out);
+        // `aoutput(...)` allows oversized buffers; digestInto() must fill only the advertised digest.
+        this.writeInto(out.subarray(0, this.outputLen));
         this.destroy();
-        return out;
     }
     digest() {
-        return this.digestInto(new Uint8Array(this.outputLen));
+        const out = new Uint8Array(this.outputLen);
+        this.digestInto(out);
+        return out;
     }
     destroy() {
         this.destroyed = true;
-        this.state.fill(0);
+        clean(this.state);
     }
     _cloneInto(to) {
         const { blockLen, suffix, outputLen, rounds, enableXOF } = this;
-        to || (to = new Keccak(blockLen, suffix, outputLen, enableXOF, rounds));
+        to ||= new Keccak(blockLen, suffix, outputLen, enableXOF, rounds);
+        // Reused destinations can come from a different rate/capacity variant, so clone must rewrite
+        // the sponge geometry as well as the state words.
+        to.blockLen = blockLen;
         to.state32.set(this.state32);
         to.pos = this.pos;
         to.posOut = this.posOut;
@@ -10988,13 +12208,25 @@ class Keccak extends Hash {
         to.suffix = suffix;
         to.outputLen = outputLen;
         to.enableXOF = enableXOF;
+        // Clones must preserve the public capability bit too; `_KMAC` reuses this path and deep clone
+        // tests compare instance fields directly, so leaving `canXOF` behind makes the clone lie.
+        to.canXOF = this.canXOF;
         to.destroyed = this.destroyed;
         return to;
     }
 }
-const gen = (suffix, blockLen, outputLen) => wrapConstructor(() => new Keccak(blockLen, suffix, outputLen));
-/** keccak-256 hash function. Different from SHA3-256. */
-const keccak_256 = /* @__PURE__ */ gen(0x01, 136, 256 / 8);
+const genKeccak = (suffix, blockLen, outputLen, info = {}) => createHasher(() => new Keccak(blockLen, suffix, outputLen), info);
+/**
+ * Keccak-256 hash function. Different from SHA3-256.
+ * @param msg - message bytes to hash
+ * @returns Digest bytes.
+ * @example
+ * Hash a message with Keccak-256.
+ * ```ts
+ * keccak_256(new Uint8Array([97, 98, 99]));
+ * ```
+ */
+const keccak_256 = /* @__PURE__ */ genKeccak(0x01, 136, 32);
 
 /*
     Copyright 2022 iden3 association.
@@ -11014,6 +12246,7 @@ const keccak_256 = /* @__PURE__ */ gen(0x01, 136, 256 / 8);
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -11247,6 +12480,7 @@ const ZKEY_PL_PTAU_SECTION = 14;
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 class Polynomial {
     constructor(coefficients, curve, logger) {
@@ -11899,26 +13133,26 @@ class Polynomial {
         return this;
     }
 
-// function divideByVanishing(f, n, p) {
-//     // polynomial division f(X) / (X^n - 1) with remainder
-//     // very cheap, 0 multiplications
-//     // strategy:
-//     // start with q(X) = 0, r(X) = f(X)
-//     // then start changing q, r while preserving the identity:
-//     // f(X) = q(X) * (X^n - 1) + r(X)
-//     // in every step, move highest-degree term of r into the product
-//     // => r eventually has degree < n and we're done
-//     let q = Array(f.length).fill(0n);
-//     let r = [...f];
-//     for (let i = f.length - 1; i >= n; i--) {
-//         let leadingCoeff = r[i];
-//         if (leadingCoeff === 0n) continue;
-//         r[i] = 0n;
-//         r[i - n] = mod(r[i - n] + leadingCoeff, p);
-//         q[i - n] = mod(q[i - n] + leadingCoeff, p);
-//     }
-//     return [q, r];
-// }
+    // function divideByVanishing(f, n, p) {
+    //     // polynomial division f(X) / (X^n - 1) with remainder
+    //     // very cheap, 0 multiplications
+    //     // strategy:
+    //     // start with q(X) = 0, r(X) = f(X)
+    //     // then start changing q, r while preserving the identity:
+    //     // f(X) = q(X) * (X^n - 1) + r(X)
+    //     // in every step, move highest-degree term of r into the product
+    //     // => r eventually has degree < n and we're done
+    //     let q = Array(f.length).fill(0n);
+    //     let r = [...f];
+    //     for (let i = f.length - 1; i >= n; i--) {
+    //         let leadingCoeff = r[i];
+    //         if (leadingCoeff === 0n) continue;
+    //         r[i] = 0n;
+    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
+    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
+    //     }
+    //     return [q, r];
+    // }
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
@@ -11929,9 +13163,9 @@ class Polynomial {
         this.coef = coefs;
     }
 
-// Compute a new polynomial f(x^n) from f(x)
-// f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
-// f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
+    // Compute a new polynomial f(x^n) from f(x)
+    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
+    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
     static
     async expX(polynomial, n, truncate = false) {
         const Fr = polynomial.Fr;
@@ -11941,7 +13175,7 @@ class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromEvaluations(polynomial.coef, curve, polynomial.logger);
+            return await Polynomial.fromEvaluations(polynomial.coef, polynomial.curve, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients
@@ -12044,69 +13278,69 @@ class Polynomial {
         // proof.T3 = await expTau(polTHigh, "multiexp T3");
     }
 
-// split2(degPols, blindingFactors) {
-//     let currentDegree = this.degree();
-//     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
-//
-//     //blinding factors can be void or must have a length of numPols - 1
-//     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
-//         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
-//     }
-//
-//     const chunkByteLength = (degPols + 1) * this.Fr.n8;
-//
-//     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-//     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
-//         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
-//     }
-//
-//     let res = [];
-//     for (let i = 0; i < numFilledPols; i++) {
-//         const isLast = (numFilledPols - 1) === i;
-//         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-//
-//         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
-//         const fr = i * chunkByteLength;
-//         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-//         res[i].coef.set(this.coef.slice(fr, to), 0);
-//
-//         // Add a blinding factor as higher degree
-//         if (!isLast) {
-//             res[i].coef.set(blindingFactors[i], chunkByteLength);
-//         }
-//
-//         // Sub blinding factor to the lowest degree
-//         if (0 !== i) {
-//             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-//             res[i].coef.set(lowestDegree, 0);
-//         }
-//     }
-//
-//     return res;
-// }
+    // split2(degPols, blindingFactors) {
+    //     let currentDegree = this.degree();
+    //     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
+    //
+    //     //blinding factors can be void or must have a length of numPols - 1
+    //     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
+    //         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
+    //     }
+    //
+    //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
+    //
+    //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
+    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
+    //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
+    //     }
+    //
+    //     let res = [];
+    //     for (let i = 0; i < numFilledPols; i++) {
+    //         const isLast = (numFilledPols - 1) === i;
+    //         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+    //
+    //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
+    //         const fr = i * chunkByteLength;
+    //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
+    //         res[i].coef.set(this.coef.slice(fr, to), 0);
+    //
+    //         // Add a blinding factor as higher degree
+    //         if (!isLast) {
+    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
+    //         }
+    //
+    //         // Sub blinding factor to the lowest degree
+    //         if (0 !== i) {
+    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+    //             res[i].coef.set(lowestDegree, 0);
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
-// merge(pols, overlap = true) {
-//     let length = 0;
-//     for (let i = 0; i < pols.length; i++) {
-//         length += pols[i].length();
-//     }
-//
-//     if (overlap) {
-//         length -= pols.length - 1;
-//     }
-//
-//     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
-//     for (let i = 0; i < pols.length; i++) {
-//         const byteLength = pols[i].coef.byteLength;
-//         if (0 === i) {
-//             res.coef.set(pols[i].coef, 0);
-//         } else {
-//
-//         }
-//     }
-//
-//     return res;
-// }
+    // merge(pols, overlap = true) {
+    //     let length = 0;
+    //     for (let i = 0; i < pols.length; i++) {
+    //         length += pols[i].length();
+    //     }
+    //
+    //     if (overlap) {
+    //         length -= pols.length - 1;
+    //     }
+    //
+    //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
+    //     for (let i = 0; i < pols.length; i++) {
+    //         const byteLength = pols[i].coef.byteLength;
+    //         if (0 === i) {
+    //             res.coef.set(pols[i].coef, 0);
+    //         } else {
+    //
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
     truncate() {
         const deg = this.degree();
@@ -12222,6 +13456,7 @@ class Polynomial {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class Evaluations {
     constructor(evaluations, curve, logger) {
         this.eval = evaluations;
@@ -12279,6 +13514,7 @@ class Evaluations {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$1} = utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -13143,6 +14379,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$5} = utils;
 
 async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -13173,6 +14410,7 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOp
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$4 } = utils;
 
@@ -13588,6 +14826,7 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$3} = utils;
 
 function p256$1(n) {
@@ -13648,11 +14887,11 @@ async function plonkExportSolidityCallData(_proof, _pub) {
 
 var plonk = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    setup: plonkSetup,
+    exportSolidityCallData: plonkExportSolidityCallData,
     fullProve: plonkFullProve,
     prove: plonk16Prove,
-    verify: plonkVerify,
-    exportSolidityCallData: plonkExportSolidityCallData
+    setup: plonkSetup,
+    verify: plonkVerify
 });
 
 /*
@@ -13917,6 +15156,7 @@ class r1csConstraintProcessor {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class CPolynomial {
     constructor(n, curve, logger) {
         this.n = n;
@@ -13994,6 +15234,7 @@ class CPolynomial {
 */
 
 
+
 async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("FFLONK SETUP STARTED");
 
@@ -14036,8 +15277,8 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         nPublic: r1cs.nOutputs + r1cs.nPubInputs
     };
 
-    const plonkConstraints = new BigArray$1();
-    let plonkAdditions = new BigArray$1();
+    const plonkConstraints = new BigArray();
+    let plonkAdditions = new BigArray();
 
     // Process constraints inside r1cs
     if (logger) logger.info("> Processing FFlonk constraints");
@@ -14278,8 +15519,8 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     async function writeSigma(fdZKey) {
         // Compute sigma
         const sigma = new BigBuffer(sFr * settings.domainSize * 3);
-        const lastSeen = new BigArray$1(settings.nVars);
-        const firstPos = new BigArray$1(settings.nVars);
+        const lastSeen = new BigArray(settings.nVars);
+        const firstPos = new BigArray(settings.nVars);
 
         let w = Fr.one;
         for (let i = 0; i < settings.domainSize; i++) {
@@ -14513,6 +15754,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { stringifyBigInts } = utils;
 
@@ -15770,6 +17012,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$2} = utils;
 
 async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
@@ -15802,6 +17045,7 @@ async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsC
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$1 } = utils;
 
@@ -16395,6 +17639,7 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts} = utils;
 
 function p256(n) {
@@ -16450,19 +17695,19 @@ async function fflonkExportCallData(_pub, _proof) {
 
 var fflonk = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    setup: fflonkSetup,
-    prove: fflonkProve,
-    fullProve: fflonkFullProve,
-    verify: fflonkVerify,
+    exportSolidityCallData: fflonkExportCallData,
     exportSolidityVerifier: fflonkExportSolidityVerifier,
-    exportSolidityCallData: fflonkExportCallData
+    fullProve: fflonkFullProve,
+    prove: fflonkProve,
+    setup: fflonkSetup,
+    verify: fflonkVerify
 });
 
 var _virtual_ejs = {};
 
 var _virtual_ejs$1 = /*#__PURE__*/Object.freeze({
     __proto__: null,
-    'default': _virtual_ejs
+    default: _virtual_ejs
 });
 
 export { curves, fflonk, groth16, plonk, powersoftau as powersOfTau, r1cs, wtns, zkey as zKey };

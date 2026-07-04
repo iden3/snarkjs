@@ -7,20 +7,18 @@ var url = require('url');
 var r1csfile = require('r1csfile');
 var fastFile = require('fastfile');
 var ffjavascript = require('ffjavascript');
-var blake2b = require('@noble/hashes/blake2b');
-var utils = require('@noble/hashes/utils');
+var blake2_js = require('@noble/hashes/blake2.js');
+var utils_js = require('@noble/hashes/utils.js');
 var readline = require('readline');
 var crypto = require('crypto');
 var path = require('path');
 var binFileUtils = require('@iden3/binfileutils');
 var circom_runtime = require('circom_runtime');
-var sha3 = require('@noble/hashes/sha3');
+var sha3_js = require('@noble/hashes/sha3.js');
 var Logger = require('logplease');
 
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
-
-function _interopNamespace(e) {
-    if (e && e.__esModule) return e;
+var _documentCurrentScript = typeof document !== 'undefined' ? document.currentScript : null;
+function _interopNamespaceDefault(e) {
     var n = Object.create(null);
     if (e) {
         Object.keys(e).forEach(function (k) {
@@ -33,18 +31,12 @@ function _interopNamespace(e) {
             }
         });
     }
-    n["default"] = e;
+    n.default = e;
     return Object.freeze(n);
 }
 
-var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
-var url__default = /*#__PURE__*/_interopDefaultLegacy(url);
-var fastFile__namespace = /*#__PURE__*/_interopNamespace(fastFile);
-var readline__default = /*#__PURE__*/_interopDefaultLegacy(readline);
-var crypto__default = /*#__PURE__*/_interopDefaultLegacy(crypto);
-var path__default = /*#__PURE__*/_interopDefaultLegacy(path);
-var binFileUtils__namespace = /*#__PURE__*/_interopNamespace(binFileUtils);
-var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
+var fastFile__namespace = /*#__PURE__*/_interopNamespaceDefault(fastFile);
+var binFileUtils__namespace = /*#__PURE__*/_interopNamespaceDefault(binFileUtils);
 
 /*
     Copyright 2018 0KIMS association.
@@ -64,6 +56,7 @@ var Logger__default = /*#__PURE__*/_interopDefaultLegacy(Logger);
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function loadSymbols(symFileName) {
     const sym = {
@@ -165,6 +158,7 @@ function r1csPrint$1(r1cs, syms, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const bls12381r$1 = ffjavascript.Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
 const bn128r$1 = ffjavascript.Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
@@ -212,6 +206,7 @@ async function r1csInfo$1(r1csName, logger) {
 */
 
 
+
 function log2( V )
 {
     return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
@@ -251,8 +246,8 @@ function cloneHasher(h) {
 function fromPartialHash(partial) {
     // NOTE: this is unsafe and uses internal API
     const buf = partial.subarray(0, 128);
-    const rest = utils.u32(partial.subarray(128));
-    const res = blake2b.blake2b.create({ dkLen: 64 });
+    const rest = utils_js.u32(partial.subarray(128));
+    const res = blake2_js.blake2b.create({ dkLen: 64 });
     res.buffer.set(buf);
     (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
     (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
@@ -273,7 +268,7 @@ function fromPartialHash(partial) {
 function toPartialHash(hash){
     // NOTE: this is unsafe and uses internal API
     const res = new Uint8Array(216);
-    const res32 = utils.u32(res.subarray(128));
+    const res32 = utils_js.u32(res.subarray(128));
     res.set(hash.buffer);
     (res32[0] = hash.v0l), (res32[1] = hash.v0h);
     (res32[2] = hash.v1l), (res32[3] = hash.v1h);
@@ -306,7 +301,7 @@ function askEntropy() {
     if (typeof window !== "undefined" && typeof window.prompt === "function") {
         return window.prompt("Enter a random text. (Entropy): ", "");
     } else {
-        const rl = readline__default["default"].createInterface({
+        const rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout
         });
@@ -319,8 +314,8 @@ function askEntropy() {
 
 function getRandomBytes(n) {
     let array = new Uint8Array(n);
-    if (crypto__default["default"] && crypto__default["default"].randomFillSync) { // Node: no per-call size limit
-        crypto__default["default"].randomFillSync(array);
+    if (crypto && crypto.randomFillSync) { // Node: no per-call size limit
+        crypto.randomFillSync(array);
     } else if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
         // Web Crypto caps each call at 65536 bytes; fill in windows.
         for (let i = 0; i < n; i += 65536) {
@@ -333,8 +328,8 @@ function getRandomBytes(n) {
 }
 
 async function sha256digest(data) {
-    if (crypto__default["default"] && crypto__default["default"].createHash) { // Node
-        return crypto__default["default"].createHash("sha256").update(data).digest();
+    if (crypto && crypto.createHash) { // Node
+        return crypto.createHash("sha256").update(data).digest();
     } else {
         // Web Crypto: pass the view (data), not data.buffer, so byteOffset and
         // byteLength of subarray views are respected.
@@ -356,7 +351,7 @@ async function getRandomRng(entropy) {
     while (!entropy) {
         entropy = await askEntropy();
     }
-    const hasher = blake2b.blake2b.create(64);
+    const hasher = blake2_js.blake2b.create(64);
     hasher.update(getRandomBytes(64));
     const enc = new TextEncoder(); // always utf-8
     hasher.update(enc.encode(entropy));
@@ -452,6 +447,7 @@ function stringifyBigIntsWithField(Fr, o) {
 */
 
 
+
 async function r1csExportJson(r1csFileName, logger) {
 
     const cir = await r1csfile.readR1cs(r1csFileName, true, true, true, logger);
@@ -481,13 +477,14 @@ async function r1csExportJson(r1csFileName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const __dirname$2 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT' && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+
+const __dirname$2 = path.dirname(url.fileURLToPath((typeof document === 'undefined' ? require('u' + 'rl').pathToFileURL(__filename).href : (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 let pkgS;
 try {
-    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$2, "package.json"));
-} catch (err) {
-    pkgS = fs__default["default"].readFileSync(path__default["default"].join(__dirname$2, "..","package.json"));
+    pkgS = fs.readFileSync(path.join(__dirname$2, "package.json"));
+} catch {
+    pkgS = fs.readFileSync(path.join(__dirname$2, "..","package.json"));
 }
 
 const pkg = JSON.parse(pkgS);
@@ -756,6 +753,7 @@ async function clProcessor(commands) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 function hashToG2(curve, hash) {
     const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
     const seed = [];
@@ -772,7 +770,7 @@ function hashToG2(curve, hash) {
 
 function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
 
-    const h = blake2b.blake2b.create({ dkLen: 64 });
+    const h = blake2_js.blake2b.create({ dkLen: 64 });
     const b1 = new Uint8Array([persinalization]);
     h.update(b1);
     h.update(challenge);
@@ -817,7 +815,7 @@ const bn128q = ffjavascript.Scalar.e("218882428718392752222464057452572750886963
 async function getCurveFromR(r, options) {
     let curve;
     // check that options param is defined and that options.singleThread is defined
-    let singleThread = options && options.singleThread;
+    let singleThread = options;
     if (ffjavascript.Scalar.eq(r, bn128r)) {
         curve = await ffjavascript.buildBn128(singleThread);
     } else if (ffjavascript.Scalar.eq(r, bls12381r)) {
@@ -843,7 +841,7 @@ async function getCurveFromQ(q, options) {
 
 async function getCurveFromName(name, options) {
     let curve;
-    let singleThread = options && options.singleThread;
+    let singleThread = options;
     const normName = normalizeName(name);
     if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
         curve = await ffjavascript.buildBn128(singleThread);
@@ -878,6 +876,7 @@ async function getCurveFromName(name, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function writePTauHeader(fd, curve, power, ceremonyPower) {
     // Write the header
@@ -1168,14 +1167,14 @@ async function writeContributions(fd, curve, contributions) {
 function calculateFirstChallengeHash(curve, power, logger) {
     if (logger) logger.debug("Calculating First Challenge Hash");
 
-    const hasher = blake2b.blake2b.create({ dkLen: 64 });
+    const hasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     const vG1 = new Uint8Array(curve.G1.F.n8*2);
     const vG2 = new Uint8Array(curve.G2.F.n8*2);
     curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
     curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
 
-    hasher.update(blake2b.blake2b.create({ dkLen: 64 }).digest());
+    hasher.update(blake2_js.blake2b.create({ dkLen: 64 }).digest());
 
     let n;
 
@@ -1242,6 +1241,7 @@ async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp)
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function newAccumulator(curve, power, fileName, logger) {
 
     const fd = await binFileUtils__namespace.createBinFile(fileName, "ptau", 1, 7);
@@ -1307,7 +1307,7 @@ async function newAccumulator(curve, power, fileName, logger) {
 
     const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
 
-    if (logger) logger.debug(formatHash(blake2b.blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
+    if (logger) logger.debug(formatHash(blake2_js.blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
 
     if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
 
@@ -1316,6 +1316,13 @@ async function newAccumulator(curve, power, fileName, logger) {
 }
 
 // Format of the outpu
+//     Hash of the last contribution  64Bytes
+//     2^N * 2 -1  TauG1 points (uncompressed)
+//     2^N  TauG2 Points (uncompressed)
+//     2^N  AlphaTauG1 Points (uncompressed)
+//     2^N  BetaTauG1 Points (uncompressed)
+//     BetaG2 (uncompressed)
+
 
 async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const {fd: fdFrom, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
@@ -1325,7 +1332,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     const contributions = await readContributions(fdFrom, curve, sections);
     let lastResponseHash, curChallengeHash;
     if (contributions.length == 0) {
-        lastResponseHash = blake2b.blake2b.create({ dkLen: 64 }).digest();
+        lastResponseHash = blake2_js.blake2b.create({ dkLen: 64 }).digest();
         curChallengeHash = calculateFirstChallengeHash(curve, power);
     } else {
         lastResponseHash = contributions[contributions.length-1].responseHash;
@@ -1339,7 +1346,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
 
     const fdTo = await fastFile__namespace.createOverride(challengeFilename);
 
-    const toHash = blake2b.blake2b.create({ dkLen: 64 });
+    const toHash = blake2_js.blake2b.create({ dkLen: 64 });
     await fdTo.write(lastResponseHash);
     toHash.update(lastResponseHash);
 
@@ -1403,6 +1410,7 @@ async function exportChallenge(pTauFilename, challengeFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
 
     const noHash = new Uint8Array(64);
@@ -1453,7 +1461,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
         throw new Error("Wrong contribution. This contribution is not based on the previous hash");
 
-    const hasherResponse = blake2b.blake2b.create({ dkLen: 64 });
+    const hasherResponse = blake2_js.blake2b.create({ dkLen: 64 });
     hasherResponse.update(contributionPreviousHash);
 
     const startSections = [];
@@ -1482,7 +1490,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
     if (importPoints) {
-        const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+        const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
         nextChallengeHasher.update(hashResponse);
 
         await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -1626,6 +1634,7 @@ async function importResponse(oldPtauFilename, contributionFilename, newPTauFile
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio$1 = sameRatio$2;
 
 async function verifyContribution(curve, cur, prev, logger) {
@@ -1747,7 +1756,7 @@ async function verify(tauFilename, logger) {
         betaG1: curve.G1.g,
         betaG2: curve.G2.g,
         nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: blake2b.blake2b.create({ dkLen: 64 }).digest()
+        responseHash: blake2_js.blake2b.create({ dkLen: 64 }).digest()
     };
 
     if (contrs.length == 0) {
@@ -1767,7 +1776,7 @@ async function verify(tauFilename, logger) {
     if (!res) return false;
 
 
-    const nextContributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextContributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextContributionHasher.update(curContr.responseHash);
 
     // Verify powers and compute nextChallengeHash
@@ -2113,6 +2122,7 @@ async function verify(tauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 /*
     This function creates a new section in the fdTo file with id idSection.
     It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
@@ -2189,6 +2199,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const fdFrom = await fastFile__namespace.readExisting(challengeFilename);
 
@@ -2211,7 +2222,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     const fdTo = await fastFile__namespace.createOverride(responseFileName);
 
     // Calculate the hash
-    const challengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const challengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
         if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
         const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
@@ -2237,7 +2248,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
         });
     }
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     await fdTo.write(challengeHash);
     responseHasher.update(challengeHash);
@@ -2278,6 +2289,7 @@ async function challengeContribute(curve, challengeFilename, responseFileName, e
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,numIterationsExp, logger) {
     const beaconHash = hex2ByteArray(beaconHashStr);
@@ -2326,7 +2338,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -2357,7 +2369,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
@@ -2464,6 +2476,7 @@ async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,n
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -2497,7 +2510,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
 
 
-    const responseHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const responseHasher = blake2_js.blake2b.create({ dkLen: 64 });
     responseHasher.update(lastChallengeHash);
 
     const fdNew = await binFileUtils__namespace.createBinFile(newPTauFilename, "ptau", 1, 7);
@@ -2528,7 +2541,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 
     if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
 
-    const nextChallengeHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const nextChallengeHasher = blake2_js.blake2b.create({ dkLen: 64 });
     nextChallengeHasher.update(hashResponse);
 
     await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
@@ -2637,6 +2650,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -2683,9 +2697,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            curve.Fr;
             const sGin = G.F.n8*2;
-            G.F.n8*3;
 
             let buff;
             buff = new ffjavascript.BigBuffer(nPoints*sGin);
@@ -2703,7 +2715,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -2775,6 +2787,7 @@ async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function truncate(ptauFilename, template, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(ptauFilename, "ptau", 1);
@@ -2837,6 +2850,7 @@ async function truncate(ptauFilename, template, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function convert(oldPtauFilename, newPTauFilename, logger) {
 
     const {fd: fdOld, sections} = await binFileUtils__namespace.readBinFile(oldPtauFilename, "ptau", 1);
@@ -2881,7 +2895,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
         }
         await binFileUtils__namespace.endReadSection(fdOld);
 
-        if (oldSectionId == 2) {
+        {
             await processSectionPower(power+1);
         }
 
@@ -2896,7 +2910,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = new ffjavascript.BigBuffer(nPoints*sGin);
 
             await binFileUtils__namespace.startReadUniqueSection(fdOld, sections, oldSectionId);
-            if ((oldSectionId == 2)&&(p==power+1)) {
+            if ((p==power+1)) {
                 await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
                 buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
             } else {
@@ -2907,7 +2921,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);
@@ -2981,6 +2995,7 @@ async function convert(oldPtauFilename, newPTauFilename, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function exportJson(pTauFilename, verbose) {
     const {fd, sections} = await binFileUtils__namespace.readBinFile(pTauFilename, "ptau", 1);
@@ -3165,13 +3180,14 @@ class BigArray {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     const TAU_G1 = 0;
     const TAU_G2 = 1;
     const ALPHATAU_G1 = 2;
     const BETATAU_G1 = 3;
-    const csHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const csHasher = blake2_js.blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
@@ -3836,6 +3852,7 @@ const ZKEY_FF_C0_SECTION = 17;
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function writeHeader(fd, zkey) {
 
     // Write the header
@@ -4411,6 +4428,7 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
@@ -4625,6 +4643,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const sameRatio = sameRatio$2;
 
 
@@ -4643,7 +4662,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     const mpcParams = await readMPCParams(fd, curve, sections);
 
-    const accumulatedHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const accumulatedHasher = blake2_js.blake2b.create({ dkLen: 64 });
     accumulatedHasher.update(mpcParams.csHash);
     let curDelta = curve.G1.g;
     for (let i=0; i<mpcParams.contributions.length; i++) {
@@ -4689,7 +4708,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
         hashPubKey(accumulatedHasher, curve, c);
 
-        const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+        const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
         hashPubKey(contributionHasher, curve, c);
 
         c.contributionHash = contributionHasher.digest();
@@ -5035,6 +5054,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, logger) {
 
     // const initFileName = "~" + zkeyFileName + ".init";
@@ -5063,6 +5083,7 @@ async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, lo
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
 
     const {fd: fdOld, sections: sections} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
@@ -5080,7 +5101,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
 
     const rng = await getRandomRng(entropy);
 
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });
     transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
@@ -5133,7 +5154,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });
     hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
@@ -5162,6 +5183,7 @@ async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger)
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
@@ -5200,7 +5222,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
 
     const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
 
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
     for (let i=0; i<mpcParams.contributions.length; i++) {
         hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
     }
@@ -5255,7 +5277,7 @@ async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIteratio
     await fdOld.close();
     await fdNew.close();
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -5291,6 +5313,7 @@ async function zkeyExportJson$1(zkeyFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
     const rng = await getRandomRng(entropy);
@@ -5350,7 +5373,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     //////////
     /// Read contributions
     //////////
-    const transcriptHasher = blake2b.blake2b.create({ dkLen: 64 });
+    const transcriptHasher = blake2_js.blake2b.create({ dkLen: 64 });
     const mpcParams = {};
     // csHash
     mpcParams.csHash =  await fdFrom.read(64);
@@ -5400,7 +5423,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
         await fdTo.write(c.transcript);
     }
 
-    const contributionHasher = blake2b.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
+    const contributionHasher = blake2_js.blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
 
     const contributionHash = contributionHasher.digest();
 
@@ -5463,6 +5486,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const {stringifyBigInts: stringifyBigInts$5} = ffjavascript.utils;
 
@@ -5607,6 +5631,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts: unstringifyBigInts$b, stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -5634,7 +5659,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+    const {default: ejs} = await import('ejs');
     return ejs.render(template, vk);
 
     function fromVkey(str) {
@@ -5661,7 +5686,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
     let template = templates[verificationKey.protocol];
 
-    const {default: ejs} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('ejs')); });
+    const {default: ejs} = await import('ejs');
 
     return ejs.render(template, verificationKey);
 }
@@ -5684,6 +5709,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function write(fd, witness, prime) {
@@ -5772,6 +5798,7 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
 
 async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
@@ -6129,7 +6156,6 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
     console.time("buildABCStream");
     const n8 = curve.Fr.n8;
     const sCoef = 4 * 3 + zkey.n8r;
-    zkey.nVars;
     const domainSize = zkey.domainSize;
 
     let getUint32;
@@ -6341,6 +6367,7 @@ function monitorMemoryUsage(logger, interval = 5000) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
 async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
@@ -6386,6 +6413,7 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
 async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -6416,6 +6444,7 @@ async function groth16FullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCa
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
 
 async function groth16Verify$1(_vk_verifier, _publicSignals, _proof, logger) {
@@ -6569,6 +6598,7 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
 */
 
 
+
 async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
@@ -6586,7 +6616,6 @@ async function plonkSetup$1(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -7154,6 +7183,7 @@ class Proof {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const POLYNOMIAL = 0;
 const SCALAR = 1;
 
@@ -7200,7 +7230,7 @@ class Keccak256Transcript {
             }
         }
 
-        const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
+        const value = ffjavascript.Scalar.fromRprBE(sha3_js.keccak_256(buffer));
         return this.Fr.e(value);
     }
 }
@@ -7386,6 +7416,7 @@ const ZKEY_PL_PTAU_SECTION = 14;
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 class Polynomial {
     constructor(coefficients, curve, logger) {
@@ -8038,26 +8069,26 @@ class Polynomial {
         return this;
     }
 
-// function divideByVanishing(f, n, p) {
-//     // polynomial division f(X) / (X^n - 1) with remainder
-//     // very cheap, 0 multiplications
-//     // strategy:
-//     // start with q(X) = 0, r(X) = f(X)
-//     // then start changing q, r while preserving the identity:
-//     // f(X) = q(X) * (X^n - 1) + r(X)
-//     // in every step, move highest-degree term of r into the product
-//     // => r eventually has degree < n and we're done
-//     let q = Array(f.length).fill(0n);
-//     let r = [...f];
-//     for (let i = f.length - 1; i >= n; i--) {
-//         let leadingCoeff = r[i];
-//         if (leadingCoeff === 0n) continue;
-//         r[i] = 0n;
-//         r[i - n] = mod(r[i - n] + leadingCoeff, p);
-//         q[i - n] = mod(q[i - n] + leadingCoeff, p);
-//     }
-//     return [q, r];
-// }
+    // function divideByVanishing(f, n, p) {
+    //     // polynomial division f(X) / (X^n - 1) with remainder
+    //     // very cheap, 0 multiplications
+    //     // strategy:
+    //     // start with q(X) = 0, r(X) = f(X)
+    //     // then start changing q, r while preserving the identity:
+    //     // f(X) = q(X) * (X^n - 1) + r(X)
+    //     // in every step, move highest-degree term of r into the product
+    //     // => r eventually has degree < n and we're done
+    //     let q = Array(f.length).fill(0n);
+    //     let r = [...f];
+    //     for (let i = f.length - 1; i >= n; i--) {
+    //         let leadingCoeff = r[i];
+    //         if (leadingCoeff === 0n) continue;
+    //         r[i] = 0n;
+    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
+    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
+    //     }
+    //     return [q, r];
+    // }
 
     byX() {
         const coefs = (this.length() + 1) > 2 << 14 ?
@@ -8068,9 +8099,9 @@ class Polynomial {
         this.coef = coefs;
     }
 
-// Compute a new polynomial f(x^n) from f(x)
-// f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
-// f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
+    // Compute a new polynomial f(x^n) from f(x)
+    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
+    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
     static
     async expX(polynomial, n, truncate = false) {
         const Fr = polynomial.Fr;
@@ -8080,7 +8111,7 @@ class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromEvaluations(polynomial.coef, curve, polynomial.logger);
+            return await Polynomial.fromEvaluations(polynomial.coef, polynomial.curve, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients
@@ -8183,69 +8214,69 @@ class Polynomial {
         // proof.T3 = await expTau(polTHigh, "multiexp T3");
     }
 
-// split2(degPols, blindingFactors) {
-//     let currentDegree = this.degree();
-//     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
-//
-//     //blinding factors can be void or must have a length of numPols - 1
-//     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
-//         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
-//     }
-//
-//     const chunkByteLength = (degPols + 1) * this.Fr.n8;
-//
-//     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-//     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
-//         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
-//     }
-//
-//     let res = [];
-//     for (let i = 0; i < numFilledPols; i++) {
-//         const isLast = (numFilledPols - 1) === i;
-//         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-//
-//         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
-//         const fr = i * chunkByteLength;
-//         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-//         res[i].coef.set(this.coef.slice(fr, to), 0);
-//
-//         // Add a blinding factor as higher degree
-//         if (!isLast) {
-//             res[i].coef.set(blindingFactors[i], chunkByteLength);
-//         }
-//
-//         // Sub blinding factor to the lowest degree
-//         if (0 !== i) {
-//             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-//             res[i].coef.set(lowestDegree, 0);
-//         }
-//     }
-//
-//     return res;
-// }
+    // split2(degPols, blindingFactors) {
+    //     let currentDegree = this.degree();
+    //     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
+    //
+    //     //blinding factors can be void or must have a length of numPols - 1
+    //     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
+    //         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
+    //     }
+    //
+    //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
+    //
+    //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
+    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
+    //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
+    //     }
+    //
+    //     let res = [];
+    //     for (let i = 0; i < numFilledPols; i++) {
+    //         const isLast = (numFilledPols - 1) === i;
+    //         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
+    //
+    //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
+    //         const fr = i * chunkByteLength;
+    //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
+    //         res[i].coef.set(this.coef.slice(fr, to), 0);
+    //
+    //         // Add a blinding factor as higher degree
+    //         if (!isLast) {
+    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
+    //         }
+    //
+    //         // Sub blinding factor to the lowest degree
+    //         if (0 !== i) {
+    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
+    //             res[i].coef.set(lowestDegree, 0);
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
-// merge(pols, overlap = true) {
-//     let length = 0;
-//     for (let i = 0; i < pols.length; i++) {
-//         length += pols[i].length();
-//     }
-//
-//     if (overlap) {
-//         length -= pols.length - 1;
-//     }
-//
-//     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
-//     for (let i = 0; i < pols.length; i++) {
-//         const byteLength = pols[i].coef.byteLength;
-//         if (0 === i) {
-//             res.coef.set(pols[i].coef, 0);
-//         } else {
-//
-//         }
-//     }
-//
-//     return res;
-// }
+    // merge(pols, overlap = true) {
+    //     let length = 0;
+    //     for (let i = 0; i < pols.length; i++) {
+    //         length += pols[i].length();
+    //     }
+    //
+    //     if (overlap) {
+    //         length -= pols.length - 1;
+    //     }
+    //
+    //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
+    //     for (let i = 0; i < pols.length; i++) {
+    //         const byteLength = pols[i].coef.byteLength;
+    //         if (0 === i) {
+    //             res.coef.set(pols[i].coef, 0);
+    //         } else {
+    //
+    //         }
+    //     }
+    //
+    //     return res;
+    // }
 
     truncate() {
         const deg = this.degree();
@@ -8361,6 +8392,7 @@ class Polynomial {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class Evaluations {
     constructor(evaluations, curve, logger) {
         this.eval = evaluations;
@@ -8418,6 +8450,7 @@ class Evaluations {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
@@ -9282,6 +9315,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
 async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
@@ -9312,6 +9346,7 @@ async function plonkFullProve$1(_input, wasmFile, zkeyFileName, logger, wtnsCalc
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$5 } = ffjavascript.utils;
 
@@ -9727,6 +9762,7 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const { unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
 
 function p256$1(n) {
@@ -9740,9 +9776,7 @@ async function plonkExportSolidityCallData(_proof, _pub) {
     const proof = unstringifyBigInts$4(_proof);
     const pub = unstringifyBigInts$4(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
+    await getCurveFromName(proof.curve);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -10030,6 +10064,7 @@ class r1csConstraintProcessor {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 class CPolynomial {
     constructor(n, curve, logger) {
         this.n = n;
@@ -10105,6 +10140,7 @@ class CPolynomial {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 
 async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
@@ -10626,6 +10662,7 @@ async function fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { stringifyBigInts: stringifyBigInts$1 } = ffjavascript.utils;
 
@@ -11883,6 +11920,7 @@ async function fflonkProve$1(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
 async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
@@ -11915,6 +11953,7 @@ async function fflonkFullProve$1(_input, wasmFilename, zkeyFilename, logger, wtn
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 const { unstringifyBigInts: unstringifyBigInts$2 } = ffjavascript.utils;
 
@@ -12508,6 +12547,7 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
 
 function p256(n) {
@@ -12521,9 +12561,7 @@ async function fflonkExportCallData(_pub, _proof) {
     const proof = unstringifyBigInts$1(_proof);
     const pub = unstringifyBigInts$1(_pub);
 
-    const curve = await getCurveFromName(proof.curve);
-    curve.G1;
-    curve.Fr;
+    await getCurveFromName(proof.curve);
 
     let inputs = "";
     for (let i = 0; i < pub.length; i++) {
@@ -12562,6 +12600,7 @@ async function fflonkExportCallData(_pub, _proof) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 const {unstringifyBigInts} = ffjavascript.utils;
 
 
@@ -12629,6 +12668,7 @@ async function wtnsDebug$1(_input, wasmFileName, wtnsFileName, symName, options,
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 async function wtnsExportJson$1(wtnsFileName) {
 
     const w = await read(wtnsFileName);
@@ -12654,6 +12694,7 @@ async function wtnsExportJson$1(wtnsFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
+
 
 async function wtnsCheck$1(r1csFilename, wtnsFilename, logger) {
 
@@ -12800,21 +12841,17 @@ async function wtnsCheck$1(r1csFilename, wtnsFilename, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
+
 const {stringifyBigInts} = ffjavascript.utils;
 
-//import { setFlagsFromString } from "v8";
-
-//setFlagsFromString("--expose_gc");
-
-
-const logger = Logger__default["default"].create("snarkJS", {showTimestamp: false});
-Logger__default["default"].setLogLevel("INFO");
+const logger = Logger.create("snarkJS", {showTimestamp: false});
+Logger.setLogLevel("INFO");
 // const logger = console;
 // const Logger = {
 //     setLogLevel: function (x) {}
 // };
 
-const __dirname$1 = path__default["default"].dirname(url__default["default"].fileURLToPath((typeof document === 'undefined' ? new (require('u' + 'rl').URL)('file:' + __filename).href : (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT' && document.currentScript.src || new URL('cli.cjs', document.baseURI).href))));
+const __dirname$1 = path.dirname(url.fileURLToPath((typeof document === 'undefined' ? require('u' + 'rl').pathToFileURL(__filename).href : (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('cli.cjs', document.baseURI).href))));
 
 const commands = [
     {
@@ -13143,7 +13180,7 @@ TODO COMMANDS
 let _bfj;
 async function getBFJ() {
     if (_bfj) return _bfj;
-    const {default: bfj} = await Promise.resolve().then(function () { return /*#__PURE__*/_interopNamespace(require('bfj')); });
+    const {default: bfj} = await import('bfj');
     _bfj = bfj;
     return _bfj;
 }
@@ -13162,7 +13199,7 @@ function changeExt(fileName, newExt) {
 async function r1csInfo(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     await r1csInfo$1(r1csName, logger);
 
@@ -13175,7 +13212,7 @@ async function r1csPrint(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const symName = params[1] || changeExt(r1csName, "sym");
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const cir = await r1csfile.readR1cs(r1csName, true, true, false);
 
@@ -13192,7 +13229,7 @@ async function r1csExportJSON(params, options) {
     const r1csName = params[0] || "circuit.r1cs";
     const jsonName = params[1] || changeExt(r1csName, "json");
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const r1csObj = await r1csExportJson(r1csName, logger);
 
@@ -13208,9 +13245,9 @@ async function wtnsCalculate(params, options) {
     const inputName = params[1] || "input.json";
     const witnessName = params[2] || "witness.wtns";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     await wtnsCalculate$1(input, wasmName, witnessName, {});
 
@@ -13226,9 +13263,9 @@ async function wtnsDebug(params, options) {
     const witnessName = params[2] || "witness.wtns";
     const symName = params[3] || changeExt(wasmName, "sym");
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     await wtnsDebug$1(input, wasmName, witnessName, symName, options, logger);
 
@@ -13242,7 +13279,7 @@ async function wtnsExportJson(params, options) {
     const wtnsName = params[0] || "witness.wtns";
     const jsonName = params[1] || "witness.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const w = await wtnsExportJson$1(wtnsName);
 
@@ -13258,7 +13295,7 @@ async function wtnsCheck(params, options) {
     const r1csFilename = params[0] || "circuit.r1cs";
     const wtnsFilename = params[1] || "witness.wtns";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const isValid = await wtnsCheck$1(r1csFilename, wtnsFilename, logger);
 
@@ -13302,14 +13339,14 @@ async function groth16Prove(params, options) {
     const proofName = params[2] || "proof.json";
     const publicName = params[3] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
     const {proof, publicSignals} = await groth16Prove$1(zkeyName, witnessName, logger, proveOptions);
 
-    fs__default["default"].writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
-    fs__default["default"].writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -13323,16 +13360,16 @@ async function groth16FullProve(params, options) {
     const proofName = params[3] || "proof.json";
     const publicName = params[4] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
     const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName, logger, undefined, proveOptions);
 
-    fs__default["default"].writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
-    fs__default["default"].writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -13344,11 +13381,11 @@ async function groth16Verify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8"));
-    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
-    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
+    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const isValid = await groth16Verify$1(verificationKey, pub, proof, logger);
 
@@ -13364,7 +13401,7 @@ async function zkeyExportVKey(params, options) {
     const zKeyFileName = params[0] || "circuit_final.zkey";
     const vKeyFilename = params[1] || "circuit_vk.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const vKey = await zkeyExportVerificationKey(zKeyFileName, logger);
 
@@ -13379,7 +13416,7 @@ async function zkeyExportJson(params, options) {
     const zkeyName = params[0] || "circuit_final.zkey";
     const zkeyJsonName = params[1] || "circuit_final.zkey.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const zKeyJson = await zkeyExportJson$1(zkeyName);
 
@@ -13388,7 +13425,7 @@ async function zkeyExportJson(params, options) {
 }
 
 async function fileExists(file) {
-    return fs__default["default"].promises.access(file, fs__default["default"].constants.F_OK)
+    return fs.promises.access(file, fs.constants.F_OK)
         .then(() => true)
         .catch(() => false);
 }
@@ -13410,23 +13447,23 @@ async function zkeyExportSolidityVerifier(params, options) {
         verifierName = params[1];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const templates = {};
 
-    if (await fileExists(path__default["default"].join(__dirname$1, "templates"))) {
-        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "templates", "verifier_fflonk.sol.ejs"), "utf8");
+    if (await fileExists(path.join(__dirname$1, "templates"))) {
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname$1, "templates", "verifier_groth16.sol.ejs"), "utf8");
+        templates.plonk = await fs.promises.readFile(path.join(__dirname$1, "templates", "verifier_plonk.sol.ejs"), "utf8");
+        templates.fflonk = await fs.promises.readFile(path.join(__dirname$1, "templates", "verifier_fflonk.sol.ejs"), "utf8");
     } else {
-        templates.groth16 = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
-        templates.plonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
-        templates.fflonk = await fs__default["default"].promises.readFile(path__default["default"].join(__dirname$1, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
+        templates.groth16 = await fs.promises.readFile(path.join(__dirname$1, "..", "templates", "verifier_groth16.sol.ejs"), "utf8");
+        templates.plonk = await fs.promises.readFile(path.join(__dirname$1, "..", "templates", "verifier_plonk.sol.ejs"), "utf8");
+        templates.fflonk = await fs.promises.readFile(path.join(__dirname$1, "..", "templates", "verifier_fflonk.sol.ejs"), "utf8");
     }
 
     const verifierCode = await exportSolidityVerifier(zkeyName, templates, logger);
 
-    fs__default["default"].writeFileSync(verifierName, verifierCode, "utf-8");
+    fs.writeFileSync(verifierName, verifierCode, "utf-8");
 
     return 0;
 }
@@ -13449,10 +13486,10 @@ async function zkeyExportSolidityCalldata(params, options) {
         proofName = params[1];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
-    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
     let res;
     if (proof.protocol == "groth16") {
@@ -13490,7 +13527,7 @@ async function powersOfTauNew(params, options) {
 
     const curve = await getCurveFromName(curveName);
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard firstChallengeHash
     await newAccumulator(curve, power, ptauName, logger);
@@ -13510,7 +13547,7 @@ async function powersOfTauExportChallenge(params, options) {
         challengeName = params[1];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard curChallengeHash
     await exportChallenge(ptauName, challengeName, logger);
@@ -13533,7 +13570,7 @@ async function powersOfTauChallengeContribute(params, options) {
         responseName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 
@@ -13555,7 +13592,7 @@ async function powersOfTauImport(params, options) {
     if (options.nopoints) importPoints = false;
     if (options.nocheck) doCheck = false;
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const nextChallenge = await importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger);
 
@@ -13570,7 +13607,7 @@ async function powersOfTauVerify(params, options) {
 
     ptauName = params[0];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const res = await verify(ptauName, logger);
     if (res === true) {
@@ -13591,7 +13628,7 @@ async function powersOfTauBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard hashResponse
     await beacon$1(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
@@ -13606,7 +13643,7 @@ async function powersOfTauContribute(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard hashResponse
     await contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
@@ -13621,7 +13658,7 @@ async function powersOfTauPreparePhase2(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     await preparePhase2(oldPtauName, newPtauName, logger);
 
@@ -13635,7 +13672,7 @@ async function powersOfTauConvert(params, options) {
     oldPtauName = params[0];
     newPtauName = params[1];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     await convert(oldPtauName, newPtauName, logger);
 
@@ -13653,7 +13690,7 @@ async function powersOfTauTruncate(params, options) {
     template = template.slice(0, template.length - 1);
     template = template + "_";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard `true`
     await truncate(ptauName, template, logger);
@@ -13669,7 +13706,7 @@ async function powersOfTauExportJson(params, options) {
     ptauName = params[0];
     jsonName = params[1];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const pTauJson = await exportJson(ptauName, logger);
 
@@ -13702,7 +13739,7 @@ async function zkeyNew(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard csHash
     await newZKey(r1csName, ptauName, zkeyName, logger);
@@ -13723,7 +13760,7 @@ async function zkeyExportBellman(params, options) {
         mpcparamsName = params[1];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     await phase2exportMPCParams(zkeyName, mpcparamsName, logger);
 
@@ -13741,7 +13778,7 @@ async function zkeyImportBellman(params, options) {
     mpcParamsName = params[1];
     zkeyNameNew = params[2];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const isValid = await phase2importMPCParams(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger);
     if (isValid) {
@@ -13775,7 +13812,7 @@ async function zkeyVerifyFromR1cs(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const res = await phase2verifyFromR1cs(r1csName, ptauName, zkeyName, logger);
     if (res === true) {
@@ -13810,7 +13847,7 @@ async function zkeyVerifyFromInit(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const res = await phase2verifyFromInit(initZKeyName, ptauName, zkeyName, logger);
     if (res === true) {
@@ -13828,7 +13865,7 @@ async function zkeyContribute(params, options) {
     zkeyOldName = params[0];
     zkeyNewName = params[1];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard contribuionHash
     await phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
@@ -13848,7 +13885,7 @@ async function zkeyBeacon(params, options) {
     beaconHashStr = params[2];
     numIterationsExp = params[3];
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard contribuionHash
     await beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
@@ -13872,7 +13909,7 @@ async function zkeyBellmanContribute(params, options) {
         responseName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // Discard contributionHash
     await bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
@@ -13905,7 +13942,7 @@ async function plonkSetup(params, options) {
         zkeyName = params[2];
     }
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // TODO: Make plonk.setup reject instead of returning -1 or null
     return plonkSetup$1(r1csName, ptauName, zkeyName, logger);
@@ -13920,7 +13957,7 @@ async function plonkProve(params, options) {
     const proofName = params[2] || "proof.json";
     const publicName = params[3] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const {proof, publicSignals} = await plonk16Prove(zkeyName, witnessName, logger);
 
@@ -13941,9 +13978,9 @@ async function plonkFullProve(params, options) {
     const proofName = params[3] || "proof.json";
     const publicName = params[4] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = JSON.parse(await fs__default["default"].promises.readFile(inputName, "utf8"));
+    const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
     const {proof, publicSignals} = await plonkFullProve$1(input, wasmName, zkeyName, logger);
 
@@ -13962,11 +13999,11 @@ async function plonkVerify(params, options) {
     const publicName = params[1] || "public.json";
     const proofName = params[2] || "proof.json";
 
-    const verificationKey = JSON.parse(fs__default["default"].readFileSync(verificationKeyName, "utf8"));
-    const pub = JSON.parse(fs__default["default"].readFileSync(publicName, "utf8"));
-    const proof = JSON.parse(fs__default["default"].readFileSync(proofName, "utf8"));
+    const verificationKey = JSON.parse(fs.readFileSync(verificationKeyName, "utf8"));
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const isValid = await plonkVerify$1(verificationKey, pub, proof, logger);
 
@@ -13982,7 +14019,7 @@ async function fflonkSetup(params, options) {
     const ptauFilename = params[1] || "powersoftau.ptau";
     const zkeyFilename = params[2] || "circuit.zkey";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     // TODO: Make fflonk.setup return valuable information or nothing at all
     return await fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger);
@@ -13995,7 +14032,7 @@ async function fflonkProve(params, options) {
     const proofFilename = params[2] || "proof.json";
     const publicInputsFilename = params[3] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
     const {proof, publicSignals} = await fflonkProve$1(zkeyFilename, witnessFilename, logger);
 
@@ -14017,9 +14054,9 @@ async function fflonkFullProve(params, options) {
     const proofFilename = params[3] || "proof.json";
     const publicInputsFilename = params[4] || "public.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const input = JSON.parse(await fs__default["default"].promises.readFile(witnessInputsFilename, "utf8"));
+    const input = JSON.parse(await fs.promises.readFile(witnessInputsFilename, "utf8"));
 
     const {proof, publicSignals} = await fflonkFullProve$1(input, wasmFilename, zkeyFilename, logger);
 
@@ -14036,11 +14073,11 @@ async function fflonkVerify(params, options) {
     const publicInputsFilename = params[1] || "public.json";
     const proofFilename = params[2] || "proof.json";
 
-    if (options.verbose) Logger__default["default"].setLogLevel("DEBUG");
+    if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const vkey = JSON.parse(fs__default["default"].readFileSync(vkeyFilename, "utf8"));
-    const publicInputs = JSON.parse(fs__default["default"].readFileSync(publicInputsFilename, "utf8"));
-    const proof = JSON.parse(fs__default["default"].readFileSync(proofFilename, "utf8"));
+    const vkey = JSON.parse(fs.readFileSync(vkeyFilename, "utf8"));
+    const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
 
     const isValid = await fflonkVerify$1(vkey, publicInputs, proof, logger);
 
