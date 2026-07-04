@@ -379,7 +379,6 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
     console.time("buildABCStream");
     const n8 = curve.Fr.n8;
     const sCoef = 4 * 3 + zkey.n8r;
-    const nVars = zkey.nVars;
     const domainSize = zkey.domainSize;
 
     let getUint32;

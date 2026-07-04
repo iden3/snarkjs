@@ -27,8 +27,7 @@ const {stringifyBigInts} = utils;
 import { Proof } from "./proof.js";
 import { Keccak256Transcript } from "./Keccak256Transcript.js";
 import { MulZ } from "./mul_z.js";
-import {  ZKEY_PL_HEADER_SECTION,
-    ZKEY_PL_ADDITIONS_SECTION,
+import {  ZKEY_PL_ADDITIONS_SECTION,
     ZKEY_PL_A_MAP_SECTION,
     ZKEY_PL_B_MAP_SECTION,
     ZKEY_PL_C_MAP_SECTION,

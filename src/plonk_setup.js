@@ -24,7 +24,6 @@ import * as utils from "./powersoftau_utils.js";
 import {
     readBinFile,
     createBinFile,
-    readSection,
     writeBigInt,
     startWriteSection,
     endWriteSection,
@@ -51,7 +50,6 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
 
     const plonkConstraints = new BigArray();
     const plonkAdditions = new BigArray();
@@ -183,7 +181,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 if (s == 0) {
                     res.k = Fr.add(res.k, linearComb[s]);
                 } else if (linearComb[s] != 0n) {
-                    cs.push([Number(s), linearComb[s]])
+                    cs.push([Number(s), linearComb[s]]);
                 }
             }
             while (cs.length > maxC) {

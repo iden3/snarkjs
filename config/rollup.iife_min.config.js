@@ -1,5 +1,5 @@
-import config from './rollup.iife.config';
-import { terser } from "rollup-plugin-terser";
+import config from "./rollup.iife.config.js";
+import terser from "@rollup/plugin-terser";
 
 export default {
     ...config,
