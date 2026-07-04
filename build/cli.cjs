@@ -5802,8 +5802,27 @@ async function read(fileName) {
 const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
 
 async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
+    // Opt-in periodic memory-usage logging (heap/RSS/external/ArrayBuffers).
+    // options.memoryLogging: true (1s interval) or an interval in ms.
+    // Node-only: process.memoryUsage does not exist in browsers.
+    let memTimer = null;
+    if (logger && options && options.memoryLogging
+        && typeof process !== "undefined" && typeof process.memoryUsage === "function") {
+        const interval = Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1000;
+        memTimer = monitorMemoryUsage(logger, interval);
+    }
+    try {
+        return await _groth16Prove(zkeyFileName, witnessFileName, logger, options);
+    } finally {
+        if (memTimer) {
+            clearInterval(memTimer);
+            memUsage(logger);
+        }
+    }
+}
 
-    if (logger) monitorMemoryUsage(logger, 50);
+async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
+
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
@@ -6312,7 +6331,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 function memUsage(logger) {
     if (!logger) return;
     const used = process.memoryUsage();
-    logger.debug(
+    logger.info(
         "         ",
         "\x1b[0m Heap:\x1b[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
         "\x1b[0m / \x1b[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
@@ -13045,14 +13064,14 @@ const commands = [
         cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a zk Proof from witness",
         alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-        options: "-verbose|v -protocol -buildabc",
+        options: "-verbose|v -protocol -buildabc -memlog",
         action: groth16Prove
     },
     {
         cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
         description: "Generates a zk Proof from input",
         alias: ["g16f", "g16i"],
-        options: "-verbose|v -protocol -buildabc",
+        options: "-verbose|v -protocol -buildabc -memlog",
         action: groth16FullProve
     },
     {
@@ -13323,6 +13342,7 @@ async function groth16Prove(params, options) {
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    if (options.memlog) proveOptions.memoryLogging = options.memlog;
     const {proof, publicSignals} = await groth16Prove$1(zkeyName, witnessName, logger, proveOptions);
 
     fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
@@ -13346,6 +13366,7 @@ async function groth16FullProve(params, options) {
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    if (options.memlog) proveOptions.memoryLogging = options.memlog;
     const {proof, publicSignals} = await groth16FullProve$1(input, wasmName, zkeyName, logger, undefined, proveOptions);
 
     fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));

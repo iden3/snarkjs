@@ -2733,8 +2733,27 @@ async function read(fileName) {
 const {stringifyBigInts: stringifyBigInts$4} = utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
+    // Opt-in periodic memory-usage logging (heap/RSS/external/ArrayBuffers).
+    // options.memoryLogging: true (1s interval) or an interval in ms.
+    // Node-only: process.memoryUsage does not exist in browsers.
+    let memTimer = null;
+    if (logger && options && options.memoryLogging
+        && typeof process !== "undefined" && typeof process.memoryUsage === "function") {
+        const interval = Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1000;
+        memTimer = monitorMemoryUsage(logger, interval);
+    }
+    try {
+        return await _groth16Prove(zkeyFileName, witnessFileName, logger, options);
+    } finally {
+        if (memTimer) {
+            clearInterval(memTimer);
+            memUsage(logger);
+        }
+    }
+}
 
-    if (logger) monitorMemoryUsage(logger, 50);
+async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
+
     const {fd: fdWtns, sections: sectionsWtns} = await readBinFile$1(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
     const wtns = await readHeader(fdWtns, sectionsWtns);
@@ -3243,7 +3262,7 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 function memUsage(logger) {
     if (!logger) return;
     const used = process.memoryUsage();
-    logger.debug(
+    logger.info(
         "         ",
         "\x1b[0m Heap:\x1b[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
         "\x1b[0m / \x1b[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
