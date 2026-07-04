@@ -25,14 +25,17 @@
     "templates/"
   ],
   "scripts": {
-    "test": "mocha",
-    "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
-    "build": "npm run buildcjs && npm run buildcli && npm run buildiife && npm run buildiifemin && npm run buildesm",
-    "buildcjs": "rollup -c config/rollup.cjs.config.js",
-    "buildcli": "rollup -c config/rollup.cli.config.js",
-    "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
-    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
-    "buildesm": "BROWSER=true rollup -c config/rollup.browser.esm.config.js"
+    "lint": "eslint .",
+    "clean": "rimraf build",
+    "pretest": "npm run build:node && npm run build:browser && npm run lint",
+    "test": "vitest run",
+    "test:node": "vitest run --project node-esm",
+    "test:watch": "vitest --project node-esm",
+    "build:node": "vite build",
+    "build:cli": "vite build --mode cli",
+    "build:browser": "vite build --mode browser",
+    "build:iife": "vite build --mode browser-iife",
+    "build": "npm run clean && npm run build:node && npm run build:cli && npm run build:browser && npm run build:iife"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -68,17 +71,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@rollup/plugin-commonjs": "^29.0.3",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-replace": "^6.0.3",
-    "@rollup/plugin-terser": "^1.0.0",
-    "@rollup/plugin-virtual": "^3.0.2",
+    "@vitest/browser": "^4.1.2",
+    "@vitest/browser-playwright": "^4.1.2",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
-    "mocha": "^11.7.6",
-    "rollup": "^4.62.2",
-    "rollup-plugin-visualizer": "^7.0.1"
+    "playwright": "^1.59.0",
+    "rimraf": "^6.1.3",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5",

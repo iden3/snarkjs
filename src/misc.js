@@ -17,7 +17,6 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* global window */
 import { blake2b } from "@noble/hashes/blake2.js";
 import { u32 } from "@noble/hashes/utils.js";
 import readline from "readline";
