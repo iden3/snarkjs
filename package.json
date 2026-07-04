@@ -56,15 +56,15 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "file:../binfileutils",
+    "@iden3/binfileutils": "github:iden3/binfileutils#0a7963108b687551ef1ac836c27f1b4fdffe8dd2",
     "@noble/hashes": "^2.2.0",
     "bfj": "^9.1.3",
     "circom_runtime": "0.1.28",
     "ejs": "^6.0.1",
     "fastfile": "0.0.20",
-    "ffjavascript": "file:../ffjavascript",
+    "ffjavascript": "github:iden3/ffjavascript#617f3fd499adf06965621c8ad1dff3b762e92b68",
     "logplease": "^1.2.15",
-    "r1csfile": "file:../r1csfile"
+    "r1csfile": "github:iden3/r1csfile#892c0705d1f730eaeb19161a21b551dad6e4acd1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
