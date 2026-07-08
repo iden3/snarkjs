@@ -8,7 +8,7 @@ export default {
     output: {
         file: "build/cli.cjs",
         format: "cjs",
-        banner: "#!/usr/bin/node --expose-gc \n",
+        banner: "#!/usr/bin/env -S node --expose-gc\n",
     },
     external: [
         "@noble/hashes/blake2.js",
