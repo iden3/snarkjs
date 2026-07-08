@@ -148,6 +148,51 @@ describe("Full process", function ()  {
         assert(res2 == false);
     });
 
+    // msmBatching/msmGlv/msmGls select the batch-affine MSM module and its
+    // GLV (G1) / GLS (G2) endomorphism paths inside ffjavascript's multiexp
+    // (see src/groth16_prove.js options -> msmOpts). Every combination must
+    // still produce a proof that verifies -- these options change which MSM
+    // codepath computes the same pi_a/pi_b/pi_c/H points, not the math.
+    const msmOptionCombos = [
+        {msmBatching: "disabled"},
+        {msmBatching: "enabled"},
+        {msmBatching: "enabled", msmGlv: "disabled"},
+        {msmBatching: "enabled", msmGls: "disabled"},
+        {msmBatching: "enabled", msmGlv: "disabled", msmGls: "disabled"},
+    ];
+
+    for (const options of msmOptionCombos) {
+        const label = Object.entries(options).map(([k, v]) => `${k}=${v}`).join(", ");
+
+        it (`groth16 proof + verify (${label})`, async () => {
+            const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, options);
+            const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+            assert(ok == true);
+        });
+    }
+
+    it ("groth16 proof rejects an invalid msmBatching option", async () => {
+        let threw = false;
+        try {
+            await snarkjs.groth16.prove(zkey_final, wtns, undefined, {msmBatching: "bogus"});
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes("msmBatching"));
+        }
+        assert(threw, "should throw on an invalid msmBatching value");
+    });
+
+    it ("groth16 proof rejects an invalid msmGlv option", async () => {
+        let threw = false;
+        try {
+            await snarkjs.groth16.prove(zkey_final, wtns, undefined, {msmGlv: "bogus"});
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes("msmGlv"));
+        }
+        assert(threw, "should throw on an invalid msmGlv value");
+    });
+
     it ("plonk setup", async () => {
         await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });
