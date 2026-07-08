@@ -369,8 +369,16 @@ class FastFile {
 
         let p = firstPage;
         let o = pos % self.pageSize;
-        // Remaining bytes to read
+        // Remaining bytes to read (clamped to EOF: a read past the end of a
+        // truncated/short file reads fewer bytes than requested).
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
+        // Bytes already written to buffDst -- tracked independently of `r`
+        // (which shrinks on EOF-clamping) so the destination offset stays
+        // correct. Previously computed as `offset + len - r`: with `r`
+        // pre-clamped below `len`, that put the first bytes read at a
+        // nonzero offset instead of the real EOF-truncated tail, silently
+        // shifting valid data to the wrong position in the output buffer.
+        let done = 0;
         while (r>0) {
             await pagePromises[p - firstPage];
             self.__statusPage("After Await (read): ", p);
@@ -378,12 +386,13 @@ class FastFile {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
-            buffDst.set(srcView, offset+len-r);
+            buffDst.set(srcView, offset+done);
             self.pages[p].pendingOps --;
 
             self.__statusPage("After Op done: ", p);
 
             r = r-l;
+            done = done+l;
             p ++;
             o = 0;
             if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
@@ -7211,7 +7220,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
         // Check that A * B - C == 0
         if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
-            logger.warn("··· aborting checking process at constraint " + i);
+            if (logger) logger.warn("··· aborting checking process at constraint " + i);
             res = false;
             break;
         }
@@ -12547,7 +12556,7 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof commitments are not valid.");
+        if (logger) logger.error("Proof commitments are not valid.");
         return false;
     }
 
@@ -12585,7 +12594,7 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     }
     
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 
@@ -15175,7 +15184,7 @@ async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     const publicSignals = unstringifyBigInts$1(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 

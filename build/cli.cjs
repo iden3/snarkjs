@@ -9364,7 +9364,7 @@ async function plonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof commitments are not valid.");
+        if (logger) logger.error("Proof commitments are not valid.");
         return false;
     }
 
@@ -9402,7 +9402,7 @@ async function plonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
     }
     
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 
@@ -11964,7 +11964,7 @@ async function fflonkVerify$1(_vk_verifier, _publicSignals, _proof, logger) {
     const publicSignals = unstringifyBigInts$2(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 
@@ -12753,7 +12753,7 @@ async function wtnsCheck$1(r1csFilename, wtnsFilename, logger) {
 
         // Check that A * B - C == 0
         if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
-            logger.warn("··· aborting checking process at constraint " + i);
+            if (logger) logger.warn("··· aborting checking process at constraint " + i);
             res = false;
             break;
         }
