@@ -1091,8 +1091,6 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
         buffAodd_T = null;
         buffBodd_T = null;
         buffCodd_T = null;
-
-        if (globalThis.gc) {globalThis.gc();}
     })();
     //await abcPromise;
 
