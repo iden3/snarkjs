@@ -45,5 +45,18 @@ describe("Fflonk test suite", function () {
         const isValid = await fflonk.verify(vKey, publicSignals, proof);
 
         assert(isValid);
+
+        // Tamper with the sole public signal: verify must reject, not throw.
+        // (Regression test: fflonkVerify used to call logger.error() unguarded
+        // when the public-signal count didn't match, throwing a TypeError
+        // when no logger was passed -- exactly how this test calls verify.)
+        const tamperedPublicSignals = [...publicSignals];
+        tamperedPublicSignals[0] = (BigInt(publicSignals[0]) + 1n).toString();
+        const isValidTampered = await fflonk.verify(vKey, tamperedPublicSignals, proof);
+        assert(!isValidTampered);
+
+        // Wrong number of public signals must also be rejected, not throw.
+        const isValidWrongCount = await fflonk.verify(vKey, [...publicSignals, "1"], proof);
+        assert(!isValidWrongCount);
     });
 });

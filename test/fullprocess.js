@@ -116,6 +116,20 @@ describe("Full process", function ()  {
         await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), wtns);
     });
 
+    it ("checks witness check rejects a witness that violates the r1cs (does not throw)", async () => {
+        // Regression test: wtnsCheck used to call logger.warn() unguarded on a
+        // constraint failure, throwing a TypeError instead of returning false
+        // when no logger was passed (exactly how this test calls it).
+        // Corrupt the last byte of the witness data -- section 2 (the witness
+        // values) is written last, so this flips a signal value and breaks
+        // at least one A*B-C=0 constraint.
+        const corruptWtns = {type: "mem", data: Uint8Array.from(wtns.data)};
+        corruptWtns.data[corruptWtns.data.length - 1] ^= 0xFF;
+
+        const res = await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), corruptWtns);
+        assert(res == false);
+    });
+
     it ("groth16 proof", async () => {
         const res = await snarkjs.groth16.prove(zkey_final, wtns);
         proof = res.proof;
@@ -213,5 +227,20 @@ describe("Full process", function ()  {
         assert(res == true);
     });
 
+    it ("plonk verify rejects a proof with a malformed (off-curve) commitment, without throwing", async () => {
+        // Regression test: plonkVerify's isWellConstructed() check used to
+        // call logger.error() unguarded, throwing a TypeError instead of
+        // returning false when no logger was passed (exactly how this test
+        // calls verify). Corrupting proof.A off-curve exercises exactly that
+        // path -- G1.isValid(proof.A) fails and isWellConstructed() returns
+        // false before anything else in the proof is even looked at.
+        const tamperedProof = JSON.parse(JSON.stringify(proof));
+        // proof.A is [x, y, z] in projective coordinates as decimal strings;
+        // incrementing x by 1 (keeping y, z) takes the point off the curve.
+        tamperedProof.A = [(BigInt(tamperedProof.A[0]) + 1n).toString(), tamperedProof.A[1], tamperedProof.A[2]];
+
+        const res = await snarkjs.plonk.verify(vKey, publicSignals, tamperedProof);
+        assert(res == false);
+    });
 
 });
