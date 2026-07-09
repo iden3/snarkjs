@@ -1309,11 +1309,20 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
         getUint32 = (pos) => coeffsDV.getUint32(pos, true);
     }
     function getCutPoint(v) {
+        // lower_bound: first coefficient whose c-field is >= v. The previous
+        // `va > v => n = k - 1` was an incorrect bisection -- it excluded k even
+        // though k can be the answer, so when the chunk boundary v has no
+        // coefficient exactly at c == v (routine: the domain is padded past the
+        // constraint count) the search returned a cut point one coefficient too
+        // low. That coefficient then lands in neither adjacent chunk (the prior
+        // chunk's range ends before it; the next chunk's qap_buildABC filters it
+        // out by c-range), silently dropping it from the QAP and corrupting
+        // A/B/C -> H -> pi_c, so every multi-chunk proof failed to verify.
         let m = 0, n = getUint32(0);
         while (m < n) {
             const k = Math.floor((n + m) / 2);
             const va = getUint32(4 + k * sCoef + 4);
-            if (va > v) n = k - 1; else if (va < v) m = k + 1; else n = k;
+            if (va < v) m = k + 1; else n = k;
         }
         return 4 + m * sCoef;
     }
