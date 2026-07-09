@@ -157,7 +157,17 @@ class FastFile {
                         self.__statusPage("After Load (loaded): ", load.page);
                         return res;
                     }, (err) => {
-                        load.reject(err);
+                        // Reject EVERY waiter, not just the first: co-readers of the
+                        // same page were appended to page.loading (not to `load`) and
+                        // would otherwise await forever. Drop the page entirely so a
+                        // later retry re-reads it instead of queueing onto a dead
+                        // loading list.
+                        const page = self.pages[load.page];
+                        const loading = (page && page.loading) ? page.loading : [load];
+                        delete self.pages[load.page];
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].reject(err);
+                        }
                     }));
                     self.__statusPage("After Load (loading): ", load.page);
                 }
@@ -210,6 +220,13 @@ class FastFile {
                     return;
                 }, (err) => {
                     console.log("ERROR Writing: "+err);
+                    // Clear `writing` (a stuck flag pins the page forever and
+                    // blocks _tryClose) and record the error. write()/read()
+                    // surface it on their next call (fail fast) and close()
+                    // rejects with it -- previously it was only visible at
+                    // close(), so a prover that skipped close on error paths
+                    // silently produced a truncated/corrupt file.
+                    page.writing = false;
                     self.error = err;
                     self._tryClose();
                 }));
@@ -249,6 +266,7 @@ class FastFile {
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
@@ -331,6 +349,7 @@ class FastFile {
             return;
         }
         const self = this;
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+len;
         if (self.pendingClose)
@@ -408,6 +427,7 @@ class FastFile {
         if (!self.pendingClose) return;
         if (self.error) {
             self.pendingCloseReject(self.error);
+            return;
         }
         const p = self._getDirtyPage();
         if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
@@ -2952,23 +2972,44 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     //await resHPromise;
 
 
+    // Mark every concurrent phase as observed the moment it exists: an early
+    // rejection (e.g. a truncated zkey failing one section read) would
+    // otherwise fire Node's unhandledRejection while we are still awaiting a
+    // slower sibling below -- before the catch can attach handlers. The
+    // no-op catch is a separate branch: the awaits below still throw.
+    for (const p of [abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]) {
+        p.catch(() => {});
+    }
+
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
-    await piaPromise;
-    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
+    try {
+        await piaPromise;
+        proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
+        proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
-    await pibPromise;
-    proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
+        await pibPromise;
+        proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
+        proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
-    await pib1Promise;
-    pib1 = G1.add( pib1, zkey.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
+        await pib1Promise;
+        pib1 = G1.add( pib1, zkey.vk_beta_1 );
+        pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
-    await Promise.all([picPromise, resHPromise]);
-    proof.pi_c = G1.add(proof.pi_c, resH);
+        await Promise.all([picPromise, resHPromise]);
+        proof.pi_c = G1.add(proof.pi_c, resH);
+    } catch (err) {
+        // One of the six concurrent prove phases failed. The others are
+        // still in flight with nobody awaiting them: drain them all before
+        // rethrowing so every promise has a handler (a straggler rejecting
+        // after the caller's cleanup -- e.g. curve.terminate() -- would be
+        // an unhandled rejection and can crash the process), and close the
+        // fds the success path closes.
+        await Promise.allSettled([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]);
+        await Promise.allSettled([fdZKey.close(), fdWtns.close()]);
+        throw err;
+    }
 
 
     proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( proof.pi_a, s ));
@@ -3968,16 +4009,26 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
-
-        await writeBin(fdWtns, w, wc.prime);
-        await fdWtns.close();
+        try {
+            await writeBin(fdWtns, w, wc.prime);
+        } finally {
+            // close on failure too: a write error (or, pre-open, a witness
+            // calculation throw -- e.g. an assert in the circuit) must not
+            // leak the output fd.
+            await fdWtns.close();
+        }
     } else {
-        const fdWtns = await createOverride(wtnsFileName);
-
+        // Calculate BEFORE opening the output file: a circuit assert/trap in
+        // calculateWTNSBin used to leak the just-created fd (and leave a
+        // zero-byte wtns file behind).
         const w = await wc.calculateWTNSBin(input);
 
-        await fdWtns.write(w);
-        await fdWtns.close();
+        const fdWtns = await createOverride(wtnsFileName);
+        try {
+            await fdWtns.write(w);
+        } finally {
+            await fdWtns.close();
+        }
     }
 }
 

@@ -6016,23 +6016,44 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     //await resHPromise;
 
 
+    // Mark every concurrent phase as observed the moment it exists: an early
+    // rejection (e.g. a truncated zkey failing one section read) would
+    // otherwise fire Node's unhandledRejection while we are still awaiting a
+    // slower sibling below -- before the catch can attach handlers. The
+    // no-op catch is a separate branch: the awaits below still throw.
+    for (const p of [abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]) {
+        p.catch(() => {});
+    }
+
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
-    await piaPromise;
-    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
+    try {
+        await piaPromise;
+        proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
+        proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
-    await pibPromise;
-    proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
+        await pibPromise;
+        proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
+        proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
-    await pib1Promise;
-    pib1 = G1.add( pib1, zkey.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
+        await pib1Promise;
+        pib1 = G1.add( pib1, zkey.vk_beta_1 );
+        pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
-    await Promise.all([picPromise, resHPromise]);
-    proof.pi_c = G1.add(proof.pi_c, resH);
+        await Promise.all([picPromise, resHPromise]);
+        proof.pi_c = G1.add(proof.pi_c, resH);
+    } catch (err) {
+        // One of the six concurrent prove phases failed. The others are
+        // still in flight with nobody awaiting them: drain them all before
+        // rethrowing so every promise has a handler (a straggler rejecting
+        // after the caller's cleanup -- e.g. curve.terminate() -- would be
+        // an unhandled rejection and can crash the process), and close the
+        // fds the success path closes.
+        await Promise.allSettled([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]);
+        await Promise.allSettled([fdZKey.close(), fdWtns.close()]);
+        throw err;
+    }
 
 
     proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( proof.pi_a, s ));
@@ -6398,16 +6419,26 @@ async function wtnsCalculate$1(_input, wasmFileName, wtnsFileName, options) {
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils__namespace.createBinFile(wtnsFileName, "wtns", 2, 2);
-
-        await writeBin(fdWtns, w, wc.prime);
-        await fdWtns.close();
+        try {
+            await writeBin(fdWtns, w, wc.prime);
+        } finally {
+            // close on failure too: a write error (or, pre-open, a witness
+            // calculation throw -- e.g. an assert in the circuit) must not
+            // leak the output fd.
+            await fdWtns.close();
+        }
     } else {
-        const fdWtns = await fastFile__namespace.createOverride(wtnsFileName);
-
+        // Calculate BEFORE opening the output file: a circuit assert/trap in
+        // calculateWTNSBin used to leak the just-created fd (and leave a
+        // zero-byte wtns file behind).
         const w = await wc.calculateWTNSBin(input);
 
-        await fdWtns.write(w);
-        await fdWtns.close();
+        const fdWtns = await fastFile__namespace.createOverride(wtnsFileName);
+        try {
+            await fdWtns.write(w);
+        } finally {
+            await fdWtns.close();
+        }
     }
 }
 
