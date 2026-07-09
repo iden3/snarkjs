@@ -35,19 +35,12 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         memTimer = monitorMemoryUsage(logger, interval);
     }
     let fdWtns, fdZKey;
-    // _groth16Prove registers its concurrently-spawned phase promises here so
-    // the catch can drain stragglers (every promise observed, no work still
-    // touching the fds) before the finally closes them.
-    const inFlight = [];
     try {
         const openWtns = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
         fdWtns = openWtns.fd;
         const openZKey = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
         fdZKey = openZKey.fd;
-        return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options, inFlight);
-    } catch (err) {
-        await Promise.allSettled(inFlight);
-        throw err;
+        return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
     } finally {
         if (memTimer) {
             clearInterval(memTimer);
@@ -55,7 +48,10 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         }
         // Close on EVERY path -- any throw between open and the end of the
         // prove (header validation, section reads, a failing phase) used to
-        // leak both fds because only the success path closed them.
+        // leak both fds because only the success path closed them. On the
+        // error path, phases may still have reads in flight; closing makes
+        // those fail fast ("Reading a closing file") and their rejections
+        // are observed by the no-op catch attached at phase creation.
         // Promise.resolve() wrapping: mem-backed fds return undefined from
         // close().
         if (fdZKey) await Promise.resolve(fdZKey.close()).catch(() => {});
@@ -63,7 +59,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     }
 }
 
-async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger, options, inFlight) {
+async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger, options) {
 
     const wtns = await wtnsUtils.readHeader(fdWtns, sectionsWtns);
 
@@ -257,11 +253,11 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
     // Mark every concurrent phase as observed the moment it exists: an early
     // rejection (e.g. a truncated zkey failing one section read) would
     // otherwise fire Node's unhandledRejection while we are still awaiting a
-    // slower sibling below -- before any catch can attach handlers. The
-    // no-op catch is a separate branch: the awaits below still throw. Also
-    // register them for groth16Prove's straggler drain.
+    // slower sibling below -- before any catch could attach handlers. The
+    // no-op catch is a separate branch: the awaits below still throw, and a
+    // straggler phase failing after groth16Prove's finally has closed the
+    // fds rejects into this handler instead of crashing the process.
     for (const p of [abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]) {
-        inFlight.push(p);
         p.catch(() => {});
     }
 
