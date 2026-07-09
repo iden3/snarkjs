@@ -42,7 +42,7 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     vk_verifier = fromObjectVk(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof commitments are not valid.");
+        if (logger) logger.error("Proof commitments are not valid.");
         return false;
     }
 
@@ -80,7 +80,7 @@ export default async function plonkVerify(_vk_verifier, _publicSignals, _proof, 
     }
     
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 

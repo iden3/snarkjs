@@ -91,7 +91,7 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
         // Check that A * B - C == 0
         if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
-            logger.warn("··· aborting checking process at constraint " + i);
+            if (logger) logger.warn("··· aborting checking process at constraint " + i);
             res = false;
             break;
         }

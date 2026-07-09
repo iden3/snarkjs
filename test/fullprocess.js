@@ -116,6 +116,20 @@ describe("Full process", function ()  {
         await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), wtns);
     });
 
+    it ("checks witness check rejects a witness that violates the r1cs (does not throw)", async () => {
+        // Regression test: wtnsCheck used to call logger.warn() unguarded on a
+        // constraint failure, throwing a TypeError instead of returning false
+        // when no logger was passed (exactly how this test calls it).
+        // Corrupt the last byte of the witness data -- section 2 (the witness
+        // values) is written last, so this flips a signal value and breaks
+        // at least one A*B-C=0 constraint.
+        const corruptWtns = {type: "mem", data: Uint8Array.from(wtns.data)};
+        corruptWtns.data[corruptWtns.data.length - 1] ^= 0xFF;
+
+        const res = await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), corruptWtns);
+        assert(res == false);
+    });
+
     it ("groth16 proof", async () => {
         const res = await snarkjs.groth16.prove(zkey_final, wtns);
         proof = res.proof;
@@ -148,6 +162,77 @@ describe("Full process", function ()  {
         assert(res2 == false);
     });
 
+    // msmBatching/msmGlv/msmGls select the batch-affine MSM module and its
+    // GLV (G1) / GLS (G2) endomorphism paths inside ffjavascript's multiexp
+    // (see src/groth16_prove.js options -> msmOpts). Every combination must
+    // still produce a proof that verifies -- these options change which MSM
+    // codepath computes the same pi_a/pi_b/pi_c/H points, not the math.
+    const msmOptionCombos = [
+        {msmBatching: "disabled"},
+        {msmBatching: "enabled"},
+        {msmBatching: "enabled", msmGlv: "disabled"},
+        {msmBatching: "enabled", msmGls: "disabled"},
+        {msmBatching: "enabled", msmGlv: "disabled", msmGls: "disabled"},
+    ];
+
+    for (const options of msmOptionCombos) {
+        const label = Object.entries(options).map(([k, v]) => `${k}=${v}`).join(", ");
+
+        it (`groth16 proof + verify (${label})`, async () => {
+            const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, options);
+            const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+            assert(ok == true);
+        });
+    }
+
+    it ("groth16 proof rejects an invalid msmBatching option", async () => {
+        let threw = false;
+        try {
+            await snarkjs.groth16.prove(zkey_final, wtns, undefined, {msmBatching: "bogus"});
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes("msmBatching"));
+        }
+        assert(threw, "should throw on an invalid msmBatching value");
+    });
+
+    it ("groth16 proof rejects an invalid msmGlv option", async () => {
+        let threw = false;
+        try {
+            await snarkjs.groth16.prove(zkey_final, wtns, undefined, {msmGlv: "bogus"});
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes("msmGlv"));
+        }
+        assert(threw, "should throw on an invalid msmGlv value");
+    });
+
+    // buildABC selects the QAP coefficient-build strategy (src/groth16_prove.js).
+    // "js" and "stream" are the only supported values; "wasm"/"wasm1" were
+    // retired multi/single-threaded WASM variants. Both live options must
+    // still produce a verifying proof, and a retired or nonsense value must
+    // be rejected rather than silently falling through to the default.
+    for (const buildABC of ["js", "stream"]) {
+        it (`groth16 proof + verify (buildABC=${buildABC})`, async () => {
+            const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, {buildABC});
+            const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+            assert(ok == true);
+        });
+    }
+
+    for (const buildABC of ["wasm", "wasm1", "bogus"]) {
+        it (`groth16 proof rejects a retired/invalid buildABC option (${buildABC})`, async () => {
+            let threw = false;
+            try {
+                await snarkjs.groth16.prove(zkey_final, wtns, undefined, {buildABC});
+            } catch (err) {
+                threw = true;
+                assert(err.message.includes("buildABC"));
+            }
+            assert(threw, `should throw on buildABC="${buildABC}" instead of silently using the default`);
+        });
+    }
+
     it ("plonk setup", async () => {
         await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });
@@ -168,5 +253,20 @@ describe("Full process", function ()  {
         assert(res == true);
     });
 
+    it ("plonk verify rejects a proof with a malformed (off-curve) commitment, without throwing", async () => {
+        // Regression test: plonkVerify's isWellConstructed() check used to
+        // call logger.error() unguarded, throwing a TypeError instead of
+        // returning false when no logger was passed (exactly how this test
+        // calls verify). Corrupting proof.A off-curve exercises exactly that
+        // path -- G1.isValid(proof.A) fails and isWellConstructed() returns
+        // false before anything else in the proof is even looked at.
+        const tamperedProof = JSON.parse(JSON.stringify(proof));
+        // proof.A is [x, y, z] in projective coordinates as decimal strings;
+        // incrementing x by 1 (keeping y, z) takes the point off the curve.
+        tamperedProof.A = [(BigInt(tamperedProof.A[0]) + 1n).toString(), tamperedProof.A[1], tamperedProof.A[2]];
+
+        const res = await snarkjs.plonk.verify(vKey, publicSignals, tamperedProof);
+        assert(res == false);
+    });
 
 });

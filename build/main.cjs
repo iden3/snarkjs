@@ -1002,6 +1002,16 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     }
     const msmOpts = { batch: msmBatching, glv: msmGlv, gls: msmGls };
 
+    // buildABC: "stream" (default -- bounded worker memory, tunable
+    // parallelism via buildABCnChunks/buildABCmaxInFlight) or "js" (plain JS,
+    // no worker memory footprint, slower on large circuits). The "wasm" /
+    // "wasm1" multi-threaded/single-threaded WASM variants were retired; an
+    // unrecognized value here used to fall through silently to the default
+    // instead of surfacing the mistake.
+    if (options.buildABC !== undefined && options.buildABC !== "js" && options.buildABC !== "stream") {
+        throw new Error(`groth16Prove: invalid buildABC "${options.buildABC}" (expected "js" or "stream")`);
+    }
+
     const power = log2(zkey.domainSize);
 
     if (logger) logger.debug("Reading Wtns");
@@ -4439,7 +4449,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
         // Check that A * B - C == 0
         if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
-            logger.warn("··· aborting checking process at constraint " + i);
+            if (logger) logger.warn("··· aborting checking process at constraint " + i);
             res = false;
             break;
         }
@@ -9485,7 +9495,7 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     vk_verifier = fromObjectVk$1(curve, vk_verifier);
 
     if (!isWellConstructed(curve, proof)) {
-        logger.error("Proof commitments are not valid.");
+        if (logger) logger.error("Proof commitments are not valid.");
         return false;
     }
 
@@ -9523,7 +9533,7 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     }
     
     if (publicSignals.length != vk_verifier.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 
@@ -12113,7 +12123,7 @@ async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     const publicSignals = unstringifyBigInts$1(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 
