@@ -5872,6 +5872,16 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     }
     const msmOpts = { batch: msmBatching, glv: msmGlv, gls: msmGls };
 
+    // buildABC: "stream" (default -- bounded worker memory, tunable
+    // parallelism via buildABCnChunks/buildABCmaxInFlight) or "js" (plain JS,
+    // no worker memory footprint, slower on large circuits). The "wasm" /
+    // "wasm1" multi-threaded/single-threaded WASM variants were retired; an
+    // unrecognized value here used to fall through silently to the default
+    // instead of surfacing the mistake.
+    if (options.buildABC !== undefined && options.buildABC !== "js" && options.buildABC !== "stream") {
+        throw new Error(`groth16Prove: invalid buildABC "${options.buildABC}" (expected "js" or "stream")`);
+    }
+
     const power = log2(zkey.domainSize);
 
     if (logger) logger.debug("Reading Wtns");

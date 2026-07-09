@@ -207,6 +207,32 @@ describe("Full process", function ()  {
         assert(threw, "should throw on an invalid msmGlv value");
     });
 
+    // buildABC selects the QAP coefficient-build strategy (src/groth16_prove.js).
+    // "js" and "stream" are the only supported values; "wasm"/"wasm1" were
+    // retired multi/single-threaded WASM variants. Both live options must
+    // still produce a verifying proof, and a retired or nonsense value must
+    // be rejected rather than silently falling through to the default.
+    for (const buildABC of ["js", "stream"]) {
+        it (`groth16 proof + verify (buildABC=${buildABC})`, async () => {
+            const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, {buildABC});
+            const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+            assert(ok == true);
+        });
+    }
+
+    for (const buildABC of ["wasm", "wasm1", "bogus"]) {
+        it (`groth16 proof rejects a retired/invalid buildABC option (${buildABC})`, async () => {
+            let threw = false;
+            try {
+                await snarkjs.groth16.prove(zkey_final, wtns, undefined, {buildABC});
+            } catch (err) {
+                threw = true;
+                assert(err.message.includes("buildABC"));
+            }
+            assert(threw, `should throw on buildABC="${buildABC}" instead of silently using the default`);
+        });
+    }
+
     it ("plonk setup", async () => {
         await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });
