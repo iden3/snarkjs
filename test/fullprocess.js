@@ -233,6 +233,35 @@ describe("Full process", function ()  {
         });
     }
 
+    // Regression: fds used to close only on groth16Prove's success path;
+    // any failing await (header validation, section reads, one of the six
+    // concurrent phases) leaked both Node fds. groth16Prove now owns the
+    // open/close lifecycle in its try/finally, with a straggler drain on the
+    // error path so no phase promise is left unobserved.
+    it ("groth16 proof failure paths do not leak or hang (early throw + mid-phase throw)", async () => {
+        // Early throw: corrupt the wtns header's nWitness field.
+        // wtns layout: 4 magic + 4 version + 4 nSections + 4 sec1 id + 8 sec1 size
+        // + 4 n8 + 32 prime + 4 nWitness -- flip nWitness's low byte.
+        const badWtns = {type: "mem", data: Uint8Array.from(wtns.data)};
+        badWtns.data[4 + 4 + 4 + 4 + 8 + 4 + 32] ^= 0xFF;
+        let threw = false;
+        try { await snarkjs.groth16.prove(zkey_final, badWtns); } catch { threw = true; }
+        assert(threw, "corrupted witness header should reject");
+
+        // Mid-phase throw: truncate a copy of the zkey so a section read
+        // fails inside one of the six concurrent prove phases.
+        const zkeyData = zkey_final.data;
+        const badZkey = {type: "mem", data: zkeyData.slice(0, Math.floor(zkeyData.byteLength * 0.6))};
+        threw = false;
+        try { await snarkjs.groth16.prove(badZkey, wtns); } catch { threw = true; }
+        assert(threw, "truncated zkey should reject, not hang");
+
+        // The prover must still work afterwards (no wedged shared state).
+        const res = await snarkjs.groth16.prove(zkey_final, wtns);
+        const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+        assert(ok == true);
+    });
+
     it ("plonk setup", async () => {
         await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });

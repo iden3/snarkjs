@@ -97,7 +97,7 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
         }
     }
 
-    fdR1cs.close();
+    await fdR1cs.close();
 
     if (logger) {
         if (res) {
