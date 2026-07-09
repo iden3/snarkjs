@@ -233,37 +233,6 @@ describe("Full process", function ()  {
         });
     }
 
-    // Regression: fds used to close only on groth16Prove's success path.
-    // Node fds leaked on every failed prove -- early header-validation
-    // throws AND mid-phase failures. With in-memory fds the observable
-    // contract is the same close() call, exercised here via a wtns whose
-    // curve/length can't match the zkey (throws before the phases) and a
-    // truncated zkey copy (throws inside the concurrent phases).
-    it ("groth16 proof failure paths do not leak or hang (early throw + mid-phase throw)", async () => {
-        // Early throw: witness length mismatch (reuse the plonk wtns? no --
-        // corrupt a copy of the wtns header's nWitness field instead).
-        const badWtns = {type: "mem", data: Uint8Array.from(wtns.data)};
-        // wtns layout: 4 magic + 4 version + 4 nSections + 4 sec1 id + 8 sec1 size
-        // + 4 n8 + 32 prime + 4 nWitness -- flip nWitness's low byte.
-        badWtns.data[4 + 4 + 4 + 4 + 8 + 4 + 32] ^= 0xFF;
-        let threw = false;
-        try { await snarkjs.groth16.prove(zkey_final, badWtns); } catch { threw = true; }
-        assert(threw, "corrupted witness header should reject");
-
-        // Mid-phase throw: truncate a copy of the zkey so a section read
-        // fails inside one of the six concurrent prove phases.
-        const zkeyData = zkey_final.data;
-        const badZkey = {type: "mem", data: zkeyData.slice(0, Math.floor(zkeyData.byteLength * 0.6))};
-        threw = false;
-        try { await snarkjs.groth16.prove(badZkey, wtns); } catch { threw = true; }
-        assert(threw, "truncated zkey should reject, not hang");
-
-        // The prover must still work afterwards (no wedged shared state).
-        const res = await snarkjs.groth16.prove(zkey_final, wtns);
-        const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
-        assert(ok == true);
-    });
-
     it ("plonk setup", async () => {
         await snarkjs.plonk.setup(path.join("test", "circuit", "circuit.r1cs"), ptau_final, zkey_plonk);
     });

@@ -2781,32 +2781,9 @@ async function _groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     const {fd: fdWtns, sections: sectionsWtns} = await readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
 
-    let fdZKey;
-    // Concurrently-spawned phase promises register here so the catch below
-    // can drain stragglers (every promise observed, no work still touching
-    // the fds) before the finally closes them.
-    const inFlight = [];
-    try {
-        const openZKey = await readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
-        fdZKey = openZKey.fd;
-        return await groth16ProveOpened(fdZKey, openZKey.sections, fdWtns, sectionsWtns, logger, options, inFlight);
-    } catch (err) {
-        await Promise.allSettled(inFlight);
-        throw err;
-    } finally {
-        // Close on EVERY path: any await between the opens and the end of
-        // the prove (header validation throws, the witness section read,
-        // any of the six concurrent phases) used to leak both fds because
-        // only the success path closed them. Promise.resolve() wrapping:
-        // mem-backed fds return undefined from close().
-        if (fdZKey) await Promise.resolve(fdZKey.close()).catch(() => {});
-        await Promise.resolve(fdWtns.close()).catch(() => {});
-    }
-}
-
-async function groth16ProveOpened(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger, options, inFlight) {
-
     const wtns = await readHeader(fdWtns, sectionsWtns);
+
+    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
 
     const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
 
@@ -2998,31 +2975,41 @@ async function groth16ProveOpened(fdZKey, sectionsZKey, fdWtns, sectionsWtns, lo
     // Mark every concurrent phase as observed the moment it exists: an early
     // rejection (e.g. a truncated zkey failing one section read) would
     // otherwise fire Node's unhandledRejection while we are still awaiting a
-    // slower sibling below -- before any catch can attach handlers. The
-    // no-op catch is a separate branch: the awaits below still throw. Also
-    // register them for the caller's straggler drain.
+    // slower sibling below -- before the catch can attach handlers. The
+    // no-op catch is a separate branch: the awaits below still throw.
     for (const p of [abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]) {
-        inFlight.push(p);
         p.catch(() => {});
     }
 
     const r = curve.Fr.random();
     const s = curve.Fr.random();
 
-    await piaPromise;
-    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
+    try {
+        await piaPromise;
+        proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
+        proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
 
-    await pibPromise;
-    proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
+        await pibPromise;
+        proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
+        proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
 
-    await pib1Promise;
-    pib1 = G1.add( pib1, zkey.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
+        await pib1Promise;
+        pib1 = G1.add( pib1, zkey.vk_beta_1 );
+        pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
 
-    await Promise.all([picPromise, resHPromise]);
-    proof.pi_c = G1.add(proof.pi_c, resH);
+        await Promise.all([picPromise, resHPromise]);
+        proof.pi_c = G1.add(proof.pi_c, resH);
+    } catch (err) {
+        // One of the six concurrent prove phases failed. The others are
+        // still in flight with nobody awaiting them: drain them all before
+        // rethrowing so every promise has a handler (a straggler rejecting
+        // after the caller's cleanup -- e.g. curve.terminate() -- would be
+        // an unhandled rejection and can crash the process), and close the
+        // fds the success path closes.
+        await Promise.allSettled([abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]);
+        await Promise.allSettled([fdZKey.close(), fdWtns.close()]);
+        throw err;
+    }
 
 
     proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( proof.pi_a, s ));
@@ -3043,6 +3030,9 @@ async function groth16ProveOpened(fdZKey, sectionsZKey, fdWtns, sectionsWtns, lo
 
     proof.protocol = "groth16";
     proof.curve = curve.name;
+
+    await fdZKey.close();
+    await fdWtns.close();
 
     proof = stringifyBigInts$4(proof);
     publicSignals = stringifyBigInts$4(publicSignals);
@@ -7306,7 +7296,7 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
         }
     }
 
-    await fdR1cs.close();
+    fdR1cs.close();
 
     if (logger) {
         if (res) {
