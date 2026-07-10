@@ -46,10 +46,6 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
-// const logger = console;
-// const Logger = {
-//     setLogLevel: function (x) {}
-// };
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
@@ -353,28 +349,6 @@ clProcessor(commands).then((res) => {
     process.exit(1);
 });
 
-/*
-
-TODO COMMANDS
-=============
-
-    {
-        cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
-        description: "Run a simple setup for a circuit generating the proving key.",
-        alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
-        options: "-verbose|v -protocol",
-        action: zksnarkSetup
-    },
-    {
-        cmd: "witness verify <circuit.r1cs> <witness.wtns>",
-        description: "Verify a witness against a r1cs",
-        alias: ["wv"],
-        action: witnessVerify
-    },
-    {
-        cmd: "powersOfTau export response"
-    }
-*/
 
 // BFJ(Big-Friendly JSON) is pretty heavy module, so we are doing lazy loading for faster startup
 let _bfj;
@@ -505,31 +479,6 @@ async function wtnsCheck(params, options) {
         return 1;
     }
 }
-
-
-/*
-// zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
-async function zksnarkSetup(params, options) {
-
-    const r1csName = params[0] || "circuit.r1cs";
-    const zkeyName = params[1] || changeExt(r1csName, "zkey");
-    const verificationKeyName = params[2] || "verification_key.json";
-
-    const protocol = options.protocol || "groth16";
-
-    const cir = await readR1cs(r1csName, true);
-
-    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-    const setup = zkSnark[protocol].setup(cir, options.verbose);
-
-    await zkey.utils.write(zkeyName, setup.vk_proof);
-    await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
-
-    await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
-
-    return 0;
-}
-*/
 
 // groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
 async function groth16Prove(params, options) {

@@ -972,7 +972,7 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
 
     const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
 
-    if (zkey.protocol != "groth16") {
+    if (zkey.protocol !== "groth16") {
         throw new Error("zkey file is not groth16");
     }
 
@@ -980,7 +980,7 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
         throw new Error("Curve of the witness does not match the curve of the proving key");
     }
 
-    if (wtns.nWitness != zkey.nVars) {
+    if (wtns.nWitness !== zkey.nVars) {
         throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}`);
     }
 
@@ -1015,10 +1015,7 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
 
     // buildABC: "stream" (default -- bounded worker memory, tunable
     // parallelism via buildABCnChunks/buildABCmaxInFlight) or "js" (plain JS,
-    // no worker memory footprint, slower on large circuits). The "wasm" /
-    // "wasm1" multi-threaded/single-threaded WASM variants were retired; an
-    // unrecognized value here used to fall through silently to the default
-    // instead of surfacing the mistake.
+    // no worker memory footprint, slower).
     if (options.buildABC !== undefined && options.buildABC !== "js" && options.buildABC !== "stream") {
         throw new Error(`groth16Prove: invalid buildABC "${options.buildABC}" (expected "js" or "stream")`);
     }
@@ -1058,9 +1055,6 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
 
             if (options.buildABC === "js") {
                 [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
-            } else if (options.buildABC === "stream") {
-                const p = pickStreamParams(curve, zkey, buffCoeffs, options);
-                [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
             } else {
                 // Default: streaming build (bounded worker memory, tunable
                 // parallelism). The per-chunk witness gather keeps the witness
@@ -1071,13 +1065,6 @@ async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger,
             }
         })();
 
-
-        // Do not call gc() here. gc() is a stop-the-world pause that blocks the
-        // Node.js event loop. If the pause exceeds the worker idle-termination
-        // timeout (1s), a worker closes its port while the main thread is blocked,
-        // and the next task dispatched to it is silently dropped → hang. The
-        // coefficients buffer goes out of scope at the end of the inner IIFE above
-        // and is reclaimed by V8's incremental GC automatically.
 
         const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
 
@@ -1250,7 +1237,6 @@ async function buildABC1(curve, zkey, witness, coeffs, logger) {
             c*n8
         );
 
-        if (i%1000000 == 0 && logger) memUsage(logger);
     }
 
     for (let i=0; i<zkey.domainSize; i++) {
@@ -1328,15 +1314,8 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
         getUint32 = (pos) => coeffsDV.getUint32(pos, true);
     }
     function getCutPoint(v) {
-        // lower_bound: first coefficient whose c-field is >= v. The previous
-        // `va > v => n = k - 1` was an incorrect bisection -- it excluded k even
-        // though k can be the answer, so when the chunk boundary v has no
-        // coefficient exactly at c == v (routine: the domain is padded past the
-        // constraint count) the search returned a cut point one coefficient too
-        // low. That coefficient then lands in neither adjacent chunk (the prior
-        // chunk's range ends before it; the next chunk's qap_buildABC filters it
-        // out by c-range), silently dropping it from the QAP and corrupting
-        // A/B/C -> H -> pi_c, so every multi-chunk proof failed to verify.
+        // lower_bound: first coefficient whose c-field is >= v.
+        // The coeffs are sorted by c-field, so this is a binary search.
         let m = 0, n = getUint32(0);
         while (m < n) {
             const k = Math.floor((n + m) / 2);
@@ -1367,6 +1346,7 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
         const n = Math.min(elementsPerChunk, domainSize - outOffset);
         if (n <= 0) break;
         const cpA = cutPoints[i], cpB = cutPoints[i + 1];
+        // Wait in case we have already max allowed chunks "in flight"
         while (inFlight.size >= maxInFlight) await Promise.race(inFlight);
         if (logger) logger.debug(`buildABCStream: ${i}/${nChunks}`);
         const op = (async () => {
@@ -1382,10 +1362,10 @@ async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, max
             // Hot loop (one iteration per coefficient): use typed-array lane
             // copies instead of set(subarray) -- per-element memcpy dispatch
             // dominated the profile otherwise. Uint32 lanes on purpose: the
-            // data is integer bit patterns, and Float64Array stores may
-            // legally canonicalize NaN-patterned lanes (SetValueInBuffer is
-            // implementation-defined for NaN encodings). The s-field offsets
-            // are 4-byte aligned (sCoef and the +8 offset are multiples of 4).
+            // data is integer bit patterns, and Float64 lanes may legally
+            // canonicalize NaN-patterned lanes, silently corrupting them.
+            // The s-field offsets are 4-byte aligned (sCoef and the +8
+            // offset are multiples of 4).
             const chunkU32 = new Uint32Array(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength >> 2);
             const sStep = sCoef >> 2;
             const laneFast = !!witness.buffer && ((witness.byteOffset & 3) === 0) && (n8 === 32);
@@ -4780,7 +4760,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     csHasher.update(bg2U);      // delta2
     await binFileUtils.endWriteSection(fdZKey);
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading r1cs");
     let sR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
     await fdR1cs.close();
@@ -4791,7 +4770,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     let C = new BigArray(r1cs.nVars- nPublic -1);
     let IC = new Array(nPublic+1);
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading tauG2");
@@ -4801,11 +4779,9 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     if (logger) logger.info("Reading betatauG1");
     let sBetaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("processConstraints");
     await processConstraints();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints");
     await composeAndWritePoints(3, "G1", IC, "IC");
 
@@ -4813,43 +4789,36 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     // const gc = runInNewContext("gc"); // nocommit
     // gc();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("writeHs");
     await writeHs();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("hashHPoints");
     await hashHPoints();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 8 G1 C");
     await composeAndWritePoints(8, "G1", C, "C");
 
     C = null;
     // gc();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
 
     A = null;
     // gc();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
 
     B1 = null;
     // gc();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
     B2 = null;
     // gc();
 
-    if (logger) logger.info(memUsage());
     if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
     // Contributions section
@@ -5043,12 +5012,7 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
                     nP += (arr[i+n] ? arr[i+n].length : 0);
                     n ++;
                 }
-
-                if (logger) logger.info("before slice:");
-                if (logger) logger.info(memUsage());
                 const subArr = arr.slice(i, i + n);
-                if (logger) logger.info("after slice:");
-                if (logger) logger.info(memUsage());
                 const _i = i;
                 opPromises.push(composeAndWritePointsThread(groupName, subArr, logger, sectionName).then( (r) => {
                     if (logger)  logger.debug(`Writing points end ${sectionName}: ${_i}/${arr.length}`);
@@ -5273,14 +5237,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
         buffV.setUint32(0, n, false);
         csHasher.update(buff);
-    }
-
-    function memUsage() {
-        let m = process.memoryUsage();
-        for (const i in m) {
-            m[i] = Math.round(m[i] / (1024*1024));
-        }
-        return m;
     }
 
 }
