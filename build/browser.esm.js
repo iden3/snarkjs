@@ -581,7 +581,7 @@ function createNew$1(o) {
     return fd;
 }
 
-function readExisting$2(o) {
+function readExisting$4(o) {
     const fd = new MemFile();
     fd.o = o;
     fd.allocSize = o.data.byteLength;
@@ -767,7 +767,7 @@ function createNew(o) {
     return fd;
 }
 
-function readExisting$1(o) {
+function readExisting$3(o) {
     const fd = new BigMemFile();
     fd.o = o;
     fd.totalSize = (o.data.length-1)* PAGE_SIZE + o.data[o.data.length-1].byteLength;
@@ -969,6 +969,356 @@ class BigMemFile {
     }
 }
 
+// Shared read-only file over an abstract positioned range reader.
+//
+// Backends (httpfile, blobfile) supply a single primitive:
+//     readRangeInto(dstBuff, dstOffset, pos, len) -> Promise<void>
+// and this class layers the FastFile read interface on top:
+//   - reads >= pageSize bypass the cache and go straight to the backend
+//     (the file is read-only, so a direct read is always coherent);
+//   - smaller reads (header scans: magics, section tables, ULE32/64) are
+//     served from page-aligned cached ranges so that e.g. a binfile section
+//     scan does not issue one backend request per 4-byte field.
+//
+// Write operations throw: remote ranges are strictly a read transport.
+
+const DEFAULT_CACHE_SIZE$1 = 1 << 20;
+const DEFAULT_PAGE_SIZE$1 = 1 << 13;
+
+class RangeFile {
+
+    constructor(readRangeInto, totalSize, cacheSize, pageSize) {
+        this.readRangeInto = readRangeInto;
+        this.totalSize = totalSize;
+        this.pos = 0;
+        this.pageSize = pageSize || DEFAULT_PAGE_SIZE$1;
+        this.maxPagesLoaded = Math.floor((cacheSize || DEFAULT_CACHE_SIZE$1) / this.pageSize) + 1;
+        this.pages = new Map();      // page index -> { buff: Uint8Array|null, promise: Promise }
+        this.readOnly = true;
+    }
+
+    _pageLen(p) {
+        const start = p * this.pageSize;
+        const end = Math.min(start + this.pageSize, this.totalSize);
+        return end - start;
+    }
+
+    // Load (or join the in-flight load of) page p; resolves to its buffer.
+    // A failed load removes the entry so a later retry re-requests it.
+    _loadPage(p) {
+        const self = this;
+        let page = self.pages.get(p);
+        if (page) {
+            // LRU touch: re-insert so Map iteration order tracks recency.
+            self.pages.delete(p);
+            self.pages.set(p, page);
+            return page.promise;
+        }
+        const buff = new Uint8Array(self._pageLen(p));
+        page = { buff: null, promise: null };
+        page.promise = self.readRangeInto(buff, 0, p * self.pageSize, buff.byteLength).then(function () {
+            page.buff = buff;
+            return buff;
+        }, function (err) {
+            self.pages.delete(p);
+            throw err;
+        });
+        self.pages.set(p, page);
+        self._trimCache();
+        return page.promise;
+    }
+
+    _trimCache() {
+        const self = this;
+        if (self.pages.size <= self.maxPagesLoaded) return;
+        // Evict oldest settled pages first; in-flight loads are kept.
+        for (const entry of self.pages) {
+            if (self.pages.size <= self.maxPagesLoaded) return;
+            if (entry[1].buff) self.pages.delete(entry[0]);
+        }
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
+        const self = this;
+        if (len === 0) return;
+        if (self.pendingClose) throw new Error("Reading a closing file");
+        if (typeof pos === "undefined") pos = self.pos;
+        if (pos + len > self.totalSize) throw new Error("Reading out of bounds");
+        self.pos = pos + len;
+
+        // Direct path: one backend request straight into the destination
+        // (works for both typed arrays and BigBuffer via .set()).
+        if (len >= self.pageSize) {
+            await self.readRangeInto(buffDst, offset, pos, len);
+            return;
+        }
+
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / self.pageSize);
+        let o = pos % self.pageSize;
+        let done = 0;
+        for (let p = firstPage; p <= lastPage; p++) {
+            const buff = await self._loadPage(p);
+            const l = Math.min(len - done, self.pageSize - o);
+            buffDst.set(buff.subarray(o, o + l), offset + done);
+            done += l;
+            o = 0;
+        }
+    }
+
+    async read(len, pos) {
+        const buff = new Uint8Array(len);
+        await this.readToBuffer(buff, 0, len, pos);
+        return buff;
+    }
+
+    async readULE32(pos) {
+        const b = await this.read(4, pos);
+        const view = new Uint32Array(b.buffer);
+        return view[0];
+    }
+
+    async readUBE32(pos) {
+        const b = await this.read(4, pos);
+        const view = new DataView(b.buffer);
+        return view.getUint32(0, false);
+    }
+
+    async readULE64(pos) {
+        const b = await this.read(8, pos);
+        const view = new Uint32Array(b.buffer);
+        return view[1] * 0x100000000 + view[0];
+    }
+
+    async readString(pos) {
+        const self = this;
+        if (self.pendingClose) throw new Error("Reading a closing file");
+        let p = typeof pos === "undefined" ? self.pos : pos;
+        const chunks = [];
+        while (p < self.totalSize) {
+            const l = Math.min(self.pageSize, self.totalSize - p);
+            const chunk = await self.read(l, p);
+            const z = chunk.indexOf(0);
+            if (z >= 0) {
+                chunks.push(chunk.subarray(0, z));
+                self.pos = p + z + 1;
+                return decodeChunks(chunks);
+            }
+            chunks.push(chunk);
+            p += l;
+        }
+        // No terminator before EOF: the string ends at EOF.
+        self.pos = p;
+        return decodeChunks(chunks);
+    }
+
+    async write() {
+        throw new Error("Writing a read only file");
+    }
+
+    async writeULE32() {
+        throw new Error("Writing a read only file");
+    }
+
+    async writeUBE32() {
+        throw new Error("Writing a read only file");
+    }
+
+    async writeULE64() {
+        throw new Error("Writing a read only file");
+    }
+
+    async close() {
+        if (this.pendingClose) throw new Error("Closing the file twice");
+        this.pendingClose = true;
+        this.pages.clear();
+    }
+
+    async discard() {
+        await this.close();
+    }
+}
+
+function decodeChunks(chunks) {
+    let total = 0;
+    for (let i = 0; i < chunks.length; i++) total += chunks[i].byteLength;
+    const all = new Uint8Array(total);
+    let o = 0;
+    for (let i = 0; i < chunks.length; i++) {
+        all.set(chunks[i], o);
+        o += chunks[i].byteLength;
+    }
+    return new TextDecoder().decode(all);
+}
+
+// Read-only file over HTTP(S) using Range requests.
+//
+// Open probes the server with `Range: bytes=0-0`:
+//   - 206 + parseable Content-Range total -> a RangeFile whose reads become
+//     range requests; large reads (zkey/ptau sections, MSM chunks) stream
+//     the response body straight into the caller's buffer, so the full file
+//     is never resident;
+//   - anything else (200, no range support, unknown total) -> fall back to
+//     buffering the body in memory, i.e. the historical browser behavior.
+//
+// Consistency: the validator captured at open (strong ETag, else
+// Last-Modified) is sent as If-Range on every range request. If the remote
+// file changes mid-read the server answers 200 instead of 206 and the read
+// throws, rather than silently mixing chunks of two file versions.
+//
+// Server requirements (CORS deployments): allow the `Range` request header
+// and expose `Content-Range` + `ETag`; serve zkeys without Content-Encoding
+// (ranges address encoded bytes).
+
+
+// Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
+// pages); over HTTP a page that large turns a 4-byte header read into a
+// megabytes-range request -- for files below the page size, the whole file in
+// one response, defeating streaming. Cap pages at 64 KiB: big enough to
+// coalesce a binfile section-table scan, small enough to stay incidental.
+// Reads >= the page size bypass the cache entirely (RangeFile direct path),
+// so large section/chunk reads are unaffected by the cap.
+const MAX_HTTP_PAGE_SIZE = 1 << 16;
+
+async function readExisting$2(o) {
+    const url = o.url;
+    const probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
+
+    if (probe.status === 206) {
+        const contentRange = probe.headers.get("content-range");
+        const m = contentRange ? /\/(\d+)\s*$/.exec(contentRange) : null;
+        if (m) {
+            const totalSize = parseInt(m[1]);
+            // Drain the 1-byte probe body so the connection can be reused.
+            await probe.arrayBuffer();
+            const validator = strongValidator(probe);
+            const readRangeInto = function (dst, dstOffset, pos, len) {
+                return httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
+            };
+            const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
+            return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
+        }
+        // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot
+        // do bounded positioned reads; refetch whole and buffer.
+        await probe.arrayBuffer();
+        return await readFullyToMem(url);
+    }
+
+    if (!probe.ok && probe.status !== 416) {
+        throw new Error("HTTP " + probe.status + " fetching " + url);
+    }
+
+    if (probe.status === 416) {
+        // Range not satisfiable -- only legitimate for an empty file.
+        const contentRange = probe.headers.get("content-range");
+        if (contentRange && /\/0\s*$/.test(contentRange)) {
+            return readExisting$4({ type: "mem", data: new Uint8Array(0) });
+        }
+        return await readFullyToMem(url);
+    }
+
+    // 200: the server ignored Range and sent the whole file; reuse this body.
+    const data = new Uint8Array(await probe.arrayBuffer());
+    return readExisting$4({ type: "mem", data: data });
+}
+
+async function readFullyToMem(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status + " fetching " + url);
+    const data = new Uint8Array(await res.arrayBuffer());
+    return readExisting$4({ type: "mem", data: data });
+}
+
+// Only a strong validator is usable with If-Range (RFC 9110 §13.1.5): a weak
+// ETag would make conditional range requests always fail on some servers.
+function strongValidator(res) {
+    const etag = res.headers.get("etag");
+    if (etag && etag.indexOf("W/") !== 0) return etag;
+    const lastModified = res.headers.get("last-modified");
+    if (lastModified) return lastModified;
+    return null;
+}
+
+async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
+    const headers = { "Range": "bytes=" + pos + "-" + (pos + len - 1) };
+    if (validator) headers["If-Range"] = validator;
+    const res = await fetch(url, { headers: headers });
+    if (res.status === 200) {
+        // With If-Range this is the server signalling the file changed;
+        // without it, the server stopped honoring ranges mid-session.
+        await abandonBody(res);
+        throw new Error(url + ": file changed (or server stopped honoring Range) while reading");
+    }
+    if (res.status !== 206) {
+        await abandonBody(res);
+        throw new Error("HTTP " + res.status + " reading range " + pos + "+" + len + " of " + url);
+    }
+    const contentRange = res.headers.get("content-range");
+    const m = contentRange ? /bytes\s+(\d+)-(\d+)\//.exec(contentRange) : null;
+    if (m && parseInt(m[1]) !== pos) {
+        await abandonBody(res);
+        throw new Error(url + ": server returned range starting at " + m[1] + ", requested " + pos);
+    }
+
+    // Stream the body straight into the destination (typed array or
+    // BigBuffer -- both expose .set(chunk, offset)); avoids materializing
+    // a second full-size copy of large section reads.
+    let done = 0;
+    if (res.body && typeof res.body.getReader === "function") {
+        const reader = res.body.getReader();
+        for (;;) {
+            const it = await reader.read();
+            if (it.done) break;
+            if (done + it.value.byteLength > len) {
+                reader.cancel().catch(function () {});
+                throw new Error(url + ": range response longer than requested");
+            }
+            dst.set(it.value, dstOffset + done);
+            done += it.value.byteLength;
+        }
+    } else {
+        const buff = new Uint8Array(await res.arrayBuffer());
+        if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
+        dst.set(buff, dstOffset);
+        done = buff.byteLength;
+    }
+    if (done !== len) {
+        throw new Error(url + ": short range response (" + done + "/" + len + " bytes at " + pos + ")");
+    }
+}
+
+async function abandonBody(res) {
+    try {
+        if (res.body && typeof res.body.cancel === "function") await res.body.cancel();
+        else await res.arrayBuffer();
+    } catch (e) { /* body teardown is best-effort */ }
+}
+
+// Read-only file over a Blob/File (e.g. a browser <input type="file">
+// selection). blob.slice() is a zero-copy view; bytes only reach memory when
+// a sub-range is read, so large zkeys stream from disk chunk-by-chunk with
+// the same bounded footprint as the Node file backend.
+
+
+// Same rationale as httpfile's cap, relaxed for a local source: callers pass
+// disk-tuned page sizes (MiBs) that would make every small header read
+// materialize a huge slice; 1 MiB keeps that bounded while costing at most a
+// handful of slice reads per file open.
+const MAX_BLOB_PAGE_SIZE = 1 << 20;
+
+function readExisting$1(o) {
+    const blob = o.blob;
+    const readRangeInto = async function (dst, dstOffset, pos, len) {
+        const ab = await blob.slice(pos, pos + len).arrayBuffer();
+        if (ab.byteLength !== len) {
+            throw new Error("short blob read (" + ab.byteLength + "/" + len + " bytes at " + pos + ")");
+        }
+        dst.set(new Uint8Array(ab), dstOffset);
+    };
+    const pageSize = Math.min(o.pageSize || MAX_BLOB_PAGE_SIZE, MAX_BLOB_PAGE_SIZE);
+    return new RangeFile(readRangeInto, blob.size, o.cacheSize, pageSize);
+}
+
 const O_TRUNC = 512;
 const O_CREAT = 64;
 const O_RDWR = 2;
@@ -1009,20 +1359,27 @@ async function readExisting(o, b, c) {
             data: o
         };
     }
-    if (!isNode) {
-        if (typeof o === "string") {
-            const buff = await fetch(o).then( function(res) {
-                return res.arrayBuffer();
-            }).then(function (ab) {
-                return new Uint8Array(ab);
-            });
+    if (typeof Blob !== "undefined" && o instanceof Blob) {
+        o = {
+            type: "blob",
+            blob: o,
+            cacheSize: b,
+            pageSize: c
+        };
+    }
+    if (typeof o === "string") {
+        // URLs (and, in the browser, any string -- historically fetched
+        // whole) go through the http backend: it streams via Range requests
+        // when the server supports them and falls back to buffering the
+        // full body (the previous behavior) when it does not.
+        if (!isNode || /^https?:\/\//i.test(o)) {
             o = {
-                type: "mem",
-                data: buff
+                type: "http",
+                url: o,
+                cacheSize: b,
+                pageSize: c
             };
-        }
-    } else {
-        if (typeof o === "string") {
+        } else {
             o = {
                 type: "file",
                 fileName: o,
@@ -1034,9 +1391,13 @@ async function readExisting(o, b, c) {
     if (o.type == "file") {
         return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return await readExisting$2(o);
+        return await readExisting$4(o);
     } else if (o.type == "bigMem") {
-        return await readExisting$1(o);
+        return await readExisting$3(o);
+    } else if (o.type == "http") {
+        return await readExisting$2(o);
+    } else if (o.type == "blob") {
+        return readExisting$1(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
