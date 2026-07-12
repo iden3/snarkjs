@@ -4725,39 +4725,40 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
     await fdZKey.writeULE32(domainSize);                  // domainSize
 
-    let bAlpha1;
-    bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
-    await fdZKey.write(bAlpha1);
-    bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
-    csHasher.update(bAlpha1);
+    // Scoped so the header temporaries (alpha/beta points, generator
+    // encodings) drop out of reach as soon as the section is written.
+    await (async function writeHeaderPoints() {
+        let bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
+        await fdZKey.write(bAlpha1);
+        bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
+        csHasher.update(bAlpha1);
 
-    let bBeta1;
-    bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
-    await fdZKey.write(bBeta1);
-    bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
-    csHasher.update(bBeta1);
+        let bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
+        await fdZKey.write(bBeta1);
+        bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
+        csHasher.update(bBeta1);
 
-    let bBeta2;
-    bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
-    await fdZKey.write(bBeta2);
-    bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
-    csHasher.update(bBeta2);
+        let bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
+        await fdZKey.write(bBeta2);
+        bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
+        csHasher.update(bBeta2);
 
-    const bg1 = new Uint8Array(sG1);
-    curve.G1.toRprLEM(bg1, 0, curve.G1.g);
-    const bg2 = new Uint8Array(sG2);
-    curve.G2.toRprLEM(bg2, 0, curve.G2.g);
-    const bg1U = new Uint8Array(sG1);
-    curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
-    const bg2U = new Uint8Array(sG2);
-    curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
+        const bg1 = new Uint8Array(sG1);
+        curve.G1.toRprLEM(bg1, 0, curve.G1.g);
+        const bg2 = new Uint8Array(sG2);
+        curve.G2.toRprLEM(bg2, 0, curve.G2.g);
+        const bg1U = new Uint8Array(sG1);
+        curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
+        const bg2U = new Uint8Array(sG2);
+        curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
 
-    await fdZKey.write(bg2);        // gamma2
-    await fdZKey.write(bg1);        // delta1
-    await fdZKey.write(bg2);        // delta2
-    csHasher.update(bg2U);      // gamma2
-    csHasher.update(bg1U);      // delta1
-    csHasher.update(bg2U);      // delta2
+        await fdZKey.write(bg2);        // gamma2
+        await fdZKey.write(bg1);        // delta1
+        await fdZKey.write(bg2);        // delta2
+        csHasher.update(bg2U);      // gamma2
+        csHasher.update(bg1U);      // delta1
+        csHasher.update(bg2U);      // delta2
+    })();
     await binFileUtils.endWriteSection(fdZKey);
 
     if (logger) logger.info("Reading r1cs");
@@ -4770,10 +4771,13 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     let C = new BigArray(r1cs.nVars- nPublic -1);
     let IC = new Array(nPublic+1);
 
+    // Per-phase ptau section usage: IC and C draw on tauG1 + alphatauG1 +
+    // betatauG1; A and B1 on tauG1 only; B2 on tauG2 only. tauG2 (the
+    // largest section, 2x G1 size) is therefore read lazily just before the
+    // B2 phase, and each buffer is dropped right after its last consumer.
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-    if (logger) logger.info("Reading tauG2");
-    let sTauG2 = await binFileUtils.readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    let sTauG2 = null;
     if (logger) logger.info("Reading alphatauG1");
     let sAlphaTauG1 = await binFileUtils.readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading betatauG1");
@@ -4799,25 +4803,32 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(8, "G1", C, "C");
 
     C = null;
-    // gc();
+    // alphatauG1/betatauG1 are only referenced by the IC and C phases
+    sAlphaTauG1 = null;
+    sBetaTauG1 = null;
 
     if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
 
     A = null;
-    // gc();
 
     if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
 
     B1 = null;
-    // gc();
+    // tauG1's last consumer is B1; B2 needs only tauG2, read here so the
+    // two largest sections are never resident at the same time
+    sTauG1 = null;
+
+    if (logger) logger.info("Reading tauG2");
+    sTauG2 = await binFileUtils.readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
 
     if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
     B2 = null;
-    // gc();
+    sTauG2 = null;
+    sR1cs = null;
 
     if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
