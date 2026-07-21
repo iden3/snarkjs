@@ -164,6 +164,24 @@ describe("Cardano transcript tests", function () {
         assert.strictEqual(isValid, false, "fflonk compressed-transcript proof should NOT verify with default transcript");
     });
 
+    // ── Transcript option validation ───────────────────────────────────────
+    // A mistyped transcript name must error out instead of silently falling
+    // back to the default transcript and producing an incompatible proof.
+
+    it("prove rejects an unknown transcript type", async () => {
+        await assert.rejects(
+            snarkjs.plonk.prove(zkeyMem, wtnsMem, null, { transcript: "keccak256compressed" }),
+            /Unknown transcript type/
+        );
+    });
+
+    it("verify rejects an unknown transcript type", async () => {
+        await assert.rejects(
+            snarkjs.plonk.verify(vKey, publicSignalsDefault, proofDefault, null, { transcript: true }),
+            /Unknown transcript type/
+        );
+    });
+
     // ── Cardano export guards ──────────────────────────────────────────────
     // The ZCash compressed encoding is bls12381-only; other curves must be
     // rejected instead of producing silently corrupted points.

@@ -21,8 +21,7 @@
 
 import * as curves from "./curves.js";
 import { utils }   from "ffjavascript";
-import { Keccak256Transcript } from "./Keccak256Transcript.js";
-import { Keccak256CompressedTranscript } from "./Keccak256CompressedTranscript.js";
+import { createTranscript } from "./transcript.js";
 import { Scalar } from "ffjavascript";
 
 const { unstringifyBigInts } = utils;
@@ -209,9 +208,7 @@ function publicInputsAreValid(curve, publicInputs) {
 function calculatechallenges(curve, proof, publicSignals, vk, options = {}) {
     const Fr = curve.Fr;
     const res = {};
-    const transcript = options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Challenge round 2: beta and gamma
     transcript.addPolCommitment(vk.Qm);

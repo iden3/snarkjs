@@ -39,8 +39,7 @@ import {
     ZKEY_FF_SIGMA2_SECTION,
     ZKEY_FF_SIGMA3_SECTION,
 } from "./fflonk_constants.js";
-import { Keccak256Transcript } from "./Keccak256Transcript.js";
-import { Keccak256CompressedTranscript } from "./Keccak256CompressedTranscript.js";
+import { createTranscript } from "./transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
@@ -83,9 +82,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
 
     const curve = zkey.curve;
 
-    const newTranscript = () => options && options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const newTranscript = () => createTranscript(curve, options && options.transcript);
 
     const Fr = curve.Fr;
 
