@@ -8851,6 +8851,82 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 }
 
 /*
+    Copyright 2022 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// ZCash/IETF compressed point serialization, as used for BLS12-381 on
+// Cardano/Plutus (CIP-0381). The flags live in the three high bits of the
+// first byte:
+//   bit 7 (0x80): compression flag — always set for a compressed encoding
+//   bit 6 (0x40): infinity flag
+//   bit 5 (0x20): sign flag — set when y is the lexicographically larger
+//                 of the two roots
+//
+// ffjavascript's toRprCompressed writes its own flag convention into the same
+// bits (bit 7 = sign, bit 6 = infinity), so the three high bits are cleared
+// and rewritten with the ZCash flags. The x coordinate itself never occupies
+// them: a BLS12-381 base-field element is 381 bits in a 384-bit encoding.
+
+// Compress a G1 point to G1.F.n8 bytes (48 for BLS12-381).
+function compressG1(G1, point) {
+    const buff = new Uint8Array(G1.F.n8);
+    if (G1.isZero(point)) {
+        buff[0] = 0b11000000; // compression + infinity flags
+        return buff;
+    }
+    G1.toRprCompressed(buff, 0, point);
+    const y = G1.toObject(G1.toAffine(point))[1];
+    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
+    const flags = y >= yNeg ? 0b10100000 : 0b10000000;
+    buff[0] = (buff[0] & 0b00011111) | flags;
+    return buff;
+}
+
+// Compress a G2 point to G2.F.n8 bytes (96 for BLS12-381).
+// Fq2 lexicographic order: compare c1 first, then c0.
+function compressG2(G2, point) {
+    const buff = new Uint8Array(G2.F.n8);
+    if (G2.isZero(point)) {
+        buff[0] = 0b11000000; // compression + infinity flags
+        return buff;
+    }
+    G2.toRprCompressed(buff, 0, point);
+    const [, [yc0, yc1]] = G2.toObject(G2.toAffine(point));
+    const [, [nyc0, nyc1]] = G2.toObject(G2.toAffine(G2.neg(point)));
+    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
+    const flags = isLarger ? 0b10100000 : 0b10000000;
+    buff[0] = (buff[0] & 0b00011111) | flags;
+    return buff;
+}
+
+function compressG1Hex(G1, point) {
+    return toHex(compressG1(G1, point));
+}
+
+function compressG2Hex(G2, point) {
+    return toHex(compressG2(G2, point));
+}
+
+function toHex(buff) {
+    return Array.from(buff, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/*
     Copyright 2018 0KIMS association.
 
     This file is part of snarkJS.
@@ -8871,36 +8947,6 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 
 const {stringifyBigInts: stringifyBigInts$2} = utils;
 
-// Compress a G1 point to a 48-byte hex string (ZCash/IETF format).
-// The point at infinity encodes as 0xc0 followed by 47 zero bytes.
-function compressG1$1(curve, point) {
-    const G1 = curve.G1;
-    if (G1.isZero(point)) return "c0" + "00".repeat(47);
-    const buf = new Uint8Array(G1.F.n8);
-    G1.toRprCompressed(buf, 0, point);
-    const aff  = G1.toAffine(point);
-    const y    = G1.toObject(aff)[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    buf[0] |= (y >= yNeg) ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
-// Compress a G2 point to a 96-byte hex string (ZCash/IETF format).
-// Fq2 lexicographic order: compare c1 first, then c0.
-function compressG2$1(curve, point) {
-    const G2 = curve.G2;
-    if (G2.isZero(point)) return "c0" + "00".repeat(95);
-    const buf = new Uint8Array(G2.F.n8);
-    G2.toRprCompressed(buf, 0, point);
-    const aff              = G2.toAffine(point);
-    const [, [yc0, yc1]]  = G2.toObject(aff);
-    const neg              = G2.toAffine(G2.neg(point));
-    const [, [nyc0, nyc1]] = G2.toObject(neg);
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
-    buf[0] |= isLarger ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
 async function zkeyExportCardanoVerificationKey(zkeyName, logger) {
     if (logger) logger.info("EXPORT CARDANO VERIFICATION KEY STARTED");
 
@@ -8909,13 +8955,23 @@ async function zkeyExportCardanoVerificationKey(zkeyName, logger) {
 
     if (logger) logger.info("> Detected protocol: " + zkey.protocol);
 
+    const curve = await getCurveFromQ(zkey.q);
+
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoVerificationKey: only bls12381 zkeys are supported, got '${curve.name}'`);
+    }
+
     let res;
     if (zkey.protocol === "groth16") {
-        res = await groth16CardanoVk(zkey, fd, sections);
+        res = await groth16CardanoVk(curve, zkey, fd, sections);
     } else if (zkey.protocol === "plonk") {
-        res = await plonkCardanoVk(zkey);
+        res = await plonkCardanoVk(curve, zkey);
     } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
-        res = await fflonkCardanoVk(zkey);
+        res = await fflonkCardanoVk(curve, zkey);
     } else {
         throw new Error("zkey file protocol unrecognized");
     }
@@ -8927,18 +8983,17 @@ async function zkeyExportCardanoVerificationKey(zkeyName, logger) {
     return res;
 }
 
-async function groth16CardanoVk(zkey, fd, sections) {
-    const curve = await getCurveFromQ(zkey.q);
+async function groth16CardanoVk(curve, zkey, fd, sections) {
     const sG1 = curve.G1.F.n8 * 2;
 
     const vKey = {
         protocol: zkey.protocol,
         curve: curve.name,
         nPublic: zkey.nPublic,
-        vk_alpha_1: compressG1$1(curve, zkey.vk_alpha_1),
-        vk_beta_2:  compressG2$1(curve, zkey.vk_beta_2),
-        vk_gamma_2: compressG2$1(curve, zkey.vk_gamma_2),
-        vk_delta_2: compressG2$1(curve, zkey.vk_delta_2),
+        vk_alpha_1: compressG1Hex(curve.G1, zkey.vk_alpha_1),
+        vk_beta_2:  compressG2Hex(curve.G2, zkey.vk_beta_2),
+        vk_gamma_2: compressG2Hex(curve.G2, zkey.vk_gamma_2),
+        vk_delta_2: compressG2Hex(curve.G2, zkey.vk_delta_2),
     };
 
     await startReadUniqueSection(fd, sections, 3);
@@ -8946,16 +9001,14 @@ async function groth16CardanoVk(zkey, fd, sections) {
     for (let i = 0; i <= zkey.nPublic; i++) {
         const buff = await fd.read(sG1);
         const P = curve.G1.fromRprLEM(buff, 0);
-        vKey.IC.push(compressG1$1(curve, P));
+        vKey.IC.push(compressG1Hex(curve.G1, P));
     }
     await endReadSection(fd);
 
     return vKey;
 }
 
-async function plonkCardanoVk(zkey) {
-    const curve = await getCurveFromQ(zkey.q);
-
+async function plonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -8963,22 +9016,20 @@ async function plonkCardanoVk(zkey) {
         power: zkey.power,
         k1: stringifyBigInts$2(curve.Fr.toObject(zkey.k1)),
         k2: stringifyBigInts$2(curve.Fr.toObject(zkey.k2)),
-        Qm: compressG1$1(curve, zkey.Qm),
-        Ql: compressG1$1(curve, zkey.Ql),
-        Qr: compressG1$1(curve, zkey.Qr),
-        Qo: compressG1$1(curve, zkey.Qo),
-        Qc: compressG1$1(curve, zkey.Qc),
-        S1: compressG1$1(curve, zkey.S1),
-        S2: compressG1$1(curve, zkey.S2),
-        S3: compressG1$1(curve, zkey.S3),
-        X_2: compressG2$1(curve, zkey.X_2),
+        Qm: compressG1Hex(curve.G1, zkey.Qm),
+        Ql: compressG1Hex(curve.G1, zkey.Ql),
+        Qr: compressG1Hex(curve.G1, zkey.Qr),
+        Qo: compressG1Hex(curve.G1, zkey.Qo),
+        Qc: compressG1Hex(curve.G1, zkey.Qc),
+        S1: compressG1Hex(curve.G1, zkey.S1),
+        S2: compressG1Hex(curve.G1, zkey.S2),
+        S3: compressG1Hex(curve.G1, zkey.S3),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
         w: stringifyBigInts$2(curve.Fr.toObject(curve.Fr.w[zkey.power])),
     };
 }
 
-async function fflonkCardanoVk(zkey) {
-    const curve = await getCurveFromQ(zkey.q);
-
+async function fflonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -8991,8 +9042,8 @@ async function fflonkCardanoVk(zkey) {
         w4: stringifyBigInts$2(curve.Fr.toObject(zkey.w4)),
         w8: stringifyBigInts$2(curve.Fr.toObject(zkey.w8)),
         wr: stringifyBigInts$2(curve.Fr.toObject(zkey.wr)),
-        X_2: compressG2$1(curve, zkey.X_2),
-        C0:  compressG1$1(curve, zkey.C0),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
+        C0:  compressG1Hex(curve.G1, zkey.C0),
     };
 }
 
@@ -9951,28 +10002,7 @@ class Keccak256CompressedTranscript {
 
         for (let i = 0; i < this.data.length; i++) {
             if (POLYNOMIAL === this.data[i].type) {
-                this.G1.toRprCompressed(buffer, offset, this.data[i].data);
-
-                // Apply ZCash/IETF compressed-point flags in the three high bits:
-                //   bit 7 (0x80): compression flag — always set for compressed encoding
-                //   bit 6 (0x40): infinity flag
-                //   bit 5 (0x20): sign flag — set when y is the lexicographically larger root
-                // The top three bits of a valid BLS12-381 field element are always 0,
-                // so OR-ing the flags into buffer[offset] is safe.
-                const point = this.G1.toAffine(this.data[i].data);
-                const pointNeg = this.G1.toAffine(this.G1.neg(this.data[i].data));
-                const y = this.G1.toObject(point)[1];
-                const yNeg = this.G1.toObject(pointNeg)[1];
-
-                let mask;
-                if (this.G1.isZero(this.data[i].data)) {
-                    mask = 0b11000000; // compression + infinity flags
-                } else if (y >= yNeg) {
-                    mask = 0b10100000; // compression + sign flags (y is the larger root)
-                } else {
-                    mask = 0b10000000; // compression flag only (y is the smaller root)
-                }
-                buffer[offset] = buffer[offset] | mask;
+                buffer.set(compressG1(this.G1, this.data[i].data), offset);
                 offset += this.G1.F.n8;
             } else {
                 this.Fr.toRprBE(buffer, offset, this.data[i].data);
@@ -9983,6 +10013,40 @@ class Keccak256CompressedTranscript {
         const value = Scalar.fromRprBE(keccak_256(buffer));
         return this.Fr.e(value);
     }
+}
+
+/*
+    Copyright 2022 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Fiat-Shamir transcript factory. `name` comes from the `transcript` option
+// (`--transcript` on the CLI): undefined selects the default keccak256
+// transcript over uncompressed points, "keccak256-compressed" the compressed
+// variant for Cardano/Plutus. Anything else is rejected so that a typo cannot
+// silently produce a proof for the wrong transcript.
+function createTranscript(curve, name) {
+    if (undefined === name || "keccak256" === name) {
+        return new Keccak256Transcript(curve);
+    }
+    if ("keccak256-compressed" === name) {
+        return new Keccak256CompressedTranscript(curve);
+    }
+    throw new Error(`Unknown transcript type '${name}'. Valid values are "keccak256" (default) and "keccak256-compressed"`);
 }
 
 /*
@@ -11258,9 +11322,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     let challenges = {};
     let proof = new Proof(curve, logger);
-    const transcript = options && options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options && options.transcript);
 
     if (logger) logger.debug(`> Reading Section ${ZKEY_PL_ADDITIONS_SECTION}. Additions`);
     await calculateAdditions();
@@ -12279,9 +12341,7 @@ function publicInputsAreValid$1(curve, publicInputs) {
 function calculatechallenges(curve, proof, publicSignals, vk, options = {}) {
     const Fr = curve.Fr;
     const res = {};
-    const transcript = options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Challenge round 2: beta and gamma
     transcript.addPolCommitment(vk.Qm);
@@ -12997,7 +13057,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("> computing w8");
     const w8 = computeW8();
     if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    const wr = getOmegaCubicRoot(settings.cirPower);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -13384,10 +13444,24 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     }
 
     function computeW3() {
-        // Curve-agnostic: (r-1)/3 using the actual field modulus.
-        // Hardcoded divisors (as in the BN128-only original) produce wrong roots on other curves.
-        const exponent = Scalar.div(Scalar.sub(Fr.p, Scalar.one), Scalar.e(3));
-        return Fr.exp(Fr.e(31624), exponent);
+        // Primitive cube root of unity in Fr. The value is baked into deployed
+        // verifiers, so it must never change for a given curve.
+        if (curve.name === "bls12381") {
+            // 2 is a cubic non-residue in the bls12381 scalar field, so
+            // 2^((r-1)/3) is a primitive cube root of unity
+            // (= 228988810152649578064853576960394133503).
+            let generator = Fr.e(2);
+            let exponent = Scalar.div(Scalar.sub(Fr.p, Scalar.one), Scalar.e(3));
+            return Fr.exp(generator, exponent);
+        }
+
+        let generator = Fr.e(31624);
+
+        // Exponent is order(r - 1) / 3
+        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
+
+        return Fr.exp(generator, exponent);
     }
 
     function computeW4() {
@@ -13398,7 +13472,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         return Fr.w[3];
     }
 
-    function getOmegaCubicRoot(power, Fr) {
+    function getOmegaCubicRoot(power) {
         // Compute the cube root of Fr.w[28] curve-agnostically.
         // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
         const firstRoot = Fr.exp(Fr.w[28], 178956971n);
@@ -13462,9 +13536,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
 
     const curve = zkey.curve;
 
-    const newTranscript = () => options && options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const newTranscript = () => createTranscript(curve, options && options.transcript);
 
     const Fr = curve.Fr;
 
@@ -14895,9 +14967,7 @@ function computeChallenges(curve, proof, vk, publicSignals, logger, options = {}
 
     const challenges = {};
     const roots = {};
-    const transcript = options.transcript === "keccak256-compressed"
-        ? new Keccak256CompressedTranscript(curve)
-        : new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Add C0 to the transcript
     transcript.addPolCommitment(vk.C0);
@@ -15396,40 +15466,20 @@ var fflonk = /*#__PURE__*/Object.freeze({
 
 const {unstringifyBigInts} = utils;
 
-// ---------- compression helpers ----------
-
-function compressG1(curve, point) {
-    const G1 = curve.G1;
-    if (G1.isZero(point)) return "c0" + "00".repeat(47);
-    const buf = new Uint8Array(G1.F.n8);
-    G1.toRprCompressed(buf, 0, point);
-    const aff  = G1.toAffine(point);
-    const y    = G1.toObject(aff)[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    buf[0] |= (y >= yNeg) ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
-function compressG2(curve, point) {
-    const G2 = curve.G2;
-    if (G2.isZero(point)) return "c0" + "00".repeat(95);
-    const buf = new Uint8Array(G2.F.n8);
-    G2.toRprCompressed(buf, 0, point);
-    const aff              = G2.toAffine(point);
-    const [, [yc0, yc1]]  = G2.toObject(aff);
-    const neg              = G2.toAffine(G2.neg(point));
-    const [, [nyc0, nyc1]] = G2.toObject(neg);
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
-    buf[0] |= isLarger ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
 // ---------- public API ----------
 
 async function exportCardanoProof(_proof) {
     const proof = unstringifyBigInts(_proof);
 
     const curve = await getCurveFromName(proof.curve);
+
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoProof: only bls12381 proofs are supported, got '${curve.name}'`);
+    }
 
     if (proof.protocol === "groth16") {
         return groth16CardanoProof(curve, proof);
@@ -15454,9 +15504,9 @@ function g2FromObj(curve, obj) {
 
 function groth16CardanoProof(curve, proof) {
     return {
-        pi_a: compressG1(curve, g1FromObj(curve, proof.pi_a)),
-        pi_b: compressG2(curve, g2FromObj(curve, proof.pi_b)),
-        pi_c: compressG1(curve, g1FromObj(curve, proof.pi_c)),
+        pi_a: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_a)),
+        pi_b: compressG2Hex(curve.G2, g2FromObj(curve, proof.pi_b)),
+        pi_c: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_c)),
     };
 }
 
@@ -15464,7 +15514,7 @@ function groth16CardanoProof(curve, proof) {
 //   A, B, C, Z, T1, T2, T3, Wxi, Wxiw  → G1 points as [x, y, "1"]
 //   eval_a, eval_b, eval_c, eval_s1, eval_s2, eval_zw → Fr scalars (decimal strings)
 function plonkCardanoProof(curve, proof) {
-    const g1 = (key) => compressG1(curve, g1FromObj(curve, proof[key]));
+    const g1 = (key) => compressG1Hex(curve.G1, g1FromObj(curve, proof[key]));
     return {
         A:    g1("A"),
         B:    g1("B"),
@@ -15491,7 +15541,7 @@ function plonkCardanoProof(curve, proof) {
 function fflonkCardanoProof(curve, proof) {
     const poly = proof.polynomials;
     const eval_ = proof.evaluations;
-    const g1 = (p) => compressG1(curve, g1FromObj(curve, p));
+    const g1 = (p) => compressG1Hex(curve.G1, g1FromObj(curve, p));
     const sc = (v) => String(v);
     return {
         c1: g1(poly.C1),
