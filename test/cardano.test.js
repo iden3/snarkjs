@@ -124,6 +124,14 @@ describe("Cardano transcript tests", function () {
         fflonkVKey = await snarkjs.zKey.exportVerificationKey(fflonkZkey);
     });
 
+    it("fflonk setup keeps the historical bn128 w3 constant", async () => {
+        // Deployed verifiers hardcode w3, so it must never change for a curve.
+        assert.strictEqual(
+            String(fflonkVKey.w3),
+            "21888242871839275217838484774961031246154997185409878258781734729429964517155"
+        );
+    });
+
     it("fflonk prove with keccak256-compressed transcript", async () => {
         const res = await snarkjs.fflonk.prove(
             fflonkZkey,

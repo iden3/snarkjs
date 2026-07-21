@@ -532,10 +532,24 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     function computeW3() {
-        // Curve-agnostic: (r-1)/3 using the actual field modulus.
-        // Hardcoded divisors (as in the BN128-only original) produce wrong roots on other curves.
-        const exponent = Scalar.div(Scalar.sub(Fr.p, Scalar.one), Scalar.e(3));
-        return Fr.exp(Fr.e(31624), exponent);
+        // Primitive cube root of unity in Fr. The value is baked into deployed
+        // verifiers, so it must never change for a given curve.
+        if (curve.name === "bls12381") {
+            // 2 is a cubic non-residue in the bls12381 scalar field, so
+            // 2^((r-1)/3) is a primitive cube root of unity
+            // (= 228988810152649578064853576960394133503).
+            let generator = Fr.e(2);
+            let exponent = Scalar.div(Scalar.sub(Fr.p, Scalar.one), Scalar.e(3));
+            return Fr.exp(generator, exponent);
+        }
+
+        let generator = Fr.e(31624);
+
+        // Exponent is order(r - 1) / 3
+        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
+
+        return Fr.exp(generator, exponent);
     }
 
     function computeW4() {
