@@ -163,4 +163,22 @@ describe("Cardano transcript tests", function () {
         );
         assert.strictEqual(isValid, false, "fflonk compressed-transcript proof should NOT verify with default transcript");
     });
+
+    // ── Cardano export guards ──────────────────────────────────────────────
+    // The ZCash compressed encoding is bls12381-only; other curves must be
+    // rejected instead of producing silently corrupted points.
+
+    it("export cardano proof rejects non-bls12381 proofs", async () => {
+        await assert.rejects(
+            snarkjs.exportCardanoProof(proofDefault),
+            /only bls12381/
+        );
+    });
+
+    it("export cardano verification key rejects non-bls12381 zkeys", async () => {
+        await assert.rejects(
+            snarkjs.zKey.exportCardanoVerificationKey(zkeyMem),
+            /only bls12381/
+        );
+    });
 });

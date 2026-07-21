@@ -35,6 +35,14 @@ export default async function exportCardanoProof(_proof) {
 
     const curve = await getCurveFromName(proof.curve);
 
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoProof: only bls12381 proofs are supported, got '${curve.name}'`);
+    }
+
     if (proof.protocol === "groth16") {
         return groth16CardanoProof(curve, proof);
     } else if (proof.protocol === "plonk") {

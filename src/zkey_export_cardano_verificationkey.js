@@ -38,13 +38,23 @@ export default async function zkeyExportCardanoVerificationKey(zkeyName, logger)
 
     if (logger) logger.info("> Detected protocol: " + zkey.protocol);
 
+    const curve = await getCurve(zkey.q);
+
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoVerificationKey: only bls12381 zkeys are supported, got '${curve.name}'`);
+    }
+
     let res;
     if (zkey.protocol === "groth16") {
-        res = await groth16CardanoVk(zkey, fd, sections);
+        res = await groth16CardanoVk(curve, zkey, fd, sections);
     } else if (zkey.protocol === "plonk") {
-        res = await plonkCardanoVk(zkey);
+        res = await plonkCardanoVk(curve, zkey);
     } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
-        res = await fflonkCardanoVk(zkey);
+        res = await fflonkCardanoVk(curve, zkey);
     } else {
         throw new Error("zkey file protocol unrecognized");
     }
@@ -56,8 +66,7 @@ export default async function zkeyExportCardanoVerificationKey(zkeyName, logger)
     return res;
 }
 
-async function groth16CardanoVk(zkey, fd, sections) {
-    const curve = await getCurve(zkey.q);
+async function groth16CardanoVk(curve, zkey, fd, sections) {
     const sG1 = curve.G1.F.n8 * 2;
 
     const vKey = {
@@ -82,9 +91,7 @@ async function groth16CardanoVk(zkey, fd, sections) {
     return vKey;
 }
 
-async function plonkCardanoVk(zkey) {
-    const curve = await getCurve(zkey.q);
-
+async function plonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -105,9 +112,7 @@ async function plonkCardanoVk(zkey) {
     };
 }
 
-async function fflonkCardanoVk(zkey) {
-    const curve = await getCurve(zkey.q);
-
+async function fflonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
