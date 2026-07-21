@@ -23,37 +23,10 @@
 // Scalar field evaluations (eval_* / ql / qr / ...) are left as decimal strings.
 
 import {getCurveFromName} from "./curves.js";
+import {compressG1Hex, compressG2Hex} from "./point_compress.js";
 import {utils} from "ffjavascript";
 
 const {unstringifyBigInts} = utils;
-
-// ---------- compression helpers ----------
-
-function compressG1(curve, point) {
-    const G1 = curve.G1;
-    if (G1.isZero(point)) return "c0" + "00".repeat(47);
-    const buf = new Uint8Array(G1.F.n8);
-    G1.toRprCompressed(buf, 0, point);
-    const aff  = G1.toAffine(point);
-    const y    = G1.toObject(aff)[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    buf[0] |= (y >= yNeg) ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
-function compressG2(curve, point) {
-    const G2 = curve.G2;
-    if (G2.isZero(point)) return "c0" + "00".repeat(95);
-    const buf = new Uint8Array(G2.F.n8);
-    G2.toRprCompressed(buf, 0, point);
-    const aff              = G2.toAffine(point);
-    const [, [yc0, yc1]]  = G2.toObject(aff);
-    const neg              = G2.toAffine(G2.neg(point));
-    const [, [nyc0, nyc1]] = G2.toObject(neg);
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
-    buf[0] |= isLarger ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
 
 // ---------- public API ----------
 
@@ -85,9 +58,9 @@ function g2FromObj(curve, obj) {
 
 function groth16CardanoProof(curve, proof) {
     return {
-        pi_a: compressG1(curve, g1FromObj(curve, proof.pi_a)),
-        pi_b: compressG2(curve, g2FromObj(curve, proof.pi_b)),
-        pi_c: compressG1(curve, g1FromObj(curve, proof.pi_c)),
+        pi_a: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_a)),
+        pi_b: compressG2Hex(curve.G2, g2FromObj(curve, proof.pi_b)),
+        pi_c: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_c)),
     };
 }
 
@@ -95,7 +68,7 @@ function groth16CardanoProof(curve, proof) {
 //   A, B, C, Z, T1, T2, T3, Wxi, Wxiw  → G1 points as [x, y, "1"]
 //   eval_a, eval_b, eval_c, eval_s1, eval_s2, eval_zw → Fr scalars (decimal strings)
 function plonkCardanoProof(curve, proof) {
-    const g1 = (key) => compressG1(curve, g1FromObj(curve, proof[key]));
+    const g1 = (key) => compressG1Hex(curve.G1, g1FromObj(curve, proof[key]));
     return {
         A:    g1("A"),
         B:    g1("B"),
@@ -122,7 +95,7 @@ function plonkCardanoProof(curve, proof) {
 function fflonkCardanoProof(curve, proof) {
     const poly = proof.polynomials;
     const eval_ = proof.evaluations;
-    const g1 = (p) => compressG1(curve, g1FromObj(curve, p));
+    const g1 = (p) => compressG1Hex(curve.G1, g1FromObj(curve, p));
     const sc = (v) => String(v);
     return {
         c1: g1(poly.C1),

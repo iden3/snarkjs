@@ -23,6 +23,7 @@
 
 import {Scalar} from "ffjavascript";
 import {keccak_256} from "@noble/hashes/sha3";
+import {compressG1} from "./point_compress.js";
 
 const POLYNOMIAL = 0;
 const SCALAR = 1;
@@ -63,28 +64,7 @@ export class Keccak256CompressedTranscript {
 
         for (let i = 0; i < this.data.length; i++) {
             if (POLYNOMIAL === this.data[i].type) {
-                this.G1.toRprCompressed(buffer, offset, this.data[i].data);
-
-                // Apply ZCash/IETF compressed-point flags in the three high bits:
-                //   bit 7 (0x80): compression flag — always set for compressed encoding
-                //   bit 6 (0x40): infinity flag
-                //   bit 5 (0x20): sign flag — set when y is the lexicographically larger root
-                // The top three bits of a valid BLS12-381 field element are always 0,
-                // so OR-ing the flags into buffer[offset] is safe.
-                const point = this.G1.toAffine(this.data[i].data);
-                const pointNeg = this.G1.toAffine(this.G1.neg(this.data[i].data));
-                const y = this.G1.toObject(point)[1];
-                const yNeg = this.G1.toObject(pointNeg)[1];
-
-                let mask;
-                if (this.G1.isZero(this.data[i].data)) {
-                    mask = 0b11000000; // compression + infinity flags
-                } else if (y >= yNeg) {
-                    mask = 0b10100000; // compression + sign flags (y is the larger root)
-                } else {
-                    mask = 0b10000000; // compression flag only (y is the smaller root)
-                }
-                buffer[offset] = buffer[offset] | mask;
+                buffer.set(compressG1(this.G1, this.data[i].data), offset);
                 offset += this.G1.F.n8;
             } else {
                 this.Fr.toRprBE(buffer, offset, this.data[i].data);

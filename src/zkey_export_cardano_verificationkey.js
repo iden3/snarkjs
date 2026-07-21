@@ -24,40 +24,11 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import {getCurveFromQ as getCurve} from "./curves.js";
+import {compressG1Hex, compressG2Hex} from "./point_compress.js";
 import {utils} from "ffjavascript";
 import {FFLONK_PROTOCOL_ID} from "./zkey_constants.js";
 
 const {stringifyBigInts} = utils;
-
-// Compress a G1 point to a 48-byte hex string (ZCash/IETF format).
-// The point at infinity encodes as 0xc0 followed by 47 zero bytes.
-function compressG1(curve, point) {
-    const G1 = curve.G1;
-    if (G1.isZero(point)) return "c0" + "00".repeat(47);
-    const buf = new Uint8Array(G1.F.n8);
-    G1.toRprCompressed(buf, 0, point);
-    const aff  = G1.toAffine(point);
-    const y    = G1.toObject(aff)[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    buf[0] |= (y >= yNeg) ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
-
-// Compress a G2 point to a 96-byte hex string (ZCash/IETF format).
-// Fq2 lexicographic order: compare c1 first, then c0.
-function compressG2(curve, point) {
-    const G2 = curve.G2;
-    if (G2.isZero(point)) return "c0" + "00".repeat(95);
-    const buf = new Uint8Array(G2.F.n8);
-    G2.toRprCompressed(buf, 0, point);
-    const aff              = G2.toAffine(point);
-    const [, [yc0, yc1]]  = G2.toObject(aff);
-    const neg              = G2.toAffine(G2.neg(point));
-    const [, [nyc0, nyc1]] = G2.toObject(neg);
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
-    buf[0] |= isLarger ? 0b10100000 : 0b10000000;
-    return Buffer.from(buf).toString("hex");
-}
 
 export default async function zkeyExportCardanoVerificationKey(zkeyName, logger) {
     if (logger) logger.info("EXPORT CARDANO VERIFICATION KEY STARTED");
@@ -93,10 +64,10 @@ async function groth16CardanoVk(zkey, fd, sections) {
         protocol: zkey.protocol,
         curve: curve.name,
         nPublic: zkey.nPublic,
-        vk_alpha_1: compressG1(curve, zkey.vk_alpha_1),
-        vk_beta_2:  compressG2(curve, zkey.vk_beta_2),
-        vk_gamma_2: compressG2(curve, zkey.vk_gamma_2),
-        vk_delta_2: compressG2(curve, zkey.vk_delta_2),
+        vk_alpha_1: compressG1Hex(curve.G1, zkey.vk_alpha_1),
+        vk_beta_2:  compressG2Hex(curve.G2, zkey.vk_beta_2),
+        vk_gamma_2: compressG2Hex(curve.G2, zkey.vk_gamma_2),
+        vk_delta_2: compressG2Hex(curve.G2, zkey.vk_delta_2),
     };
 
     await binFileUtils.startReadUniqueSection(fd, sections, 3);
@@ -104,7 +75,7 @@ async function groth16CardanoVk(zkey, fd, sections) {
     for (let i = 0; i <= zkey.nPublic; i++) {
         const buff = await fd.read(sG1);
         const P = curve.G1.fromRprLEM(buff, 0);
-        vKey.IC.push(compressG1(curve, P));
+        vKey.IC.push(compressG1Hex(curve.G1, P));
     }
     await binFileUtils.endReadSection(fd);
 
@@ -121,15 +92,15 @@ async function plonkCardanoVk(zkey) {
         power: zkey.power,
         k1: stringifyBigInts(curve.Fr.toObject(zkey.k1)),
         k2: stringifyBigInts(curve.Fr.toObject(zkey.k2)),
-        Qm: compressG1(curve, zkey.Qm),
-        Ql: compressG1(curve, zkey.Ql),
-        Qr: compressG1(curve, zkey.Qr),
-        Qo: compressG1(curve, zkey.Qo),
-        Qc: compressG1(curve, zkey.Qc),
-        S1: compressG1(curve, zkey.S1),
-        S2: compressG1(curve, zkey.S2),
-        S3: compressG1(curve, zkey.S3),
-        X_2: compressG2(curve, zkey.X_2),
+        Qm: compressG1Hex(curve.G1, zkey.Qm),
+        Ql: compressG1Hex(curve.G1, zkey.Ql),
+        Qr: compressG1Hex(curve.G1, zkey.Qr),
+        Qo: compressG1Hex(curve.G1, zkey.Qo),
+        Qc: compressG1Hex(curve.G1, zkey.Qc),
+        S1: compressG1Hex(curve.G1, zkey.S1),
+        S2: compressG1Hex(curve.G1, zkey.S2),
+        S3: compressG1Hex(curve.G1, zkey.S3),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
         w: stringifyBigInts(curve.Fr.toObject(curve.Fr.w[zkey.power])),
     };
 }
@@ -149,7 +120,7 @@ async function fflonkCardanoVk(zkey) {
         w4: stringifyBigInts(curve.Fr.toObject(zkey.w4)),
         w8: stringifyBigInts(curve.Fr.toObject(zkey.w8)),
         wr: stringifyBigInts(curve.Fr.toObject(zkey.wr)),
-        X_2: compressG2(curve, zkey.X_2),
-        C0:  compressG1(curve, zkey.C0),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
+        C0:  compressG1Hex(curve.G1, zkey.C0),
     };
 }
