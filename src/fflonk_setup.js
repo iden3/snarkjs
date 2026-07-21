@@ -145,7 +145,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (logger) logger.info("> computing w8");
     const w8 = computeW8();
     if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    const wr = getOmegaCubicRoot(settings.cirPower);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -560,7 +560,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         return Fr.w[3];
     }
 
-    function getOmegaCubicRoot(power, Fr) {
+    function getOmegaCubicRoot(power) {
         // Compute the cube root of Fr.w[28] curve-agnostically.
         // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
         const firstRoot = Fr.exp(Fr.w[28], 178956971n);
