@@ -264,19 +264,19 @@ const commands = [
         cmd: "groth16 export-cardano-proof [proof.json] [cardano_proof.json]",
         description: "Converts a Groth16 proof to Cardano/Plutus format (compressed BLS12-381 points)",
         alias: ["g16ecp"],
-        action: groth16ExportCardanoProof
+        action: exportCardanoProofCmd
     },
     {
         cmd: "plonk export-cardano-proof [proof.json] [cardano_proof.json]",
         description: "Converts a PLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
         alias: ["pkecp"],
-        action: plonkExportCardanoProof
+        action: exportCardanoProofCmd
     },
     {
         cmd: "fflonk export-cardano-proof [proof.json] [cardano_proof.json]",
         description: "Converts a FFLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
         alias: ["ffecp"],
-        action: fflonkExportCardanoProof
+        action: exportCardanoProofCmd
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -1299,29 +1299,9 @@ async function zkeyExportCardanoVKey(params, options) {
     return 0;
 }
 
-async function groth16ExportCardanoProof(params, options) {
-    const proofFilename = params[0] || "proof.json";
-    const outFilename = params[1] || "cardano_proof.json";
-
-    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
-    const cardanoProof = await exportCardanoProof(proof);
-    await bfj.write(outFilename, cardanoProof, {space: 1});
-
-    return 0;
-}
-
-async function plonkExportCardanoProof(params, options) {
-    const proofFilename = params[0] || "proof.json";
-    const outFilename = params[1] || "cardano_proof.json";
-
-    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
-    const cardanoProof = await exportCardanoProof(proof);
-    await bfj.write(outFilename, cardanoProof, {space: 1});
-
-    return 0;
-}
-
-async function fflonkExportCardanoProof(params, options) {
+// Shared handler for the per-protocol export-cardano-proof commands:
+// exportCardanoProof dispatches on proof.protocol internally.
+async function exportCardanoProofCmd(params) {
     const proofFilename = params[0] || "proof.json";
     const outFilename = params[1] || "cardano_proof.json";
 
