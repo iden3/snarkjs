@@ -66,6 +66,8 @@ function g2FromObj(curve, obj) {
 
 function groth16CardanoProof(curve, proof) {
     return {
+        protocol: proof.protocol,
+        curve: curve.name,
         pi_a: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_a)),
         pi_b: compressG2Hex(curve.G2, g2FromObj(curve, proof.pi_b)),
         pi_c: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_c)),
@@ -78,6 +80,8 @@ function groth16CardanoProof(curve, proof) {
 function plonkCardanoProof(curve, proof) {
     const g1 = (key) => compressG1Hex(curve.G1, g1FromObj(curve, proof[key]));
     return {
+        protocol: proof.protocol,
+        curve: curve.name,
         A:    g1("A"),
         B:    g1("B"),
         C:    g1("C"),
@@ -106,6 +110,8 @@ function fflonkCardanoProof(curve, proof) {
     const g1 = (p) => compressG1Hex(curve.G1, g1FromObj(curve, p));
     const sc = (v) => String(v);
     return {
+        protocol: proof.protocol,
+        curve: curve.name,
         c1: g1(poly.C1),
         c2: g1(poly.C2),
         w1: g1(poly.W1),

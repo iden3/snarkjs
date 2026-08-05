@@ -305,4 +305,26 @@ describe("ZCash point compression vectors (bls12381)", function () {
         assert.strictEqual(negG[0], g[0] ^ 0b00100000);
         assert.deepStrictEqual(negG.slice(1), g.slice(1));
     });
+
+    // exportCardanoProof compresses points without validating the proof, so a
+    // synthetic generator-point "proof" pins the output format: protocol and
+    // curve are retained (like the VK export) and points come out as the IETF
+    // vectors above.
+    it("exports a self-describing groth16 cardano proof", async () => {
+        const proof = {
+            protocol: "groth16",
+            curve: "bls12381",
+            pi_a: curve.G1.toObject(curve.G1.toAffine(curve.G1.g)),
+            pi_b: curve.G2.toObject(curve.G2.toAffine(curve.G2.g)),
+            pi_c: curve.G1.toObject(curve.G1.toAffine(curve.G1.g)),
+        };
+
+        const cardanoProof = await snarkjs.exportCardanoProof(proof);
+
+        assert.strictEqual(cardanoProof.protocol, "groth16");
+        assert.strictEqual(cardanoProof.curve, "bls12381");
+        assert.strictEqual(cardanoProof.pi_a, G1_GENERATOR_COMPRESSED);
+        assert.strictEqual(cardanoProof.pi_b, G2_GENERATOR_COMPRESSED);
+        assert.strictEqual(cardanoProof.pi_c, G1_GENERATOR_COMPRESSED);
+    });
 });
