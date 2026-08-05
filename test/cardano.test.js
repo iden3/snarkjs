@@ -1,5 +1,6 @@
 import * as snarkjs from "../main.js";
 import { getCurveFromName } from "../src/curves.js";
+import { compressG1, compressG2, compressG1Hex, compressG2Hex } from "../src/point_compress.js";
 import assert from "assert";
 import path from "path";
 
@@ -198,5 +199,69 @@ describe("Cardano transcript tests", function () {
             snarkjs.zKey.exportCardanoVerificationKey(zkeyMem),
             /only bls12381/
         );
+    });
+});
+
+// The ZCash/IETF compressed encoding is what a Cardano on-chain verifier
+// deserialises, so the byte layout (flag bits, big-endian x, Fq2 c1-before-c0
+// order, sign convention) must match the spec exactly. The generator
+// encodings below are the official test vectors from
+// draft-irtf-cfrg-pairing-friendly-curves, pinning all of it in one
+// assertion per group.
+
+describe("ZCash point compression vectors (bls12381)", function () {
+    this.timeout(1000000000);
+
+    // draft-irtf-cfrg-pairing-friendly-curves, BLS12-381 generators
+    const G1_GENERATOR_COMPRESSED =
+        "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb";
+    const G2_GENERATOR_COMPRESSED =
+        "93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e" +
+        "024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8";
+
+    let curve;
+
+    before(async () => {
+        curve = await getCurveFromName("bls12381");
+    });
+
+    after(async () => {
+        await curve.terminate();
+    });
+
+    it("compresses the G1 generator to the IETF test vector", () => {
+        assert.strictEqual(compressG1Hex(curve.G1, curve.G1.g), G1_GENERATOR_COMPRESSED);
+    });
+
+    it("compresses the G2 generator to the IETF test vector", () => {
+        assert.strictEqual(compressG2Hex(curve.G2, curve.G2.g), G2_GENERATOR_COMPRESSED);
+    });
+
+    it("encodes the G1 point at infinity as 0xc0 followed by zeros", () => {
+        const buff = compressG1(curve.G1, curve.G1.zero);
+        assert.strictEqual(buff.length, 48);
+        assert.strictEqual(buff[0], 0b11000000);
+        assert(buff.slice(1).every((b) => 0 === b));
+    });
+
+    it("encodes the G2 point at infinity as 0xc0 followed by zeros", () => {
+        const buff = compressG2(curve.G2, curve.G2.zero);
+        assert.strictEqual(buff.length, 96);
+        assert.strictEqual(buff[0], 0b11000000);
+        assert(buff.slice(1).every((b) => 0 === b));
+    });
+
+    it("negating a G1 point flips exactly the sign bit", () => {
+        const g = compressG1(curve.G1, curve.G1.g);
+        const negG = compressG1(curve.G1, curve.G1.neg(curve.G1.g));
+        assert.strictEqual(negG[0], g[0] ^ 0b00100000);
+        assert.deepStrictEqual(negG.slice(1), g.slice(1));
+    });
+
+    it("negating a G2 point flips exactly the sign bit", () => {
+        const g = compressG2(curve.G2, curve.G2.g);
+        const negG = compressG2(curve.G2, curve.G2.neg(curve.G2.g));
+        assert.strictEqual(negG[0], g[0] ^ 0b00100000);
+        assert.deepStrictEqual(negG.slice(1), g.slice(1));
     });
 });
