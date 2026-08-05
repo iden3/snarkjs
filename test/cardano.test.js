@@ -1,6 +1,10 @@
 import * as snarkjs from "../main.js";
 import { getCurveFromName } from "../src/curves.js";
 import { compressG1, compressG2, compressG1Hex, compressG2Hex } from "../src/point_compress.js";
+import { Keccak256Transcript } from "../src/Keccak256Transcript.js";
+import { Keccak256CompressedTranscript } from "../src/Keccak256CompressedTranscript.js";
+import { Scalar } from "ffjavascript";
+import { keccak_256 } from "@noble/hashes/sha3";
 import assert from "assert";
 import path from "path";
 
@@ -8,8 +12,12 @@ import path from "path";
 // Cardano/Plutus on-chain verification (CIP-0381 + CIP-0101).  The compressed
 // transcript uses the same Keccak-256 hash as the default but serialises G1
 // commitments as 48-byte ZCash-format compressed points rather than 96-byte
-// uncompressed points.  A proof generated with one transcript mode must NOT
-// verify under the other, confirming the modes are cryptographically distinct.
+// uncompressed points.  The ZCash encoding is bls12381-only (its flags need 3
+// free high bits in the base field; bn128 leaves only 2), so on bn128 the
+// compressed transcript must be rejected while the default transcript keeps
+// working unchanged.  The transcript itself is exercised at the unit level on
+// bls12381, where no circuit/ptau fixtures exist (circom wasm is curve-bound);
+// end-to-end bls12381 coverage lives in cardano-scaling/snarkjs-circom-aiken.
 
 describe("Cardano transcript tests", function () {
     this.timeout(1000000000);
@@ -25,8 +33,6 @@ describe("Cardano transcript tests", function () {
     const zkeyMem = { type: "mem" };
     const wtnsMem = { type: "mem" };
     let vKey;
-    let proofCompressed;
-    let publicSignalsCompressed;
     let proofDefault;
     let publicSignalsDefault;
 
@@ -52,36 +58,11 @@ describe("Cardano transcript tests", function () {
         await snarkjs.wtns.calculate(input, wasmFilename, wtnsMem);
     });
 
-    it("plonk prove with keccak256-compressed transcript", async () => {
-        const res = await snarkjs.plonk.prove(
-            zkeyMem,
-            wtnsMem,
-            null,
-            { transcript: "keccak256-compressed" }
+    it("plonk prove with keccak256-compressed transcript rejects bn128", async () => {
+        await assert.rejects(
+            snarkjs.plonk.prove(zkeyMem, wtnsMem, null, { transcript: "keccak256-compressed" }),
+            /only supports bls12381/
         );
-        proofCompressed = res.proof;
-        publicSignalsCompressed = res.publicSignals;
-        assert(proofCompressed, "proof should be generated");
-    });
-
-    it("plonk verify with keccak256-compressed transcript — should pass", async () => {
-        const isValid = await snarkjs.plonk.verify(
-            vKey,
-            publicSignalsCompressed,
-            proofCompressed,
-            null,
-            { transcript: "keccak256-compressed" }
-        );
-        assert.strictEqual(isValid, true, "compressed-transcript proof should verify with matching transcript");
-    });
-
-    it("plonk verify compressed-transcript proof with default transcript — should fail", async () => {
-        const isValid = await snarkjs.plonk.verify(
-            vKey,
-            publicSignalsCompressed,
-            proofCompressed
-        );
-        assert.strictEqual(isValid, false, "compressed-transcript proof should NOT verify with default transcript");
     });
 
     it("plonk prove with default transcript", async () => {
@@ -91,15 +72,11 @@ describe("Cardano transcript tests", function () {
         assert(proofDefault, "proof should be generated");
     });
 
-    it("plonk verify default-transcript proof with keccak256-compressed transcript — should fail", async () => {
-        const isValid = await snarkjs.plonk.verify(
-            vKey,
-            publicSignalsDefault,
-            proofDefault,
-            null,
-            { transcript: "keccak256-compressed" }
+    it("plonk verify with keccak256-compressed transcript rejects bn128", async () => {
+        await assert.rejects(
+            snarkjs.plonk.verify(vKey, publicSignalsDefault, proofDefault, null, { transcript: "keccak256-compressed" }),
+            /only supports bls12381/
         );
-        assert.strictEqual(isValid, false, "default-transcript proof should NOT verify with compressed transcript");
     });
 
     it("plonk verify default-transcript proof with default transcript — should pass", async () => {
@@ -117,8 +94,8 @@ describe("Cardano transcript tests", function () {
     const fflonkWtns = path.join("test", "fflonk", "witness.wtns");
     const fflonkZkey = { type: "mem" };
     let fflonkVKey;
-    let fflonkProofCompressed;
-    let fflonkPublicCompressed;
+    let fflonkProofDefault;
+    let fflonkPublicDefault;
 
     it("fflonk setup (shared fixture)", async () => {
         await snarkjs.fflonk.setup(fflonkR1cs, ptauFilename, fflonkZkey);
@@ -133,36 +110,26 @@ describe("Cardano transcript tests", function () {
         );
     });
 
-    it("fflonk prove with keccak256-compressed transcript", async () => {
-        const res = await snarkjs.fflonk.prove(
-            fflonkZkey,
-            fflonkWtns,
-            null,
-            { transcript: "keccak256-compressed" }
+    it("fflonk prove with keccak256-compressed transcript rejects bn128", async () => {
+        await assert.rejects(
+            snarkjs.fflonk.prove(fflonkZkey, fflonkWtns, null, { transcript: "keccak256-compressed" }),
+            /only supports bls12381/
         );
-        fflonkProofCompressed = res.proof;
-        fflonkPublicCompressed = res.publicSignals;
-        assert(fflonkProofCompressed, "fflonk proof should be generated");
     });
 
-    it("fflonk verify with keccak256-compressed transcript — should pass", async () => {
-        const isValid = await snarkjs.fflonk.verify(
-            fflonkVKey,
-            fflonkPublicCompressed,
-            fflonkProofCompressed,
-            null,
-            { transcript: "keccak256-compressed" }
-        );
-        assert.strictEqual(isValid, true, "fflonk compressed-transcript proof should verify");
+    it("fflonk prove and verify with default transcript — should pass", async () => {
+        const res = await snarkjs.fflonk.prove(fflonkZkey, fflonkWtns);
+        fflonkProofDefault = res.proof;
+        fflonkPublicDefault = res.publicSignals;
+        const isValid = await snarkjs.fflonk.verify(fflonkVKey, fflonkPublicDefault, fflonkProofDefault);
+        assert.strictEqual(isValid, true, "fflonk default-transcript proof should verify");
     });
 
-    it("fflonk verify compressed-transcript proof with default transcript — should fail", async () => {
-        const isValid = await snarkjs.fflonk.verify(
-            fflonkVKey,
-            fflonkPublicCompressed,
-            fflonkProofCompressed
+    it("fflonk verify with keccak256-compressed transcript rejects bn128", async () => {
+        await assert.rejects(
+            snarkjs.fflonk.verify(fflonkVKey, fflonkPublicDefault, fflonkProofDefault, null, { transcript: "keccak256-compressed" }),
+            /only supports bls12381/
         );
-        assert.strictEqual(isValid, false, "fflonk compressed-transcript proof should NOT verify with default transcript");
     });
 
     // ── Transcript option validation ───────────────────────────────────────
@@ -199,6 +166,80 @@ describe("Cardano transcript tests", function () {
             snarkjs.zKey.exportCardanoVerificationKey(zkeyMem),
             /only bls12381/
         );
+    });
+
+    it("compressed transcript constructor rejects bn128", () => {
+        assert.throws(
+            () => new Keccak256CompressedTranscript(curve),
+            /only supports bls12381/
+        );
+    });
+
+    // Even if a future caller forgets the curve guard, the low-level helper
+    // must refuse to overwrite x-coordinate bits with flags.
+    it("compressG1 refuses a base field without free flag bits", () => {
+        assert.throws(
+            () => compressG1(curve.G1, curve.G1.g),
+            /3 free high bits/
+        );
+    });
+
+    it("compressG2 refuses a base field without free flag bits", () => {
+        assert.throws(
+            () => compressG2(curve.G2, curve.G2.g),
+            /3 free high bits/
+        );
+    });
+});
+
+// Unit tests for the compressed transcript on its target curve. There are no
+// bls12381 circuit fixtures (circom wasm is curve-bound), so the transcript is
+// pinned directly: same inputs must hash differently under the two variants,
+// and the compressed variant must hash exactly compressG1(point) || be(scalar).
+
+describe("Compressed transcript on bls12381", function () {
+    this.timeout(1000000000);
+
+    let curve;
+
+    before(async () => {
+        curve = await getCurveFromName("bls12381");
+    });
+
+    after(async () => {
+        await curve.terminate();
+    });
+
+    it("produces a different challenge than the default transcript", () => {
+        const defaultTranscript = new Keccak256Transcript(curve);
+        const compressedTranscript = new Keccak256CompressedTranscript(curve);
+        const scalar = curve.Fr.e(12345n);
+
+        for (const transcript of [defaultTranscript, compressedTranscript]) {
+            transcript.addPolCommitment(curve.G1.g);
+            transcript.addScalar(scalar);
+        }
+
+        assert(
+            !curve.Fr.eq(defaultTranscript.getChallenge(), compressedTranscript.getChallenge()),
+            "transcript variants must not produce the same challenge"
+        );
+    });
+
+    it("hashes exactly the compressed-point-then-scalar byte layout", () => {
+        const { G1, Fr } = curve;
+        const scalar = Fr.e(12345n);
+
+        const transcript = new Keccak256CompressedTranscript(curve);
+        transcript.addPolCommitment(G1.g);
+        transcript.addScalar(scalar);
+
+        const expectedBuff = new Uint8Array(G1.F.n8 + Fr.n8);
+        expectedBuff.set(compressG1(G1, G1.g), 0);
+        Fr.toRprBE(expectedBuff, G1.F.n8, scalar);
+        const expected = Fr.e(Scalar.fromRprBE(keccak_256(expectedBuff)));
+
+        assert(curve.Fr.eq(transcript.getChallenge(), expected));
     });
 });
 

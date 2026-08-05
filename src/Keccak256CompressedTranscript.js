@@ -30,6 +30,14 @@ const SCALAR = 1;
 
 export class Keccak256CompressedTranscript {
     constructor(curve) {
+        // The ZCash compressed encoding is specified for BLS12-381: flags live
+        // in the 3 free high bits of the 48-byte serialization (381-bit field).
+        // On other curves (e.g. bn128: 254 bits in 32 bytes, 2 free) the flags
+        // would corrupt x-coordinate data.
+        if (curve.name !== "bls12381") {
+            throw new Error(`keccak256-compressed transcript only supports bls12381, got '${curve.name}'`);
+        }
+
         this.G1 = curve.G1;
         this.Fr = curve.Fr;
 

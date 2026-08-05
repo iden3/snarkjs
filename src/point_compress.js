@@ -29,9 +29,27 @@
 // bits (bit 7 = sign, bit 6 = infinity), so the three high bits are cleared
 // and rewritten with the ZCash flags. The x coordinate itself never occupies
 // them: a BLS12-381 base-field element is 381 bits in a 384-bit encoding.
+//
+// These helpers are BLS12-381 only: on curves whose base field fills the
+// flag bits (bn128: 254 bits in a 256-bit encoding) the encoding would not
+// be injective. Supporting bn128 with some other compressed format is
+// deliberately out of scope, not a gap: its on-chain consumers take
+// uncompressed points anyway (the EVM precompiles of EIP-196 specify
+// 64-byte (x, y) with (0, 0) as infinity), so there is no standard
+// compressed bn128 encoding to target. Every exported entry point that
+// reaches this file must reject other curves; assertFreeFlagBits below is
+// the tripwire for callers that forget to.
+
+function assertFreeFlagBits(group, n8, p) {
+    const freeBits = n8 * 8 - p.toString(2).length;
+    if (freeBits < 3) {
+        throw new Error(`compress${group}: ZCash flags need 3 free high bits, the base field leaves ${freeBits}`);
+    }
+}
 
 // Compress a G1 point to G1.F.n8 bytes (48 for BLS12-381).
 export function compressG1(G1, point) {
+    assertFreeFlagBits("G1", G1.F.n8, G1.F.p);
     const buff = new Uint8Array(G1.F.n8);
     if (G1.isZero(point)) {
         buff[0] = 0b11000000; // compression + infinity flags
@@ -48,6 +66,8 @@ export function compressG1(G1, point) {
 // Compress a G2 point to G2.F.n8 bytes (96 for BLS12-381).
 // Fq2 lexicographic order: compare c1 first, then c0.
 export function compressG2(G2, point) {
+    // Flags land in the high byte of the leading Fq component (n8/2 bytes).
+    assertFreeFlagBits("G2", G2.F.n8 / 2, G2.F.F.p);
     const buff = new Uint8Array(G2.F.n8);
     if (G2.isZero(point)) {
         buff[0] = 0b11000000; // compression + infinity flags
