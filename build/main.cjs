@@ -924,7 +924,7 @@ async function read(fileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$5} = ffjavascript.utils;
 
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -1038,8 +1038,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
     await fdZKey.close();
     await fdWtns.close();
 
-    proof = stringifyBigInts$4(proof);
-    publicSignals = stringifyBigInts$4(publicSignals);
+    proof = stringifyBigInts$5(proof);
+    publicSignals = stringifyBigInts$5(publicSignals);
 
     return {proof, publicSignals};
 }
@@ -1292,10 +1292,10 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$c} = ffjavascript.utils;
 
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$b(_input);
+    const input = unstringifyBigInts$c(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -1337,10 +1337,10 @@ async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$b} = ffjavascript.utils;
 
 async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$a(_input);
+    const input = unstringifyBigInts$b(_input);
 
     const wtns= {
         type: "mem"
@@ -1367,7 +1367,7 @@ async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalc
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$a} = ffjavascript.utils;
 
 async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
 /*
@@ -1377,9 +1377,9 @@ async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
     }
 */
 
-    const vk_verifier = unstringifyBigInts$9(_vk_verifier);
-    const proof = unstringifyBigInts$9(_proof);
-    const publicSignals = unstringifyBigInts$9(_publicSignals);
+    const vk_verifier = unstringifyBigInts$a(_vk_verifier);
+    const proof = unstringifyBigInts$a(_proof);
+    const publicSignals = unstringifyBigInts$a(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -1472,7 +1472,7 @@ function publicInputsAreValid$2(curve, publicInputs) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$9} = ffjavascript.utils;
 
 function p256$2(n) {
     let nstr = n.toString(16);
@@ -1482,8 +1482,8 @@ function p256$2(n) {
 }
 
 async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$8(_proof);
-    const pub = unstringifyBigInts$8(_pub);
+    const proof = unstringifyBigInts$9(_proof);
+    const pub = unstringifyBigInts$9(_pub);
 
     let inputs = "";
     for (let i=0; i<pub.length; i++) {
@@ -4037,12 +4037,12 @@ async function loadSymbols(symFileName) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$7} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$8} = ffjavascript.utils;
 
 
 async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, logger) {
 
-    const input = unstringifyBigInts$7(_input);
+    const input = unstringifyBigInts$8(_input);
 
     const fdWasm = await fastFile__namespace.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
@@ -6159,7 +6159,7 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
+const {stringifyBigInts: stringifyBigInts$4} = ffjavascript.utils;
 
 async function zkeyExportVerificationKey(zkeyName, logger) {
     if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
@@ -6219,7 +6219,7 @@ async function groth16Vk(zkey, fd, sections) {
     }
     await binFileUtils__namespace.endReadSection(fd);
 
-    vKey = stringifyBigInts$3(vKey);
+    vKey = stringifyBigInts$4(vKey);
 
     return vKey;
 }
@@ -6251,7 +6251,7 @@ async function plonkVk(zkey) {
         w: curve.Fr.toObject(curve.Fr.w[zkey.power])
     };
 
-    vKey = stringifyBigInts$3(vKey);
+    vKey = stringifyBigInts$4(vKey);
 
     return vKey;
 }
@@ -6280,7 +6280,7 @@ async function exportFFlonkVk(zkey, logger) {
         C0: curve.G1.toObject(zkey.C0),
     };
 
-    return stringifyBigInts$3(vKey);
+    return stringifyBigInts$4(vKey);
 }
 
 /*
@@ -6302,7 +6302,7 @@ async function exportFFlonkVk(zkey, logger) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$7, stringifyBigInts: stringifyBigInts$3} = ffjavascript.utils;
 
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
@@ -6332,13 +6332,13 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
     return ejs__default["default"].render(template, vk);
 
     function fromVkey(str) {
-        const val = unstringifyBigInts$6(str);
+        const val = unstringifyBigInts$7(str);
         return curve.Fr.fromObject(val);
     }
 
     function toVkey(val) {
         const str = curve.Fr.toObject(val);
-        return stringifyBigInts$2(str);
+        return stringifyBigInts$3(str);
     }
 }
 
@@ -6356,6 +6356,226 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
     let template = templates[verificationKey.protocol];
 
     return ejs__default["default"].render(template, verificationKey);
+}
+
+/*
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// ZCash/IETF compressed point serialization, as used for BLS12-381 on
+// Cardano/Plutus (CIP-0381). The flags live in the three high bits of the
+// first byte:
+//   bit 7 (0x80): compression flag — always set for a compressed encoding
+//   bit 6 (0x40): infinity flag
+//   bit 5 (0x20): sign flag — set when y is the lexicographically larger
+//                 of the two roots
+//
+// ffjavascript's toRprCompressed writes its own flag convention into the same
+// bits (bit 7 = sign, bit 6 = infinity), so the three high bits are cleared
+// and rewritten with the ZCash flags. The x coordinate itself never occupies
+// them: a BLS12-381 base-field element is 381 bits in a 384-bit encoding.
+//
+// These helpers are BLS12-381 only: on curves whose base field fills the
+// flag bits (bn128: 254 bits in a 256-bit encoding) the encoding would not
+// be injective. Supporting bn128 with some other compressed format is
+// deliberately out of scope, not a gap: its on-chain consumers take
+// uncompressed points anyway (the EVM precompiles of EIP-196 specify
+// 64-byte (x, y) with (0, 0) as infinity), so there is no standard
+// compressed bn128 encoding to target. Every exported entry point that
+// reaches this file must reject other curves; assertFreeFlagBits below is
+// the tripwire for callers that forget to.
+
+function assertFreeFlagBits(group, n8, p) {
+    const freeBits = n8 * 8 - p.toString(2).length;
+    if (freeBits < 3) {
+        throw new Error(`compress${group}: ZCash flags need 3 free high bits, the base field leaves ${freeBits}`);
+    }
+}
+
+// Compress a G1 point to G1.F.n8 bytes (48 for BLS12-381).
+function compressG1(G1, point) {
+    assertFreeFlagBits("G1", G1.F.n8, G1.F.p);
+    const buff = new Uint8Array(G1.F.n8);
+    if (G1.isZero(point)) {
+        buff[0] = 0b11000000; // compression + infinity flags
+        return buff;
+    }
+    G1.toRprCompressed(buff, 0, point);
+    // y is the larger of the two roots exactly when y > (p-1)/2 (strict:
+    // the spec leaves the sign flag clear for y = 0).
+    const [, y] = G1.toObject(G1.toAffine(point));
+    const flags = y > (G1.F.p - 1n) / 2n ? 0b10100000 : 0b10000000;
+    buff[0] = (buff[0] & 0b00011111) | flags;
+    return buff;
+}
+
+// Compress a G2 point to G2.F.n8 bytes (96 for BLS12-381).
+// Fq2 lexicographic order: compare c1 first, then c0.
+function compressG2(G2, point) {
+    // Flags land in the high byte of the leading Fq component (n8/2 bytes).
+    assertFreeFlagBits("G2", G2.F.n8 / 2, G2.F.F.p);
+    const buff = new Uint8Array(G2.F.n8);
+    if (G2.isZero(point)) {
+        buff[0] = 0b11000000; // compression + infinity flags
+        return buff;
+    }
+    G2.toRprCompressed(buff, 0, point);
+    // Lexicographically larger root: decided by c1 unless c1 = 0 (then -y
+    // has the same c1 and the comparison falls through to c0).
+    const [, [yc0, yc1]] = G2.toObject(G2.toAffine(point));
+    const half = (G2.F.F.p - 1n) / 2n;
+    const isLarger = yc1 > half || (0n === yc1 && yc0 > half);
+    const flags = isLarger ? 0b10100000 : 0b10000000;
+    buff[0] = (buff[0] & 0b00011111) | flags;
+    return buff;
+}
+
+function compressG1Hex(G1, point) {
+    return toHex(compressG1(G1, point));
+}
+
+function compressG2Hex(G2, point) {
+    return toHex(compressG2(G2, point));
+}
+
+function toHex(buff) {
+    return Array.from(buff, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/*
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const {stringifyBigInts: stringifyBigInts$2} = ffjavascript.utils;
+
+async function zkeyExportCardanoVerificationKey(zkeyName, logger) {
+    if (logger) logger.info("EXPORT CARDANO VERIFICATION KEY STARTED");
+
+    const {fd, sections} = await binFileUtils__namespace.readBinFile(zkeyName, "zkey", 2);
+    const zkey = await readHeader$1(fd, sections);
+
+    if (logger) logger.info("> Detected protocol: " + zkey.protocol);
+
+    const curve = await getCurveFromQ(zkey.q);
+
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoVerificationKey: only bls12381 zkeys are supported, got '${curve.name}'`);
+    }
+
+    let res;
+    if (zkey.protocol === "groth16") {
+        res = await groth16CardanoVk(curve, zkey, fd, sections);
+    } else if (zkey.protocol === "plonk") {
+        res = await plonkCardanoVk(curve, zkey);
+    } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
+        res = await fflonkCardanoVk(curve, zkey);
+    } else {
+        throw new Error("zkey file protocol unrecognized");
+    }
+
+    await fd.close();
+
+    if (logger) logger.info("EXPORT CARDANO VERIFICATION KEY FINISHED");
+
+    return res;
+}
+
+async function groth16CardanoVk(curve, zkey, fd, sections) {
+    const sG1 = curve.G1.F.n8 * 2;
+
+    const vKey = {
+        protocol: zkey.protocol,
+        curve: curve.name,
+        nPublic: zkey.nPublic,
+        vk_alpha_1: compressG1Hex(curve.G1, zkey.vk_alpha_1),
+        vk_beta_2:  compressG2Hex(curve.G2, zkey.vk_beta_2),
+        vk_gamma_2: compressG2Hex(curve.G2, zkey.vk_gamma_2),
+        vk_delta_2: compressG2Hex(curve.G2, zkey.vk_delta_2),
+    };
+
+    await binFileUtils__namespace.startReadUniqueSection(fd, sections, 3);
+    vKey.IC = [];
+    for (let i = 0; i <= zkey.nPublic; i++) {
+        const buff = await fd.read(sG1);
+        const P = curve.G1.fromRprLEM(buff, 0);
+        vKey.IC.push(compressG1Hex(curve.G1, P));
+    }
+    await binFileUtils__namespace.endReadSection(fd);
+
+    return vKey;
+}
+
+function plonkCardanoVk(curve, zkey) {
+    return {
+        protocol: zkey.protocol,
+        curve: curve.name,
+        nPublic: zkey.nPublic,
+        power: zkey.power,
+        k1: stringifyBigInts$2(curve.Fr.toObject(zkey.k1)),
+        k2: stringifyBigInts$2(curve.Fr.toObject(zkey.k2)),
+        Qm: compressG1Hex(curve.G1, zkey.Qm),
+        Ql: compressG1Hex(curve.G1, zkey.Ql),
+        Qr: compressG1Hex(curve.G1, zkey.Qr),
+        Qo: compressG1Hex(curve.G1, zkey.Qo),
+        Qc: compressG1Hex(curve.G1, zkey.Qc),
+        S1: compressG1Hex(curve.G1, zkey.S1),
+        S2: compressG1Hex(curve.G1, zkey.S2),
+        S3: compressG1Hex(curve.G1, zkey.S3),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
+        w: stringifyBigInts$2(curve.Fr.toObject(curve.Fr.w[zkey.power])),
+    };
+}
+
+function fflonkCardanoVk(curve, zkey) {
+    return {
+        protocol: zkey.protocol,
+        curve: curve.name,
+        nPublic: zkey.nPublic,
+        power: zkey.power,
+        k1: stringifyBigInts$2(curve.Fr.toObject(zkey.k1)),
+        k2: stringifyBigInts$2(curve.Fr.toObject(zkey.k2)),
+        w:  stringifyBigInts$2(curve.Fr.toObject(curve.Fr.w[zkey.power])),
+        w3: stringifyBigInts$2(curve.Fr.toObject(zkey.w3)),
+        w4: stringifyBigInts$2(curve.Fr.toObject(zkey.w4)),
+        w8: stringifyBigInts$2(curve.Fr.toObject(zkey.w8)),
+        wr: stringifyBigInts$2(curve.Fr.toObject(zkey.wr)),
+        X_2: compressG2Hex(curve.G2, zkey.X_2),
+        C0:  compressG1Hex(curve.G1, zkey.C0),
+    };
 }
 
 /*
@@ -6389,7 +6609,8 @@ var zkey = /*#__PURE__*/Object.freeze({
     exportJson: zkeyExportJson,
     bellmanContribute: bellmanContribute,
     exportVerificationKey: zkeyExportVerificationKey,
-    exportSolidityVerifier: exportSolidityVerifier
+    exportSolidityVerifier: exportSolidityVerifier,
+    exportCardanoVerificationKey: zkeyExportCardanoVerificationKey
 });
 
 /*
@@ -7001,6 +7222,10 @@ class Proof {
 const POLYNOMIAL = 0;
 const SCALAR = 1;
 
+// Fiat-Shamir transcript over Keccak-256. Subclasses may override pointSize()
+// and writePoint() to change the G1 commitment serialization (see
+// Keccak256CompressedTranscript); the scalar encoding and hashing are shared
+// so that transcript variants can never drift apart on them.
 class Keccak256Transcript {
     constructor(curve) {
         this.G1 = curve.G1;
@@ -7021,8 +7246,18 @@ class Keccak256Transcript {
         this.data.push({type: SCALAR, data: scalar});
     }
 
+    pointSize() {
+        return this.G1.F.n8 * 2;
+    }
+
+    writePoint(buffer, offset, point) {
+        this.G1.toRprUncompressed(buffer, offset, point);
+    }
+
     getChallenge() {
         if(0 === this.data.length) {
+            // Fixed string rather than this.constructor.name: the minified
+            // bundle mangles class names.
             throw new Error("Keccak256Transcript: No data to generate a transcript");
         }
 
@@ -7031,13 +7266,13 @@ class Keccak256Transcript {
 
         this.data.forEach(element => POLYNOMIAL === element.type ? nPolynomials++ : nScalars++);
 
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8 * 2);
+        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.pointSize());
         let offset = 0;
 
         for (let i = 0; i < this.data.length; i++) {
             if (POLYNOMIAL === this.data[i].type) {
-                this.G1.toRprUncompressed(buffer, offset, this.data[i].data);
-                offset += this.G1.F.n8 * 2;
+                this.writePoint(buffer, offset, this.data[i].data);
+                offset += this.pointSize();
             } else {
                 this.Fr.toRprBE(buffer, offset, this.data[i].data);
                 offset += this.Fr.n8;
@@ -7047,6 +7282,86 @@ class Keccak256Transcript {
         const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
         return this.Fr.e(value);
     }
+}
+
+/*
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Same transcript as Keccak256Transcript, except G1 commitments are hashed as
+// G1.F.n8-byte (48 for BLS12-381) ZCash compressed points instead of 2*n8-byte
+// uncompressed ones. Scalar encoding and hashing are inherited.
+class Keccak256CompressedTranscript extends Keccak256Transcript {
+    constructor(curve) {
+        // The ZCash compressed encoding is specified for BLS12-381: flags live
+        // in the 3 free high bits of the 48-byte serialization (381-bit field).
+        // On other curves (e.g. bn128: 254 bits in 32 bytes, 2 free) the flags
+        // would corrupt x-coordinate data.
+        if (curve.name !== "bls12381") {
+            throw new Error(`keccak256-compressed transcript only supports bls12381, got '${curve.name}'`);
+        }
+
+        super(curve);
+    }
+
+    pointSize() {
+        return this.G1.F.n8;
+    }
+
+    writePoint(buffer, offset, point) {
+        buffer.set(compressG1(this.G1, point), offset);
+    }
+}
+
+/*
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Fiat-Shamir transcript factory. `name` comes from the `transcript` option
+// (`--transcript` on the CLI): undefined selects the default keccak256
+// transcript over uncompressed points, "keccak256-compressed" the compressed
+// variant for Cardano/Plutus (bls12381 only). Anything else is rejected so
+// that a typo cannot silently produce a proof for the wrong transcript.
+// The CLI option layer (clprocessor getOption) yields null, not undefined,
+// for a declared-but-absent option, so both must select the default.
+function createTranscript(curve, name) {
+    if (undefined === name || null === name || "keccak256" === name) {
+        return new Keccak256Transcript(curve);
+    }
+    if ("keccak256-compressed" === name) {
+        return new Keccak256CompressedTranscript(curve);
+    }
+    throw new Error(`Unknown transcript type '${name}'. Valid values are "keccak256" (default) and "keccak256-compressed"`);
 }
 
 /*
@@ -8322,7 +8637,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     let challenges = {};
     let proof = new Proof(curve, logger);
-    const transcript = new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options && options.transcript);
 
     if (logger) logger.debug(`> Reading Section ${ZKEY_PL_ADDITIONS_SECTION}. Additions`);
     await calculateAdditions();
@@ -9126,10 +9441,10 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$5} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$6} = ffjavascript.utils;
 
 async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$5(_input);
+    const input = unstringifyBigInts$6(_input);
 
     const wtns= {
         type: "mem"
@@ -9157,12 +9472,12 @@ async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOp
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const { unstringifyBigInts: unstringifyBigInts$4 } = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$5 } = ffjavascript.utils;
 
-async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
-    let vk_verifier = unstringifyBigInts$4(_vk_verifier);
-    _proof = unstringifyBigInts$4(_proof);
-    let publicSignals = unstringifyBigInts$4(_publicSignals);
+async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger, options = {}) {
+    let vk_verifier = unstringifyBigInts$5(_vk_verifier);
+    _proof = unstringifyBigInts$5(_proof);
+    let publicSignals = unstringifyBigInts$5(_publicSignals);
 
     const curve = await getCurveFromName(vk_verifier.curve);
 
@@ -9194,7 +9509,7 @@ async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
         return false;
     }
 
-    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
+    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier, options);
     if (logger) {
         logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
         logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
@@ -9338,10 +9653,10 @@ function publicInputsAreValid$1(curve, publicInputs) {
     return true;
 }
 
-function calculatechallenges(curve, proof, publicSignals, vk) {
+function calculatechallenges(curve, proof, publicSignals, vk, options = {}) {
     const Fr = curve.Fr;
     const res = {};
-    const transcript = new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Challenge round 2: beta and gamma
     transcript.addPolCommitment(vk.Qm);
@@ -9571,7 +9886,7 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
     You should have received a copy of the GNU General Public License
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
-const { unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$4} = ffjavascript.utils;
 
 function p256$1(n) {
     let nstr = n.toString(16);
@@ -9581,8 +9896,8 @@ function p256$1(n) {
 }
 
 async function plonkExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$3(_proof);
-    const pub = unstringifyBigInts$3(_pub);
+    const proof = unstringifyBigInts$4(_proof);
+    const pub = unstringifyBigInts$4(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     curve.G1;
@@ -10059,7 +10374,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     if (logger) logger.info("> computing w8");
     const w8 = computeW8();
     if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    const wr = getOmegaCubicRoot(settings.cirPower);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -10446,13 +10761,30 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
     }
 
     function computeW3() {
-        let generator = Fr.e(31624);
+        // Primitive cube root of unity in Fr. The value is baked into deployed
+        // verifiers, so it must never change for a given curve — and an
+        // unrecognized curve must fail loudly rather than silently inherit
+        // another curve's constants.
+        if (curve.name === "bls12381") {
+            // 2 is a cubic non-residue in the bls12381 scalar field, so
+            // 2^((r-1)/3) is a primitive cube root of unity
+            // (= 228988810152649578064853576960394133503).
+            let generator = Fr.e(2);
+            let exponent = ffjavascript.Scalar.div(ffjavascript.Scalar.sub(Fr.p, ffjavascript.Scalar.one), ffjavascript.Scalar.e(3));
+            return Fr.exp(generator, exponent);
+        }
 
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = ffjavascript.Scalar.div(orderRsub1, ffjavascript.Scalar.e(3));
+        if (curve.name === "bn128") {
+            let generator = Fr.e(31624);
 
-        return Fr.exp(generator, exponent);
+            // Exponent is order(r - 1) / 3
+            let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+            let exponent = ffjavascript.Scalar.div(orderRsub1, ffjavascript.Scalar.e(3));
+
+            return Fr.exp(generator, exponent);
+        }
+
+        throw new Error(`FFLONK setup: no cube root of unity defined for curve '${curve.name}'`);
     }
 
     function computeW4() {
@@ -10463,9 +10795,16 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         return Fr.w[3];
     }
 
-    function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
-        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
+    function getOmegaCubicRoot(power) {
+        // Compute the cube root of Fr.w[28] curve-agnostically.
+        // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
+        const firstRoot = Fr.exp(Fr.w[28], 178956971n);
+
+        // The two literals above are a pair: 178956971 is only inv(3) modulo
+        // that particular 2^28. Catch them being edited apart.
+        if (!Fr.eq(Fr.exp(firstRoot, 3n), Fr.w[28])) {
+            throw new Error("FFLONK setup: getOmegaCubicRoot invariant broken, firstRoot^3 != Fr.w[28]");
+        }
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
@@ -10526,6 +10865,8 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     }
 
     const curve = zkey.curve;
+
+    const newTranscript = () => createTranscript(curve, options && options.transcript);
 
     const Fr = curve.Fr;
 
@@ -10968,7 +11309,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
         // STEP 2.1 - Compute permutation challenge beta and gamma ∈ F
         // Compute permutation challenge beta
         if (logger) logger.info("> Computing challenges beta and gamma");
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
 
         // Add C0 to the transcript
         transcript.addPolCommitment(zkey.C0);
@@ -11277,7 +11618,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     async function round3() {
         if (logger) logger.info("> Computing challenge xi");
         // STEP 3.1 - Compute evaluation challenge xi ∈ S
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.gamma);
         transcript.addPolCommitment(proof.getPolynomial("C2"));
 
@@ -11378,7 +11719,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     async function round4() {
         if (logger) logger.info("> Computing challenge alpha");
         // STEP 4.1 - Compute challenge alpha ∈ F
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.xiSeed);
         transcript.addScalar(proof.getEvaluation("ql"));
         transcript.addScalar(proof.getEvaluation("qr"));
@@ -11505,7 +11846,7 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
         if (logger) logger.info("> Computing challenge y");
 
         // STEP 5.1 - Compute random evaluation point y ∈ F
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.alpha);
         transcript.addPolCommitment(proof.getPolynomial("W1"));
 
@@ -11746,10 +12087,10 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
     You should have received a copy of the GNU General Public License along with
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
-const {unstringifyBigInts: unstringifyBigInts$2} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$3} = ffjavascript.utils;
 
 async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$2(_input);
+    const input = unstringifyBigInts$3(_input);
 
     const wtns= {type: "mem"};
 
@@ -11779,13 +12120,13 @@ async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsC
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const { unstringifyBigInts: unstringifyBigInts$1 } = ffjavascript.utils;
+const { unstringifyBigInts: unstringifyBigInts$2 } = ffjavascript.utils;
 
-async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
+async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger, options = {}) {
     if (logger) logger.info("FFLONK VERIFIER STARTED");
 
-    _vk_verifier = unstringifyBigInts$1(_vk_verifier);
-    _proof = unstringifyBigInts$1(_proof);
+    _vk_verifier = unstringifyBigInts$2(_vk_verifier);
+    _proof = unstringifyBigInts$2(_proof);
 
     const curve = await getCurveFromName(_vk_verifier.curve);
 
@@ -11796,7 +12137,7 @@ async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     const proof = new Proof(curve, logger);
     proof.fromObjectProof(_proof);
 
-    const publicSignals = unstringifyBigInts$1(_publicSignals);
+    const publicSignals = unstringifyBigInts$2(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
         logger.error("Number of public signals does not match with vk");
@@ -11839,7 +12180,7 @@ async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
     // STEP 4 - Compute the challenges: beta, gamma, xi, alpha and y ∈ F
     // as in prover description, from the common preprocessed inputs, public inputs and elements of π_SNARK
     if (logger) logger.info("> Computing challenges");
-    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger);
+    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger, options);
 
     // STEP 5 - Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
     if (logger) logger.info("> Computing Zero polynomial evaluation Z_H(xi)");
@@ -11951,12 +12292,12 @@ function publicInputsAreValid(curve, publicInputs) {
     return true;
 }
 
-function computeChallenges(curve, proof, vk, publicSignals, logger) {
+function computeChallenges(curve, proof, vk, publicSignals, logger, options = {}) {
     const Fr = curve.Fr;
 
     const challenges = {};
     const roots = {};
-    const transcript = new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Add C0 to the transcript
     transcript.addPolCommitment(vk.C0);
@@ -12371,7 +12712,7 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const {unstringifyBigInts} = ffjavascript.utils;
+const {unstringifyBigInts: unstringifyBigInts$1} = ffjavascript.utils;
 
 function p256(n) {
     let nstr = n.toString(16);
@@ -12381,8 +12722,8 @@ function p256(n) {
 }
 
 async function fflonkExportCallData(_pub, _proof) {
-    const proof = unstringifyBigInts(_proof);
-    const pub = unstringifyBigInts(_pub);
+    const proof = unstringifyBigInts$1(_proof);
+    const pub = unstringifyBigInts$1(_pub);
 
     const curve = await getCurveFromName(proof.curve);
     curve.G1;
@@ -12436,7 +12777,121 @@ var fflonk = /*#__PURE__*/Object.freeze({
     exportSolidityCallData: fflonkExportCallData
 });
 
+/*
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkJS.
+
+    snarkJS is a free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    snarkJS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+const {unstringifyBigInts} = ffjavascript.utils;
+
+// ---------- public API ----------
+
+async function exportCardanoProof(_proof) {
+    const proof = unstringifyBigInts(_proof);
+
+    const curve = await getCurveFromName(proof.curve);
+
+    // The ZCash compressed encoding stores flags in the three high bits of the
+    // first byte, which only works when the base field leaves them free (as the
+    // 381-bit bls12381 field does in its 48-byte serialization). On other
+    // curves the flags would overwrite x-coordinate data.
+    if (curve.name !== "bls12381") {
+        throw new Error(`exportCardanoProof: only bls12381 proofs are supported, got '${curve.name}'`);
+    }
+
+    if (proof.protocol === "groth16") {
+        return groth16CardanoProof(curve, proof);
+    } else if (proof.protocol === "plonk") {
+        return plonkCardanoProof(curve, proof);
+    } else if (proof.protocol === "fflonk") {
+        return fflonkCardanoProof(curve, proof);
+    } else {
+        throw new Error(`exportCardanoProof: unknown protocol '${proof.protocol}'`);
+    }
+}
+
+// ---------- per-protocol converters ----------
+
+function groth16CardanoProof(curve, proof) {
+    return {
+        protocol: proof.protocol,
+        curve: curve.name,
+        pi_a: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_a)),
+        pi_b: compressG2Hex(curve.G2, curve.G2.fromObject(proof.pi_b)),
+        pi_c: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_c)),
+    };
+}
+
+// PLONK proof.json uses a flat layout:
+//   A, B, C, Z, T1, T2, T3, Wxi, Wxiw  → G1 points as [x, y, "1"]
+//   eval_a, eval_b, eval_c, eval_s1, eval_s2, eval_zw → Fr scalars (decimal strings)
+function plonkCardanoProof(curve, proof) {
+    const g1 = (key) => compressG1Hex(curve.G1, curve.G1.fromObject(proof[key]));
+    return {
+        protocol: proof.protocol,
+        curve: curve.name,
+        A:    g1("A"),
+        B:    g1("B"),
+        C:    g1("C"),
+        Z:    g1("Z"),
+        T1:   g1("T1"),
+        T2:   g1("T2"),
+        T3:   g1("T3"),
+        Wxi:  g1("Wxi"),
+        Wxiw: g1("Wxiw"),
+        // Scalar evaluations: keep as decimal strings (already stringified by caller)
+        eval_a:  String(proof.eval_a),
+        eval_b:  String(proof.eval_b),
+        eval_c:  String(proof.eval_c),
+        eval_s1: String(proof.eval_s1),
+        eval_s2: String(proof.eval_s2),
+        eval_zw: String(proof.eval_zw),
+    };
+}
+
+// FFLONK proof.json uses a nested layout:
+//   polynomials: { C1, C2, W1, W2 } → G1 points
+//   evaluations: { ql, qr, qm, qo, qc, s1, s2, s3, a, b, c, z, zw, t1w, t2w, inv } → Fr scalars
+function fflonkCardanoProof(curve, proof) {
+    const poly = proof.polynomials;
+    const eval_ = proof.evaluations;
+    const g1 = (p) => compressG1Hex(curve.G1, curve.G1.fromObject(p));
+    const sc = (v) => String(v);
+    return {
+        protocol: proof.protocol,
+        curve: curve.name,
+        c1: g1(poly.C1),
+        c2: g1(poly.C2),
+        w1: g1(poly.W1),
+        w2: g1(poly.W2),
+        ql:  sc(eval_.ql),  qr:  sc(eval_.qr),  qm: sc(eval_.qm),
+        qo:  sc(eval_.qo),  qc:  sc(eval_.qc),
+        s1:  sc(eval_.s1),  s2:  sc(eval_.s2),  s3: sc(eval_.s3),
+        a:   sc(eval_.a),   b:   sc(eval_.b),    c:  sc(eval_.c),
+        z:   sc(eval_.z),   zw:  sc(eval_.zw),
+        t1w: sc(eval_.t1w), t2w: sc(eval_.t2w),
+        inv: sc(eval_.inv),
+    };
+}
+
+exports.Keccak256CompressedTranscript = Keccak256CompressedTranscript;
+exports.Keccak256Transcript = Keccak256Transcript;
 exports.curves = curves;
+exports.exportCardanoProof = exportCardanoProof;
 exports.fflonk = fflonk;
 exports.groth16 = groth16;
 exports.plonk = plonk;

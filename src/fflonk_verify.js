@@ -20,12 +20,12 @@
 import * as curves from "./curves.js";
 import { BigBuffer, utils } from "ffjavascript";
 import { Proof } from "./proof.js";
-import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { createTranscript } from "./transcript.js";
 import { Scalar } from "ffjavascript";
 
 const { unstringifyBigInts } = utils;
 
-export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
+export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger, options = {}) {
     if (logger) logger.info("FFLONK VERIFIER STARTED");
 
     _vk_verifier = unstringifyBigInts(_vk_verifier);
@@ -83,7 +83,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     // STEP 4 - Compute the challenges: beta, gamma, xi, alpha and y ∈ F
     // as in prover description, from the common preprocessed inputs, public inputs and elements of π_SNARK
     if (logger) logger.info("> Computing challenges");
-    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger);
+    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger, options);
 
     // STEP 5 - Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
     if (logger) logger.info("> Computing Zero polynomial evaluation Z_H(xi)");
@@ -195,12 +195,12 @@ function publicInputsAreValid(curve, publicInputs) {
     return true;
 }
 
-function computeChallenges(curve, proof, vk, publicSignals, logger) {
+function computeChallenges(curve, proof, vk, publicSignals, logger, options = {}) {
     const Fr = curve.Fr;
 
     const challenges = {};
     const roots = {};
-    const transcript = new Keccak256Transcript(curve);
+    const transcript = createTranscript(curve, options.transcript);
 
     // Add C0 to the transcript
     transcript.addPolCommitment(vk.C0);

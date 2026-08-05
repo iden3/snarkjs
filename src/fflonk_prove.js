@@ -39,7 +39,7 @@ import {
     ZKEY_FF_SIGMA2_SECTION,
     ZKEY_FF_SIGMA3_SECTION,
 } from "./fflonk_constants.js";
-import { Keccak256Transcript } from "./Keccak256Transcript.js";
+import { createTranscript } from "./transcript.js";
 import { Proof } from "./proof.js";
 import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
@@ -81,6 +81,8 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
     }
 
     const curve = zkey.curve;
+
+    const newTranscript = () => createTranscript(curve, options && options.transcript);
 
     const Fr = curve.Fr;
 
@@ -523,7 +525,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
         // STEP 2.1 - Compute permutation challenge beta and gamma ∈ F
         // Compute permutation challenge beta
         if (logger) logger.info("> Computing challenges beta and gamma");
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
 
         // Add C0 to the transcript
         transcript.addPolCommitment(zkey.C0);
@@ -832,7 +834,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
     async function round3() {
         if (logger) logger.info("> Computing challenge xi");
         // STEP 3.1 - Compute evaluation challenge xi ∈ S
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.gamma);
         transcript.addPolCommitment(proof.getPolynomial("C2"));
 
@@ -933,7 +935,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
     async function round4() {
         if (logger) logger.info("> Computing challenge alpha");
         // STEP 4.1 - Compute challenge alpha ∈ F
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.xiSeed);
         transcript.addScalar(proof.getEvaluation("ql"));
         transcript.addScalar(proof.getEvaluation("qr"));
@@ -1060,7 +1062,7 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
         if (logger) logger.info("> Computing challenge y");
 
         // STEP 5.1 - Compute random evaluation point y ∈ F
-        const transcript = new Keccak256Transcript(curve);
+        const transcript = newTranscript();
         transcript.addScalar(challenges.alpha);
         transcript.addPolCommitment(proof.getPolynomial("W1"));
 

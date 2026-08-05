@@ -145,7 +145,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (logger) logger.info("> computing w8");
     const w8 = computeW8();
     if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
+    const wr = getOmegaCubicRoot(settings.cirPower);
 
     // Write output zkey file
     await writeZkeyFile();
@@ -532,13 +532,30 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     }
 
     function computeW3() {
-        let generator = Fr.e(31624);
+        // Primitive cube root of unity in Fr. The value is baked into deployed
+        // verifiers, so it must never change for a given curve — and an
+        // unrecognized curve must fail loudly rather than silently inherit
+        // another curve's constants.
+        if (curve.name === "bls12381") {
+            // 2 is a cubic non-residue in the bls12381 scalar field, so
+            // 2^((r-1)/3) is a primitive cube root of unity
+            // (= 228988810152649578064853576960394133503).
+            let generator = Fr.e(2);
+            let exponent = Scalar.div(Scalar.sub(Fr.p, Scalar.one), Scalar.e(3));
+            return Fr.exp(generator, exponent);
+        }
 
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
+        if (curve.name === "bn128") {
+            let generator = Fr.e(31624);
 
-        return Fr.exp(generator, exponent);
+            // Exponent is order(r - 1) / 3
+            let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+            let exponent = Scalar.div(orderRsub1, Scalar.e(3));
+
+            return Fr.exp(generator, exponent);
+        }
+
+        throw new Error(`FFLONK setup: no cube root of unity defined for curve '${curve.name}'`);
     }
 
     function computeW4() {
@@ -549,9 +566,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         return Fr.w[3];
     }
 
-    function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
-        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
+    function getOmegaCubicRoot(power) {
+        // Compute the cube root of Fr.w[28] curve-agnostically.
+        // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
+        const firstRoot = Fr.exp(Fr.w[28], 178956971n);
+
+        // The two literals above are a pair: 178956971 is only inv(3) modulo
+        // that particular 2^28. Catch them being edited apart.
+        if (!Fr.eq(Fr.exp(firstRoot, 3n), Fr.w[28])) {
+            throw new Error("FFLONK setup: getOmegaCubicRoot invariant broken, firstRoot^3 != Fr.w[28]");
+        }
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }

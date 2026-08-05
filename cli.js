@@ -41,6 +41,7 @@ import * as plonk from "./src/plonk.js";
 import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
+import exportCardanoProof from "./src/export_cardano_proof.js";
 import path from "path";
 import bfj from "bfj";
 
@@ -254,6 +255,30 @@ const commands = [
         action: zkeyExportSolidityCalldata
     },
     {
+        cmd: "zkey export cardano-verificationkey [circuit_final.zkey] [cardano_vk.json]",
+        description: "Exports a Cardano/Plutus verification key with ZCash-compressed BLS12-381 points",
+        alias: ["zkecv"],
+        action: zkeyExportCardanoVKey
+    },
+    {
+        cmd: "groth16 export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a Groth16 proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["g16ecp"],
+        action: exportCardanoProofCmd
+    },
+    {
+        cmd: "plonk export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a PLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["pkecp"],
+        action: exportCardanoProofCmd
+    },
+    {
+        cmd: "fflonk export-cardano-proof [proof.json] [cardano_proof.json]",
+        description: "Converts a FFLONK proof to Cardano/Plutus format (compressed BLS12-381 points)",
+        alias: ["ffecp"],
+        action: exportCardanoProofCmd
+    },
+    {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
         description: "Creates an initial groth16 pkey file with zero contributions",
         alias: ["g16s", "zkn", "zkey new"],
@@ -291,21 +316,21 @@ const commands = [
         cmd: "plonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a PLONK Proof from witness",
         alias: ["pkp"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -transcript",
         action: plonkProve
     },
     {
         cmd: "plonk fullprove [input.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
         description: "Generates a PLONK Proof from input",
         alias: ["pkf"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -transcript",
         action: plonkFullProve
     },
     {
         cmd: "plonk verify [verification_key.json] [public.json] [proof.json]",
         description: "Verify a PLONK Proof",
         alias: ["pkv"],
-        options: "-verbose|v",
+        options: "-verbose|v -transcript",
         action: plonkVerify
     },
     {
@@ -319,21 +344,21 @@ const commands = [
         cmd: "fflonk prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "BETA version. Generates a FFLONK Proof from witness",
         alias: ["ffp"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -transcript",
         action: fflonkProve
     },
     {
         cmd: "fflonk fullprove [witness.json] [circuit.wasm] [circuit.zkey] [proof.json] [public.json]",
         description: "BETA version. Generates a witness and the FFLONK Proof in the same command",
         alias: ["fff"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -transcript",
         action: fflonkFullProve
     },
     {
         cmd: "fflonk verify [verification_key.json] [public.json] [proof.json]",
         description: "BETA version. Verify a FFLONK Proof",
         alias: ["ffv"],
-        options: "-verbose|v",
+        options: "-verbose|v -transcript",
         action: fflonkVerify
     },
     {
@@ -1141,7 +1166,7 @@ async function plonkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
+    const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger, { transcript: options.transcript });
 
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
@@ -1163,7 +1188,7 @@ async function plonkFullProve(params, options) {
 
     const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
-    const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName, logger);
+    const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName, logger, undefined, { transcript: options.transcript });
 
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
@@ -1185,7 +1210,7 @@ async function plonkVerify(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const isValid = await plonk.verify(verificationKey, pub, proof, logger);
+    const isValid = await plonk.verify(verificationKey, pub, proof, logger, { transcript: options.transcript });
 
     if (isValid) {
         return 0;
@@ -1214,7 +1239,7 @@ async function fflonkProve(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger);
+    const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger, { transcript: options.transcript });
 
     if(undefined !== proofFilename && undefined !== publicInputsFilename) {
         // Write the proof and the publig signals in each file
@@ -1237,7 +1262,7 @@ async function fflonkFullProve(params, options) {
 
     const input = JSON.parse(await fs.promises.readFile(witnessInputsFilename, "utf8"));
 
-    const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger);
+    const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger, undefined, { transcript: options.transcript });
 
     // Write the proof and the publig signals in each file
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
@@ -1257,9 +1282,34 @@ async function fflonkVerify(params, options) {
     const publicInputs = JSON.parse(fs.readFileSync(publicInputsFilename, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
 
-    const isValid = await fflonk.verify(vkey, publicInputs, proof, logger);
+    const isValid = await fflonk.verify(vkey, publicInputs, proof, logger, { transcript: options.transcript });
 
     return isValid ? 0 : 1;
+}
+
+async function zkeyExportCardanoVKey(params, options) {
+    const zKeyFileName = params[0] || "circuit_final.zkey";
+    const vKeyFilename = params[1] || "cardano_vk.json";
+
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+
+    const vKey = await zkey.exportCardanoVerificationKey(zKeyFileName, logger);
+    await bfj.write(vKeyFilename, vKey, {space: 1});
+
+    return 0;
+}
+
+// Shared handler for the per-protocol export-cardano-proof commands:
+// exportCardanoProof dispatches on proof.protocol internally.
+async function exportCardanoProofCmd(params) {
+    const proofFilename = params[0] || "proof.json";
+    const outFilename = params[1] || "cardano_proof.json";
+
+    const proof = JSON.parse(fs.readFileSync(proofFilename, "utf8"));
+    const cardanoProof = await exportCardanoProof(proof);
+    await bfj.write(outFilename, cardanoProof, {space: 1});
+
+    return 0;
 }
 
 async function fileInfo(params) {
