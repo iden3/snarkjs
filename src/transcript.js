@@ -23,10 +23,12 @@ import { Keccak256CompressedTranscript } from "./Keccak256CompressedTranscript.j
 // Fiat-Shamir transcript factory. `name` comes from the `transcript` option
 // (`--transcript` on the CLI): undefined selects the default keccak256
 // transcript over uncompressed points, "keccak256-compressed" the compressed
-// variant for Cardano/Plutus. Anything else is rejected so that a typo cannot
-// silently produce a proof for the wrong transcript.
+// variant for Cardano/Plutus (bls12381 only). Anything else is rejected so
+// that a typo cannot silently produce a proof for the wrong transcript.
+// The CLI option layer (clprocessor getOption) yields null, not undefined,
+// for a declared-but-absent option, so both must select the default.
 export function createTranscript(curve, name) {
-    if (undefined === name || "keccak256" === name) {
+    if (undefined === name || null === name || "keccak256" === name) {
         return new Keccak256Transcript(curve);
     }
     if ("keccak256-compressed" === name) {
