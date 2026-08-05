@@ -56,9 +56,10 @@ export function compressG1(G1, point) {
         return buff;
     }
     G1.toRprCompressed(buff, 0, point);
-    const y = G1.toObject(G1.toAffine(point))[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    const flags = y >= yNeg ? 0b10100000 : 0b10000000;
+    // y is the larger of the two roots exactly when y > (p-1)/2 (strict:
+    // the spec leaves the sign flag clear for y = 0).
+    const [, y] = G1.toObject(G1.toAffine(point));
+    const flags = y > (G1.F.p - 1n) / 2n ? 0b10100000 : 0b10000000;
     buff[0] = (buff[0] & 0b00011111) | flags;
     return buff;
 }
@@ -74,9 +75,11 @@ export function compressG2(G2, point) {
         return buff;
     }
     G2.toRprCompressed(buff, 0, point);
+    // Lexicographically larger root: decided by c1 unless c1 = 0 (then -y
+    // has the same c1 and the comparison falls through to c0).
     const [, [yc0, yc1]] = G2.toObject(G2.toAffine(point));
-    const [, [nyc0, nyc1]] = G2.toObject(G2.toAffine(G2.neg(point)));
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
+    const half = (G2.F.F.p - 1n) / 2n;
+    const isLarger = yc1 > half || (0n === yc1 && yc0 > half);
     const flags = isLarger ? 0b10100000 : 0b10000000;
     buff[0] = (buff[0] & 0b00011111) | flags;
     return buff;
