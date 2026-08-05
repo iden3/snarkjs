@@ -21,14 +21,13 @@
 // Use this instead of Keccak256Transcript when the on-chain verifier operates on compressed
 // BLS12-381 points, e.g. Cardano/Plutus via CIP-0381 + CIP-0101.
 
-import {Scalar} from "ffjavascript";
-import {keccak_256} from "@noble/hashes/sha3";
+import {Keccak256Transcript} from "./Keccak256Transcript.js";
 import {compressG1} from "./point_compress.js";
 
-const POLYNOMIAL = 0;
-const SCALAR = 1;
-
-export class Keccak256CompressedTranscript {
+// Same transcript as Keccak256Transcript, except G1 commitments are hashed as
+// G1.F.n8-byte (48 for BLS12-381) ZCash compressed points instead of 2*n8-byte
+// uncompressed ones. Scalar encoding and hashing are inherited.
+export class Keccak256CompressedTranscript extends Keccak256Transcript {
     constructor(curve) {
         // The ZCash compressed encoding is specified for BLS12-381: flags live
         // in the 3 free high bits of the 48-byte serialization (381-bit field).
@@ -38,49 +37,14 @@ export class Keccak256CompressedTranscript {
             throw new Error(`keccak256-compressed transcript only supports bls12381, got '${curve.name}'`);
         }
 
-        this.G1 = curve.G1;
-        this.Fr = curve.Fr;
-
-        this.reset();
+        super(curve);
     }
 
-    reset() {
-        this.data = [];
+    pointSize() {
+        return this.G1.F.n8;
     }
 
-    addPolCommitment(polynomialCommitment) {
-        this.data.push({type: POLYNOMIAL, data: polynomialCommitment});
-    }
-
-    addScalar(scalar) {
-        this.data.push({type: SCALAR, data: scalar});
-    }
-
-    getChallenge() {
-        if (0 === this.data.length) {
-            throw new Error("Keccak256CompressedTranscript: No data to generate a transcript");
-        }
-
-        let nPolynomials = 0;
-        let nScalars = 0;
-
-        this.data.forEach(element => POLYNOMIAL === element.type ? nPolynomials++ : nScalars++);
-
-        // Compressed G1 points are G1.F.n8 bytes (vs 2*n8 for uncompressed).
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8);
-        let offset = 0;
-
-        for (let i = 0; i < this.data.length; i++) {
-            if (POLYNOMIAL === this.data[i].type) {
-                buffer.set(compressG1(this.G1, this.data[i].data), offset);
-                offset += this.G1.F.n8;
-            } else {
-                this.Fr.toRprBE(buffer, offset, this.data[i].data);
-                offset += this.Fr.n8;
-            }
-        }
-
-        const value = Scalar.fromRprBE(keccak_256(buffer));
-        return this.Fr.e(value);
+    writePoint(buffer, offset, point) {
+        buffer.set(compressG1(this.G1, point), offset);
     }
 }
