@@ -570,6 +570,13 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         // Compute the cube root of Fr.w[28] curve-agnostically.
         // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
         const firstRoot = Fr.exp(Fr.w[28], 178956971n);
+
+        // The two literals above are a pair: 178956971 is only inv(3) modulo
+        // that particular 2^28. Catch them being edited apart.
+        if (!Fr.eq(Fr.exp(firstRoot, 3n), Fr.w[28])) {
+            throw new Error("FFLONK setup: getOmegaCubicRoot invariant broken, firstRoot^3 != Fr.w[28]");
+        }
+
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
 }
