@@ -533,7 +533,9 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     function computeW3() {
         // Primitive cube root of unity in Fr. The value is baked into deployed
-        // verifiers, so it must never change for a given curve.
+        // verifiers, so it must never change for a given curve — and an
+        // unrecognized curve must fail loudly rather than silently inherit
+        // another curve's constants.
         if (curve.name === "bls12381") {
             // 2 is a cubic non-residue in the bls12381 scalar field, so
             // 2^((r-1)/3) is a primitive cube root of unity
@@ -543,13 +545,17 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
             return Fr.exp(generator, exponent);
         }
 
-        let generator = Fr.e(31624);
+        if (curve.name === "bn128") {
+            let generator = Fr.e(31624);
 
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
+            // Exponent is order(r - 1) / 3
+            let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+            let exponent = Scalar.div(orderRsub1, Scalar.e(3));
 
-        return Fr.exp(generator, exponent);
+            return Fr.exp(generator, exponent);
+        }
+
+        throw new Error(`FFLONK setup: no cube root of unity defined for curve '${curve.name}'`);
     }
 
     function computeW4() {
