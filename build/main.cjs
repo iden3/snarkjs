@@ -6359,7 +6359,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 }
 
 /*
-    Copyright 2022 iden3 association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkjs.
 
@@ -6389,18 +6389,37 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 // bits (bit 7 = sign, bit 6 = infinity), so the three high bits are cleared
 // and rewritten with the ZCash flags. The x coordinate itself never occupies
 // them: a BLS12-381 base-field element is 381 bits in a 384-bit encoding.
+//
+// These helpers are BLS12-381 only: on curves whose base field fills the
+// flag bits (bn128: 254 bits in a 256-bit encoding) the encoding would not
+// be injective. Supporting bn128 with some other compressed format is
+// deliberately out of scope, not a gap: its on-chain consumers take
+// uncompressed points anyway (the EVM precompiles of EIP-196 specify
+// 64-byte (x, y) with (0, 0) as infinity), so there is no standard
+// compressed bn128 encoding to target. Every exported entry point that
+// reaches this file must reject other curves; assertFreeFlagBits below is
+// the tripwire for callers that forget to.
+
+function assertFreeFlagBits(group, n8, p) {
+    const freeBits = n8 * 8 - p.toString(2).length;
+    if (freeBits < 3) {
+        throw new Error(`compress${group}: ZCash flags need 3 free high bits, the base field leaves ${freeBits}`);
+    }
+}
 
 // Compress a G1 point to G1.F.n8 bytes (48 for BLS12-381).
 function compressG1(G1, point) {
+    assertFreeFlagBits("G1", G1.F.n8, G1.F.p);
     const buff = new Uint8Array(G1.F.n8);
     if (G1.isZero(point)) {
         buff[0] = 0b11000000; // compression + infinity flags
         return buff;
     }
     G1.toRprCompressed(buff, 0, point);
-    const y = G1.toObject(G1.toAffine(point))[1];
-    const yNeg = G1.toObject(G1.toAffine(G1.neg(point)))[1];
-    const flags = y >= yNeg ? 0b10100000 : 0b10000000;
+    // y is the larger of the two roots exactly when y > (p-1)/2 (strict:
+    // the spec leaves the sign flag clear for y = 0).
+    const [, y] = G1.toObject(G1.toAffine(point));
+    const flags = y > (G1.F.p - 1n) / 2n ? 0b10100000 : 0b10000000;
     buff[0] = (buff[0] & 0b00011111) | flags;
     return buff;
 }
@@ -6408,15 +6427,19 @@ function compressG1(G1, point) {
 // Compress a G2 point to G2.F.n8 bytes (96 for BLS12-381).
 // Fq2 lexicographic order: compare c1 first, then c0.
 function compressG2(G2, point) {
+    // Flags land in the high byte of the leading Fq component (n8/2 bytes).
+    assertFreeFlagBits("G2", G2.F.n8 / 2, G2.F.F.p);
     const buff = new Uint8Array(G2.F.n8);
     if (G2.isZero(point)) {
         buff[0] = 0b11000000; // compression + infinity flags
         return buff;
     }
     G2.toRprCompressed(buff, 0, point);
+    // Lexicographically larger root: decided by c1 unless c1 = 0 (then -y
+    // has the same c1 and the comparison falls through to c0).
     const [, [yc0, yc1]] = G2.toObject(G2.toAffine(point));
-    const [, [nyc0, nyc1]] = G2.toObject(G2.toAffine(G2.neg(point)));
-    const isLarger = yc1 > nyc1 || (yc1 === nyc1 && yc0 > nyc0);
+    const half = (G2.F.F.p - 1n) / 2n;
+    const isLarger = yc1 > half || (0n === yc1 && yc0 > half);
     const flags = isLarger ? 0b10100000 : 0b10000000;
     buff[0] = (buff[0] & 0b00011111) | flags;
     return buff;
@@ -6435,7 +6458,7 @@ function toHex(buff) {
 }
 
 /*
-    Copyright 2018 0KIMS association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkJS.
 
@@ -6516,7 +6539,7 @@ async function groth16CardanoVk(curve, zkey, fd, sections) {
     return vKey;
 }
 
-async function plonkCardanoVk(curve, zkey) {
+function plonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -6537,7 +6560,7 @@ async function plonkCardanoVk(curve, zkey) {
     };
 }
 
-async function fflonkCardanoVk(curve, zkey) {
+function fflonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -7196,80 +7219,14 @@ class Proof {
     snarkjs. If not, see <https://www.gnu.org/licenses/>.
 */
 
-const POLYNOMIAL$1 = 0;
-const SCALAR$1 = 1;
-
-class Keccak256Transcript {
-    constructor(curve) {
-        this.G1 = curve.G1;
-        this.Fr = curve.Fr;
-
-        this.reset();
-    }
-
-    reset() {
-        this.data = [];
-    }
-
-    addPolCommitment(polynomialCommitment) {
-        this.data.push({type: POLYNOMIAL$1, data: polynomialCommitment});
-    }
-
-    addScalar(scalar) {
-        this.data.push({type: SCALAR$1, data: scalar});
-    }
-
-    getChallenge() {
-        if(0 === this.data.length) {
-            throw new Error("Keccak256Transcript: No data to generate a transcript");
-        }
-
-        let nPolynomials = 0;
-        let nScalars = 0;
-
-        this.data.forEach(element => POLYNOMIAL$1 === element.type ? nPolynomials++ : nScalars++);
-
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8 * 2);
-        let offset = 0;
-
-        for (let i = 0; i < this.data.length; i++) {
-            if (POLYNOMIAL$1 === this.data[i].type) {
-                this.G1.toRprUncompressed(buffer, offset, this.data[i].data);
-                offset += this.G1.F.n8 * 2;
-            } else {
-                this.Fr.toRprBE(buffer, offset, this.data[i].data);
-                offset += this.Fr.n8;
-            }
-        }
-
-        const value = ffjavascript.Scalar.fromRprBE(sha3.keccak_256(buffer));
-        return this.Fr.e(value);
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
 const POLYNOMIAL = 0;
 const SCALAR = 1;
 
-class Keccak256CompressedTranscript {
+// Fiat-Shamir transcript over Keccak-256. Subclasses may override pointSize()
+// and writePoint() to change the G1 commitment serialization (see
+// Keccak256CompressedTranscript); the scalar encoding and hashing are shared
+// so that transcript variants can never drift apart on them.
+class Keccak256Transcript {
     constructor(curve) {
         this.G1 = curve.G1;
         this.Fr = curve.Fr;
@@ -7289,9 +7246,19 @@ class Keccak256CompressedTranscript {
         this.data.push({type: SCALAR, data: scalar});
     }
 
+    pointSize() {
+        return this.G1.F.n8 * 2;
+    }
+
+    writePoint(buffer, offset, point) {
+        this.G1.toRprUncompressed(buffer, offset, point);
+    }
+
     getChallenge() {
-        if (0 === this.data.length) {
-            throw new Error("Keccak256CompressedTranscript: No data to generate a transcript");
+        if(0 === this.data.length) {
+            // Fixed string rather than this.constructor.name: the minified
+            // bundle mangles class names.
+            throw new Error("Keccak256Transcript: No data to generate a transcript");
         }
 
         let nPolynomials = 0;
@@ -7299,14 +7266,13 @@ class Keccak256CompressedTranscript {
 
         this.data.forEach(element => POLYNOMIAL === element.type ? nPolynomials++ : nScalars++);
 
-        // Compressed G1 points are G1.F.n8 bytes (vs 2*n8 for uncompressed).
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8);
+        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.pointSize());
         let offset = 0;
 
         for (let i = 0; i < this.data.length; i++) {
             if (POLYNOMIAL === this.data[i].type) {
-                buffer.set(compressG1(this.G1, this.data[i].data), offset);
-                offset += this.G1.F.n8;
+                this.writePoint(buffer, offset, this.data[i].data);
+                offset += this.pointSize();
             } else {
                 this.Fr.toRprBE(buffer, offset, this.data[i].data);
                 offset += this.Fr.n8;
@@ -7319,7 +7285,51 @@ class Keccak256CompressedTranscript {
 }
 
 /*
-    Copyright 2022 iden3 association.
+    Copyright 2026 iden3 association.
+
+    This file is part of snarkjs.
+
+    snarkjs is a free software: you can redistribute it and/or
+    modify it under the terms of the GNU General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your option)
+    any later version.
+
+    snarkjs is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+    more details.
+
+    You should have received a copy of the GNU General Public License along with
+    snarkjs. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+// Same transcript as Keccak256Transcript, except G1 commitments are hashed as
+// G1.F.n8-byte (48 for BLS12-381) ZCash compressed points instead of 2*n8-byte
+// uncompressed ones. Scalar encoding and hashing are inherited.
+class Keccak256CompressedTranscript extends Keccak256Transcript {
+    constructor(curve) {
+        // The ZCash compressed encoding is specified for BLS12-381: flags live
+        // in the 3 free high bits of the 48-byte serialization (381-bit field).
+        // On other curves (e.g. bn128: 254 bits in 32 bytes, 2 free) the flags
+        // would corrupt x-coordinate data.
+        if (curve.name !== "bls12381") {
+            throw new Error(`keccak256-compressed transcript only supports bls12381, got '${curve.name}'`);
+        }
+
+        super(curve);
+    }
+
+    pointSize() {
+        return this.G1.F.n8;
+    }
+
+    writePoint(buffer, offset, point) {
+        buffer.set(compressG1(this.G1, point), offset);
+    }
+}
+
+/*
+    Copyright 2026 iden3 association.
 
     This file is part of snarkjs.
 
@@ -7340,10 +7350,12 @@ class Keccak256CompressedTranscript {
 // Fiat-Shamir transcript factory. `name` comes from the `transcript` option
 // (`--transcript` on the CLI): undefined selects the default keccak256
 // transcript over uncompressed points, "keccak256-compressed" the compressed
-// variant for Cardano/Plutus. Anything else is rejected so that a typo cannot
-// silently produce a proof for the wrong transcript.
+// variant for Cardano/Plutus (bls12381 only). Anything else is rejected so
+// that a typo cannot silently produce a proof for the wrong transcript.
+// The CLI option layer (clprocessor getOption) yields null, not undefined,
+// for a declared-but-absent option, so both must select the default.
 function createTranscript(curve, name) {
-    if (undefined === name || "keccak256" === name) {
+    if (undefined === name || null === name || "keccak256" === name) {
         return new Keccak256Transcript(curve);
     }
     if ("keccak256-compressed" === name) {
@@ -10750,7 +10762,9 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     function computeW3() {
         // Primitive cube root of unity in Fr. The value is baked into deployed
-        // verifiers, so it must never change for a given curve.
+        // verifiers, so it must never change for a given curve — and an
+        // unrecognized curve must fail loudly rather than silently inherit
+        // another curve's constants.
         if (curve.name === "bls12381") {
             // 2 is a cubic non-residue in the bls12381 scalar field, so
             // 2^((r-1)/3) is a primitive cube root of unity
@@ -10760,13 +10774,17 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
             return Fr.exp(generator, exponent);
         }
 
-        let generator = Fr.e(31624);
+        if (curve.name === "bn128") {
+            let generator = Fr.e(31624);
 
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = ffjavascript.Scalar.div(orderRsub1, ffjavascript.Scalar.e(3));
+            // Exponent is order(r - 1) / 3
+            let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
+            let exponent = ffjavascript.Scalar.div(orderRsub1, ffjavascript.Scalar.e(3));
 
-        return Fr.exp(generator, exponent);
+            return Fr.exp(generator, exponent);
+        }
+
+        throw new Error(`FFLONK setup: no cube root of unity defined for curve '${curve.name}'`);
     }
 
     function computeW4() {
@@ -10781,6 +10799,13 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
         // Compute the cube root of Fr.w[28] curve-agnostically.
         // inv(3) mod 2^28 = 178956971, since 3 * 178956971 = 2^29 + 1 ≡ 1 (mod 2^28).
         const firstRoot = Fr.exp(Fr.w[28], 178956971n);
+
+        // The two literals above are a pair: 178956971 is only inv(3) modulo
+        // that particular 2^28. Catch them being edited apart.
+        if (!Fr.eq(Fr.exp(firstRoot, 3n), Fr.w[28])) {
+            throw new Error("FFLONK setup: getOmegaCubicRoot invariant broken, firstRoot^3 != Fr.w[28]");
+        }
+
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
 }
@@ -12753,7 +12778,7 @@ var fflonk = /*#__PURE__*/Object.freeze({
 });
 
 /*
-    Copyright 2018 0KIMS association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkJS.
 
@@ -12801,19 +12826,13 @@ async function exportCardanoProof(_proof) {
 
 // ---------- per-protocol converters ----------
 
-function g1FromObj(curve, obj) {
-    return curve.G1.fromObject(obj);
-}
-
-function g2FromObj(curve, obj) {
-    return curve.G2.fromObject(obj);
-}
-
 function groth16CardanoProof(curve, proof) {
     return {
-        pi_a: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_a)),
-        pi_b: compressG2Hex(curve.G2, g2FromObj(curve, proof.pi_b)),
-        pi_c: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_c)),
+        protocol: proof.protocol,
+        curve: curve.name,
+        pi_a: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_a)),
+        pi_b: compressG2Hex(curve.G2, curve.G2.fromObject(proof.pi_b)),
+        pi_c: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_c)),
     };
 }
 
@@ -12821,8 +12840,10 @@ function groth16CardanoProof(curve, proof) {
 //   A, B, C, Z, T1, T2, T3, Wxi, Wxiw  → G1 points as [x, y, "1"]
 //   eval_a, eval_b, eval_c, eval_s1, eval_s2, eval_zw → Fr scalars (decimal strings)
 function plonkCardanoProof(curve, proof) {
-    const g1 = (key) => compressG1Hex(curve.G1, g1FromObj(curve, proof[key]));
+    const g1 = (key) => compressG1Hex(curve.G1, curve.G1.fromObject(proof[key]));
     return {
+        protocol: proof.protocol,
+        curve: curve.name,
         A:    g1("A"),
         B:    g1("B"),
         C:    g1("C"),
@@ -12848,9 +12869,11 @@ function plonkCardanoProof(curve, proof) {
 function fflonkCardanoProof(curve, proof) {
     const poly = proof.polynomials;
     const eval_ = proof.evaluations;
-    const g1 = (p) => compressG1Hex(curve.G1, g1FromObj(curve, p));
+    const g1 = (p) => compressG1Hex(curve.G1, curve.G1.fromObject(p));
     const sc = (v) => String(v);
     return {
+        protocol: proof.protocol,
+        curve: curve.name,
         c1: g1(poly.C1),
         c2: g1(poly.C2),
         w1: g1(poly.W1),
