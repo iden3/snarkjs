@@ -1,5 +1,5 @@
 /*
-    Copyright 2018 0KIMS association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkJS.
 
@@ -91,7 +91,7 @@ async function groth16CardanoVk(curve, zkey, fd, sections) {
     return vKey;
 }
 
-async function plonkCardanoVk(curve, zkey) {
+function plonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,
@@ -112,7 +112,7 @@ async function plonkCardanoVk(curve, zkey) {
     };
 }
 
-async function fflonkCardanoVk(curve, zkey) {
+function fflonkCardanoVk(curve, zkey) {
     return {
         protocol: zkey.protocol,
         curve: curve.name,

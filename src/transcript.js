@@ -1,5 +1,5 @@
 /*
-    Copyright 2022 iden3 association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkjs.
 

@@ -1,5 +1,5 @@
 /*
-    Copyright 2018 0KIMS association.
+    Copyright 2026 iden3 association.
 
     This file is part of snarkJS.
 
@@ -56,21 +56,13 @@ export default async function exportCardanoProof(_proof) {
 
 // ---------- per-protocol converters ----------
 
-function g1FromObj(curve, obj) {
-    return curve.G1.fromObject(obj);
-}
-
-function g2FromObj(curve, obj) {
-    return curve.G2.fromObject(obj);
-}
-
 function groth16CardanoProof(curve, proof) {
     return {
         protocol: proof.protocol,
         curve: curve.name,
-        pi_a: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_a)),
-        pi_b: compressG2Hex(curve.G2, g2FromObj(curve, proof.pi_b)),
-        pi_c: compressG1Hex(curve.G1, g1FromObj(curve, proof.pi_c)),
+        pi_a: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_a)),
+        pi_b: compressG2Hex(curve.G2, curve.G2.fromObject(proof.pi_b)),
+        pi_c: compressG1Hex(curve.G1, curve.G1.fromObject(proof.pi_c)),
     };
 }
 
@@ -78,7 +70,7 @@ function groth16CardanoProof(curve, proof) {
 //   A, B, C, Z, T1, T2, T3, Wxi, Wxiw  → G1 points as [x, y, "1"]
 //   eval_a, eval_b, eval_c, eval_s1, eval_s2, eval_zw → Fr scalars (decimal strings)
 function plonkCardanoProof(curve, proof) {
-    const g1 = (key) => compressG1Hex(curve.G1, g1FromObj(curve, proof[key]));
+    const g1 = (key) => compressG1Hex(curve.G1, curve.G1.fromObject(proof[key]));
     return {
         protocol: proof.protocol,
         curve: curve.name,
@@ -107,7 +99,7 @@ function plonkCardanoProof(curve, proof) {
 function fflonkCardanoProof(curve, proof) {
     const poly = proof.polynomials;
     const eval_ = proof.evaluations;
-    const g1 = (p) => compressG1Hex(curve.G1, g1FromObj(curve, p));
+    const g1 = (p) => compressG1Hex(curve.G1, curve.G1.fromObject(p));
     const sc = (v) => String(v);
     return {
         protocol: proof.protocol,
