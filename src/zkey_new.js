@@ -161,8 +161,6 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     IC = null;
-    // const gc = runInNewContext("gc"); // nocommit
-    // gc();
 
     if (logger) logger.info("writeHs");
     await writeHs();

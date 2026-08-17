@@ -3310,8 +3310,6 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await composeAndWritePoints(3, "G1", IC, "IC");
 
     IC = null;
-    // const gc = runInNewContext("gc"); // nocommit
-    // gc();
 
     if (logger) logger.info("writeHs");
     await writeHs();
@@ -8124,7 +8122,8 @@ class Polynomial {
             // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
             throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
         } else if (1 === n) {
-            return await Polynomial.fromEvaluations(polynomial.coef, polynomial.curve, polynomial.logger);
+            // f(x^1) = f(x): the coefficients are unchanged, so return a copy.
+            return Polynomial.fromPolynomial(polynomial, polynomial.curve, polynomial.logger);
         }
 
         // length is the length of non-constant coefficients
