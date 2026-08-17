@@ -313,6 +313,30 @@ describe("snarkjs: Polynomial tests", function () {
         assert(polExp.isEqual(polResult));
     });
 
+    it("should return an identical copy when exp'ing a polynomial with n = 1", async () => {
+        // Regression test: expX(pol, 1) used to reference an undefined
+        // variable (ReferenceError), then briefly returned
+        // fromEvaluations(coef) -- an IFFT of the coefficients -- instead of
+        // f(x^1) = f(x).
+        const Fr = curve.Fr;
+
+        const pol = Polynomial.fromCoefficientsArray([Fr.e(3), Fr.e(7), Fr.zero, Fr.e(11)], curve);
+        const polExp = await Polynomial.expX(pol, 1);
+
+        assert(polExp !== pol, "expX must return a new polynomial, not the input");
+        assert(polExp.coef !== pol.coef, "expX must not share the coefficient buffer");
+        assert(polExp.isEqual(pol));
+    });
+
+    it("should throw when exp'ing a polynomial with n < 1", async () => {
+        const Fr = curve.Fr;
+        const pol = Polynomial.fromCoefficientsArray([Fr.e(3), Fr.e(7)], curve);
+
+        for (const n of [0, -1]) {
+            await assert.rejects(Polynomial.expX(pol, n));
+        }
+    });
+
     it("should split a polynomial", async () => {
         const Fr = curve.Fr;
 

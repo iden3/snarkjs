@@ -220,6 +220,47 @@ describe("Full process", function ()  {
         });
     }
 
+    // The stream tuning knobs (see pickStreamParams in src/groth16_prove.js):
+    // buildABCFloorBudget bounds the persistent worker memory, clamping
+    // maxInFlight down to 1 at the extreme; explicit nChunks/maxInFlight
+    // overrides bypass the heuristic entirely. Degenerate values must still
+    // produce a verifying proof, just more slowly.
+    const streamTuningCombos = [
+        {buildABC: "stream", buildABCFloorBudget: 1},                    // clamps maxInFlight to 1
+        {buildABC: "stream", buildABCnChunks: 1, buildABCmaxInFlight: 1}, // single serial chunk
+        {buildABC: "stream", buildABCnChunks: 7, buildABCmaxInFlight: 3}, // non-divisor chunk count
+    ];
+
+    for (const options of streamTuningCombos) {
+        const label = Object.entries(options).map(([k, v]) => `${k}=${v}`).join(", ");
+
+        it (`groth16 proof + verify (${label})`, async () => {
+            const res = await snarkjs.groth16.prove(zkey_final, wtns, undefined, options);
+            const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+            assert(ok == true);
+        });
+    }
+
+    it ("groth16 proof with memoryLogging emits memory lines and still verifies", async () => {
+        // memoryLogging starts a periodic memUsage timer (Node only) which
+        // must be cleared in groth16Prove's finally -- a leaked interval
+        // would keep the process (and this test run) alive forever. The
+        // finally also logs one final memUsage line, so at least one "Heap:"
+        // line must appear even if the prove finishes before the first tick.
+        const lines = [];
+        const logger = {
+            info: (...args) => lines.push(args.join(" ")),
+            debug: () => {},
+            warn: () => {},
+            error: () => {},
+        };
+
+        const res = await snarkjs.groth16.prove(zkey_final, wtns, logger, {memoryLogging: 50});
+        const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
+        assert(ok == true);
+        assert(lines.some((l) => l.includes("Heap:")), "expected at least one memory-usage log line");
+    });
+
     for (const buildABC of ["wasm", "wasm1", "bogus"]) {
         it (`groth16 proof rejects a retired/invalid buildABC option (${buildABC})`, async () => {
             let threw = false;
@@ -296,6 +337,17 @@ describe("Full process", function ()  {
 
         const res = await snarkjs.plonk.verify(vKey, publicSignals, tamperedProof);
         assert(res == false);
+    });
+
+    it ("plonk verify rejects a wrong number of public signals, without throwing", async () => {
+        // Both public-signal-count checks in plonkVerify log through a
+        // guarded logger; called without one (as here) they must return
+        // false, not throw.
+        const res = await snarkjs.plonk.verify(vKey, [...publicSignals, "1"], proof);
+        assert(res == false);
+
+        const res2 = await snarkjs.plonk.verify(vKey, [], proof);
+        assert(res2 == false);
     });
 
 });
