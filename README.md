@@ -649,7 +649,40 @@ await wtnsCalculate(input, wasmFile, wtns, {memorySize: 0});
 
 
 
-## Testing exported verifiers on-chain with Foundry
+## Building and testing with make (and Nix)
+
+Getting all three test layers running -- Node/mocha unit tests, Hardhat
+on-chain tests, and Foundry on-chain tests -- takes several tools.  The
+Makefile turns each into one command:
+
+| target                     | what it runs                                        |
+| -------------------------- | --------------------------------------------------- |
+| `make install`             | `npm install` here and in `smart_contract_tests/`   |
+| `make build`               | `npm run build`                                     |
+| `make test`                | mocha unit/integration suite                        |
+| `make test-smart-contracts`| Hardhat: export a verifier, deploy, `verifyProof()` |
+| `make test-forge`          | Foundry: same idea on forge's revm (see below)      |
+| `make test-all`            | all three                                           |
+| `make test-file FILE=...`  | a single mocha file                                 |
+| `make test-grep GREP=...`  | mocha by pattern                                    |
+| `make circuits`            | recompile the bundled test circuits after edits     |
+| `make verifier-preview`    | print a freshly generated Groth16 verifier          |
+| `make clean` / `distclean` | build artifacts / also node_modules                 |
+
+With Nix installed, no other setup is needed: prefix any target with
+`nix-` and the flake supplies the whole toolchain (node, circom, forge,
+and a pinned solc, so forge never downloads a compiler):
+
+```sh
+make nix-test                    # unit tests, zero local toolchain
+make nix-test-smart-contracts    # Hardhat on-chain tests
+make nix-test-forge              # Foundry on-chain tests
+make nix-test-all                # everything
+```
+
+or enter the shell once and use the plain targets: `nix develop`.
+
+### Testing exported verifiers on-chain with Foundry
 
 `make test-forge` proves a bundled test circuit, exports the Solidity
 verifier, and runs it on a real EVM via `forge test`.  The generated test
@@ -660,17 +693,14 @@ no forge-std, no network access -- and auto-skips (exit 0) when `forge`
 is not installed.
 
 ```sh
-make test-forge         # test/groth16 circuit
-make test-forge-all     # test/groth16 and test/circuit2 circuits
+make test-forge                             # test/groth16 circuit
+make test-forge-all                         # test/groth16 and test/circuit2
+make test-forge CIRCUIT_DIR=test/circuit2   # any bundled Groth16 circuit
 ```
 
-The repository's Nix flake provides the whole toolchain (node, circom,
-forge, and a pinned solc, so forge never downloads a compiler):
-
-```sh
-nix develop             # then run the targets above
-nix develop --command make test-forge-all
-```
+Forge's revm enforces the EIP-197 point encodings strictly, so this layer
+catches calldata-packing mistakes that off-chain `groth16 verify` cannot
+see -- it never crosses the EVM ABI.
 
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
