@@ -649,6 +649,14 @@ await wtnsCalculate(input, wasmFile, wtns, {memorySize: 0});
 
 
 
+### G2 point ordering in the Solidity verifier
+
+The exported Groth16 verifier expects the proof's `B` component in EIP-197
+order, which is the reverse of `proof.json`'s. `zkey export soliditycalldata`
+performs that swap for you, so its output can be passed to `verifyProof`
+directly. If you build the call by hand, see the note in the generated
+verifier above its `// B` block.
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
