@@ -39,6 +39,13 @@ describe("Smart contracts test suite", function () {
         )).to.be.equal(true);
     });
 
+    it("Groth16 exportSolidityCallData output verifies on-chain", async () => {
+        expect(await groth16VerifyViaExportedCallData(
+            path.join("../test", "groth16", "circuit.r1cs"),
+            path.join("../test", "groth16", "witness.wtns")
+        )).to.be.equal(true);
+    });
+
     it("Groth16 smart contract 1 aliased input", async () => {
         expect(
             await groth16VerifyAliased(
@@ -92,6 +99,10 @@ describe("Smart contracts test suite", function () {
         const { proof: proof, publicSignals: publicInputs } = await snarkjs.groth16.prove(zkeyFilename, wtnsFilename);
 
         const proofA = [proof.pi_a[0], proof.pi_a[1]];
+        // G2 coordinates are swapped to EIP-197 order here; the verifier
+        // expects _pB im-first.  exportSolidityCallData does the same swap --
+        // see the groth16 exportSolidityCallData test below, which pins that
+        // exporter and verifier agree.
         const proofB = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]]];
         const proofC = [proof.pi_c[0], proof.pi_c[1]];
 
@@ -107,6 +118,34 @@ describe("Smart contracts test suite", function () {
         verifierContract = await VerifierFactory.deploy();
 
         return await verifierContract.verifyProof(proofA, proofB, proofC, publicInputs);
+    }
+
+    // Pins the contract between `zkey export soliditycalldata` and the exported
+    // verifier.  Nothing else covers it: every other test builds the calldata by
+    // hand, so both could drift from each other and stay green.  The G2 ordering
+    // convention -- verification-key constants im-first inside the contract, the
+    // proof's B swapped by the caller -- is only correct if these two agree, and
+    // that agreement is an ABI: verifiers are deployed immutably, so changing
+    // either side desynchronises every deployment that already exists.
+    async function groth16VerifyViaExportedCallData(r1csFilename, wtnsFilename) {
+        const solidityVerifierFilename = path.join("contracts", "groth16.sol");
+        const zkeyFilename = { type: "mem" };
+
+        await snarkjs.zKey.newZKey(r1csFilename, ptauFilename, zkeyFilename);
+        const { proof, publicSignals } = await snarkjs.groth16.prove(zkeyFilename, wtnsFilename);
+
+        const verifierCode = await snarkjs.zKey.exportSolidityVerifier(zkeyFilename, templates);
+        fs.writeFileSync(solidityVerifierFilename, verifierCode, "utf-8");
+        await run("compile");
+
+        const VerifierFactory = await ethers.getContractFactory("Groth16Verifier");
+        verifierContract = await VerifierFactory.deploy();
+
+        // Take the arguments exactly as the CLI would emit them.
+        const callData = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals);
+        const [a, b, c, inputs] = JSON.parse(`[${callData}]`);
+
+        return await verifierContract.verifyProof(a, b, c, inputs);
     }
 
     async function groth16VerifyAliased(r1csFilename, wtnsFilename) {

@@ -243,13 +243,26 @@ const commands = [
     },
     {
         cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
-        description: "Creates a verifier in solidity",
+        description: "Creates a verifier in solidity. Expects _pB in EIP-197 order; see soliditycalldata",
+        longDescription: "Creates a verifier in solidity.\n\n" +
+            "The generated contract's verifyProof expects the proof's B component\n" +
+            "in EIP-197 order ([x_im, x_re, y_im, y_re]) -- the reverse of\n" +
+            "proof.json's; see the note above the contract's `// B` block.  Use\n" +
+            "'zkey export soliditycalldata' to produce arguments in that order.",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
         action: zkeyExportSolidityVerifier
     },
     {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
-        description: "Generates call parameters ready to be called.",
+        description: "Generates call parameters ready to be called (proof's B already in EIP-197 order)",
+        longDescription: "Generates call parameters ready to be called.\n\n" +
+            "The proof's B component is emitted in EIP-197 order\n" +
+            "([x_im, x_re, y_im, y_re]), which is the reverse of proof.json's and\n" +
+            "is what the exported verifier expects -- so this output can be\n" +
+            "passed to verifyProof directly.  Building the call by hand from\n" +
+            "proof.json without swapping each G2 coordinate pair yields an\n" +
+            "off-curve point, and verifyProof then returns false for a proof\n" +
+            "that verifies fine off-chain.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
     },
