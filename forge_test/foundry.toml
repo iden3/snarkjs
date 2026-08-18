@@ -1,0 +1,18 @@
+[profile.default]
+  src = "src"
+  out = "out"
+  test = "test"
+  evm_version = "istanbul"
+  optimizer = true
+  optimizer_runs = 999999
+
+# No dependencies: the generated test imports only the exported verifier,
+# so there is no lib/, no remappings, and nothing to `forge install`.
+#
+# No solc pin: forge selects a compiler satisfying the exported verifier's
+# pragma (>=0.7.0 <0.9.0).  Inside the Nix dev shell, FOUNDRY_SOLC points
+# at the Nix-provided solc, so no compiler download is needed.
+#
+# The verifier calls the bn254 precompiles (ecAdd/ecMul/ecPairing at
+# 0x06/0x07/0x08), available on all post-Byzantium EVMs; evm_version
+# istanbul keeps the bytecode PUSH0-free for older EVMs.
