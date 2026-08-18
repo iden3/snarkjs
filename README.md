@@ -649,6 +649,21 @@ await wtnsCalculate(input, wasmFile, wtns, {memorySize: 0});
 
 
 
+## Testing exported verifiers on-chain with Foundry
+
+`make test-forge` proves a bundled test circuit, exports the Solidity
+verifier, and runs it on a real EVM via `forge test`.  The generated test
+feeds `verifyProof` the proof with the same EIP-197 `_pB` coordinate swap
+that `snarkjs zkey export soliditycalldata` performs, and checks that an
+aliased public input is rejected.  It is self-contained -- no submodules,
+no forge-std, no network access -- and auto-skips (exit 0) when `forge`
+is not installed.
+
+```sh
+make test-forge         # test/groth16 circuit
+make test-forge-all     # test/groth16 and test/circuit2 circuits
+```
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
