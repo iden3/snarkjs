@@ -664,6 +664,14 @@ make test-forge         # test/groth16 circuit
 make test-forge-all     # test/groth16 and test/circuit2 circuits
 ```
 
+The repository's Nix flake provides the whole toolchain (node, circom,
+forge, and a pinned solc, so forge never downloads a compiler):
+
+```sh
+nix develop             # then run the targets above
+nix develop --command make test-forge-all
+```
+
 ## Further resources
 - [Announcing the Perpetual Powers of Tau Ceremony to benefit all zk-SNARK projects](https://medium.com/coinmonks/announcing-the-perpetual-powers-of-tau-ceremony-to-benefit-all-zk-snark-projects-c3da86af8377)
 - [Scalable Multi-party Computation for zk-SNARK Parameters in
