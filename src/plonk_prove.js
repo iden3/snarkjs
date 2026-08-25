@@ -44,7 +44,14 @@ import { Polynomial } from "./polynomial/polynomial.js";
 import { Evaluations } from "./polynomial/evaluations.js";
     
 export default async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
-    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdWtns, sectionsWtns, fdZKey, zkeySections;
+    try {
+
+    ({fd: fdWtns, sections: sectionsWtns} = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23));
 
     // Read witness file
     if (logger) logger.debug("> Reading witness file");
@@ -52,7 +59,7 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
 
     // Read zkey file
     if (logger) logger.debug("> Reading zkey file");
-    const {fd: fdZKey, sections: zkeySections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+    ({fd: fdZKey, sections: zkeySections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23));
 
     const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
@@ -912,5 +919,12 @@ export default async function plonk16Prove(zkeyFileName, witnessFileName, logger
         polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
 
         polynomials.Wxiw.divByZerofier(1, challenges.xiw);
+    }
+
+    } finally {
+        for (const openFd of [fdWtns, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
     }
 }

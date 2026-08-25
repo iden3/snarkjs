@@ -57,13 +57,20 @@ import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdPTau, pTauSections, fdR1cs, sectionsR1cs, fdZKey;
+    try {
+
     if (logger) logger.info("FFLONK SETUP STARTED");
 
     if (globalThis.gc) globalThis.gc();
 
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
-    const {fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
+    ({fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24));
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -74,7 +81,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    ({fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
@@ -216,7 +223,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
-        const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
@@ -593,6 +600,13 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
+    }
+
+    } finally {
+        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
     }
 }
 

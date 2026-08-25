@@ -24,8 +24,15 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import * as misc from "./misc.js";
 
 export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdZKeyOld, sectionsZKeyOld, fdMPCParams, fdZKeyNew;
+    try {
 
-    const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
+
+    ({fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2));
     const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, false);
     if (zkeyHeader.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -38,7 +45,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     const oldMPCParams = await zkeyUtils.readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await fastFile.readExisting(mpcparamsName);
+    fdMPCParams = await fastFile.readExisting(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -101,7 +108,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
         }
     }
 
-    const fdZKeyNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    fdZKeyNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
     fdMPCParams.pos = 0;
 
     // Header
@@ -250,5 +257,12 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     }
 
 
+
+    } finally {
+        for (const openFd of [fdZKeyOld, fdMPCParams, fdZKeyNew]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 

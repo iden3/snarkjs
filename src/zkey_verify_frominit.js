@@ -31,9 +31,16 @@ import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
 
 export default async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fd, sections, fdInit, sectionsInit, fdPTau, sectionsPTau;
+    try {
+
 
     let sr;
-    const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
+    ({fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2));
     const zkey = await zkeyUtils.readHeader(fd, sections, false);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -114,7 +121,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
     }
 
 
-    const {fd: fdInit, sections: sectionsInit} = await binFileUtils.readBinFile(initFileName, "zkey", 2);
+    ({fd: fdInit, sections: sectionsInit} = await binFileUtils.readBinFile(initFileName, "zkey", 2));
     const zkeyInit = await zkeyUtils.readHeader(fdInit, sectionsInit, false);
 
     if (zkeyInit.protocol != "groth16") {
@@ -299,7 +306,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         const Fr = curve.Fr;
         const sG = G.F.n8*2;
 
-        const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(pTauFileName, "ptau", 1);
+        ({fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(pTauFileName, "ptau", 1));
 
         let buff_r = new BigBuffer(zkey.domainSize * zkey.n8r);
 
@@ -447,5 +454,12 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         return res;
     }
 
+
+    } finally {
+        for (const openFd of [fd, fdInit, fdPTau]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 

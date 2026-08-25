@@ -24,23 +24,30 @@ import { Scalar } from "ffjavascript";
 import * as curves from "./curves.js";
 
 export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdR1cs, sectionsR1cs, fdWtns, wtnsSections;
+    try {
+
 
     if (logger) logger.info("WITNESS CHECKING STARTED");
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {
+    ({
         fd: fdR1cs,
         sections: sectionsR1cs
-    } = await binFileUtils.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    } = await binFileUtils.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
 
     // Read witness file
     if (logger) logger.info("> Reading witness file");
-    const {
+    ({
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24);
+    } = await binFileUtils.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24));
     const wtnsHeader = await wtnsUtils.readHeader(fdWtns, wtnsSections);
 
     if (!Scalar.eq(r1cs.prime, wtnsHeader.q)) {
@@ -146,5 +153,12 @@ export default async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
     function getWitnessValue(signalId) {
         return Fr.fromRprLE(buffWitness.slice(signalId * sFr, signalId * sFr + sFr));
+    }
+
+    } finally {
+        for (const openFd of [fdR1cs, fdWtns]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
     }
 }

@@ -49,22 +49,29 @@ const { stringifyBigInts } = utils;
 
 
 export default async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdWtns, wtnsSections, fdZKey, zkeySections;
+    try {
+
     if (logger) logger.info("FFLONK PROVER STARTED");
 
     // Read witness file
     if (logger) logger.info("> Reading witness file");
-    const {
+    ({
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
+    } = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23));
     const wtns = await wtnsUtils.readHeader(fdWtns, wtnsSections);
 
     //Read zkey file
     if (logger) logger.info("> Reading zkey file");
-    const {
+    ({
         fd: fdZKey,
         sections: zkeySections
-    } = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
+    } = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23));
 
     const zkey = await zkeyUtils.readHeader(fdZKey, zkeySections, undefined, options);
 
@@ -1353,6 +1360,13 @@ export default async function fflonkProve(zkeyFileName, witnessFileName, logger,
             }
         
             return Li;
+        }
+    }
+
+    } finally {
+        for (const openFd of [fdWtns, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
         }
     }
 }

@@ -2778,9 +2778,16 @@ async function verifyContribution(curve, cur, prev, logger) {
 }
 
 async function verify(tauFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fd, sections;
+    try {
+
     let sr;
 
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(tauFilename, "ptau", 1);
+    ({fd, sections} = await binFileUtils__namespace.readBinFile(tauFilename, "ptau", 1));
     const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
     const contrs = await readContributions(fd, curve, sections);
 
@@ -2930,7 +2937,7 @@ async function verify(tauFilename, logger) {
         const prevContr =  (i>0) ? contrs[i-1] : initialContribution;
         const res = await verifyContribution(curve, curContr, prevContr, logger);
         if (!res) return false;
-        printContribution(curContr, prevContr);
+        printContribution(curContr, prevContr, logger);
     }
     if (logger) logger.info("-----------------------------------------------------");
 
@@ -3177,6 +3184,13 @@ async function verify(tauFilename, logger) {
             }
 
             return true;
+        }
+    }
+
+    } finally {
+        for (const openFd of [fd]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
         }
     }
 }
@@ -4495,23 +4509,30 @@ async function wtnsExportJson(wtnsFileName) {
 
 
 async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdR1cs, sectionsR1cs, fdWtns, wtnsSections;
+    try {
+
 
     if (logger) logger.info("WITNESS CHECKING STARTED");
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {
+    ({
         fd: fdR1cs,
         sections: sectionsR1cs
-    } = await binFileUtils__namespace.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    } = await binFileUtils__namespace.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
     const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
 
     // Read witness file
     if (logger) logger.info("> Reading witness file");
-    const {
+    ({
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils__namespace.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24);
+    } = await binFileUtils__namespace.readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24));
     const wtnsHeader = await readHeader(fdWtns, wtnsSections);
 
     if (!ffjavascript.Scalar.eq(r1cs.prime, wtnsHeader.q)) {
@@ -4617,6 +4638,13 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
     function getWitnessValue(signalId) {
         return Fr.fromRprLE(buffWitness.slice(signalId * sFr, signalId * sFr + sFr));
+    }
+
+    } finally {
+        for (const openFd of [fdR1cs, fdWtns]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
     }
 }
 
@@ -4766,6 +4794,13 @@ class BigArray {
 
 
 async function newZKey(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdPTau, sectionsPTau, fdR1cs, sectionsR1cs, fdZKey;
+    try {
+
 
     const TAU_G1 = 0;
     const TAU_G2 = 1;
@@ -4773,12 +4808,12 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const BETATAU_G1 = 3;
     const csHasher = blake2_js.blake2b.create({ dkLen: 64 });
 
-    const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    ({fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24));
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    ({fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24));
     const r1cs = await r1csfile.readR1csHeader(fdR1cs, sectionsR1cs, false);
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
+    fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
@@ -5364,6 +5399,13 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
         csHasher.update(buff);
     }
 
+
+    } finally {
+        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 
 async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
@@ -5521,8 +5563,15 @@ async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
 
 
 async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdZKeyOld, sectionsZKeyOld, fdMPCParams, fdZKeyNew;
+    try {
 
-    const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2);
+
+    ({fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils__namespace.readBinFile(zkeyNameOld, "zkey", 2));
     const zkeyHeader = await readHeader$1(fdZKeyOld, sectionsZKeyOld, false);
     if (zkeyHeader.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -5535,7 +5584,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
     const newMPCParams = {};
 
-    const fdMPCParams = await fastFile__namespace.readExisting(mpcparamsName);
+    fdMPCParams = await fastFile__namespace.readExisting(mpcparamsName);
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -5598,7 +5647,7 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
         }
     }
 
-    const fdZKeyNew = await binFileUtils__namespace.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    fdZKeyNew = await binFileUtils__namespace.createBinFile(zkeyNameNew, "zkey", 1, 10);
     fdMPCParams.pos = 0;
 
     // Header
@@ -5747,6 +5796,13 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
     }
 
 
+
+    } finally {
+        for (const openFd of [fdZKeyOld, fdMPCParams, fdZKeyNew]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 
 const sameRatio = sameRatio$2;
@@ -5754,9 +5810,16 @@ const sameRatio = sameRatio$2;
 
 
 async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fd, sections, fdInit, sectionsInit, fdPTau, sectionsPTau;
+    try {
+
 
     let sr;
-    const {fd, sections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2);
+    ({fd, sections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2));
     const zkey = await readHeader$1(fd, sections, false);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -5837,7 +5900,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
     }
 
 
-    const {fd: fdInit, sections: sectionsInit} = await binFileUtils__namespace.readBinFile(initFileName, "zkey", 2);
+    ({fd: fdInit, sections: sectionsInit} = await binFileUtils__namespace.readBinFile(initFileName, "zkey", 2));
     const zkeyInit = await readHeader$1(fdInit, sectionsInit, false);
 
     if (zkeyInit.protocol != "groth16") {
@@ -6022,7 +6085,7 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         const Fr = curve.Fr;
         const sG = G.F.n8*2;
 
-        const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils__namespace.readBinFile(pTauFileName, "ptau", 1);
+        ({fd: fdPTau, sections: sectionsPTau} = await binFileUtils__namespace.readBinFile(pTauFileName, "ptau", 1));
 
         let buff_r = new ffjavascript.BigBuffer(zkey.domainSize * zkey.n8r);
 
@@ -6170,6 +6233,13 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
         return res;
     }
 
+
+    } finally {
+        for (const openFd of [fd, fdInit, fdPTau]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 
 /*
@@ -6884,12 +6954,19 @@ var zkey = /*#__PURE__*/Object.freeze({
 
 
 async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdPTau, sectionsPTau, fdR1cs, sectionsR1cs, fdZKey;
+    try {
+
 
     if (globalThis.gc) {globalThis.gc();}
 
-    const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    ({fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24));
     const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    ({fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24));
 
     const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
@@ -6911,7 +6988,7 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     if (globalThis.gc) {globalThis.gc();}
 
-    const fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
+    fdZKey = await binFileUtils.createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
 
 
     if (r1cs.prime != curve.r) {
@@ -7379,6 +7456,13 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 w = Fr.mul(w, Fr.w[pow]);
             }
             return false;
+        }
+    }
+
+    } finally {
+        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
         }
     }
 }
@@ -8755,7 +8839,14 @@ class Evaluations {
 const {stringifyBigInts: stringifyBigInts$1} = ffjavascript.utils;
     
 async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
-    const {fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdWtns, sectionsWtns, fdZKey, zkeySections;
+    try {
+
+    ({fd: fdWtns, sections: sectionsWtns} = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23));
 
     // Read witness file
     if (logger) logger.debug("> Reading witness file");
@@ -8763,7 +8854,7 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     // Read zkey file
     if (logger) logger.debug("> Reading zkey file");
-    const {fd: fdZKey, sections: zkeySections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+    ({fd: fdZKey, sections: zkeySections} = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23));
 
     const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
     if (zkey.protocol != "plonk") {
@@ -9623,6 +9714,13 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
         polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
 
         polynomials.Wxiw.divByZerofier(1, challenges.xiw);
+    }
+
+    } finally {
+        for (const openFd of [fdWtns, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
     }
 }
 
@@ -10503,13 +10601,20 @@ class CPolynomial {
 
 
 async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdPTau, pTauSections, fdR1cs, sectionsR1cs, fdZKey;
+    try {
+
     if (logger) logger.info("FFLONK SETUP STARTED");
 
     if (globalThis.gc) globalThis.gc();
 
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
-    const {fd: fdPTau, sections: pTauSections} = await binFileUtils.readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
+    ({fd: fdPTau, sections: pTauSections} = await binFileUtils.readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24));
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -10520,7 +10625,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
-    const {fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    ({fd: fdR1cs, sections: sectionsR1cs} = await binFileUtils.readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
     const r1cs = await r1csfile.readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
@@ -10662,7 +10767,7 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
-        const fdZKey = await binFileUtils.createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        fdZKey = await binFileUtils.createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
@@ -11040,6 +11145,13 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
         return Fr.exp(firstRoot, 2 ** (28 - power));
     }
+
+    } finally {
+        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
 }
 
 /*
@@ -11066,22 +11178,29 @@ const { stringifyBigInts } = ffjavascript.utils;
 
 
 async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fdWtns, wtnsSections, fdZKey, zkeySections;
+    try {
+
     if (logger) logger.info("FFLONK PROVER STARTED");
 
     // Read witness file
     if (logger) logger.info("> Reading witness file");
-    const {
+    ({
         fd: fdWtns,
         sections: wtnsSections
-    } = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
+    } = await binFileUtils__namespace.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23));
     const wtns = await readHeader(fdWtns, wtnsSections);
 
     //Read zkey file
     if (logger) logger.info("> Reading zkey file");
-    const {
+    ({
         fd: fdZKey,
         sections: zkeySections
-    } = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
+    } = await binFileUtils__namespace.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23));
 
     const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
 
@@ -12370,6 +12489,13 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
             }
         
             return Li;
+        }
+    }
+
+    } finally {
+        for (const openFd of [fdWtns, fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
         }
     }
 }

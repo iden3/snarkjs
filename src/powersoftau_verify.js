@@ -127,9 +127,16 @@ async function verifyContribution(curve, cur, prev, logger) {
 }
 
 export default async function verify(tauFilename, logger) {
+    // fd lifecycle: every file this function opens is tracked below and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    let fd, sections;
+    try {
+
     let sr;
 
-    const {fd, sections} = await binFileUtils.readBinFile(tauFilename, "ptau", 1);
+    ({fd, sections} = await binFileUtils.readBinFile(tauFilename, "ptau", 1));
     const {curve, power, ceremonyPower} = await utils.readPTauHeader(fd, sections);
     const contrs = await utils.readContributions(fd, curve, sections);
 
@@ -526,6 +533,13 @@ export default async function verify(tauFilename, logger) {
             }
 
             return true;
+        }
+    }
+
+    } finally {
+        for (const openFd of [fd]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
         }
     }
 }
