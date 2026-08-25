@@ -66,8 +66,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         return await _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fds);
     } finally {
         for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
