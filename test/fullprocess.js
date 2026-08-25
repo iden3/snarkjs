@@ -1,7 +1,13 @@
 import * as snarkjs from "../main.js";
 import { getCurveFromName } from "../src/curves.js";
+import loadSyms from "../src/loadsyms.js";
+import * as wtnsUtils from "../src/wtns_utils.js";
+import { readR1cs } from "r1csfile";
+import * as binFileUtils from "@iden3/binfileutils";
+import { Scalar } from "ffjavascript";
 import assert from "assert";
 import path from "path";
+import fs from "fs";
 
 describe("Full process", function ()  {
     this.timeout(1000000000);
@@ -22,6 +28,7 @@ describe("Full process", function ()  {
     const bellman_1 = {type: "mem"};
     const bellman_2 = {type: "mem"};
     let vKey;
+    let vKeyGroth16;
     const wtns = {type: "mem"};
     let proof;
     let publicSignals;
@@ -106,6 +113,7 @@ describe("Full process", function ()  {
 
     it ("zkey export verificationkey", async () => {
         vKey = await snarkjs.zKey.exportVerificationKey(zkey_final);
+        vKeyGroth16 = vKey; // keep a handle: the plonk section reassigns vKey
     });
 
     it ("witness calculate", async () => {
@@ -259,6 +267,10 @@ describe("Full process", function ()  {
         const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
         assert(ok == true);
         assert(lines.some((l) => l.includes("Heap:")), "expected at least one memory-usage log line");
+
+        // memoryLogging: true selects the default 1s interval
+        const res2 = await snarkjs.groth16.prove(zkey_final, wtns, logger, {memoryLogging: true});
+        assert(await snarkjs.groth16.verify(vKey, res2.publicSignals, res2.proof) == true);
     });
 
     for (const buildABC of ["wasm", "wasm1", "bogus"]) {
@@ -348,6 +360,450 @@ describe("Full process", function ()  {
 
         const res2 = await snarkjs.plonk.verify(vKey, [], proof);
         assert(res2 == false);
+    });
+
+    // ---- verifier rejection paths, with logging enabled ----------------
+    // A collecting logger both silences output and covers the logger-guarded
+    // error/debug lines the silent tests skip.
+    const logLines = [];
+    const logger = {
+        info: (...a) => logLines.push(a.join(" ")),
+        debug: (...a) => logLines.push(a.join(" ")),
+        warn: (...a) => logLines.push(a.join(" ")),
+        error: (...a) => logLines.push(a.join(" ")),
+        log: (...a) => logLines.push(a.join(" ")),
+    };
+
+    it ("plonk verify rejects an out-of-field evaluation and public input (with logger)", async () => {
+        const r = curve.r.toString();
+
+        const badEval = JSON.parse(JSON.stringify(proof));
+        badEval.eval_a = r; // >= field modulus: evaluationsAreValid must fail
+        assert(await snarkjs.plonk.verify(vKey, publicSignals, badEval, logger) == false);
+
+        // public input >= field modulus: publicInputsAreValid must fail
+        assert(await snarkjs.plonk.verify(vKey, [r], proof, logger) == false);
+
+        // and a wrong (but well-formed) public signal fails the pairing, logged
+        const wrongPub = [(BigInt(publicSignals[0]) + 1n).toString()];
+        assert(await snarkjs.plonk.verify(vKey, wrongPub, proof, logger) == false);
+    });
+
+    it ("plonk setup reports unprepared and too-small ptau files (with logger)", async () => {
+        // ptau_2 has contributions but was never prepared (no section 12)
+        const zkeyBad = {type: "mem"};
+        const res = await snarkjs.plonk.setup(path.join("test", "plonk_circuit", "circuit.r1cs"), ptau_2, zkeyBad, logger);
+        assert(res === -1);
+
+        // A prepared ceremony that is too small for the circuit
+        // (Multiplier(1000) needs cirPower ~11, far above power 3)
+        const tiny_0 = {type: "mem"};
+        const tiny_final = {type: "mem"};
+        await snarkjs.powersOfTau.newAccumulator(curve, 3, tiny_0);
+        await snarkjs.powersOfTau.preparePhase2(tiny_0, tiny_final);
+        const res2 = await snarkjs.plonk.setup(path.join("test", "groth16", "circuit.r1cs"), tiny_final, {type: "mem"}, logger);
+        assert(res2 === -1);
+    });
+
+    it ("plonk setup reports an r1cs/ptau curve mismatch (with logger)", async () => {
+        const blsCurve = await getCurveFromName("bls12381");
+        try {
+            const blsPtau = {type: "mem"};
+            await snarkjs.powersOfTau.newAccumulator(blsCurve, 3, blsPtau);
+            const res = await snarkjs.plonk.setup(path.join("test", "plonk_circuit", "circuit.r1cs"), blsPtau, {type: "mem"}, logger);
+            assert(res === -1);
+        } finally {
+            await blsCurve.terminate();
+        }
+    });
+
+    it ("zkey verify rejects a corrupted zkey (with logger)", async () => {
+        const corrupt = {type: "mem", data: Uint8Array.from(zkey_final.data)};
+        corrupt.data[Math.floor(corrupt.data.length / 2)] ^= 0xFF;
+
+        let res;
+        try {
+            res = await snarkjs.zKey.verifyFromR1cs(path.join("test", "groth16", "circuit.r1cs"), ptau_final, corrupt, logger);
+        } catch (err) {
+            res = false; // an unparsable point rejecting is also a rejection
+        }
+        assert(res !== true);
+    });
+
+    it ("zkey verify prints the contribution chain (with logger)", async () => {
+        const res = await snarkjs.zKey.verifyFromR1cs(
+            path.join("test", "groth16", "circuit.r1cs"), ptau_final, zkey_final, logger);
+        assert(res === true);
+
+        const res2 = await snarkjs.zKey.verifyFromInit(zkey_0, ptau_final, zkey_final, logger);
+        assert(res2 === true);
+    });
+
+    it ("wtns check logs the witness summary (with logger)", async () => {
+        const res = await snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), wtns, logger);
+        assert(res === true);
+    });
+
+    it ("zkey beacon rejects malformed beacon parameters", async () => {
+        const goodHash = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+        assert(await snarkjs.zKey.beacon(zkey_2, {type: "mem"}, "B", goodHash, 5, logger) === false);
+        assert(await snarkjs.zKey.beacon(zkey_2, {type: "mem"}, "B", "0102f", 10, logger) === false);
+    });
+
+    it ("groth16 proof rejects an invalid msmGls option", async () => {
+        let threw = false;
+        try {
+            await snarkjs.groth16.prove(zkey_final, wtns, undefined, {msmGls: "bogus"});
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes("msmGls"));
+        }
+        assert(threw, "should throw on an invalid msmGls value");
+    });
+
+    it ("each prover rejects a zkey of the wrong protocol", async () => {
+        await assert.rejects(snarkjs.groth16.prove(zkey_plonk, wtns), /not groth16/);
+        await assert.rejects(snarkjs.plonk.prove(zkey_final, wtns), /not plonk|not a plonk/i);
+        await assert.rejects(snarkjs.fflonk.prove(zkey_final, wtns), /not fflonk/);
+    });
+
+    it ("provers and wtns check reject a witness from the wrong curve or of the wrong length", async () => {
+        // Craft a syntactically valid wtns with the bls12-381 prime
+        const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
+        const blsWtns = {type: "mem"};
+        let fd = await binFileUtils.createBinFile(blsWtns, "wtns", 2, 2);
+        await wtnsUtils.write(fd, [1n, 2n, 3n], bls12381r);
+        await fd.close();
+
+        await assert.rejects(snarkjs.groth16.prove(zkey_final, blsWtns), /witness does not match/);
+        await assert.rejects(snarkjs.plonk.prove(zkey_plonk, blsWtns), /witness does not match/);
+        await assert.rejects(snarkjs.wtns.check(path.join("test", "groth16", "circuit.r1cs"), blsWtns, logger), /witness does not match/);
+
+        // Right curve, wrong witness count
+        const shortWtns = {type: "mem"};
+        fd = await binFileUtils.createBinFile(shortWtns, "wtns", 2, 2);
+        await wtnsUtils.write(fd, [1n, 2n, 3n], curve.r);
+        await fd.close();
+
+        await assert.rejects(snarkjs.groth16.prove(zkey_final, shortWtns), /Invalid witness length/);
+        await assert.rejects(snarkjs.plonk.prove(zkey_plonk, shortWtns), /Invalid witness length/);
+    });
+
+    it ("groth16 setup rejects a too-small or wrong-curve ptau", async () => {
+        const tiny_0 = {type: "mem"};
+        const tiny_final = {type: "mem"};
+        await snarkjs.powersOfTau.newAccumulator(curve, 3, tiny_0);
+        await snarkjs.powersOfTau.preparePhase2(tiny_0, tiny_final);
+        let rejected = false;
+        try {
+            rejected = (await snarkjs.zKey.newZKey(path.join("test", "groth16", "circuit.r1cs"), tiny_final, {type: "mem"}, logger)) === -1;
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected, "too-small ptau must be rejected");
+
+        const blsCurve = await getCurveFromName("bls12381");
+        try {
+            const blsPtau = {type: "mem"};
+            await snarkjs.powersOfTau.newAccumulator(blsCurve, 3, blsPtau);
+            const blsPrepared = {type: "mem"};
+            await snarkjs.powersOfTau.preparePhase2(blsPtau, blsPrepared);
+            let rejected2 = false;
+            try {
+                rejected2 = (await snarkjs.zKey.newZKey(path.join("test", "groth16", "circuit.r1cs"), blsPrepared, {type: "mem"}, logger)) === -1;
+            } catch (err) {
+                rejected2 = true;
+            }
+            assert(rejected2, "wrong-curve ptau must be rejected");
+        } finally {
+            await blsCurve.terminate();
+        }
+    });
+
+    it ("zkey import bellman logs a successful import (with logger)", async () => {
+        const imported = {type: "mem"};
+        const res = await snarkjs.zKey.importBellman(zkey_2, bellman_2, imported, "logged import", logger);
+        assert(res !== false);
+        assert(imported.data.byteLength > 0);
+    });
+
+    it ("zkey import bellman carries beacon metadata through a re-export round-trip", async () => {
+        // zkey_final contains a beacon contribution; exporting and re-importing
+        // exercises the type==1 and name-copy branches of the import.
+        const reExported = {type: "mem"};
+        await snarkjs.zKey.exportBellman(zkey_final, reExported, logger);
+        const reImported = {type: "mem"};
+        const res = await snarkjs.zKey.importBellman(zkey_final, reExported, reImported, "", logger);
+        assert(res !== false);
+    });
+
+    it ("zkey import bellman rejects a non-groth16 zkey", async () => {
+        let rejected = false;
+        try {
+            rejected = (await snarkjs.zKey.importBellman(zkey_plonk, bellman_2, {type: "mem"}, "x", logger)) === false;
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected);
+    });
+
+    it ("groth16 setup rejects an unprepared ptau", async () => {
+        let rejected = false;
+        try {
+            rejected = (await snarkjs.zKey.newZKey(path.join("test", "groth16", "circuit.r1cs"), ptau_2, {type: "mem"}, logger)) === -1;
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected, "unprepared ptau (no section 12) must be rejected");
+    });
+
+    it ("zkey import bellman rejects a response with fewer contributions", async () => {
+        // bellman_1 predates zkey_2's second contribution
+        const res = await snarkjs.zKey.importBellman(zkey_2, bellman_1, {type: "mem"}, "stale", logger);
+        assert(res === false);
+    });
+
+    it ("a tampered bellman response is rejected at import or at verification", async () => {
+        // importBellman defers point validation to zkey verification: a
+        // tampered response either fails the import's structural checks or
+        // produces a zkey that verifyFromR1cs rejects.
+        const badBellman = {type: "mem", data: Uint8Array.from(bellman_2.data)};
+        // The import re-derives most sections from the previous zkey and only
+        // consumes the tail of the response (contributions incl. the delta
+        // pubkey), so corrupt there -- a flipped byte at the head of the file
+        // sits in bytes the import never reads.
+        badBellman.data[badBellman.data.length - 100] ^= 0xFF;
+        let rejected = false;
+        const imported = {type: "mem"};
+        try {
+            const res = await snarkjs.zKey.importBellman(zkey_2, badBellman, imported, "tampered", logger);
+            if (res === false) {
+                rejected = true;
+            } else {
+                rejected = (await snarkjs.zKey.verifyFromR1cs(
+                    path.join("test", "groth16", "circuit.r1cs"), ptau_final, imported, logger)) !== true;
+            }
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected, "tampered bellman response escaped both import and verification");
+    });
+
+    it ("zkey verify prints nameless contributions (with logger)", async () => {
+        const namelessZkey = {type: "mem"};
+        await snarkjs.zKey.contribute(zkey_final, namelessZkey, "", "nameless zkey entropy");
+        const res = await snarkjs.zKey.verifyFromR1cs(
+            path.join("test", "groth16", "circuit.r1cs"), ptau_final, namelessZkey, logger);
+        assert(res === true);
+    });
+
+    it ("groth16 prove rejects a zkey with an unknown protocol id", async () => {
+        const {fd, sections} = await binFileUtils.readBinFile(
+            {type: "mem", data: Uint8Array.from(zkey_final.data)}, "zkey", 2);
+        await fd.close();
+        const corrupt = {type: "mem", data: Uint8Array.from(zkey_final.data)};
+        corrupt.data[sections[1][0].p] = 0x77; // protocol id: not groth16/plonk/fflonk
+        await assert.rejects(snarkjs.groth16.prove(corrupt, wtns), /Protocol not supported|not groth16/);
+    });
+
+    it ("plonk handles a circuit with purely-linear (-O0) constraints", async () => {
+        // gap.r1cs keeps 0*0=C rows: the setup's constraint normalization
+        // takes the nullable/join paths that multiplicative rows never hit.
+        const zkeyGap = {type: "mem"};
+        const res = await snarkjs.plonk.setup(path.join("test", "buildabc_gap", "gap.r1cs"), ptau_final, zkeyGap, logger);
+        assert(res !== -1);
+        const vKeyGap = await snarkjs.zKey.exportVerificationKey(zkeyGap);
+        const wtnsGap = {type: "mem"};
+        await snarkjs.wtns.calculate({a: 3, b: 5}, path.join("test", "buildabc_gap", "gap.wasm"), wtnsGap);
+        const {proof: proofGap, publicSignals: pubGap} = await snarkjs.plonk.prove(zkeyGap, wtnsGap, logger);
+        assert(await snarkjs.plonk.verify(vKeyGap, pubGap, proofGap) === true);
+    });
+
+    it ("plonk setup + prove + verify on a tiny circuit (with logger)", async () => {
+        // TestPlonk has ~5 constraints: exercises the cirPower < 3 clamp and
+        // the small-domain paths, with full logging.
+        const zkeyTiny = {type: "mem"};
+        const res = await snarkjs.plonk.setup(path.join("test", "plonk_circuit", "circuit.r1cs"), ptau_final, zkeyTiny, logger);
+        assert(res !== -1);
+
+        const vKeyTiny = await snarkjs.zKey.exportVerificationKey(zkeyTiny, logger);
+        const {proof: tinyProof, publicSignals: tinyPub} = await snarkjs.plonk.prove(
+            zkeyTiny, path.join("test", "plonk_circuit", "witness.wtns"), logger);
+        assert(await snarkjs.plonk.verify(vKeyTiny, tinyPub, tinyProof, logger) === true);
+    });
+
+    it ("plonk verify rejects each malformed commitment point and evaluation", async () => {
+        // Every commitment has its own isWellConstructed branch; every
+        // evaluation its own evaluationsAreValid branch.
+        for (const point of ["B", "C", "Z", "T1", "T2", "T3", "Wxi", "Wxiw"]) {
+            const bad = JSON.parse(JSON.stringify(proof));
+            bad[point] = [(BigInt(bad[point][0]) + 1n).toString(), bad[point][1], bad[point][2]];
+            assert(await snarkjs.plonk.verify(vKey, publicSignals, bad, logger) == false, `off-curve ${point} accepted`);
+        }
+        const r = curve.r.toString();
+        for (const evalName of ["eval_b", "eval_c", "eval_s1", "eval_s2", "eval_zw"]) {
+            const bad = JSON.parse(JSON.stringify(proof));
+            bad[evalName] = r;
+            assert(await snarkjs.plonk.verify(vKey, publicSignals, bad, logger) == false, `out-of-field ${evalName} accepted`);
+        }
+    });
+
+    it ("zkey verify rejects a zkey built for a different circuit", async () => {
+        const res = await snarkjs.zKey.verifyFromR1cs(
+            path.join("test", "buildabc_gap", "gap.r1cs"), ptau_final, zkey_final, logger);
+        assert(res !== true);
+    });
+
+    it ("zkey verify rejects a non-groth16 zkey", async () => {
+        let rejected = false;
+        try {
+            rejected = (await snarkjs.zKey.verifyFromInit(zkey_plonk, ptau_final, zkey_final, logger)) !== true;
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected);
+
+        // ... and as the candidate zkey too
+        let rejected2 = false;
+        try {
+            rejected2 = (await snarkjs.zKey.verifyFromR1cs(
+                path.join("test", "plonk_circuit", "circuit.r1cs"), ptau_final, zkey_plonk, logger)) !== true;
+        } catch (err) {
+            rejected2 = true;
+        }
+        assert(rejected2);
+    });
+
+    it ("zkey import bellman rejects a response for a different circuit", async () => {
+        // bellman_1 was exported from zkey_final (Multiplier(1000)); importing
+        // it on top of a zkey for the gap circuit must fail the consistency
+        // checks.
+        const gapZkey = {type: "mem"};
+        await snarkjs.zKey.newZKey(path.join("test", "buildabc_gap", "gap.r1cs"), ptau_final, gapZkey, logger);
+        let rejected = false;
+        try {
+            rejected = (await snarkjs.zKey.importBellman(gapZkey, bellman_2, {type: "mem"}, "bad import", logger)) !== true;
+        } catch (err) {
+            rejected = true;
+        }
+        assert(rejected);
+    });
+
+    it ("zkey contribute logs its contribution hash (with logger)", async () => {
+        const zkeyC = {type: "mem"};
+        await snarkjs.zKey.contribute(zkey_final, zkeyC, "LoggedContrib", "logged contribution entropy", logger);
+        const res = await snarkjs.zKey.verifyFromR1cs(
+            path.join("test", "groth16", "circuit.r1cs"), ptau_final, zkeyC, logger);
+        assert(res === true);
+    });
+
+    it ("r1cs info logs the header counts (with logger)", async () => {
+        const before = logLines.length;
+        const cir = await snarkjs.r1cs.info(path.join("test", "groth16", "circuit.r1cs"), logger);
+        assert(cir.nConstraints > 0);
+        assert(logLines.length > before);
+    });
+
+    it ("groth16 verify logs its result (with logger)", async () => {
+        const res = await snarkjs.groth16.prove(zkey_final, wtns);
+        assert(await snarkjs.groth16.verify(vKeyGroth16, res.publicSignals, res.proof, logger) == true);
+        const bad = [...res.publicSignals];
+        bad[0] = (BigInt(bad[0]) + 1n).toString();
+        assert(await snarkjs.groth16.verify(vKeyGroth16, bad, res.proof, logger) == false);
+        assert(logLines.length > 0);
+    });
+
+    // ---- fullProve wrappers ---------------------------------------------
+
+    it ("groth16 fullProve computes the witness and a valid proof in one call", async () => {
+        const {proof, publicSignals} = await snarkjs.groth16.fullProve(
+            {a: 11, b: 2}, path.join("test", "groth16", "circuit.wasm"), zkey_final, logger);
+        assert(await snarkjs.groth16.verify(vKeyGroth16, publicSignals, proof) == true);
+    });
+
+    it ("plonk fullProve computes the witness and a valid proof in one call", async () => {
+        const {proof, publicSignals} = await snarkjs.plonk.fullProve(
+            {a: 11, b: 2}, path.join("test", "groth16", "circuit.wasm"), zkey_plonk, logger);
+        assert(await snarkjs.plonk.verify(vKey, publicSignals, proof) == true);
+    });
+
+    // ---- CLI-facing exporters --------------------------------------------
+
+    it ("groth16 and plonk Solidity calldata exports are well-formed", async () => {
+        const g16 = await snarkjs.groth16.prove(zkey_final, wtns);
+        const g16CallData = await snarkjs.groth16.exportSolidityCallData(g16.proof, g16.publicSignals);
+        assert(typeof g16CallData === "string");
+        assert(g16CallData.includes("0x"));
+        // groth16 calldata: [a(2)],[b(2x2)],[c(2)],[publics]
+        assert.strictEqual((g16CallData.match(/0x/g) || []).length, 8 + g16.publicSignals.length);
+
+        const plonkCallData = await snarkjs.plonk.exportSolidityCallData(proof, publicSignals);
+        assert(typeof plonkCallData === "string");
+        assert(plonkCallData.includes("0x"));
+    });
+
+    it ("exports Solidity verifier contracts for groth16 and plonk zkeys", async () => {
+        const templates = {
+            groth16: fs.readFileSync(path.join("templates", "verifier_groth16.sol.ejs"), "utf8"),
+            plonk: fs.readFileSync(path.join("templates", "verifier_plonk.sol.ejs"), "utf8"),
+        };
+
+        const g16Verifier = await snarkjs.zKey.exportSolidityVerifier(zkey_final, templates, logger);
+        assert(g16Verifier.includes("contract"));
+        assert(g16Verifier.includes("pragma solidity"));
+
+        const plonkVerifier = await snarkjs.zKey.exportSolidityVerifier(zkey_plonk, templates, logger);
+        assert(plonkVerifier.includes("contract"));
+    });
+
+    it ("zkey exportJson returns the full groth16 proving key structure", async () => {
+        const json = await snarkjs.zKey.exportJson(zkey_final);
+        assert.strictEqual(json.protocol, "groth16");
+        assert(Array.isArray(json.A));
+        assert(Array.isArray(json.IC));
+        assert(json.IC.length > 0);
+    });
+
+    it ("r1cs print and exportJson walk every constraint", async () => {
+        const r1csPath = path.join("test", "groth16", "circuit.r1cs");
+        const cir = await readR1cs(r1csPath, true, true);
+        const syms = await loadSyms(path.join("test", "groth16", "circuit.sym"));
+        const before = logLines.length;
+        await snarkjs.r1cs.print(cir, syms, logger);
+        assert(logLines.length - before >= cir.constraints.length);
+
+        const json = await snarkjs.r1cs.exportJson(r1csPath, logger);
+        assert.strictEqual(json.nConstraints, cir.nConstraints);
+        assert(Array.isArray(json.constraints));
+    });
+
+    it ("wtns exportJson returns the witness values", async () => {
+        const w = await snarkjs.wtns.exportJson(wtns);
+        assert(w.length > 1);
+        assert.strictEqual(w[0].toString(), "1"); // signal ONE
+    });
+
+    it ("wtns debug logs signal assignments (set/get/trigger)", async () => {
+        // The set/get/trigger hooks only exist in the old (circom v1) wasm
+        // witness calculator, so this uses the plonk_circuit fixture.
+        const wtnsDebug = {type: "mem"};
+        const before = logLines.length;
+        await snarkjs.wtns.debug(
+            {a: 1, b: 2},
+            path.join("test", "plonk_circuit", "circuit.wasm"),
+            wtnsDebug,
+            path.join("test", "plonk_circuit", "circuit.sym"),
+            {set: true, get: true, trigger: true},
+            logger
+        );
+        assert(wtnsDebug.data.byteLength > 0);
+        assert(logLines.length > before, "debug run should log signal activity");
+
+        // Each option loads the sym table on demand -- exercise them separately
+        await snarkjs.wtns.debug({a: 1, b: 2}, path.join("test", "plonk_circuit", "circuit.wasm"),
+            {type: "mem"}, path.join("test", "plonk_circuit", "circuit.sym"), {get: true}, logger);
+        await snarkjs.wtns.debug({a: 1, b: 2}, path.join("test", "plonk_circuit", "circuit.wasm"),
+            {type: "mem"}, path.join("test", "plonk_circuit", "circuit.sym"), {trigger: true}, logger);
     });
 
 });
