@@ -54,6 +54,8 @@ class FastFile {
         return P;
     }
 
+    // coverage: debug instrumentation, only enabled by hand (this.logHistory)
+    /* c8 ignore start */
     __statusPage(s, p) {
         const logEntry = [];
         const self=this;
@@ -90,6 +92,8 @@ class FastFile {
     }
 
 
+
+    /* c8 ignore stop */
 
     _triggerLoad() {
         const self = this;
@@ -726,11 +730,14 @@ class MemFile {
 
         let currentPosition = typeof pos == "undefined" ? self.pos : pos;
 
-        if (currentPosition > this.totalSize) {
+        if (currentPosition >= this.totalSize) {
             if (this.readOnly) {
                 throw new Error("Reading out of bounds");
             }
-            this._resizeIfNeeded(pos);
+            // Past the written data there is no string to read. (This used to
+            // grow the allocation and then build a negative-length view, which
+            // threw a RangeError.)
+            return "";
         }
         const dataArray = new Uint8Array(
             self.o.data.buffer,
@@ -953,6 +960,13 @@ class BigMemFile {
             }
 
             let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
+            if (readLength <= 0) {
+                // EOF without a terminator: the string ends at the end of the
+                // data (matches the rangefile backend). This used to spin
+                // forever re-reading an empty window.
+                self.pos = currentPosition;
+                return str;
+            }
             const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
 
             let indexEndOfString = dataArray.findIndex(element => element === 0);
@@ -1281,10 +1295,14 @@ async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
             done += it.value.byteLength;
         }
     } else {
+        // coverage: fetch implementations without a streaming body (older
+        // browser polyfills); Node's undici always streams
+        /* c8 ignore start */
         const buff = new Uint8Array(await res.arrayBuffer());
         if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
         dst.set(buff, dstOffset);
         done = buff.byteLength;
+        /* c8 ignore stop */
     }
     if (done !== len) {
         throw new Error(url + ": short range response (" + done + "/" + len + " bytes at " + pos + ")");
@@ -1294,6 +1312,7 @@ async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
 async function abandonBody(res) {
     try {
         if (res.body && typeof res.body.cancel === "function") await res.body.cancel();
+        /* c8 ignore next -- non-streaming fetch polyfills only */
         else await res.arrayBuffer();
     } catch (e) { /* body teardown is best-effort */ }
 }
@@ -1536,6 +1555,8 @@ async function readSection(fd, sections, idSection, offset, length) {
     if (length < MAX_BUFFER_SIZE) {
         buff = new Uint8Array(length);
     } else {
+        // coverage: BigBuffer path requires a >=1 GiB section
+        /* c8 ignore next 2 */
         buff = new BigBuffer(length);
     }
 
