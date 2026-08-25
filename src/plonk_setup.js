@@ -541,8 +541,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     } finally {
         for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }

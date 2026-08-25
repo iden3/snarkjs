@@ -3189,8 +3189,10 @@ async function verify(tauFilename, logger) {
 
     } finally {
         for (const openFd of [fd]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -4642,8 +4644,10 @@ async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
 
     } finally {
         for (const openFd of [fdR1cs, fdWtns]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -5402,8 +5406,10 @@ async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
     } finally {
         for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -5799,8 +5805,10 @@ async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, na
 
     } finally {
         for (const openFd of [fdZKeyOld, fdMPCParams, fdZKeyNew]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -6236,8 +6244,10 @@ async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, lo
 
     } finally {
         for (const openFd of [fd, fdInit, fdPTau]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -7461,8 +7471,10 @@ async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     } finally {
         for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -9718,8 +9730,10 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 
     } finally {
         for (const openFd of [fdWtns, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -11148,8 +11162,10 @@ async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
 
     } finally {
         for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
@@ -12494,8 +12510,10 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
 
     } finally {
         for (const openFd of [fdWtns, fdZKey]) {
-            // close() throws synchronously on an already-closed file fd
-            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
         }
     }
 }
