@@ -8,12 +8,11 @@ const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffff
 const bls12381q = Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
 
 describe("curves", function () {
-    this.timeout(120000);
 
     const handles = [];
     const track = (c) => { handles.push(c); return c; };
 
-    after(async () => {
+    afterAll(async () => {
         for (const c of handles) {
             try { await c.terminate(); } catch { /* shared instances may already be down */ }
         }

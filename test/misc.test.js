@@ -11,7 +11,6 @@ import readline from "readline";
 import assert from "assert";
 
 describe("misc", function () {
-    this.timeout(60000);
 
     describe("getRandomBytes", () => {
         it("returns a Uint8Array of the requested length", () => {
@@ -225,8 +224,8 @@ describe("misc", function () {
 
     describe("sameRatio", () => {
         let curve;
-        before(async () => { curve = await getCurveFromName("bn128"); });
-        after(async () => { await curve.terminate(); });
+        beforeAll(async () => { curve = await getCurveFromName("bn128"); });
+        afterAll(async () => { await curve.terminate(); });
 
         it("rejects a zero point in any of the four slots", async () => {
             const { G1, G2, Fr } = curve;
@@ -268,8 +267,8 @@ describe("misc", function () {
 
     describe("stringifyBigIntsWithField", () => {
         let curve;
-        before(async () => { curve = await getCurveFromName("bn128"); });
-        after(async () => { await curve.terminate(); });
+        beforeAll(async () => { curve = await getCurveFromName("bn128"); });
+        afterAll(async () => { await curve.terminate(); });
 
         it("stringifies field elements, bigints, arrays and nested objects", () => {
             const Fr = curve.Fr;

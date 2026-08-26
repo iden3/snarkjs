@@ -11,17 +11,17 @@ function radomPolynomial(maxDegree, curve) {
 }
 
 describe("snarkjs: Polynomial tests", function () {
-    this.timeout(150000);
+
 
     let curve;
     let sFr;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         sFr = curve.Fr.n8;
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 
@@ -569,7 +569,6 @@ describe("snarkjs: Polynomial tests", function () {
     });
 
     it("routes large polynomials through the BigBuffer backends (> 2^15 coefficients)", async function () {
-        this.timeout(120000);
         const Fr = curve.Fr;
         const BIG = (2 << 14) + 10; // just over the Uint8Array/BigBuffer threshold
 
@@ -644,7 +643,6 @@ describe("snarkjs: Polynomial tests", function () {
     }
 
     it("to4T uses the BigBuffer backend for large domains", async function () {
-        this.timeout(120000);
         const Fr = curve.Fr;
         const domainSize = 2 << 14; // 32768: domainSize*4 and domainSize+bf cross the threshold
 

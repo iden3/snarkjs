@@ -61,11 +61,10 @@ describe("Keccak-256 vectors (Fiat-Shamir transcript primitive)", function () {
 });
 
 describe("Keccak256Transcript challenge derivation", function () {
-    this.timeout(120000);
 
     let curve;
-    before(async () => { curve = await getCurveFromName("bn128"); });
-    after(async () => { await curve.terminate(); });
+    beforeAll(async () => { curve = await getCurveFromName("bn128"); });
+    afterAll(async () => { await curve.terminate(); });
 
     it("challenge equals keccak256(uncompressed points ‖ BE scalars) reduced into Fr", () => {
         const { Fr, G1 } = curve;

@@ -15,7 +15,6 @@ import http from "http";
 // (tau = 1) makes many corruptions self-cancel, so a transport bug could
 // otherwise still produce a "valid" proof.
 describe("Groth16 proving from a zkey served over HTTP", function () {
-    this.timeout(1000000000);
 
     let curve;
     const ptau_0 = {type: "mem"};
@@ -60,7 +59,7 @@ describe("Groth16 proving from a zkey served over HTTP", function () {
         });
     }
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         await snarkjs.powersOfTau.newAccumulator(curve, 10, ptau_0);
         await snarkjs.powersOfTau.contribute(ptau_0, ptau_1, "C1", "http e2e entropy 1");
@@ -71,7 +70,7 @@ describe("Groth16 proving from a zkey served over HTTP", function () {
         await snarkjs.wtns.calculate({a: 11, b: 2}, path.join("test", "groth16", "circuit.wasm"), wtns);
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

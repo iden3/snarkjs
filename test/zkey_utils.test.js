@@ -9,7 +9,6 @@ import path from "path";
 // proving key back into the binary zkey format. (Regression: writeZKey was
 // missing an await on getCurve and could never have worked.)
 describe("zkey read/write round-trip", function () {
-    this.timeout(1000000000);
 
     let curve;
     const ptau_0 = { type: "mem" };
@@ -17,7 +16,7 @@ describe("zkey read/write round-trip", function () {
     const ptau_final = { type: "mem" };
     const zkey = { type: "mem" };
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         await snarkjs.powersOfTau.newAccumulator(curve, 8, ptau_0);
         await snarkjs.powersOfTau.contribute(ptau_0, ptau_1, "C1", "zkey utils entropy");
@@ -25,7 +24,7 @@ describe("zkey read/write round-trip", function () {
         await snarkjs.zKey.newZKey(path.join("test", "buildabc_gap", "gap.r1cs"), ptau_final, zkey);
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

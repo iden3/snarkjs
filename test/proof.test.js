@@ -5,14 +5,13 @@ import assert from "assert";
 // The Proof container used by PLONK/FFLONK warns (via its logger) on
 // duplicate registration and on reads of missing entries.
 describe("Proof container", function () {
-    this.timeout(60000);
 
     let curve;
     let warnings;
     const logger = { warn: (m) => warnings.push(m), info() {}, debug() {}, error() {} };
 
-    before(async () => { curve = await getCurveFromName("bn128"); });
-    after(async () => { await curve.terminate(); });
+    beforeAll(async () => { curve = await getCurveFromName("bn128"); });
+    afterAll(async () => { await curve.terminate(); });
     beforeEach(() => { warnings = []; });
 
     it("warns when a polynomial is registered twice or read before being set", () => {

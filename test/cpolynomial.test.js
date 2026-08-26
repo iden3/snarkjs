@@ -6,16 +6,15 @@ import assert from "assert";
 // CPolynomial combines n polynomials into one by interleaving coefficients
 // (used by fflonk's C0/C1/C2 composition).
 describe("CPolynomial", function () {
-    this.timeout(60000);
 
     let curve, Fr;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         Fr = curve.Fr;
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

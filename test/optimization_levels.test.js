@@ -18,7 +18,6 @@ import path from "path";
 // level must therefore survive the default (streamed) prover, agree with the
 // js prover, and verify with chunk boundaries forced onto every row.
 describe("Groth16 across circom optimization levels (-O0/-O1/-O2)", function () {
-    this.timeout(1000000000);
 
     const levels = ["O0", "O1", "O2"];
     const fixture = (lvl, ext) => path.join("test", "optimization_levels", `gap_${lvl}.${ext}`);
@@ -29,7 +28,7 @@ describe("Groth16 across circom optimization levels (-O0/-O1/-O2)", function () 
     const ptau_final = {type: "mem"};
     const perLevel = {};
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         // The ptau MUST have a real contribution: with a fresh untouched
         // accumulator (tau = 1) many corruptions self-cancel and even a
@@ -40,7 +39,7 @@ describe("Groth16 across circom optimization levels (-O0/-O1/-O2)", function () 
         await snarkjs.powersOfTau.preparePhase2(ptau_1, ptau_final);
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

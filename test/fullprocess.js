@@ -10,7 +10,7 @@ import path from "path";
 import fs from "fs";
 
 describe("Full process", function ()  {
-    this.timeout(1000000000);
+
 
     let curve;
     const ptau_0 = {type: "mem"};
@@ -34,11 +34,11 @@ describe("Full process", function ()  {
     let publicSignals;
     let publicSignalsWithAlias;
 
-    before( async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         // curve.Fr.s = 10;
     });
-    after( async () => {
+    afterAll(async () => {
         await curve.terminate();
         // console.log(process._getActiveHandles());
         // console.log(process._getActiveRequests());

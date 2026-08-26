@@ -11,7 +11,6 @@ import os from "os";
 // assert (or a bad input) used to leak the just-created fd and leave a
 // zero-byte .wtns file behind.
 describe("wtns calculate output-file lifecycle", function () {
-    this.timeout(120000);
 
     const wasmFile = path.join("test", "groth16", "circuit.wasm");
     const r1csFile = path.join("test", "groth16", "circuit.r1cs");
@@ -19,14 +18,14 @@ describe("wtns calculate output-file lifecycle", function () {
     let curve;
     let tmpDir;
 
-    before(async () => {
+    beforeAll(async () => {
         // wtns.check builds the curve internally; hold a handle so the
         // worker threads are terminated when this suite ends.
         curve = await getCurveFromName("bn128");
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "snarkjs-wtns-"));
     });
 
-    after(async () => {
+    afterAll(async () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         await curve.terminate();
     });

@@ -31,7 +31,6 @@ import path from "path";
 // untouched accumulator (tau = 1) the pairing check degenerates and even a
 // corrupted proof "verifies", masking the bug.
 describe("buildABCStream cut points on a gapped coefficient array", function () {
-    this.timeout(1000000000);
 
     const r1csFile = path.join("test", "buildabc_gap", "gap.r1cs");
     const wasmFile = path.join("test", "buildabc_gap", "gap.wasm");
@@ -44,7 +43,7 @@ describe("buildABCStream cut points on a gapped coefficient array", function () 
     const wtns = {type: "mem"};
     let vKey;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         await snarkjs.powersOfTau.newAccumulator(curve, 8, ptau_0);
         await snarkjs.powersOfTau.contribute(ptau_0, ptau_1, "C1", "buildabc gap test entropy");
@@ -54,7 +53,7 @@ describe("buildABCStream cut points on a gapped coefficient array", function () 
         await snarkjs.wtns.calculate({a: 3, b: 5}, wasmFile, wtns);
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 
