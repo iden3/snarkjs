@@ -12,7 +12,6 @@ import os from "os";
 // exportJson, and verification with logging enabled. These are CLI-facing
 // paths no other suite touches.
 describe("powersoftau tooling", function () {
-    this.timeout(1000000000);
 
     const POWER = 4;
 
@@ -32,7 +31,7 @@ describe("powersoftau tooling", function () {
     const ptau_beacon = { type: "mem" };
     const ptau_final = { type: "mem" };
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "snarkjs-ptau-"));
         await snarkjs.powersOfTau.newAccumulator(curve, POWER, ptau_0, logger);
@@ -42,7 +41,7 @@ describe("powersoftau tooling", function () {
         await snarkjs.powersOfTau.preparePhase2(ptau_beacon, ptau_final, logger);
     });
 
-    after(async () => {
+    afterAll(async () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         await curve.terminate();
     });
@@ -283,7 +282,7 @@ describe("powersoftau tooling", function () {
             "key.tau.g2_spx": 832, "key.alpha.g2_spx": 960, "key.beta.g2_spx": 1088,
         };
 
-        before(async () => {
+        beforeAll(async () => {
             await snarkjs.powersOfTau.newAccumulator(curve, 3, nameless_0);
             await snarkjs.powersOfTau.contribute(nameless_0, nameless_1, "", "nameless entropy");
             await snarkjs.powersOfTau.beacon(nameless_1, nameless_beacon, "",

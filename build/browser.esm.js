@@ -1,16750 +1,5923 @@
-import { BigBuffer, Scalar, buildBn128, buildBls12381, ChaCha, F1Field, utils, getCurveFromR as getCurveFromR$1 } from 'ffjavascript';
-
-var fs = {};
-
-async function open(fileName, openFlags, cacheSize, pageSize) {
-    cacheSize = cacheSize || 4096*64;
-    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
-        throw new Error("Invalid open option");
-    const fd =await fs.promises.open(fileName, openFlags);
-
-    const stats = await fd.stat();
-
-    return  new FastFile(fd, stats, cacheSize, pageSize, fileName);
-}
-
-
-class FastFile {
-
-    constructor(fd, stats, cacheSize, pageSize, fileName) {
-        this.fileName = fileName;
-        this.fd = fd;
-        this.pos = 0;
-        this.pageSize = pageSize || (1 << 8);
-        while (this.pageSize < stats.blksize) {
-            this.pageSize *= 2;
-        }
-        this.totalSize = stats.size;
-        this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
-        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
-        // Reads/writes at least this large bypass the page cache and move bytes
-        // straight between disk and the caller's buffer (see readToBuffer /
-        // write), avoiding the extra buffer<->page copy that dominates large
-        // sequential transfers (e.g. zkey/ptau sections).
-        this.directReadThreshold = 1 << 20;
-        this.directWriteThreshold = 1 << 20;
-        this.pages = {};
-        this.pendingLoads = [];
-        this.writing = false;
-        this.reading = false;
-        this.avBuffs = [];
-        this.history = {};
-    }
-
-    _loadPage(p) {
-        const self = this;
-        const P = new Promise((resolve, reject)=> {
-            self.pendingLoads.push({
-                page: p,
-                resolve: resolve,
-                reject: reject
-            });
-        });
-        self.__statusPage("After Load request: ", p);
-        return P;
-    }
-
-    // coverage: debug instrumentation, only enabled by hand (this.logHistory)
-    /* c8 ignore start */
-    __statusPage(s, p) {
-        const logEntry = [];
-        const self=this;
-        if (!self.logHistory) return;
-        logEntry.push("==" + s+ " " +p);
-        let S = "";
-        for (let i=0; i<self.pendingLoads.length; i++) {
-            if (self.pendingLoads[i].page == p) S = S + " " + i;
-        }
-        if (S) logEntry.push("Pending loads:"+S);
-        if (typeof self.pages[p] != "undefined") {
-            const page = self.pages[p];
-            logEntry.push("Loaded");
-            logEntry.push("pendingOps: "+page.pendingOps);
-            if (page.loading) logEntry.push("loading: "+page.loading);
-            if (page.writing) logEntry.push("writing");
-            if (page.dirty) logEntry.push("dirty");
-        }
-        logEntry.push("==");
-
-        if (!self.history[p]) self.history[p] = [];
-        self.history[p].push(logEntry);
-    }
-
-    __printHistory(p) {
-        const self = this;
-        if (!self.history[p]) console.log("Empty History ", p);
-        console.log("History "+p);
-        for (let i=0; i<self.history[p].length; i++) {
-            for (let j=0; j<self.history[p][i].length; j++) {
-                console.log("-> " + self.history[p][i][j]);
-            }
-        }
-    }
-
-
-
-    /* c8 ignore stop */
-
-    _triggerLoad() {
-        const self = this;
-
-        if (self.reading) return;
-        if (self.pendingLoads.length==0) return;
-
-        const pageIdxs = Object.keys(self.pages);
-
-        const deletablePages = [];
-        for (let i=0; i<pageIdxs.length; i++) {
-            const page = self.pages[parseInt(pageIdxs[i])];
-            if ((page.dirty == false)&&(page.pendingOps==0)&&(!page.writing)&&(!page.loading)) deletablePages.push(parseInt(pageIdxs[i]));
-        }
-
-        let freePages = self.maxPagesLoaded - pageIdxs.length;
-
-        const ops = [];
-
-        // while pending loads and
-        //     the page is loaded or I can recover one.
-        while (
-            (self.pendingLoads.length>0) &&
-            (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
-              ||(  (freePages>0)
-                 ||(deletablePages.length>0)))) {
-            const load = self.pendingLoads.shift();
-            if (typeof self.pages[load.page] != "undefined") {
-                self.pages[load.page].pendingOps ++;
-                const idx = deletablePages.indexOf(load.page);
-                if (idx>=0) deletablePages.splice(idx, 1);
-                if (self.pages[load.page].loading) {
-                    self.pages[load.page].loading.push(load);
-                } else {
-                    load.resolve();
-                }
-                self.__statusPage("After Load (cached): ", load.page);
-
-            } else {
-                if (freePages) {
-                    freePages--;
-                } else {
-                    const fp = deletablePages.shift();
-                    self.__statusPage("Before Unload: ", fp);
-                    self.avBuffs.unshift(self.pages[fp]);
-                    delete self.pages[fp];
-                    self.__statusPage("After Unload: ", fp);
-                }
-
-                if (load.page>=self.totalPages) {
-                    self.pages[load.page] = getNewPage();
-                    load.resolve();
-                    self.__statusPage("After Load (new): ", load.page);
-                } else {
-                    self.reading = true;
-                    self.pages[load.page] = getNewPage();
-                    self.pages[load.page].loading = [load];
-                    ops.push(self.fd.read(self.pages[load.page].buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
-                        self.pages[load.page].size = res.bytesRead;
-                        const loading = self.pages[load.page].loading;
-                        delete self.pages[load.page].loading;
-                        for (let i=0; i<loading.length; i++) {
-                            loading[i].resolve();
-                        }
-                        self.__statusPage("After Load (loaded): ", load.page);
-                        return res;
-                    }, (err) => {
-                        // Reject EVERY waiter, not just the first: co-readers of the
-                        // same page were appended to page.loading (not to `load`) and
-                        // would otherwise await forever. Drop the page entirely so a
-                        // later retry re-reads it instead of queueing onto a dead
-                        // loading list.
-                        const page = self.pages[load.page];
-                        const loading = (page && page.loading) ? page.loading : [load];
-                        delete self.pages[load.page];
-                        for (let i=0; i<loading.length; i++) {
-                            loading[i].reject(err);
-                        }
-                    }));
-                    self.__statusPage("After Load (loading): ", load.page);
-                }
-            }
-        }
-        // if (ops.length>1) console.log(ops.length);
-
-        Promise.all(ops).then( () => {
-            self.reading = false;
-            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-            self._tryClose();
-        });
-
-        function getNewPage() {
-            if (self.avBuffs.length>0) {
-                const p = self.avBuffs.shift();
-                p.dirty = false;
-                p.pendingOps = 1;
-                p.size =0;
-                return p;
-            } else {
-                return {
-                    dirty: false,
-                    buff: new Uint8Array(self.pageSize),
-                    pendingOps: 1,
-                    size: 0
-                };
-            }
-        }
-
-    }
-
-
-    _triggerWrite() {
-        const self = this;
-        if (self.writing) return;
-
-        const pageIdxs = Object.keys(self.pages);
-
-        const ops = [];
-
-        for (let i=0; i<pageIdxs.length; i++) {
-            const page = self.pages[parseInt(pageIdxs[i])];
-            if (page.dirty) {
-                page.dirty = false;
-                page.writing = true;
-                self.writing = true;
-                ops.push( self.fd.write(page.buff, 0, page.size, parseInt(pageIdxs[i])*self.pageSize).then(() => {
-                    page.writing = false;
-                    return;
-                }, (err) => {
-                    console.log("ERROR Writing: "+err);
-                    // Clear `writing` (a stuck flag pins the page forever and
-                    // blocks _tryClose) and record the error. write()/read()
-                    // surface it on their next call (fail fast) and close()
-                    // rejects with it -- previously it was only visible at
-                    // close(), so a prover that skipped close on error paths
-                    // silently produced a truncated/corrupt file.
-                    page.writing = false;
-                    self.error = err;
-                    self._tryClose();
-                }));
-            }
-        }
-
-        if (self.writing) {
-            Promise.all(ops).then( () => {
-                self.writing = false;
-                setImmediate(self._triggerWrite.bind(self));
-                self._tryClose();
-                if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-            });
-        }
-    }
-
-    _getDirtyPage() {
-        for (let p in this.pages) {
-            if (this.pages[p].dirty) return p;
-        }
-        return -1;
-    }
-
-    // Iterate the actually-cached pages (usually few) rather than every page
-    // index in [firstPage, lastPage], so the check stays O(cached pages) even
-    // for very large ranges / small page sizes.
-    _rangeHasCachedPages(pos, len) {
-        const firstPage = Math.floor(pos / this.pageSize);
-        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (const k of Object.keys(this.pages)) {
-            const p = +k;
-            if (p >= firstPage && p <= lastPage) return true;
-        }
-        return false;
-    }
-
-    async write(buff, pos) {
-        if (buff.byteLength == 0) return;
-        const self = this;
-        if (self.error) throw self.error;
-        if (typeof pos == "undefined") pos = self.pos;
-        self.pos = pos+buff.byteLength;
-        if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
-        if (self.pendingClose)
-            throw new Error("Writing a closing file");
-
-        // Direct-write fast path: for large writes to a region with no cached
-        // pages, write straight to disk, skipping the buff->page copy and the
-        // deferred page flush. Any cached page in range (even clean) would go
-        // stale after a direct write, so we fall back to the cached path then.
-        // ArrayBuffer.isView gate: fd.write needs a real TypedArray/DataView; a
-        // BigBuffer (paged, not a view) must use the cached path.
-        if (buff.byteLength >= self.directWriteThreshold && ArrayBuffer.isView(buff) && !self._rangeHasCachedPages(pos, buff.byteLength)) {
-            let done = 0;
-            while (done < buff.byteLength) {
-                const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
-                if (bytesWritten === 0) break;   // should not happen
-                done += bytesWritten;
-            }
-            const lastPage = Math.floor((pos + buff.byteLength - 1) / self.pageSize);
-            if (lastPage + 1 > self.totalPages) self.totalPages = lastPage + 1;
-            return;
-        }
-
-        const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
-
-        const pagePromises = [];
-        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
-        self._triggerLoad();
-
-        let p = firstPage;
-        let o = pos % self.pageSize;
-        let r = buff.byteLength;
-        while (r>0) {
-            await pagePromises[p-firstPage];
-            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
-            const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            dstView.set(srcView);
-            self.pages[p].dirty = true;
-            self.pages[p].pendingOps --;
-            self.pages[p].size = Math.max(o+l, self.pages[p].size);
-            if (p>=self.totalPages) {
-                self.totalPages = p+1;
-            }
-            r = r-l;
-            p ++;
-            o = 0;
-            if (!self.writing) setImmediate(self._triggerWrite.bind(self));
-        }
-    }
-
-    async read(len, pos) {
-        const self = this;
-        let buff = new Uint8Array(len);
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    // Iterate the actually-cached pages (usually few) rather than every page
-    // index in [firstPage, lastPage], so the check stays O(cached pages) even
-    // for very large ranges / small page sizes.
-    _rangeHasDirtyPages(pos, len) {
-        const firstPage = Math.floor(pos / this.pageSize);
-        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (const k of Object.keys(this.pages)) {
-            const p = +k;
-            if (p >= firstPage && p <= lastPage) {
-                const page = this.pages[p];
-                if (page.dirty || page.writing) return true;
-            }
-        }
-        return false;
-    }
-
-    async readToBuffer(buffDst, offset, len, pos) {
-        if (len == 0) {
-            return;
-        }
-        const self = this;
-        if (self.error) throw self.error;
-        if (typeof pos == "undefined") pos = self.pos;
-        self.pos = pos+len;
-        if (self.pendingClose)
-            throw new Error("Reading a closing file");
-
-        // Direct-read fast path: for large reads with no overlapping unwritten
-        // (dirty) pages, copy straight from disk into the destination buffer.
-        // This skips the page cache and the page->destination copy it incurs,
-        // which dominates large sequential reads (e.g. zkey/ptau sections).
-        // ArrayBuffer.isView gate: the direct path hands buffDst to fd.read, which
-        // needs a real TypedArray/DataView. A BigBuffer (paged, not a view) must
-        // go through the cached path, which copies into it via its own .set().
-        if (len >= self.directReadThreshold && ArrayBuffer.isView(buffDst) && !self._rangeHasDirtyPages(pos, len)) {
-            let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
-            if (toRead < 0) toRead = 0;
-            let done = 0;
-            while (done < toRead) {
-                const { bytesRead } = await self.fd.read(buffDst, offset + done, toRead - done, pos + done);
-                if (bytesRead === 0) break;   // EOF
-                done += bytesRead;
-            }
-            return;
-        }
-
-        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(len * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-        const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos + len -1) / self.pageSize);
-
-        const pagePromises = [];
-        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
-
-        self._triggerLoad();
-
-        let p = firstPage;
-        let o = pos % self.pageSize;
-        // Remaining bytes to read (clamped to EOF: a read past the end of a
-        // truncated/short file reads fewer bytes than requested).
-        let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
-        // Bytes already written to buffDst -- tracked independently of `r`
-        // (which shrinks on EOF-clamping) so the destination offset stays
-        // correct. Previously computed as `offset + len - r`: with `r`
-        // pre-clamped below `len`, that put the first bytes read at a
-        // nonzero offset instead of the real EOF-truncated tail, silently
-        // shifting valid data to the wrong position in the output buffer.
-        let done = 0;
-        while (r>0) {
-            await pagePromises[p - firstPage];
-            self.__statusPage("After Await (read): ", p);
-
-            // bytes to copy from this page
-            const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
-            buffDst.set(srcView, offset+done);
-            self.pages[p].pendingOps --;
-
-            self.__statusPage("After Op done: ", p);
-
-            r = r-l;
-            done = done+l;
-            p ++;
-            o = 0;
-            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
-        }
-
-        this.pos = pos + len;
-
-    }
-
-
-    _tryClose() {
-        const self = this;
-        if (!self.pendingClose) return;
-        if (self.error) {
-            self.pendingCloseReject(self.error);
-            return;
-        }
-        const p = self._getDirtyPage();
-        if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
-        self.pendingClose();
-    }
-
-    close() {
-        const self = this;
-        // Idempotent, matching fs.promises.FileHandle.close(): repeated calls
-        // return the same promise, so cleanup code (e.g. a finally block) can
-        // close unconditionally. Reads/writes after close still throw.
-        if (self.closePromise) return self.closePromise;
-        self.closePromise = new Promise((resolve, reject) => {
-            self.pendingClose = resolve;
-            self.pendingCloseReject = reject;
-            self._tryClose();
-        }).then(()=> {
-            self.fd.close();
-        }, (err) => {
-            self.fd.close();
-            throw (err);
-        });
-        return self.closePromise;
-    }
-
-    async discard() {
-        const self = this;
-        await self.close();
-        await fs.promises.unlink(this.fileName);
-    }
-
-    async writeULE32(v, pos) {
-        const self = this;
-        const tmpBuff32 = new Uint8Array(4);
-        const tmpBuff32v = new DataView(tmpBuff32.buffer);
-
-        tmpBuff32v.setUint32(0, v, true);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        const tmpBuff32 = new Uint8Array(4);
-        const tmpBuff32v = new DataView(tmpBuff32.buffer);
-
-        tmpBuff32v.setUint32(0, v, false);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        const tmpBuff64 = new Uint8Array(8);
-        const tmpBuff64v = new DataView(tmpBuff64.buffer);
-
-        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64, pos);
-    }
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-
-        if (self.pendingClose) {
-            throw new Error("Reading a closing file");
-        }
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-        let currentPage = Math.floor(currentPosition / self.pageSize);
-
-        let endOfStringFound = false;
-        let str = "";
-
-        while (!endOfStringFound) {
-            //Read page
-            let pagePromise = self._loadPage(currentPage);
-            self._triggerLoad();
-            await pagePromise;
-            self.__statusPage("After Await (read): ", currentPage);
-
-            let offsetOnPage = currentPosition % self.pageSize;
-
-            const dataArray = new Uint8Array(
-                self.pages[currentPage].buff.buffer,
-                self.pages[currentPage].buff.byteOffset + offsetOnPage,
-                self.pageSize - offsetOnPage
-            );
-
-            let indexEndOfString = dataArray.findIndex(element => element === 0);
-            endOfStringFound = indexEndOfString !== -1;
-
-            if (endOfStringFound) {
-                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * this.pageSize + offsetOnPage + indexEndOfString + 1;
-            } else {
-                str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * this.pageSize + offsetOnPage + dataArray.length;
-            }
-
-            self.pages[currentPage].pendingOps--;
-            self.__statusPage("After Op done: ", currentPage);
-
-            currentPosition = self.pos;
-            currentPage++;
-
-            if (self.pendingLoads.length > 0) setImmediate(self._triggerLoad.bind(self));
-        }
-
-        return str;
-    }
-}
-
-function createNew$1(o) {
-    const initialSize = o.initialSize || 1<<20;
-    const fd = new MemFile();
-    fd.o = o;
-    fd.o.data = new Uint8Array(initialSize);
-    fd.allocSize = initialSize;
-    fd.totalSize = 0;
-    fd.readOnly = false;
-    fd.pos = 0;
-    return fd;
-}
-
-function readExisting$4(o) {
-    const fd = new MemFile();
-    fd.o = o;
-    fd.allocSize = o.data.byteLength;
-    fd.totalSize = o.data.byteLength;
-    fd.readOnly = true;
-    fd.pos = 0;
-    return fd;
-}
-
-const tmpBuff32$1 = new Uint8Array(4);
-const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
-const tmpBuff64$1 = new Uint8Array(8);
-const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
-
-class MemFile {
-
-    constructor() {
-        this.pageSize = 1 << 14;  // for compatibility
-    }
-
-    _resizeIfNeeded(newLen) {
-        if (newLen > this.allocSize) {
-            const newAllocSize = Math.max(
-                this.allocSize + (1 << 20),
-                Math.floor(this.allocSize * 1.1),
-                newLen
-            );
-            const newData = new Uint8Array(newAllocSize);
-            newData.set(this.o.data);
-            this.o.data = newData;
-            this.allocSize = newAllocSize;
-        }
-    }
-
-    async write(buff, pos) {
-        const self =this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) throw new Error("Writing a read only file");
-
-        this._resizeIfNeeded(pos + buff.byteLength);
-
-        this.o.data.set(buff.slice(), pos);
-
-        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
-
-        this.pos = pos + buff.byteLength;
-    }
-
-    async readToBuffer(buffDest, offset, len, pos) {
-        const self = this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) {
-            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
-        }
-        this._resizeIfNeeded(pos + len);
-
-        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
-
-        buffDest.set(buffSrc, offset);
-
-        this.pos = pos + len;
-    }
-
-    async read(len, pos) {
-        const self = this;
-
-        const buff = new Uint8Array(len);
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    close() {
-        if (this.o.data.byteLength != this.totalSize) {
-            this.o.data = this.o.data.slice(0, this.totalSize);
-        }
-    }
-
-    async discard() {
-    }
-
-
-    async writeULE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$1.setUint32(0, v, true);
-
-        await self.write(tmpBuff32$1, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v$1.setUint32(0, v, false);
-
-        await self.write(tmpBuff32$1, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64$1, pos);
-    }
-
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-
-        if (currentPosition >= this.totalSize) {
-            if (this.readOnly) {
-                throw new Error("Reading out of bounds");
-            }
-            // Past the written data there is no string to read. (This used to
-            // grow the allocation and then build a negative-length view, which
-            // threw a RangeError.)
-            return "";
-        }
-        const dataArray = new Uint8Array(
-            self.o.data.buffer,
-            currentPosition,
-            this.totalSize - currentPosition
-        );
-
-        let indexEndOfString = dataArray.findIndex(element => element === 0);
-        let endOfStringFound = indexEndOfString !== -1;
-
-        let str = "";
-        if (endOfStringFound) {
-            str = new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-            self.pos = currentPosition + indexEndOfString + 1;
-        } else {
-            self.pos = currentPosition;
-        }
-        return str;
-    }
-}
-
-const PAGE_SIZE = 1<<22;
-
-function createNew(o) {
-    const initialSize = o.initialSize || 0;
-    const fd = new BigMemFile();
-    fd.o = o;
-    const nPages = initialSize ? Math.floor((initialSize - 1) / PAGE_SIZE)+1 : 0;
-    fd.o.data = [];
-    for (let i=0; i<nPages-1; i++) {
-        fd.o.data.push( new Uint8Array(PAGE_SIZE));
-    }
-    if (nPages) fd.o.data.push( new Uint8Array(initialSize - PAGE_SIZE*(nPages-1)));
-    fd.totalSize = 0;
-    fd.readOnly = false;
-    fd.pos = 0;
-    return fd;
-}
-
-function readExisting$3(o) {
-    const fd = new BigMemFile();
-    fd.o = o;
-    fd.totalSize = (o.data.length-1)* PAGE_SIZE + o.data[o.data.length-1].byteLength;
-    fd.readOnly = true;
-    fd.pos = 0;
-    return fd;
-}
-
-const tmpBuff32 = new Uint8Array(4);
-const tmpBuff32v = new DataView(tmpBuff32.buffer);
-const tmpBuff64 = new Uint8Array(8);
-const tmpBuff64v = new DataView(tmpBuff64.buffer);
-
-class BigMemFile {
-
-    constructor() {
-        this.pageSize = 1 << 14;  // for compatibility
-    }
-
-    _resizeIfNeeded(newLen) {
-
-        if (newLen <= this.totalSize) return;
-
-        if (this.readOnly) throw new Error("Reading out of file bounds");
-
-        const nPages = Math.floor((newLen - 1) / PAGE_SIZE)+1;
-        for (let i= Math.max(this.o.data.length-1, 0); i<nPages; i++) {
-            const newSize = i<nPages-1 ? PAGE_SIZE : newLen - (nPages-1)*PAGE_SIZE;
-            const p = new Uint8Array(newSize);
-            if (i == this.o.data.length-1) p.set(this.o.data[i]);
-            this.o.data[i] = p;
-        }
-        this.totalSize = newLen;
-    }
-
-    async write(buff, pos) {
-        const self =this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) throw new Error("Writing a read only file");
-
-        this._resizeIfNeeded(pos + buff.byteLength);
-
-        const firstPage = Math.floor(pos / PAGE_SIZE);
-
-        let p = firstPage;
-        let o = pos % PAGE_SIZE;
-        let r = buff.byteLength;
-        while (r>0) {
-            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
-            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
-            const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
-            dstView.set(srcView);
-            r = r-l;
-            p ++;
-            o = 0;
-        }
-
-        this.pos = pos + buff.byteLength;
-    }
-
-    async readToBuffer(buffDst, offset, len, pos) {
-        const self = this;
-        if (typeof pos == "undefined") pos = self.pos;
-        if (this.readOnly) {
-            if (pos + len > this.totalSize) throw new Error("Reading out of bounds");
-        }
-        this._resizeIfNeeded(pos + len);
-
-        const firstPage = Math.floor(pos / PAGE_SIZE);
-
-        let p = firstPage;
-        let o = pos % PAGE_SIZE;
-        // Remaining bytes to read
-        let r = len;
-        while (r>0) {
-            // bytes to copy from this page
-            const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
-            const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
-            buffDst.set(srcView, offset+len-r);
-            r = r-l;
-            p ++;
-            o = 0;
-        }
-
-        this.pos = pos + len;
-    }
-
-    async read(len, pos) {
-        const self = this;
-        const buff = new Uint8Array(len);
-
-        await self.readToBuffer(buff, 0, len, pos);
-
-        return buff;
-    }
-
-    close() {
-    }
-
-    async discard() {
-    }
-
-
-    async writeULE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v.setUint32(0, v, true);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-    async writeUBE32(v, pos) {
-        const self = this;
-
-        tmpBuff32v.setUint32(0, v, false);
-
-        await self.write(tmpBuff32, pos);
-    }
-
-
-    async writeULE64(v, pos) {
-        const self = this;
-
-        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
-
-        await self.write(tmpBuff64, pos);
-    }
-
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new DataView(b.buffer);
-
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const self = this;
-        const b = await self.read(8, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-        const fixedSize = 2048;
-
-        let currentPosition = typeof pos == "undefined" ? self.pos : pos;
-
-        if (currentPosition > this.totalSize) {
-            if (this.readOnly) {
-                throw new Error("Reading out of bounds");
-            }
-            this._resizeIfNeeded(pos);
-        }
-
-        let endOfStringFound = false;
-        let str = "";
-
-        while (!endOfStringFound) {
-            let currentPage = Math.floor(currentPosition / PAGE_SIZE);
-            let offsetOnPage = currentPosition % PAGE_SIZE;
-
-            if (self.o.data[currentPage] === undefined) {
-                throw new Error("ERROR");
-            }
-
-            let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
-            if (readLength <= 0) {
-                // EOF without a terminator: the string ends at the end of the
-                // data (matches the rangefile backend). This used to spin
-                // forever re-reading an empty window.
-                self.pos = currentPosition;
-                return str;
-            }
-            const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
-
-            let indexEndOfString = dataArray.findIndex(element => element === 0);
-            endOfStringFound = indexEndOfString !== -1;
-
-            if (endOfStringFound) {
-                str += new TextDecoder().decode(dataArray.slice(0, indexEndOfString));
-                self.pos = currentPage * PAGE_SIZE + offsetOnPage + indexEndOfString + 1;
-            } else {
-                str += new TextDecoder().decode(dataArray);
-                self.pos = currentPage * PAGE_SIZE + offsetOnPage + dataArray.length;
-            }
-
-            currentPosition = self.pos;
-        }
-        return str;
-    }
-}
-
-// Shared read-only file over an abstract positioned range reader.
-//
-// Backends (httpfile, blobfile) supply a single primitive:
-//     readRangeInto(dstBuff, dstOffset, pos, len) -> Promise<void>
-// and this class layers the FastFile read interface on top:
-//   - reads >= pageSize bypass the cache and go straight to the backend
-//     (the file is read-only, so a direct read is always coherent);
-//   - smaller reads (header scans: magics, section tables, ULE32/64) are
-//     served from page-aligned cached ranges so that e.g. a binfile section
-//     scan does not issue one backend request per 4-byte field.
-//
-// Write operations throw: remote ranges are strictly a read transport.
-
-const DEFAULT_CACHE_SIZE$1 = 1 << 20;
-const DEFAULT_PAGE_SIZE$1 = 1 << 13;
-
-class RangeFile {
-
-    constructor(readRangeInto, totalSize, cacheSize, pageSize) {
-        this.readRangeInto = readRangeInto;
-        this.totalSize = totalSize;
-        this.pos = 0;
-        this.pageSize = pageSize || DEFAULT_PAGE_SIZE$1;
-        this.maxPagesLoaded = Math.floor((cacheSize || DEFAULT_CACHE_SIZE$1) / this.pageSize) + 1;
-        this.pages = new Map();      // page index -> { buff: Uint8Array|null, promise: Promise }
-        this.readOnly = true;
-    }
-
-    _pageLen(p) {
-        const start = p * this.pageSize;
-        const end = Math.min(start + this.pageSize, this.totalSize);
-        return end - start;
-    }
-
-    // Load (or join the in-flight load of) page p; resolves to its buffer.
-    // A failed load removes the entry so a later retry re-requests it.
-    _loadPage(p) {
-        const self = this;
-        let page = self.pages.get(p);
-        if (page) {
-            // LRU touch: re-insert so Map iteration order tracks recency.
-            self.pages.delete(p);
-            self.pages.set(p, page);
-            return page.promise;
-        }
-        const buff = new Uint8Array(self._pageLen(p));
-        page = { buff: null, promise: null };
-        page.promise = self.readRangeInto(buff, 0, p * self.pageSize, buff.byteLength).then(function () {
-            page.buff = buff;
-            return buff;
-        }, function (err) {
-            self.pages.delete(p);
-            throw err;
-        });
-        self.pages.set(p, page);
-        self._trimCache();
-        return page.promise;
-    }
-
-    _trimCache() {
-        const self = this;
-        if (self.pages.size <= self.maxPagesLoaded) return;
-        // Evict oldest settled pages first; in-flight loads are kept.
-        for (const entry of self.pages) {
-            if (self.pages.size <= self.maxPagesLoaded) return;
-            if (entry[1].buff) self.pages.delete(entry[0]);
-        }
-    }
-
-    async readToBuffer(buffDst, offset, len, pos) {
-        const self = this;
-        if (len === 0) return;
-        if (self.pendingClose) throw new Error("Reading a closing file");
-        if (typeof pos === "undefined") pos = self.pos;
-        if (pos + len > self.totalSize) throw new Error("Reading out of bounds");
-        self.pos = pos + len;
-
-        // Direct path: one backend request straight into the destination
-        // (works for both typed arrays and BigBuffer via .set()).
-        if (len >= self.pageSize) {
-            await self.readRangeInto(buffDst, offset, pos, len);
-            return;
-        }
-
-        const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos + len - 1) / self.pageSize);
-        let o = pos % self.pageSize;
-        let done = 0;
-        for (let p = firstPage; p <= lastPage; p++) {
-            const buff = await self._loadPage(p);
-            const l = Math.min(len - done, self.pageSize - o);
-            buffDst.set(buff.subarray(o, o + l), offset + done);
-            done += l;
-            o = 0;
-        }
-    }
-
-    async read(len, pos) {
-        const buff = new Uint8Array(len);
-        await this.readToBuffer(buff, 0, len, pos);
-        return buff;
-    }
-
-    async readULE32(pos) {
-        const b = await this.read(4, pos);
-        const view = new Uint32Array(b.buffer);
-        return view[0];
-    }
-
-    async readUBE32(pos) {
-        const b = await this.read(4, pos);
-        const view = new DataView(b.buffer);
-        return view.getUint32(0, false);
-    }
-
-    async readULE64(pos) {
-        const b = await this.read(8, pos);
-        const view = new Uint32Array(b.buffer);
-        return view[1] * 0x100000000 + view[0];
-    }
-
-    async readString(pos) {
-        const self = this;
-        if (self.pendingClose) throw new Error("Reading a closing file");
-        let p = typeof pos === "undefined" ? self.pos : pos;
-        const chunks = [];
-        while (p < self.totalSize) {
-            const l = Math.min(self.pageSize, self.totalSize - p);
-            const chunk = await self.read(l, p);
-            const z = chunk.indexOf(0);
-            if (z >= 0) {
-                chunks.push(chunk.subarray(0, z));
-                self.pos = p + z + 1;
-                return decodeChunks(chunks);
-            }
-            chunks.push(chunk);
-            p += l;
-        }
-        // No terminator before EOF: the string ends at EOF.
-        self.pos = p;
-        return decodeChunks(chunks);
-    }
-
-    async write() {
-        throw new Error("Writing a read only file");
-    }
-
-    async writeULE32() {
-        throw new Error("Writing a read only file");
-    }
-
-    async writeUBE32() {
-        throw new Error("Writing a read only file");
-    }
-
-    async writeULE64() {
-        throw new Error("Writing a read only file");
-    }
-
-    async close() {
-        // Idempotent: a second close is a no-op, matching the os backend.
-        if (this.pendingClose) return;
-        this.pendingClose = true;
-        this.pages.clear();
-    }
-
-    async discard() {
-        await this.close();
-    }
-}
-
-function decodeChunks(chunks) {
-    let total = 0;
-    for (let i = 0; i < chunks.length; i++) total += chunks[i].byteLength;
-    const all = new Uint8Array(total);
-    let o = 0;
-    for (let i = 0; i < chunks.length; i++) {
-        all.set(chunks[i], o);
-        o += chunks[i].byteLength;
-    }
-    return new TextDecoder().decode(all);
-}
-
-// Read-only file over HTTP(S) using Range requests.
-//
-// Open probes the server with `Range: bytes=0-0`:
-//   - 206 + parseable Content-Range total -> a RangeFile whose reads become
-//     range requests; large reads (zkey/ptau sections, MSM chunks) stream
-//     the response body straight into the caller's buffer, so the full file
-//     is never resident;
-//   - anything else (200, no range support, unknown total) -> fall back to
-//     buffering the body in memory, i.e. the historical browser behavior.
-//
-// Consistency: the validator captured at open (strong ETag, else
-// Last-Modified) is sent as If-Range on every range request. If the remote
-// file changes mid-read the server answers 200 instead of 206 and the read
-// throws, rather than silently mixing chunks of two file versions.
-//
-// Server requirements (CORS deployments): allow the `Range` request header
-// and expose `Content-Range` + `ETag`; serve zkeys without Content-Encoding
-// (ranges address encoded bytes).
-
-
-// Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
-// pages); over HTTP a page that large turns a 4-byte header read into a
-// megabytes-range request -- for files below the page size, the whole file in
-// one response, defeating streaming. Cap pages at 64 KiB: big enough to
-// coalesce a binfile section-table scan, small enough to stay incidental.
-// Reads >= the page size bypass the cache entirely (RangeFile direct path),
-// so large section/chunk reads are unaffected by the cap.
-const MAX_HTTP_PAGE_SIZE = 1 << 16;
-
-async function readExisting$2(o) {
-    const url = o.url;
-    const probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
-
-    if (probe.status === 206) {
-        const contentRange = probe.headers.get("content-range");
-        const m = contentRange ? /\/(\d+)\s*$/.exec(contentRange) : null;
-        if (m) {
-            const totalSize = parseInt(m[1]);
-            // Drain the 1-byte probe body so the connection can be reused.
-            await probe.arrayBuffer();
-            const validator = strongValidator(probe);
-            // Degrade-to-buffering escape hatch: a 206 probe answer can come
-            // from an intermediary (browsers satisfy ranges out of their own
-            // HTTP cache of a full 200), while the origin itself ignores
-            // Range. When a later range request gets a 200 whose strong
-            // validator still matches, the file is unchanged -- buffer that
-            // full body once and serve every subsequent read from it.
-            let fullBody = null;
-            const readRangeInto = async function (dst, dstOffset, pos, len) {
-                if (!fullBody) {
-                    try {
-                        return await httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
-                    } catch (err) {
-                        if (!err || !err.degradeToFull) throw err;
-                        fullBody = err.fullBodyPromise;
-                    }
-                }
-                const data = await fullBody;
-                if (pos + len > data.byteLength) {
-                    throw new Error(url + ": read past the end of the buffered body");
-                }
-                dst.set(data.subarray(pos, pos + len), dstOffset);
-            };
-            const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
-            return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
-        }
-        // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot
-        // do bounded positioned reads; refetch whole and buffer.
-        await probe.arrayBuffer();
-        return await readFullyToMem(url);
-    }
-
-    if (!probe.ok && probe.status !== 416) {
-        throw new Error("HTTP " + probe.status + " fetching " + url);
-    }
-
-    if (probe.status === 416) {
-        // Range not satisfiable -- only legitimate for an empty file.
-        const contentRange = probe.headers.get("content-range");
-        if (contentRange && /\/0\s*$/.test(contentRange)) {
-            return readExisting$4({ type: "mem", data: new Uint8Array(0) });
-        }
-        return await readFullyToMem(url);
-    }
-
-    // 200: the server ignored Range and sent the whole file; reuse this body.
-    const data = new Uint8Array(await probe.arrayBuffer());
-    return readExisting$4({ type: "mem", data: data });
-}
-
-async function readFullyToMem(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("HTTP " + res.status + " fetching " + url);
-    const data = new Uint8Array(await res.arrayBuffer());
-    return readExisting$4({ type: "mem", data: data });
-}
-
-// Only a strong validator is usable with If-Range (RFC 9110 §13.1.5): a weak
-// ETag would make conditional range requests always fail on some servers.
-function strongValidator(res) {
-    const etag = res.headers.get("etag");
-    if (etag && etag.indexOf("W/") !== 0) return etag;
-    const lastModified = res.headers.get("last-modified");
-    if (lastModified) return lastModified;
-    return null;
-}
-
-async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
-    const headers = { "Range": "bytes=" + pos + "-" + (pos + len - 1) };
-    if (validator) headers["If-Range"] = validator;
-    const res = await fetch(url, { headers: headers });
-    if (res.status === 200) {
-        // A 200 mid-session means the origin does not honor Range (the 206
-        // probe answer may have come from a browser cache). If the strong
-        // validator still matches -- or we never had one -- the file is
-        // unchanged: hand the full body to the caller to degrade to
-        // buffered mode. Only a changed validator is a hard error.
-        const nowValidator = strongValidator(res);
-        if (!validator || (nowValidator && nowValidator === validator)) {
-            const degrade = new Error(url + ": origin ignored Range; degrading to full buffering");
-            degrade.degradeToFull = true;
-            degrade.fullBodyPromise = res.arrayBuffer().then((b) => new Uint8Array(b));
-            throw degrade;
-        }
-        await abandonBody(res);
-        throw new Error(url + ": file changed (or server stopped honoring Range) while reading");
-    }
-    if (res.status !== 206) {
-        await abandonBody(res);
-        throw new Error("HTTP " + res.status + " reading range " + pos + "+" + len + " of " + url);
-    }
-    const contentRange = res.headers.get("content-range");
-    const m = contentRange ? /bytes\s+(\d+)-(\d+)\//.exec(contentRange) : null;
-    if (m && parseInt(m[1]) !== pos) {
-        await abandonBody(res);
-        throw new Error(url + ": server returned range starting at " + m[1] + ", requested " + pos);
-    }
-
-    // Stream the body straight into the destination (typed array or
-    // BigBuffer -- both expose .set(chunk, offset)); avoids materializing
-    // a second full-size copy of large section reads.
-    let done = 0;
-    if (res.body && typeof res.body.getReader === "function") {
-        const reader = res.body.getReader();
-        for (;;) {
-            const it = await reader.read();
-            if (it.done) break;
-            if (done + it.value.byteLength > len) {
-                reader.cancel().catch(function () {});
-                throw new Error(url + ": range response longer than requested");
-            }
-            dst.set(it.value, dstOffset + done);
-            done += it.value.byteLength;
-        }
-    } else {
-        // coverage: fetch implementations without a streaming body (older
-        // browser polyfills); Node's undici always streams
-        /* c8 ignore start */
-        const buff = new Uint8Array(await res.arrayBuffer());
-        if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
-        dst.set(buff, dstOffset);
-        done = buff.byteLength;
-        /* c8 ignore stop */
-    }
-    if (done !== len) {
-        throw new Error(url + ": short range response (" + done + "/" + len + " bytes at " + pos + ")");
-    }
-}
-
-async function abandonBody(res) {
-    try {
-        if (res.body && typeof res.body.cancel === "function") await res.body.cancel();
-        /* c8 ignore next -- non-streaming fetch polyfills only */
-        else await res.arrayBuffer();
-    } catch (e) { /* body teardown is best-effort */ }
-}
-
-// Read-only file over a Blob/File (e.g. a browser <input type="file">
-// selection). blob.slice() is a zero-copy view; bytes only reach memory when
-// a sub-range is read, so large zkeys stream from disk chunk-by-chunk with
-// the same bounded footprint as the Node file backend.
-
-
-// Same rationale as httpfile's cap, relaxed for a local source: callers pass
-// disk-tuned page sizes (MiBs) that would make every small header read
-// materialize a huge slice; 1 MiB keeps that bounded while costing at most a
-// handful of slice reads per file open.
-const MAX_BLOB_PAGE_SIZE = 1 << 20;
-
-function readExisting$1(o) {
-    const blob = o.blob;
-    const readRangeInto = async function (dst, dstOffset, pos, len) {
-        const ab = await blob.slice(pos, pos + len).arrayBuffer();
-        if (ab.byteLength !== len) {
-            throw new Error("short blob read (" + ab.byteLength + "/" + len + " bytes at " + pos + ")");
-        }
-        dst.set(new Uint8Array(ab), dstOffset);
-    };
-    const pageSize = Math.min(o.pageSize || MAX_BLOB_PAGE_SIZE, MAX_BLOB_PAGE_SIZE);
-    return new RangeFile(readRangeInto, blob.size, o.cacheSize, pageSize);
-}
-
-const O_TRUNC = 512;
-const O_CREAT = 64;
-const O_RDWR = 2;
-const O_RDONLY = 0;
-
-const DEFAULT_CACHE_SIZE = (1 << 16);
-const DEFAULT_PAGE_SIZE = (1 << 13);
-
-// Robust Node detection that never throws (unlike `true`, which is a
-// webpack-ism and is undefined under Vite/esbuild/SES).
-const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
-
-
-async function createOverride(o, b, c) {
-    if (typeof o === "string") {
-        o = {
-            type: "file",
-            fileName: o,
-            cacheSize: b || DEFAULT_CACHE_SIZE,
-            pageSize: c || DEFAULT_PAGE_SIZE
-        };
-    }
-    if (o.type == "file") {
-        return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
-    } else if (o.type == "mem") {
-        return createNew$1(o);
-    } else if (o.type == "bigMem") {
-        return createNew(o);
-    } else {
-        throw new Error("Invalid FastFile type: "+o.type);
-    }
-}
-
-async function readExisting(o, b, c) {
-    if (o instanceof Uint8Array) {
-        o = {
-            type: "mem",
-            data: o
-        };
-    }
-    if (typeof Blob !== "undefined" && o instanceof Blob) {
-        o = {
-            type: "blob",
-            blob: o,
-            cacheSize: b,
-            pageSize: c
-        };
-    }
-    if (typeof o === "string") {
-        // URLs (and, in the browser, any string -- historically fetched
-        // whole) go through the http backend: it streams via Range requests
-        // when the server supports them and falls back to buffering the
-        // full body (the previous behavior) when it does not.
-        if (!isNode || /^https?:\/\//i.test(o)) {
-            o = {
-                type: "http",
-                url: o,
-                cacheSize: b,
-                pageSize: c
-            };
-        } else {
-            o = {
-                type: "file",
-                fileName: o,
-                cacheSize: b || DEFAULT_CACHE_SIZE,
-                pageSize: c || DEFAULT_PAGE_SIZE
-            };
-        }
-    }
-    if (o.type == "file") {
-        return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
-    } else if (o.type == "mem") {
-        return await readExisting$4(o);
-    } else if (o.type == "bigMem") {
-        return await readExisting$3(o);
-    } else if (o.type == "http") {
-        return await readExisting$2(o);
-    } else if (o.type == "blob") {
-        return readExisting$1(o);
-    } else {
-        throw new Error("Invalid FastFile type: "+o.type);
-    }
-}
-
-// 1 GiB threshold (matched to BigBuffer's page size): sections at/above this are
-// read into a paged BigBuffer instead of one flat Uint8Array.
-const MAX_BUFFER_SIZE = 1 << 30;
-
-async function readBinFile(fileName, type, maxVersion, cacheSize, pageSize) {
-
-    const fd = await readExisting(fileName, cacheSize, pageSize);
-
-    const b = await fd.read(4);
-    let readedType = "";
-    for (let i=0; i<4; i++) readedType += String.fromCharCode(b[i]);
-
-    if (readedType != type) throw new Error(fileName + ": Invalid File format");
-
-    let v = await fd.readULE32();
-
-    if (v>maxVersion) throw new Error("Version not supported");
-
-    const nSections = await fd.readULE32();
-
-    // Scan sections
-    let sections = [];
-    for (let i=0; i<nSections; i++) {
-        let ht = await fd.readULE32();
-        let hl = await fd.readULE64();
-        if (typeof sections[ht] == "undefined") sections[ht] = [];
-        sections[ht].push({
-            p: fd.pos,
-            size: hl
-        });
-        fd.pos += hl;
-    }
-
-    return {fd, sections};
-}
-
-async function createBinFile(fileName, type, version, nSections, cacheSize, pageSize) {
-
-    const fd = await createOverride(fileName, cacheSize, pageSize);
-
-    const buff = new Uint8Array(4);
-    for (let i=0; i<4; i++) buff[i] = type.charCodeAt(i);
-    await fd.write(buff, 0); // Magic "r1cs"
-
-    await fd.writeULE32(version); // Version
-    await fd.writeULE32(nSections); // Number of Sections
-
-    return fd;
-}
-
-async function startWriteSection(fd, idSection) {
-    if (typeof fd.writingSection !== "undefined") throw new Error("Already writing a section");
-    await fd.writeULE32(idSection); // Header type
-    fd.writingSection = {
-        pSectionSize: fd.pos
-    };
-    await fd.writeULE64(0); // Temporally set to 0 length
-}
-
-async function endWriteSection(fd) {
-    if (typeof fd.writingSection === "undefined") throw new Error("Not writing a section");
-
-    const sectionSize = fd.pos - fd.writingSection.pSectionSize - 8;
-    const oldPos = fd.pos;
-    fd.pos = fd.writingSection.pSectionSize;
-    await fd.writeULE64(sectionSize);
-    fd.pos = oldPos;
-    delete fd.writingSection;
-}
-
-async function startReadUniqueSection(fd, sections, idSection) {
-    if (typeof fd.readingSection !== "undefined") throw new Error("Already reading a section");
-    if (!sections[idSection])  throw new Error(fd.fileName + ": Missing section "+ idSection );
-    if (sections[idSection].length>1) throw new Error(fd.fileName +": Section Duplicated " +idSection);
-
-    fd.pos = sections[idSection][0].p;
-
-    fd.readingSection = sections[idSection][0];
-}
-
-async function endReadSection(fd, noCheck) {
-    if (typeof fd.readingSection === "undefined") throw new Error("Not reading a section");
-    if (!noCheck) {
-        if (fd.pos-fd.readingSection.p !=  fd.readingSection.size) throw new Error("Invalid section size reading");
-    }
-    delete fd.readingSection;
-}
-
-async function writeBigInt(fd, n, n8, pos) {
-    const buff = new Uint8Array(n8);
-    Scalar.toRprLE(buff, 0, n, n8);
-    await fd.write(buff, pos);
-}
-
-async function readBigInt(fd, n8, pos) {
-    const buff = await fd.read(n8, pos);
-    return Scalar.fromRprLE(buff, 0, n8);
-}
-
-async function copySection(fdFrom, sections, fdTo, sectionId, size) {
-    if (typeof size === "undefined") {
-        size = sections[sectionId][0].size;
-    }
-    const chunkSize = fdFrom.pageSize;
-    await startReadUniqueSection(fdFrom, sections, sectionId);
-    await startWriteSection(fdTo, sectionId);
-    for (let p=0; p<size; p+=chunkSize) {
-        const l = Math.min(size -p, chunkSize);
-        const buff = await fdFrom.read(l);
-        await fdTo.write(buff);
-    }
-    await endWriteSection(fdTo);
-    await endReadSection(fdFrom, size != sections[sectionId][0].size);
-
-}
-
-async function readSection(fd, sections, idSection, offset, length) {
-
-    offset = (typeof offset === "undefined") ? 0 : offset;
-    length = (typeof length === "undefined") ? sections[idSection][0].size - offset : length;
-
-    if (offset + length > sections[idSection][0].size) {
-        throw new Error("Reading out of the range of the section");
-    }
-
-    let buff;
-    if (length < MAX_BUFFER_SIZE) {
-        buff = new Uint8Array(length);
-    } else {
-        // coverage: BigBuffer path requires a >=1 GiB section
-        /* c8 ignore next 2 */
-        buff = new BigBuffer(length);
-    }
-
-    await fd.readToBuffer(buff, 0, length, sections[idSection][0].p + offset);
-    return buff;
-}
-
-async function sectionIsEqual(fd1, sections1, fd2, sections2, idSection) {
-    const MAX_BUFF_SIZE = fd1.pageSize * 16;
-    await startReadUniqueSection(fd1, sections1, idSection);
-    await startReadUniqueSection(fd2, sections2, idSection);
-    if (sections1[idSection][0].size != sections2[idSection][0].size) return false;
-    const totalBytes=sections1[idSection][0].size;
-    for (let i=0; i<totalBytes; i+= MAX_BUFF_SIZE) {
-        const n = Math.min(totalBytes-i, MAX_BUFF_SIZE);
-        const buff1 = await fd1.read(n);
-        const buff2 = await fd2.read(n);
-        for (let j=0; j<n; j++) if (buff1[j] != buff2[j]) return false;
-    }
-    await endReadSection(fd1);
-    await endReadSection(fd2);
-    return true;
-}
-
-const bls12381r$1 = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-const bn128r$1 = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-
-const bls12381q = Scalar.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16);
-const bn128q = Scalar.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-
-async function getCurveFromR(r, options) {
-    let curve;
-    // check that options param is defined and that options.singleThread is defined
-    let singleThread = options && options.singleThread;
-    if (Scalar.eq(r, bn128r$1)) {
-        curve = await buildBn128(singleThread);
-    } else if (Scalar.eq(r, bls12381r$1)) {
-        curve = await buildBls12381(singleThread);
-    } else {
-        throw new Error(`Curve not supported: ${Scalar.toString(r)}`);
-    }
-    return curve;
-}
-
-async function getCurveFromQ(q, options) {
-    let curve;
-    let singleThread = options && options.singleThread;
-    if (Scalar.eq(q, bn128q)) {
-        curve = await buildBn128(singleThread);
-    } else if (Scalar.eq(q, bls12381q)) {
-        curve = await buildBls12381(singleThread);
-    } else {
-        throw new Error(`Curve not supported: ${Scalar.toString(q)}`);
-    }
-    return curve;
-}
-
-async function getCurveFromName(name, options) {
-    let curve;
-    let singleThread = options && options.singleThread;
-    const normName = normalizeName(name);
-    if (["BN128", "BN254", "ALTBN128"].indexOf(normName) >= 0) {
-        curve = await buildBn128(singleThread);
-    } else if (["BLS12381"].indexOf(normName) >= 0) {
-        curve = await buildBls12381(singleThread);
-    } else {
-        throw new Error(`Curve not supported: ${name}`);
-    }
-    return curve;
-
-    function normalizeName(n) {
-        return n.toUpperCase().match(/[A-Za-z0-9]+/g).join("");
-    }
-
-}
-
-var curves = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    getCurveFromName: getCurveFromName,
-    getCurveFromQ: getCurveFromQ,
-    getCurveFromR: getCurveFromR
-});
-
-/**
- * Checks if something is Uint8Array. Be careful: nodejs Buffer will return true.
- * @param a - value to test
- * @returns `true` when the value is a Uint8Array-compatible view.
- * @example
- * Check whether a value is a Uint8Array-compatible view.
- * ```ts
- * isBytes(new Uint8Array([1, 2, 3]));
- * ```
- */
-function isBytes(a) {
-    // Plain `instanceof Uint8Array` is too strict for some Buffer / proxy / cross-realm cases.
-    // The fallback still requires a real ArrayBuffer view, so plain
-    // JSON-deserialized `{ constructor: ... }` spoofing is rejected, and
-    // `BYTES_PER_ELEMENT === 1` keeps the fallback on byte-oriented views.
-    return (a instanceof Uint8Array ||
-        (ArrayBuffer.isView(a) &&
-            a.constructor.name === 'Uint8Array' &&
-            'BYTES_PER_ELEMENT' in a &&
-            a.BYTES_PER_ELEMENT === 1));
-}
-/**
- * Asserts something is a non-negative integer.
- * @param n - number to validate
- * @param title - label included in thrown errors
- * @throws On wrong argument types. {@link TypeError}
- * @throws On wrong argument ranges or values. {@link RangeError}
- * @example
- * Validate a non-negative integer option.
- * ```ts
- * anumber(32, 'length');
- * ```
- */
-function anumber(n, title = '') {
-    if (typeof n !== 'number') {
-        const prefix = title && `"${title}" `;
-        throw new TypeError(`${prefix}expected number, got ${typeof n}`);
-    }
-    if (!Number.isSafeInteger(n) || n < 0) {
-        const prefix = title && `"${title}" `;
-        throw new RangeError(`${prefix}expected integer >= 0, got ${n}`);
-    }
-}
-/**
- * Asserts something is Uint8Array.
- * @param value - value to validate
- * @param length - optional exact length constraint
- * @param title - label included in thrown errors
- * @returns The validated byte array.
- * @throws On wrong argument types. {@link TypeError}
- * @throws On wrong argument ranges or values. {@link RangeError}
- * @example
- * Validate that a value is a byte array.
- * ```ts
- * abytes(new Uint8Array([1, 2, 3]));
- * ```
- */
-function abytes(value, length, title = '') {
-    const bytes = isBytes(value);
-    const len = value?.length;
-    const needsLen = length !== undefined;
-    if (!bytes || (needsLen && len !== length)) {
-        const prefix = title && `"${title}" `;
-        const ofLen = needsLen ? ` of length ${length}` : '';
-        const got = bytes ? `length=${len}` : `type=${typeof value}`;
-        const message = prefix + 'expected Uint8Array' + ofLen + ', got ' + got;
-        if (!bytes)
-            throw new TypeError(message);
-        throw new RangeError(message);
-    }
-    return value;
-}
-/**
- * Asserts a hash instance has not been destroyed or finished.
- * @param instance - hash instance to validate
- * @param checkFinished - whether to reject finalized instances
- * @throws If the hash instance has already been destroyed or finalized. {@link Error}
- * @example
- * Validate that a hash instance is still usable.
- * ```ts
- * import { aexists } from '@noble/hashes/utils.js';
- * import { sha256 } from '@noble/hashes/sha2.js';
- * const hash = sha256.create();
- * aexists(hash);
- * ```
- */
-function aexists(instance, checkFinished = true) {
-    if (instance.destroyed)
-        throw new Error('Hash instance has been destroyed');
-    if (checkFinished && instance.finished)
-        throw new Error('Hash#digest() has already been called');
-}
-/**
- * Asserts output is a sufficiently-sized byte array.
- * @param out - destination buffer
- * @param instance - hash instance providing output length
- * Oversized buffers are allowed; downstream code only promises to fill the first `outputLen` bytes.
- * @throws On wrong argument types. {@link TypeError}
- * @throws On wrong argument ranges or values. {@link RangeError}
- * @example
- * Validate a caller-provided digest buffer.
- * ```ts
- * import { aoutput } from '@noble/hashes/utils.js';
- * import { sha256 } from '@noble/hashes/sha2.js';
- * const hash = sha256.create();
- * aoutput(new Uint8Array(hash.outputLen), hash);
- * ```
- */
-function aoutput(out, instance) {
-    abytes(out, undefined, 'digestInto() output');
-    const min = instance.outputLen;
-    if (out.length < min) {
-        throw new RangeError('"digestInto() output" expected to be of length >=' + min);
-    }
-}
-/**
- * Casts a typed array view to Uint32Array.
- * `arr.byteOffset` must already be 4-byte aligned or the platform
- * Uint32Array constructor will throw.
- * @param arr - source typed array
- * @returns Uint32Array view over the same buffer.
- * @example
- * Reinterpret a byte array as 32-bit words.
- * ```ts
- * u32(new Uint8Array(8));
- * ```
- */
-function u32(arr) {
-    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
-}
-/**
- * Zeroizes typed arrays in place. Warning: JS provides no guarantees.
- * @param arrays - arrays to overwrite with zeros
- * @example
- * Zeroize sensitive buffers in place.
- * ```ts
- * clean(new Uint8Array([1, 2, 3]));
- * ```
- */
-function clean(...arrays) {
-    for (let i = 0; i < arrays.length; i++) {
-        arrays[i].fill(0);
-    }
-}
-/** Whether the current platform is little-endian. */
-const isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([0x11223344]).buffer)[0] === 0x44)();
-/**
- * Byte-swap operation for uint32 values.
- * @param word - source word
- * @returns Word with reversed byte order.
- * @example
- * Reverse the byte order of a 32-bit word.
- * ```ts
- * byteSwap(0x11223344);
- * ```
- */
-function byteSwap(word) {
-    return (((word << 24) & 0xff000000) |
-        ((word << 8) & 0xff0000) |
-        ((word >>> 8) & 0xff00) |
-        ((word >>> 24) & 0xff));
-}
-/**
- * Conditionally byte-swaps one 32-bit word on big-endian platforms.
- * @param n - source word
- * @returns Original or byte-swapped word depending on platform endianness.
- * @example
- * Normalize a 32-bit word for host endianness.
- * ```ts
- * swap8IfBE(0x11223344);
- * ```
- */
-const swap8IfBE = isLE
-    ? (n) => n
-    : (n) => byteSwap(n) >>> 0;
-/**
- * Byte-swaps every word of a Uint32Array in place.
- * @param arr - array to mutate
- * @returns The same array after mutation; callers pass live state arrays here.
- * @example
- * Reverse the byte order of every word in place.
- * ```ts
- * byteSwap32(new Uint32Array([0x11223344]));
- * ```
- */
-function byteSwap32(arr) {
-    for (let i = 0; i < arr.length; i++) {
-        arr[i] = byteSwap(arr[i]);
-    }
-    return arr;
-}
-/**
- * Conditionally byte-swaps a Uint32Array on big-endian platforms.
- * @param u - array to normalize for host endianness
- * @returns Original or byte-swapped array depending on platform endianness.
- *   On big-endian runtimes this mutates `u` in place via `byteSwap32(...)`.
- * @example
- * Normalize a word array for host endianness.
- * ```ts
- * swap32IfBE(new Uint32Array([0x11223344]));
- * ```
- */
-const swap32IfBE = isLE
-    ? (u) => u
-    : byteSwap32;
-/**
- * Creates a callable hash function from a stateful class constructor.
- * @param hashCons - hash constructor or factory
- * @param info - optional metadata such as DER OID
- * @returns Frozen callable hash wrapper with `.create()`.
- *   Wrapper construction eagerly calls `hashCons(undefined)` once to read
- *   `outputLen` / `blockLen`, so constructor side effects happen at module
- *   init time.
- * @example
- * Wrap a stateful hash constructor into a callable helper.
- * ```ts
- * import { createHasher } from '@noble/hashes/utils.js';
- * import { sha256 } from '@noble/hashes/sha2.js';
- * const wrapped = createHasher(sha256.create, { oid: sha256.oid });
- * wrapped(new Uint8Array([1]));
- * ```
- */
-function createHasher(hashCons, info = {}) {
-    const hashC = (msg, opts) => hashCons(opts)
-        .update(msg)
-        .digest();
-    const tmp = hashCons(undefined);
-    hashC.outputLen = tmp.outputLen;
-    hashC.blockLen = tmp.blockLen;
-    hashC.canXOF = tmp.canXOF;
-    hashC.create = (opts) => hashCons(opts);
-    Object.assign(hashC, info);
-    return Object.freeze(hashC);
-}
-
-/**
- * Internal helpers for blake hash.
- * @module
- */
-/**
- * Internal blake permutation table.
- * Rows `0..9` serve BLAKE2s, rows `0..11` serve BLAKE2b with `10..11 = 0..1`, and Blake1 also
- * reuses the later rows shown below. Blake1 expands rounds `10..15` as `SIGMA[i % 10]`, so rows
- * `10..15` intentionally repeat rows `0..5` for the 14-round (256) and 16-round (512) variants.
- */
-// prettier-ignore
-const BSIGMA = /* @__PURE__ */ Uint8Array.from([
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-    14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
-    11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
-    7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8,
-    9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
-    2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
-    12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11,
-    13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10,
-    6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5,
-    10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0,
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-    14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
-    // Blake1, unused in others
-    11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
-    7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8,
-    9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
-    2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
-]);
-
-const U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
-const _32n = /* @__PURE__ */ BigInt(32);
-// Split bigint into two 32-bit halves. With `le=true`, returned fields become `{ h: low, l: high
-// }` to match little-endian word order rather than the property names.
-function fromBig(n, le = false) {
-    if (le)
-        return { h: Number(n & U32_MASK64), l: Number((n >> _32n) & U32_MASK64) };
-    return { h: Number((n >> _32n) & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
-}
-// Split bigint list into `[highWords, lowWords]` when `le=false`; with `le=true`, the first array
-// holds the low halves because `fromBig(...)` swaps the semantic meaning of `h` and `l`.
-function split(lst, le = false) {
-    const len = lst.length;
-    let Ah = new Uint32Array(len);
-    let Al = new Uint32Array(len);
-    for (let i = 0; i < len; i++) {
-        const { h, l } = fromBig(lst[i], le);
-        [Ah[i], Al[i]] = [h, l];
-    }
-    return [Ah, Al];
-}
-// High 32-bit half of a 64-bit right rotate, valid for `s` in `1..31`.
-const rotrSH = (h, l, s) => (h >>> s) | (l << (32 - s));
-// Low 32-bit half of a 64-bit right rotate, valid for `s` in `1..31`.
-const rotrSL = (h, l, s) => (h << (32 - s)) | (l >>> s);
-// High 32-bit half of a 64-bit right rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
-const rotrBH = (h, l, s) => (h << (64 - s)) | (l >>> (s - 32));
-// Low 32-bit half of a 64-bit right rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
-const rotrBL = (h, l, s) => (h >>> (s - 32)) | (l << (64 - s));
-// High 32-bit half of a 64-bit right rotate for `s === 32`; this is just the swapped low half.
-const rotr32H = (_h, l) => l;
-// Low 32-bit half of a 64-bit right rotate for `s === 32`; this is just the swapped high half.
-const rotr32L = (h, _l) => h;
-// High 32-bit half of a 64-bit left rotate, valid for `s` in `1..31`.
-const rotlSH = (h, l, s) => (h << s) | (l >>> (32 - s));
-// Low 32-bit half of a 64-bit left rotate, valid for `s` in `1..31`.
-const rotlSL = (h, l, s) => (l << s) | (h >>> (32 - s));
-// High 32-bit half of a 64-bit left rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
-const rotlBH = (h, l, s) => (l << (s - 32)) | (h >>> (64 - s));
-// Low 32-bit half of a 64-bit left rotate, valid for `s` in `33..63`; `32` uses `rotr32*`.
-const rotlBL = (h, l, s) => (h << (s - 32)) | (l >>> (64 - s));
-// Add two split 64-bit words and return the split `{ h, l }` sum.
-// JS uses 32-bit signed integers for bitwise operations, so we cannot simply shift the carry out
-// of the low sum and instead use division.
-function add(Ah, Al, Bh, Bl) {
-    const l = (Al >>> 0) + (Bl >>> 0);
-    return { h: (Ah + Bh + ((l / 2 ** 32) | 0)) | 0, l: l | 0 };
-}
-// Addition with more than 2 elements
-// Unmasked low-word accumulator for 3-way addition; pass the raw result into `add3H(...)`.
-const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
-// High-word finalize step for 3-way addition; `low` must be the untruncated output of `add3L(...)`.
-const add3H = (low, Ah, Bh, Ch) => (Ah + Bh + Ch + ((low / 2 ** 32) | 0)) | 0;
-
-/**
- * blake2b (64-bit) & blake2s (8 to 32-bit) hash functions.
- * b could have been faster, but there is no fast u64 in js, so s is 1.5x faster.
- * @module
- */
-// Same IV words as `SHA512_IV`, but endian-swapped into LE u32 low/high halves
-// for the BLAKE2b u64 helpers below.
-const B2B_IV = /* @__PURE__ */ Uint32Array.from([
-    0xf3bcc908, 0x6a09e667, 0x84caa73b, 0xbb67ae85, 0xfe94f82b, 0x3c6ef372, 0x5f1d36f1, 0xa54ff53a,
-    0xade682d1, 0x510e527f, 0x2b3e6c1f, 0x9b05688c, 0xfb41bd6b, 0x1f83d9ab, 0x137e2179, 0x5be0cd19,
-]);
-// Shared synchronous BLAKE2b work vector as LE u32 low/high halves.
-const BBUF = /* @__PURE__ */ new Uint32Array(32);
-// BLAKE2b G mix split into two half-rounds over LE u32 low/high limbs.
-function G1b(a, b, c, d, msg, x) {
-    // NOTE: V is LE here
-    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
-    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
-    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
-    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
-    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
-    // v[a] = (v[a] + v[b] + x) | 0;
-    let ll = add3L(Al, Bl, Xl);
-    Ah = add3H(ll, Ah, Bh, Xh);
-    Al = ll | 0;
-    // v[d] = rotr(v[d] ^ v[a], 32)
-    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
-    ({ Dh, Dl } = { Dh: rotr32H(Dh, Dl), Dl: rotr32L(Dh) });
-    // v[c] = (v[c] + v[d]) | 0;
-    ({ h: Ch, l: Cl } = add(Ch, Cl, Dh, Dl));
-    // v[b] = rotr(v[b] ^ v[c], 24)
-    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
-    ({ Bh, Bl } = { Bh: rotrSH(Bh, Bl, 24), Bl: rotrSL(Bh, Bl, 24) });
-    ((BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah));
-    ((BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh));
-    ((BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch));
-    ((BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh));
-}
-// Second half-round of the same LE-limb BLAKE2b G mix; `x` is the message word offset.
-function G2b(a, b, c, d, msg, x) {
-    // NOTE: V is LE here
-    const Xl = msg[x], Xh = msg[x + 1]; // prettier-ignore
-    let Al = BBUF[2 * a], Ah = BBUF[2 * a + 1]; // prettier-ignore
-    let Bl = BBUF[2 * b], Bh = BBUF[2 * b + 1]; // prettier-ignore
-    let Cl = BBUF[2 * c], Ch = BBUF[2 * c + 1]; // prettier-ignore
-    let Dl = BBUF[2 * d], Dh = BBUF[2 * d + 1]; // prettier-ignore
-    // v[a] = (v[a] + v[b] + x) | 0;
-    let ll = add3L(Al, Bl, Xl);
-    Ah = add3H(ll, Ah, Bh, Xh);
-    Al = ll | 0;
-    // v[d] = rotr(v[d] ^ v[a], 16)
-    ({ Dh, Dl } = { Dh: Dh ^ Ah, Dl: Dl ^ Al });
-    ({ Dh, Dl } = { Dh: rotrSH(Dh, Dl, 16), Dl: rotrSL(Dh, Dl, 16) });
-    // v[c] = (v[c] + v[d]) | 0;
-    ({ h: Ch, l: Cl } = add(Ch, Cl, Dh, Dl));
-    // v[b] = rotr(v[b] ^ v[c], 63)
-    ({ Bh, Bl } = { Bh: Bh ^ Ch, Bl: Bl ^ Cl });
-    ({ Bh, Bl } = { Bh: rotrBH(Bh, Bl, 63), Bl: rotrBL(Bh, Bl, 63) });
-    ((BBUF[2 * a] = Al), (BBUF[2 * a + 1] = Ah));
-    ((BBUF[2 * b] = Bl), (BBUF[2 * b + 1] = Bh));
-    ((BBUF[2 * c] = Cl), (BBUF[2 * c + 1] = Ch));
-    ((BBUF[2 * d] = Dl), (BBUF[2 * d + 1] = Dh));
-}
-function checkBlake2Opts(outputLen, opts = {}, keyLen, saltLen, persLen) {
-    anumber(keyLen);
-    // RFC 7693 §2.1 requires digest length nn in 1..keyLen.
-    if (outputLen <= 0 || outputLen > keyLen)
-        throw new Error('outputLen bigger than keyLen');
-    const { key, salt, personalization } = opts;
-    // This API uses `undefined` for the RFC 7693 `kk = 0` case, so a provided key must be non-empty.
-    if (key !== undefined && (key.length < 1 || key.length > keyLen))
-        throw new Error('"key" expected to be undefined or of length=1..' + keyLen);
-    if (salt !== undefined)
-        abytes(salt, saltLen, 'salt');
-    if (personalization !== undefined)
-        abytes(personalization, persLen, 'personalization');
-}
-/** Internal base class for BLAKE2. */
-class _BLAKE2 {
-    buffer;
-    buffer32;
-    finished = false;
-    destroyed = false;
-    length = 0;
-    pos = 0;
-    blockLen;
-    outputLen;
-    canXOF = false;
-    constructor(blockLen, outputLen) {
-        anumber(blockLen);
-        anumber(outputLen);
-        this.blockLen = blockLen;
-        this.outputLen = outputLen;
-        this.buffer = new Uint8Array(blockLen);
-        this.buffer32 = u32(this.buffer);
-    }
-    update(data) {
-        aexists(this);
-        abytes(data);
-        // Main difference with other hashes: there is flag for last block,
-        // so we cannot process current block before we know that there
-        // is the next one. This significantly complicates logic and reduces ability
-        // to do zero-copy processing
-        const { blockLen, buffer, buffer32 } = this;
-        const len = data.length;
-        const offset = data.byteOffset;
-        const buf = data.buffer;
-        for (let pos = 0; pos < len;) {
-            // If buffer is full and we still have input (don't process last block, same as blake2s)
-            if (this.pos === blockLen) {
-                swap32IfBE(buffer32);
-                this.compress(buffer32, 0, false);
-                swap32IfBE(buffer32);
-                this.pos = 0;
-            }
-            const take = Math.min(blockLen - this.pos, len - pos);
-            const dataOffset = offset + pos;
-            // Zero-copy only for full, 4-byte-aligned, non-final blocks.
-            if (take === blockLen && !(dataOffset % 4) && pos + take < len) {
-                const data32 = new Uint32Array(buf, dataOffset, Math.floor((len - pos) / 4));
-                swap32IfBE(data32);
-                for (let pos32 = 0; pos + blockLen < len; pos32 += buffer32.length, pos += blockLen) {
-                    this.length += blockLen;
-                    this.compress(data32, pos32, false);
-                }
-                swap32IfBE(data32);
-                continue;
-            }
-            buffer.set(data.subarray(pos, pos + take), this.pos);
-            this.pos += take;
-            this.length += take;
-            pos += take;
-        }
-        return this;
-    }
-    digestInto(out) {
-        aexists(this);
-        aoutput(out, this);
-        const { pos, buffer32 } = this;
-        this.finished = true;
-        // Padding
-        clean(this.buffer.subarray(pos));
-        swap32IfBE(buffer32);
-        this.compress(buffer32, 0, true);
-        swap32IfBE(buffer32);
-        // Reject unaligned views explicitly instead of hiding them behind a full scratch copy.
-        if (out.byteOffset & 3)
-            throw new RangeError('"digestInto() output" expected 4-byte aligned byteOffset, got ' + out.byteOffset);
-        const state = this.get();
-        const out32 = u32(out);
-        const full = Math.floor(this.outputLen / 4);
-        for (let i = 0; i < full; i++)
-            out32[i] = swap8IfBE(state[i]);
-        const tail = this.outputLen % 4;
-        if (!tail)
-            return;
-        const off = full * 4;
-        const word = state[full];
-        for (let i = 0; i < tail; i++)
-            out[off + i] = word >>> (8 * i);
-    }
-    digest() {
-        const { buffer, outputLen } = this;
-        this.digestInto(buffer);
-        // Return a copy so callers do not alias the instance scratch buffer used during finalization.
-        const res = buffer.slice(0, outputLen);
-        this.destroy();
-        return res;
-    }
-    _cloneInto(to) {
-        const { buffer, length, finished, destroyed, outputLen, pos } = this;
-        // Recreate only `dkLen`; key/salt/personalization are already absorbed into the copied state.
-        to ||= new this.constructor({ dkLen: outputLen });
-        to.set(...this.get());
-        to.buffer.set(buffer);
-        to.destroyed = destroyed;
-        to.finished = finished;
-        to.length = length;
-        to.pos = pos;
-        // @ts-ignore
-        to.outputLen = outputLen;
-        return to;
-    }
-    clone() {
-        return this._cloneInto();
-    }
-}
-/** Internal blake2b hash class with state stored as LE u32 low/high halves. */
-class _BLAKE2b extends _BLAKE2 {
-    // Same IV words as SHA-512 / BLAKE2b, encoded as LE u32 low/high halves.
-    v0l = B2B_IV[0] | 0;
-    v0h = B2B_IV[1] | 0;
-    v1l = B2B_IV[2] | 0;
-    v1h = B2B_IV[3] | 0;
-    v2l = B2B_IV[4] | 0;
-    v2h = B2B_IV[5] | 0;
-    v3l = B2B_IV[6] | 0;
-    v3h = B2B_IV[7] | 0;
-    v4l = B2B_IV[8] | 0;
-    v4h = B2B_IV[9] | 0;
-    v5l = B2B_IV[10] | 0;
-    v5h = B2B_IV[11] | 0;
-    v6l = B2B_IV[12] | 0;
-    v6h = B2B_IV[13] | 0;
-    v7l = B2B_IV[14] | 0;
-    v7h = B2B_IV[15] | 0;
-    constructor(opts = {}) {
-        const olen = opts.dkLen === undefined ? 64 : opts.dkLen;
-        super(128, olen);
-        checkBlake2Opts(olen, opts, 64, 16, 16);
-        let { key, personalization, salt } = opts;
-        let keyLength = 0;
-        if (key !== undefined) {
-            abytes(key, undefined, 'key');
-            keyLength = key.length;
-        }
-        // RFC 7693 §2.5: xor `p[0] = 0x0101kknn` into the low 32 bits of `h[0]`;
-        // the high 32 bits stay at `IV[0]`.
-        this.v0l ^= this.outputLen | (keyLength << 8) | (0x01 << 16) | (0x01 << 24);
-        if (salt !== undefined) {
-            abytes(salt, undefined, 'salt');
-            const slt = u32(salt);
-            this.v4l ^= swap8IfBE(slt[0]);
-            this.v4h ^= swap8IfBE(slt[1]);
-            this.v5l ^= swap8IfBE(slt[2]);
-            this.v5h ^= swap8IfBE(slt[3]);
-        }
-        if (personalization !== undefined) {
-            abytes(personalization, undefined, 'personalization');
-            const pers = u32(personalization);
-            this.v6l ^= swap8IfBE(pers[0]);
-            this.v6h ^= swap8IfBE(pers[1]);
-            this.v7l ^= swap8IfBE(pers[2]);
-            this.v7h ^= swap8IfBE(pers[3]);
-        }
-        if (key !== undefined) {
-            // Pad to blockLen and update
-            const tmp = new Uint8Array(this.blockLen);
-            tmp.set(key);
-            this.update(tmp);
-        }
-    }
-    // prettier-ignore
-    get() {
-        let { v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h } = this;
-        return [v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h];
-    }
-    // prettier-ignore
-    set(v0l, v0h, v1l, v1h, v2l, v2h, v3l, v3h, v4l, v4h, v5l, v5h, v6l, v6h, v7l, v7h) {
-        this.v0l = v0l | 0;
-        this.v0h = v0h | 0;
-        this.v1l = v1l | 0;
-        this.v1h = v1h | 0;
-        this.v2l = v2l | 0;
-        this.v2h = v2h | 0;
-        this.v3l = v3l | 0;
-        this.v3h = v3h | 0;
-        this.v4l = v4l | 0;
-        this.v4h = v4h | 0;
-        this.v5l = v5l | 0;
-        this.v5h = v5h | 0;
-        this.v6l = v6l | 0;
-        this.v6h = v6h | 0;
-        this.v7l = v7l | 0;
-        this.v7h = v7h | 0;
-    }
-    compress(msg, offset, isLast) {
-        this.get().forEach((v, i) => (BBUF[i] = v)); // First half from state.
-        BBUF.set(B2B_IV, 16); // Second half from IV.
-        let { h, l } = fromBig(BigInt(this.length));
-        BBUF[24] = B2B_IV[8] ^ l; // Low word of the offset.
-        BBUF[25] = B2B_IV[9] ^ h; // High word.
-        // Invert all bits for last block
-        if (isLast) {
-            BBUF[28] = ~BBUF[28];
-            BBUF[29] = ~BBUF[29];
-        }
-        let j = 0;
-        const s = BSIGMA;
-        // SIGMA selects 64-bit message words; multiply by 2 because `msg` stores
-        // each word as [low32, high32].
-        for (let i = 0; i < 12; i++) {
-            G1b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
-            G2b(0, 4, 8, 12, msg, offset + 2 * s[j++]);
-            G1b(1, 5, 9, 13, msg, offset + 2 * s[j++]);
-            G2b(1, 5, 9, 13, msg, offset + 2 * s[j++]);
-            G1b(2, 6, 10, 14, msg, offset + 2 * s[j++]);
-            G2b(2, 6, 10, 14, msg, offset + 2 * s[j++]);
-            G1b(3, 7, 11, 15, msg, offset + 2 * s[j++]);
-            G2b(3, 7, 11, 15, msg, offset + 2 * s[j++]);
-            G1b(0, 5, 10, 15, msg, offset + 2 * s[j++]);
-            G2b(0, 5, 10, 15, msg, offset + 2 * s[j++]);
-            G1b(1, 6, 11, 12, msg, offset + 2 * s[j++]);
-            G2b(1, 6, 11, 12, msg, offset + 2 * s[j++]);
-            G1b(2, 7, 8, 13, msg, offset + 2 * s[j++]);
-            G2b(2, 7, 8, 13, msg, offset + 2 * s[j++]);
-            G1b(3, 4, 9, 14, msg, offset + 2 * s[j++]);
-            G2b(3, 4, 9, 14, msg, offset + 2 * s[j++]);
-        }
-        this.v0l ^= BBUF[0] ^ BBUF[16];
-        this.v0h ^= BBUF[1] ^ BBUF[17];
-        this.v1l ^= BBUF[2] ^ BBUF[18];
-        this.v1h ^= BBUF[3] ^ BBUF[19];
-        this.v2l ^= BBUF[4] ^ BBUF[20];
-        this.v2h ^= BBUF[5] ^ BBUF[21];
-        this.v3l ^= BBUF[6] ^ BBUF[22];
-        this.v3h ^= BBUF[7] ^ BBUF[23];
-        this.v4l ^= BBUF[8] ^ BBUF[24];
-        this.v4h ^= BBUF[9] ^ BBUF[25];
-        this.v5l ^= BBUF[10] ^ BBUF[26];
-        this.v5h ^= BBUF[11] ^ BBUF[27];
-        this.v6l ^= BBUF[12] ^ BBUF[28];
-        this.v6h ^= BBUF[13] ^ BBUF[29];
-        this.v7l ^= BBUF[14] ^ BBUF[30];
-        this.v7h ^= BBUF[15] ^ BBUF[31];
-        clean(BBUF);
-    }
-    destroy() {
-        this.destroyed = true;
-        clean(this.buffer32);
-        this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    }
-}
-/**
- * Blake2b hash function. 64-bit. 1.5x slower than blake2s in JS.
- * @param msg - message that would be hashed
- * @param opts - Optional output, MAC, salt, and personalization settings.
- *   `dkLen` must be 1..64 bytes; `salt` and `personalization`, if present,
- *   must be 16 bytes each. See {@link Blake2Opts}.
- * @returns Digest bytes.
- * @example
- * Hash a message with Blake2b.
- * ```ts
- * blake2b(new Uint8Array([97, 98, 99]));
- * ```
- */
-const blake2b = /* @__PURE__ */ createHasher((opts) => new _BLAKE2b(opts));
-
-var readline = {};
-
-var crypto = {};
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-function log2( V )
-{
-    return( ( ( V & 0xFFFF0000 ) !== 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) !== 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) !== 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) !== 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) !== 0 ) );
-}
-
-
-function formatHash(b, title) {
-    const a = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    let S = "";
-    for (let i=0; i<4; i++) {
-        if (i>0) S += "\n";
-        S += "\t\t";
-        for (let j=0; j<4; j++) {
-            if (j>0) S += " ";
-            S += a.getUint32(i*16+j*4).toString(16).padStart(8, "0");
-        }
-    }
-    if (title) S = title + "\n" + S;
-    return S;
-}
-
-function hashIsEqual(h1, h2) {
-    if (h1.byteLength != h2.byteLength) return false;
-    var dv1 = new Int8Array(h1);
-    var dv2 = new Int8Array(h2);
-    for (var i = 0 ; i != h1.byteLength ; i++)
-    {
-        if (dv1[i] != dv2[i]) return false;
-    }
-    return true;
-}
-
-function cloneHasher(h) {
-    return h.clone();
-}
-
-function fromPartialHash(partial) {
-    // NOTE: this is unsafe and uses internal API
-    const buf = partial.subarray(0, 128);
-    const rest = u32(partial.subarray(128));
-    const res = blake2b.create({ dkLen: 64 });
-    res.buffer.set(buf);
-    (res.v0l = rest[0] | 0), (res.v0h = rest[1] | 0);
-    (res.v1l = rest[2] | 0), (res.v1h = rest[3] | 0);
-    (res.v2l = rest[4] | 0), (res.v2h = rest[5] | 0);
-    (res.v3l = rest[6] | 0), (res.v3h = rest[7] | 0);
-    (res.v4l = rest[8] | 0), (res.v4h = rest[9] | 0);
-    (res.v5l = rest[10] | 0), (res.v5h = rest[11] | 0);
-    (res.v6l = rest[12] | 0), (res.v6h = rest[13] | 0);
-    (res.v7l = rest[14] | 0), (res.v7h = rest[15] | 0);
-    const shift = 2 ** 32;
-    const len = rest[16] + rest[17] * shift;
-    const pos = rest[18] + rest[19] * shift;
-    res.length = len + pos;
-    res.pos = pos;
-    return res;
-}
-
-function toPartialHash(hash){
-    // NOTE: this is unsafe and uses internal API
-    const res = new Uint8Array(216);
-    const res32 = u32(res.subarray(128));
-    res.set(hash.buffer);
-    (res32[0] = hash.v0l), (res32[1] = hash.v0h);
-    (res32[2] = hash.v1l), (res32[3] = hash.v1h);
-    (res32[4] = hash.v2l), (res32[5] = hash.v2h);
-    (res32[6] = hash.v3l), (res32[7] = hash.v3h);
-    (res32[8] = hash.v4l), (res32[9] = hash.v4h);
-    (res32[10] = hash.v5l), (res32[11] = hash.v5h);
-    (res32[12] = hash.v6l), (res32[13] = hash.v6h);
-    (res32[14] = hash.v7l), (res32[15] = hash.v7h);
-    res32[18] = hash.pos;
-    res32[16] = hash.length-hash.pos;
-    return res;
-}
-
-async function sameRatio$2(curve, g1s, g1sx, g2s, g2sx) {
-    if (curve.G1.isZero(g1s)) return false;
-    if (curve.G1.isZero(g1sx)) return false;
-    if (curve.G2.isZero(g2s)) return false;
-    if (curve.G2.isZero(g2sx)) return false;
-    // return curve.F12.eq(curve.pairing(g1s, g2sx), curve.pairing(g1sx, g2s));
-    const res = await curve.pairingEq(g1s, g2sx, curve.G1.neg(g1sx), g2s);
-    return res;
-}
-
-
-function askEntropy() {
-    // Use the browser prompt only when a real DOM window exists. "not Node" is
-    // NOT the same as "browser" (Bun/Deno/edge/SES have neither window nor are
-    // classic Node), so detect the actual API.
-    if (typeof window !== "undefined" && typeof window.prompt === "function") {
-        return window.prompt("Enter a random text. (Entropy): ", "");
-    } else {
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-
-        return new Promise((resolve) => {
-            rl.question("Enter a random text. (Entropy): ", (input) => resolve(input) );
-        });
-    }
-}
-
-function getRandomBytes(n) {
-    let array = new Uint8Array(n);
-    if (crypto && crypto.randomFillSync) { // Node: no per-call size limit
-        crypto.randomFillSync(array);
-    } else if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
-        // Web Crypto caps each call at 65536 bytes; fill in windows.
-        for (let i = 0; i < n; i += 65536) {
-            globalThis.crypto.getRandomValues(array.subarray(i, Math.min(i + 65536, n)));
-        }
-    } else {
-        throw new Error("No secure random source available");
-    }
-    return array;
-}
-
-async function sha256digest(data) {
-    if (crypto && crypto.createHash) { // Node
-        return crypto.createHash("sha256").update(data).digest();
-    } else {
-        // Web Crypto: pass the view (data), not data.buffer, so byteOffset and
-        // byteLength of subarray views are respected.
-        const buffer = await globalThis.crypto.subtle.digest("SHA-256", data);
-        return new Uint8Array(buffer);
-    }
-}
-
-/**
- * @param {Uint8Array} data
- * @param {number} offset
- */
-function readUInt32BE(data, offset) {
-    return new DataView(data.buffer).getUint32(offset, false);
-}
-
-async function getRandomRng(entropy) {
-    // Generate a random Rng
-    while (!entropy) {
-        entropy = await askEntropy();
-    }
-    const hasher = blake2b.create(64);
-    hasher.update(getRandomBytes(64));
-    const enc = new TextEncoder(); // always utf-8
-    hasher.update(enc.encode(entropy));
-    const hash = hasher.digest();
-
-    const seed = [];
-    for (let i=0;i<8;i++) {
-        seed[i] = readUInt32BE(hash, i*4);
-    }
-    const rng = new ChaCha(seed);
-    return rng;
-}
-
-async function rngFromBeaconParams(beaconHash, numIterationsExp) {
-    let nIterationsInner;
-    let nIterationsOuter;
-    if (numIterationsExp<32) {
-        nIterationsInner = (1 << numIterationsExp) >>> 0;
-        nIterationsOuter = 1;
-    } else {
-        nIterationsInner = 0x100000000;
-        nIterationsOuter = (1 << (numIterationsExp-32)) >>> 0;
-    }
-
-    let curHash = beaconHash;
-    for (let i=0; i<nIterationsOuter; i++) {
-        for (let j=0; j<nIterationsInner; j++) {
-            curHash = await sha256digest(curHash);
-        }
-    }
-
-    const curHashV = new DataView(curHash.buffer, curHash.byteOffset, curHash.byteLength);
-    const seed = [];
-    for (let i=0; i<8; i++) {
-        seed[i] = curHashV.getUint32(i*4, false);
-    }
-
-    const rng = new ChaCha(seed);
-
-    return rng;
-}
-
-function hex2ByteArray(s) {
-    if (s instanceof Uint8Array) return s;
-    if (s.slice(0,2) == "0x") s= s.slice(2);
-    return new Uint8Array(s.match(/[\da-f]{2}/gi).map(function (h) {
-        return parseInt(h, 16);
-    }));
-}
-
-function byteArray2hex(byteArray) {
-    return Array.prototype.map.call(byteArray, function(byte) {
-        return ("0" + (byte & 0xFF).toString(16)).slice(-2);
-    }).join("");
-}
-
-function stringifyBigIntsWithField(Fr, o) {
-    if (o instanceof Uint8Array)  {
-        return Fr.toString(o);
-    } else if (Array.isArray(o)) {
-        return o.map(stringifyBigIntsWithField.bind(null, Fr));
-    } else if (typeof o == "object") {
-        const res = {};
-        const keys = Object.keys(o);
-        keys.forEach( (k) => {
-            res[k] = stringifyBigIntsWithField(Fr, o[k]);
-        });
-        return res;
-    } else if ((typeof(o) == "bigint") || o.eq !== undefined)  {
-        return o.toString(10);
-    } else {
-        return o;
-    }
-}
-
-const HEADER_ZKEY_SECTION = 1;
-
-const GROTH16_PROTOCOL_ID = 1;
-const PLONK_PROTOCOL_ID = 2;
-const FFLONK_PROTOCOL_ID = 10;
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-// FFlonk constants
-const FF_T_POL_DEG_MIN = 3;
-
-// ZKEY constants
-const ZKEY_FF_NSECTIONS = 17;
-
-const ZKEY_FF_HEADER_SECTION = 2;
-const ZKEY_FF_ADDITIONS_SECTION = 3;
-const ZKEY_FF_A_MAP_SECTION = 4;
-const ZKEY_FF_B_MAP_SECTION = 5;
-const ZKEY_FF_C_MAP_SECTION = 6;
-const ZKEY_FF_QL_SECTION = 7;
-const ZKEY_FF_QR_SECTION = 8;
-const ZKEY_FF_QM_SECTION = 9;
-const ZKEY_FF_QO_SECTION = 10;
-const ZKEY_FF_QC_SECTION = 11;
-const ZKEY_FF_SIGMA1_SECTION = 12;
-const ZKEY_FF_SIGMA2_SECTION = 13;
-const ZKEY_FF_SIGMA3_SECTION = 14;
-const ZKEY_FF_LAGRANGE_SECTION = 15;
-const ZKEY_FF_PTAU_SECTION = 16;
-const ZKEY_FF_C0_SECTION = 17;
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function writeHeader(fd, zkey) {
-
-    // Write the header
-    ///////////
-    await startWriteSection(fd, 1);
-    await fd.writeULE32(1); // Groth
-    await endWriteSection(fd);
-
-    // Write the Groth header section
-    ///////////
-
-    const curve = await getCurveFromQ(zkey.q);
-
-    await startWriteSection(fd, 2);
-    const primeQ = curve.q;
-    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
-
-    const primeR = curve.r;
-    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
-
-    await fd.writeULE32(n8q);
-    await writeBigInt(fd, primeQ, n8q);
-    await fd.writeULE32(n8r);
-    await writeBigInt(fd, primeR, n8r);
-    await fd.writeULE32(zkey.nVars);                         // Total number of bars
-    await fd.writeULE32(zkey.nPublic);                       // Total number of public vars (not including ONE)
-    await fd.writeULE32(zkey.domainSize);                  // domainSize
-    await writeG1(fd, curve, zkey.vk_alpha_1);
-    await writeG1(fd, curve, zkey.vk_beta_1);
-    await writeG2(fd, curve, zkey.vk_beta_2);
-    await writeG2(fd, curve, zkey.vk_gamma_2);
-    await writeG1(fd, curve, zkey.vk_delta_1);
-    await writeG2(fd, curve, zkey.vk_delta_2);
-
-    await endWriteSection(fd);
-
-
-}
-
-async function writeG1(fd, curve, p) {
-    const buff = new Uint8Array(curve.G1.F.n8*2);
-    curve.G1.toRprLEM(buff, 0, p);
-    await fd.write(buff);
-}
-
-async function writeG2(fd, curve, p) {
-    const buff = new Uint8Array(curve.G2.F.n8*2);
-    curve.G2.toRprLEM(buff, 0, p);
-    await fd.write(buff);
-}
-
-async function readG1(fd, curve, toObject) {
-    const buff = await fd.read(curve.G1.F.n8*2);
-    const res = curve.G1.fromRprLEM(buff, 0);
-    return toObject ? curve.G1.toObject(res) : res;
-}
-
-async function readG2(fd, curve, toObject) {
-    const buff = await fd.read(curve.G2.F.n8*2);
-    const res = curve.G2.fromRprLEM(buff, 0);
-    return toObject ? curve.G2.toObject(res) : res;
-}
-
-
-async function readHeader$1(fd, sections, toObject, options) {
-    // Read Header
-    /////////////////////
-    await startReadUniqueSection(fd, sections, 1);
-    const protocolId = await fd.readULE32();
-    await endReadSection(fd);
-
-    if (protocolId === GROTH16_PROTOCOL_ID) {
-        return await readHeaderGroth16(fd, sections, toObject, options);
-    } else if (protocolId === PLONK_PROTOCOL_ID) {
-        return await readHeaderPlonk(fd, sections, toObject, options);
-    } else if (protocolId === FFLONK_PROTOCOL_ID) {
-        return await readHeaderFFlonk(fd, sections, toObject, options);
-    } else {
-        throw new Error("Protocol not supported: ");
-    }
-}
-
-
-
-
-async function readHeaderGroth16(fd, sections, toObject, options) {
-    const zkey = {};
-
-    zkey.protocol = "groth16";
-
-    // Read Groth Header
-    /////////////////////
-    await startReadUniqueSection(fd, sections, 2);
-    const n8q = await fd.readULE32();
-    zkey.n8q = n8q;
-    zkey.q = await readBigInt(fd, n8q);
-
-    const n8r = await fd.readULE32();
-    zkey.n8r = n8r;
-    zkey.r = await readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q, options);
-    zkey.nVars = await fd.readULE32();
-    zkey.nPublic = await fd.readULE32();
-    zkey.domainSize = await fd.readULE32();
-    zkey.power = log2(zkey.domainSize);
-    zkey.vk_alpha_1 = await readG1(fd, zkey.curve, toObject);
-    zkey.vk_beta_1 = await readG1(fd, zkey.curve, toObject);
-    zkey.vk_beta_2 = await readG2(fd, zkey.curve, toObject);
-    zkey.vk_gamma_2 = await readG2(fd, zkey.curve, toObject);
-    zkey.vk_delta_1 = await readG1(fd, zkey.curve, toObject);
-    zkey.vk_delta_2 = await readG2(fd, zkey.curve, toObject);
-    await endReadSection(fd);
-
-    return zkey;
-
-}
-
-async function readHeaderPlonk(fd, sections, toObject, options) {
-    const zkey = {};
-
-    zkey.protocol = "plonk";
-
-    // Read Plonk Header
-    /////////////////////
-    await startReadUniqueSection(fd, sections, 2);
-    const n8q = await fd.readULE32();
-    zkey.n8q = n8q;
-    zkey.q = await readBigInt(fd, n8q);
-
-    const n8r = await fd.readULE32();
-    zkey.n8r = n8r;
-    zkey.r = await readBigInt(fd, n8r);
-    zkey.curve = await getCurveFromQ(zkey.q, options);
-    zkey.nVars = await fd.readULE32();
-    zkey.nPublic = await fd.readULE32();
-    zkey.domainSize = await fd.readULE32();
-    zkey.power = log2(zkey.domainSize);
-    zkey.nAdditions = await fd.readULE32();
-    zkey.nConstraints = await fd.readULE32();
-    zkey.k1 = await fd.read(n8r);
-    zkey.k2 = await fd.read(n8r);
-
-    zkey.Qm = await readG1(fd, zkey.curve, toObject);
-    zkey.Ql = await readG1(fd, zkey.curve, toObject);
-    zkey.Qr = await readG1(fd, zkey.curve, toObject);
-    zkey.Qo = await readG1(fd, zkey.curve, toObject);
-    zkey.Qc = await readG1(fd, zkey.curve, toObject);
-    zkey.S1 = await readG1(fd, zkey.curve, toObject);
-    zkey.S2 = await readG1(fd, zkey.curve, toObject);
-    zkey.S3 = await readG1(fd, zkey.curve, toObject);
-    zkey.X_2 = await readG2(fd, zkey.curve, toObject);
-
-    await endReadSection(fd);
-
-    return zkey;
-}
-
-async function readHeaderFFlonk(fd, sections, toObject, options) {
-    const zkey = {};
-
-    zkey.protocol = "fflonk";
-    zkey.protocolId = FFLONK_PROTOCOL_ID;
-
-    await startReadUniqueSection(fd, sections, ZKEY_FF_HEADER_SECTION);
-    const n8q = await fd.readULE32();
-    zkey.n8q = n8q;
-    zkey.q = await readBigInt(fd, n8q);
-    zkey.curve = await getCurveFromQ(zkey.q, options);
-
-    const n8r = await fd.readULE32();
-    zkey.n8r = n8r;
-    zkey.r = await readBigInt(fd, n8r);
-
-    zkey.nVars = await fd.readULE32();
-    zkey.nPublic = await fd.readULE32();
-    zkey.domainSize = await fd.readULE32();
-    zkey.power = log2(zkey.domainSize);
-    zkey.nAdditions = await fd.readULE32();
-    zkey.nConstraints = await fd.readULE32();
-
-    zkey.k1 = await fd.read(n8r);
-    zkey.k2 = await fd.read(n8r);
-
-    zkey.w3 = await fd.read(n8r);
-    zkey.w4 = await fd.read(n8r);
-    zkey.w8 = await fd.read(n8r);
-    zkey.wr = await fd.read(n8r);
-
-    zkey.X_2 = await readG2(fd, zkey.curve, toObject);
-
-    zkey.C0 = await readG1(fd, zkey.curve, toObject);
-
-    await endReadSection(fd);
-
-    return zkey;
-}
-
-async function readZKey(fileName, toObject) {
-    const {fd, sections} = await readBinFile(fileName, "zkey", 1);
-
-    const zkey = await readHeader$1(fd, sections, toObject);
-
-    const Fr = new F1Field(zkey.r);
-    const Rr = Scalar.mod(Scalar.shl(1, zkey.n8r*8), zkey.r);
-    const Rri = Fr.inv(Rr);
-    const Rri2 = Fr.mul(Rri, Rri);
-
-    let curve = await getCurveFromQ(zkey.q);
-
-    // Read IC Section
-    ///////////
-    await startReadUniqueSection(fd, sections, 3);
-    zkey.IC = [];
-    for (let i=0; i<= zkey.nPublic; i++) {
-        const P = await readG1(fd, curve, toObject);
-        zkey.IC.push(P);
-    }
-    await endReadSection(fd);
-
-
-    // Read Coefs
-    ///////////
-    await startReadUniqueSection(fd, sections, 4);
-    const nCCoefs = await fd.readULE32();
-    zkey.ccoefs = [];
-    for (let i=0; i<nCCoefs; i++) {
-        const m = await fd.readULE32();
-        const c = await fd.readULE32();
-        const s = await fd.readULE32();
-        const v = await readFr2();
-        zkey.ccoefs.push({
-            matrix: m,
-            constraint: c,
-            signal: s,
-            value: v
-        });
-    }
-    await endReadSection(fd);
-
-    // Read A points
-    ///////////
-    await startReadUniqueSection(fd, sections, 5);
-    zkey.A = [];
-    for (let i=0; i<zkey.nVars; i++) {
-        const A = await readG1(fd, curve, toObject);
-        zkey.A[i] = A;
-    }
-    await endReadSection(fd);
-
-
-    // Read B1
-    ///////////
-    await startReadUniqueSection(fd, sections, 6);
-    zkey.B1 = [];
-    for (let i=0; i<zkey.nVars; i++) {
-        const B1 = await readG1(fd, curve, toObject);
-
-        zkey.B1[i] = B1;
-    }
-    await endReadSection(fd);
-
-
-    // Read B2 points
-    ///////////
-    await startReadUniqueSection(fd, sections, 7);
-    zkey.B2 = [];
-    for (let i=0; i<zkey.nVars; i++) {
-        const B2 = await readG2(fd, curve, toObject);
-        zkey.B2[i] = B2;
-    }
-    await endReadSection(fd);
-
-
-    // Read C points
-    ///////////
-    await startReadUniqueSection(fd, sections, 8);
-    zkey.C = [];
-    for (let i=zkey.nPublic+1; i<zkey.nVars; i++) {
-        const C = await readG1(fd, curve, toObject);
-
-        zkey.C[i] = C;
-    }
-    await endReadSection(fd);
-
-
-    // Read H points
-    ///////////
-    await startReadUniqueSection(fd, sections, 9);
-    zkey.hExps = [];
-    for (let i=0; i<zkey.domainSize; i++) {
-        const H = await readG1(fd, curve, toObject);
-        zkey.hExps.push(H);
-    }
-    await endReadSection(fd);
-
-    await fd.close();
-
-    return zkey;
-
-    async function readFr2(/* toObject */) {
-        const n = await readBigInt(fd, zkey.n8r);
-        return Fr.mul(n, Rri2);
-    }
-
-}
-
-
-async function readContribution$1(fd, curve, toObject) {
-    const c = {delta:{}};
-    c.deltaAfter = await readG1(fd, curve, toObject);
-    c.delta.g1_s = await readG1(fd, curve, toObject);
-    c.delta.g1_sx = await readG1(fd, curve, toObject);
-    c.delta.g2_spx = await readG2(fd, curve, toObject);
-    c.transcript = await fd.read(64);
-    c.type = await fd.readULE32();
-
-    const paramLength = await fd.readULE32();
-    const curPos = fd.pos;
-    let lastType =0;
-    while (fd.pos-curPos < paramLength) {
-        const buffType = await fd.read(1);
-        if (buffType[0]<= lastType) throw new Error("Parameters in the contribution must be sorted");
-        lastType = buffType[0];
-        if (buffType[0]==1) {     // Name
-            const buffLen = await fd.read(1);
-            const buffStr = await fd.read(buffLen[0]);
-            c.name = new TextDecoder().decode(buffStr);
-        } else if (buffType[0]==2) {
-            const buffExp = await fd.read(1);
-            c.numIterationsExp = buffExp[0];
-        } else if (buffType[0]==3) {
-            const buffLen = await fd.read(1);
-            c.beaconHash = await fd.read(buffLen[0]);
-        } else {
-            throw new Error("Parameter not recognized");
-        }
-    }
-    if (fd.pos != curPos + paramLength) {
-        throw new Error("Parameters do not match");
-    }
-
-    return c;
-}
-
-
-async function readMPCParams(fd, curve, sections) {
-    await startReadUniqueSection(fd, sections, 10);
-    const res = { contributions: []};
-    res.csHash = await fd.read(64);
-    const n = await fd.readULE32();
-    for (let i=0; i<n; i++) {
-        const c = await readContribution$1(fd, curve);
-        res.contributions.push(c);
-    }
-    await endReadSection(fd);
-
-    return res;
-}
-
-async function writeContribution$1(fd, curve, c) {
-    await writeG1(fd, curve, c.deltaAfter);
-    await writeG1(fd, curve, c.delta.g1_s);
-    await writeG1(fd, curve, c.delta.g1_sx);
-    await writeG2(fd, curve, c.delta.g2_spx);
-    await fd.write(c.transcript);
-    await fd.writeULE32(c.type || 0);
-
-    const params = [];
-    if (c.name) {
-        params.push(1);      // Param Name
-        const nameData = new TextEncoder("utf-8").encode(c.name.substring(0,64));
-        params.push(nameData.byteLength);
-        for (let i=0; i<nameData.byteLength; i++) params.push(nameData[i]);
-    }
-    if (c.type == 1) {
-        params.push(2);      // Param numIterationsExp
-        params.push(c.numIterationsExp);
-
-        params.push(3);      // Beacon Hash
-        params.push(c.beaconHash.byteLength);
-        for (let i=0; i<c.beaconHash.byteLength; i++) params.push(c.beaconHash[i]);
-    }
-    if (params.length>0) {
-        const paramsBuff = new Uint8Array(params);
-        await fd.writeULE32(paramsBuff.byteLength);
-        await fd.write(paramsBuff);
-    } else {
-        await fd.writeULE32(0);
-    }
-
-}
-
-async function writeMPCParams(fd, curve, mpcParams) {
-    await startWriteSection(fd, 10);
-    await fd.write(mpcParams.csHash);
-    await fd.writeULE32(mpcParams.contributions.length);
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        await writeContribution$1(fd, curve,mpcParams.contributions[i]);
-    }
-    await endWriteSection(fd);
-}
-
-function hashG1(hasher, curve, p) {
-    const buff = new Uint8Array(curve.G1.F.n8*2);
-    curve.G1.toRprUncompressed(buff, 0, p);
-    hasher.update(buff);
-}
-
-function hashG2(hasher,curve, p) {
-    const buff = new Uint8Array(curve.G2.F.n8*2);
-    curve.G2.toRprUncompressed(buff, 0, p);
-    hasher.update(buff);
-}
-
-function hashPubKey(hasher, curve, c) {
-    hashG1(hasher, curve, c.deltaAfter);
-    hashG1(hasher, curve, c.delta.g1_s);
-    hashG1(hasher, curve, c.delta.g1_sx);
-    hashG2(hasher, curve, c.delta.g2_spx);
-    hasher.update(c.transcript);
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-async function write(fd, witness, prime) {
-
-    await startWriteSection(fd, 1);
-    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
-    await fd.writeULE32(n8);
-    await writeBigInt(fd, prime, n8);
-    await fd.writeULE32(witness.length);
-    await endWriteSection(fd);
-
-    await startWriteSection(fd, 2);
-    for (let i=0; i<witness.length; i++) {
-        await writeBigInt(fd, witness[i], n8);
-    }
-    await endWriteSection(fd);
-
-
-}
-
-async function writeBin(fd, witnessBin, prime) {
-
-    await startWriteSection(fd, 1);
-    const n8 = (Math.floor( (Scalar.bitLength(prime) - 1) / 64) +1)*8;
-    await fd.writeULE32(n8);
-    await writeBigInt(fd, prime, n8);
-    if (witnessBin.byteLength % n8 != 0) {
-        throw new Error("Invalid witness length");
-    }
-    await fd.writeULE32(witnessBin.byteLength / n8);
-    await endWriteSection(fd);
-
-
-    await startWriteSection(fd, 2);
-    await fd.write(witnessBin);
-    await endWriteSection(fd);
-
-}
-
-async function readHeader(fd, sections) {
-
-    await startReadUniqueSection(fd, sections, 1);
-    const n8 = await fd.readULE32();
-    const q = await readBigInt(fd, n8);
-    const nWitness = await fd.readULE32();
-    await endReadSection(fd);
-
-    return {n8, q, nWitness};
-
-}
-
-async function read(fileName) {
-
-    const {fd, sections} = await readBinFile(fileName, "wtns", 2);
-
-    const {n8, nWitness} = await readHeader(fd, sections);
-
-    await startReadUniqueSection(fd, sections, 2);
-    const res = [];
-    for (let i=0; i<nWitness; i++) {
-        const v = await readBigInt(fd, n8);
-        res.push(v);
-    }
-    await endReadSection(fd);
-
-    await fd.close();
-
-    return res;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {stringifyBigInts: stringifyBigInts$4} = utils;
-
-async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
-    // Opt-in periodic memory-usage logging (heap/RSS/external/ArrayBuffers).
-    // options.memoryLogging: true (1s interval) or an interval in ms.
-    // Node-only: process.memoryUsage does not exist in browsers.
-    let memTimer = null;
-    if (logger && options && options.memoryLogging
-        && typeof process !== "undefined" && typeof process.memoryUsage === "function") {
-        const interval = Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1000;
-        memTimer = monitorMemoryUsage(logger, interval);
-    }
-    let fdWtns, fdZKey;
-    try {
-        const openWtns = await readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
-        fdWtns = openWtns.fd;
-        const openZKey = await readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
-        fdZKey = openZKey.fd;
-        return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
-    } finally {
-        if (memTimer) {
-            clearInterval(memTimer);
-            memUsage(logger);
-        }
-        // Close on EVERY path -- any throw between open and the end of the
-        // prove (header validation, section reads, a failing phase) used to
-        // leak both fds because only the success path closed them. On the
-        // error path, phases may still have reads in flight; closing makes
-        // those fail fast ("Reading a closing file") and their rejections
-        // are observed by the no-op catch attached at phase creation.
-        // Promise.resolve() wrapping: mem-backed fds return undefined from
-        // close().
-        if (fdZKey) await Promise.resolve(fdZKey.close()).catch(() => {});
-        if (fdWtns) await Promise.resolve(fdWtns.close()).catch(() => {});
-    }
-}
-
-async function _groth16Prove(fdZKey, sectionsZKey, fdWtns, sectionsWtns, logger, options) {
-
-    const wtns = await readHeader(fdWtns, sectionsWtns);
-
-    const zkey = await readHeader$1(fdZKey, sectionsZKey, undefined, options);
-
-    if (zkey.protocol !== "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-    if (!Scalar.eq(zkey.r,  wtns.q)) {
-        throw new Error("Curve of the witness does not match the curve of the proving key");
-    }
-
-    if (wtns.nWitness !== zkey.nVars) {
-        throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}`);
-    }
-
-    const curve = zkey.curve;
-    const Fr = curve.Fr;
-    const G1 = curve.G1;
-    const G2 = curve.G2;
-
-    options = options || {};
-
-    // MSM batching mode, threaded to every multiexp below:
-    //   "auto"     (default) use the batch-affine MSM module only for
-    //              cache-friendly chunk sizes (where it is measurably faster);
-    //   "enabled"  always use it (best for small/medium circuits);
-    //   "disabled" never use it (plain in-module multiexp; lowest memory).
-    const msmBatching = options.msmBatching || "auto";
-    if (msmBatching !== "auto" && msmBatching !== "enabled" && msmBatching !== "disabled") {
-        throw new Error(`groth16Prove: invalid msmBatching "${msmBatching}" (expected "auto", "enabled" or "disabled")`);
-    }
-    // msmGlv / msmGls: "auto" (default -- use the G1/G2 endomorphism MSM paths
-    // where the curve supports them; the wasm still gates internally on chunk
-    // sizes) or "disabled" (generic batch accumulation). A/B and debugging
-    // aids, like msmBatching.
-    const msmGlv = options.msmGlv || "auto";
-    const msmGls = options.msmGls || "auto";
-    for (const [name, v] of [["msmGlv", msmGlv], ["msmGls", msmGls]]) {
-        if (v !== "auto" && v !== "disabled") {
-            throw new Error(`groth16Prove: invalid ${name} "${v}" (expected "auto" or "disabled")`);
-        }
-    }
-    const msmOpts = { batch: msmBatching, glv: msmGlv, gls: msmGls };
-
-    // buildABC: "stream" (default -- bounded worker memory, tunable
-    // parallelism via buildABCnChunks/buildABCmaxInFlight) or "js" (plain JS,
-    // no worker memory footprint, slower).
-    if (options.buildABC !== undefined && options.buildABC !== "js" && options.buildABC !== "stream") {
-        throw new Error(`groth16Prove: invalid buildABC "${options.buildABC}" (expected "js" or "stream")`);
-    }
-
-    const power = log2(zkey.domainSize);
-
-    if (logger) logger.debug("Reading Wtns");
-    const buffWitness = await readSection(fdWtns, sectionsWtns, 2);
-
-    // Reader for a zkey section that returns an arbitrary sub-range directly from
-    // disk, used to feed multiExp bases to the workers in chunks instead of
-    // reading the whole (potentially hundreds of MB) section into one buffer and
-    // slicing it. Bounds the bases resident in RAM to a few in-flight chunks.
-    const mkSectionReader = (idSection) => {
-        const start = sectionsZKey[idSection][0].p;
-        const size = sectionsZKey[idSection][0].size;
-        return async (off, len) => {
-            // coverage: defensive edge guard not reachable with valid inputs
-            /* c8 ignore start */
-            if (off + len > size) throw new Error(`groth16Prove: read out of range of section ${idSection}`);
-            /* c8 ignore stop */
-            const buff = new Uint8Array(len);
-            await fdZKey.readToBuffer(buff, 0, len, start + off);
-            return buff;
-        };
-    };
-
-    let resH;
-    let resHPromise;
-    let buffPodd_T;
-
-    let abcPromise = (async function (){
-        let buffA_T, buffB_T, buffC_T;
-
-        await (async function (){
-            if (logger) logger.debug("Reading Coeffs");
-            const buffCoeffs = await readSection(fdZKey, sectionsZKey, 4);
-
-            if (logger) logger.debug("Building ABC");
-
-            if (options.buildABC === "js") {
-                [buffA_T, buffB_T, buffC_T] = await buildABC1(curve, zkey, buffWitness, buffCoeffs, logger);
-            } else {
-                // Default: streaming build (bounded worker memory, tunable
-                // parallelism). The per-chunk witness gather keeps the witness
-                // out of WASM entirely, so there is no witness size limit.
-                const p = pickStreamParams(curve, zkey, buffCoeffs, options);
-                if (logger) logger.debug(`buildABC: stream nChunks=${p.nChunks} maxInFlight=${p.maxInFlight}`);
-                [buffA_T, buffB_T, buffC_T] = await buildABCStream(curve, zkey, buffWitness, buffCoeffs, logger, p.nChunks, p.maxInFlight);
-            }
-        })();
-
-
-        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-        /* c8 ignore start */
-        const inc = power === Fr.s ? curve.Fr.shift : curve.Fr.w[power+1];
-        /* c8 ignore stop */
-
-        let buffAodd_T, buffBodd_T, buffCodd_T;
-        // The IFFT input (buffX_T) is dropped immediately, and the FFT input
-        // (buffXodd) goes out of scope right after -- so both can be consumed
-        // (consume=true), skipping ffjavascript's defensive full-input copy.
-        await Promise.all([
-            (async function () {
-                let buffA = await Fr.ifft(buffA_T, "", "", logger, "IFFT_A", true);
-                buffA_T = null;
-                const buffAodd = await Fr.batchApplyKey(buffA, Fr.e(1), inc);
-                buffAodd_T = await Fr.fft(buffAodd, "", "", logger, "FFT_A", true);
-            })(),
-            (async function () {
-                let buffB = await Fr.ifft(buffB_T, "", "", logger, "IFFT_B", true);
-                buffB_T = null;
-                const buffBodd = await Fr.batchApplyKey(buffB, Fr.e(1), inc);
-                buffBodd_T = await Fr.fft(buffBodd, "", "", logger, "FFT_B", true);
-            })(),
-            (async function () {
-                let buffC = await Fr.ifft(buffC_T, "", "", logger, "IFFT_C", true);
-                buffC_T = null;
-                const buffCodd = await Fr.batchApplyKey(buffC, Fr.e(1), inc);
-                buffCodd_T = await Fr.fft(buffCodd, "", "", logger, "FFT_C", true);
-            })(),
-        ]);
-
-        if (logger) logger.debug("Join ABC");
-        buffPodd_T = await joinABC(curve, zkey, buffAodd_T, buffBodd_T, buffCodd_T, logger);
-        if (logger) logger.debug("Join ABC finished");
-        buffAodd_T = null;
-        buffBodd_T = null;
-        buffCodd_T = null;
-    })();
-    //await abcPromise;
-
-    let proof = {};
-
-    async function calcPiA(){
-        if (logger) logger.debug("Reading A Points");
-        proof.pi_a = await curve.G1.multiExpAffineChunked(mkSectionReader(5), sectionsZKey[5][0].size, buffWitness, logger, "multiexp A", msmOpts);
-    }
-
-    let piaPromise = calcPiA();
-    //await piaPromise;
-
-    let pib1;
-
-    async function calcPiB1() {
-        if (logger) logger.debug("Reading B1 Points");
-        pib1 = await curve.G1.multiExpAffineChunked(mkSectionReader(6), sectionsZKey[6][0].size, buffWitness, logger, "multiexp B1", msmOpts);
-    }
-
-    let pib1Promise = calcPiB1();
-    //await pib1Promise;
-
-    async function calcPiB() {
-        if (logger) logger.debug("Reading B2 Points");
-        proof.pi_b = await curve.G2.multiExpAffineChunked(mkSectionReader(7), sectionsZKey[7][0].size, buffWitness, logger, "multiexp B2", msmOpts);
-    }
-
-    let pibPromise = calcPiB();
-    //await pibPromise;
-
-    let picPromise = (async function (){
-        if (logger) logger.debug("Reading C Points");
-        proof.pi_c = await curve.G1.multiExpAffineChunked(mkSectionReader(8), sectionsZKey[8][0].size, buffWitness.slice((zkey.nPublic+1)*curve.Fr.n8), logger, "multiexp C", msmOpts);
-    })();
-    //await picPromise;
-
-    resHPromise = (async function (){
-        if (logger) logger.debug("Reading H Points");
-        await abcPromise;
-        resH = await curve.G1.multiExpAffineChunked(mkSectionReader(9), sectionsZKey[9][0].size, buffPodd_T, logger, "multiexp H", msmOpts);
-    })();
-    //await resHPromise;
-
-
-    // Mark every concurrent phase as observed the moment it exists: an early
-    // rejection (e.g. a truncated zkey failing one section read) would
-    // otherwise fire Node's unhandledRejection while we are still awaiting a
-    // slower sibling below -- before any catch could attach handlers. The
-    // no-op catch is a separate branch: the awaits below still throw, and a
-    // straggler phase failing after groth16Prove's finally has closed the
-    // fds rejects into this handler instead of crashing the process.
-    for (const p of [abcPromise, piaPromise, pib1Promise, pibPromise, picPromise, resHPromise]) {
-        p.catch(() => {});
-    }
-
-    const r = curve.Fr.random();
-    const s = curve.Fr.random();
-
-    await piaPromise;
-    proof.pi_a  = G1.add( proof.pi_a, zkey.vk_alpha_1 );
-    proof.pi_a  = G1.add( proof.pi_a, G1.timesFr( zkey.vk_delta_1, r ));
-
-    await pibPromise;
-    proof.pi_b  = G2.add( proof.pi_b, zkey.vk_beta_2 );
-    proof.pi_b  = G2.add( proof.pi_b, G2.timesFr( zkey.vk_delta_2, s ));
-
-    await pib1Promise;
-    pib1 = G1.add( pib1, zkey.vk_beta_1 );
-    pib1 = G1.add( pib1, G1.timesFr( zkey.vk_delta_1, s ));
-
-    await Promise.all([picPromise, resHPromise]);
-    proof.pi_c = G1.add(proof.pi_c, resH);
-
-
-    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( proof.pi_a, s ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( pib1, r ));
-    proof.pi_c  = G1.add( proof.pi_c, G1.timesFr( zkey.vk_delta_1, Fr.neg(Fr.mul(r,s) )));
-
-
-    let publicSignals = [];
-
-    for (let i=1; i<= zkey.nPublic; i++) {
-        const b = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
-        publicSignals.push(Scalar.fromRprLE(b));
-    }
-
-    proof.pi_a = G1.toObject(G1.toAffine(proof.pi_a));
-    proof.pi_b = G2.toObject(G2.toAffine(proof.pi_b));
-    proof.pi_c = G1.toObject(G1.toAffine(proof.pi_c));
-
-    proof.protocol = "groth16";
-    proof.curve = curve.name;
-
-    proof = stringifyBigInts$4(proof);
-    publicSignals = stringifyBigInts$4(publicSignals);
-
-    return {proof, publicSignals};
-}
-
-
-async function buildABC1(curve, zkey, witness, coeffs, logger) {
-    const n8 = curve.Fr.n8;
-    const sCoef = 4*3 + zkey.n8r;
-    const nCoef = (coeffs.byteLength-4) / sCoef;
-
-    const outBuffA = new BigBuffer(zkey.domainSize * n8);
-    const outBuffB = new BigBuffer(zkey.domainSize * n8);
-    const outBuffC = new BigBuffer(zkey.domainSize * n8);
-
-    const outBuf = [ outBuffA, outBuffB ];
-    for (let i=0; i<nCoef; i++) {
-        // coverage: progress logging fires only for circuits beyond test-fixture size
-        /* c8 ignore start */
-        if ((logger)&&(i%1000000 == 0)) logger.debug(`QAP AB: ${i}/${nCoef}`);
-        /* c8 ignore stop */
-
-        let buffCoefV, coef;
-        if (coeffs.buffer) {
-            // if we have direct access to array buffer, then we can create zero-copy views
-            const coeffOffset = 4 + i * sCoef;
-            buffCoefV = new DataView(coeffs.buffer, coeffs.byteOffset + coeffOffset, sCoef);
-            coef = new Uint8Array(coeffs.buffer, coeffs.byteOffset + coeffOffset + 12, n8);
-        } else {
-            // coverage: BigBuffer coeffs require a >1 GiB section
-            /* c8 ignore start */
-            const buffCoef = coeffs.slice(4+i*sCoef, 4+i*sCoef+sCoef);
-            buffCoefV = new DataView(buffCoef.buffer);
-            coef = buffCoef.slice(12, 12+n8);
-            /* c8 ignore stop */
-        }
-        const m = buffCoefV.getUint32(0, true);
-        const c = buffCoefV.getUint32(4, true);
-        const s = buffCoefV.getUint32(8, true);
-
-        outBuf[m].set(
-            curve.Fr.add(
-                outBuf[m].slice(c*n8, c*n8+n8),
-                curve.Fr.mul(coef, witness.slice(s*n8, s*n8+n8))
-            ),
-            c*n8
-        );
-
-    }
-
-    for (let i=0; i<zkey.domainSize; i++) {
-        // coverage: progress logging fires only for circuits beyond test-fixture size
-        /* c8 ignore start */
-        if ((logger)&&(i%1000000 == 0)) logger.debug(`QAP C: ${i}/${zkey.domainSize}`);
-        /* c8 ignore stop */
-        outBuffC.set(
-            curve.Fr.mul(
-                outBuffA.slice(i*n8, i*n8+n8),
-                outBuffB.slice(i*n8, i*n8+n8),
-            ),
-            i*n8
-        );
-    }
-
-
-    return [outBuffA, outBuffB, outBuffC];
-
-}
-
-
-// Adaptive parameters for buildABCStream, scaled to circuit size and a worker-memory
-// budget. Key fact from profiling: each concurrently-active worker grows its WASM
-// memory and never shrinks, so the memory buildABC leaves behind for the rest of the
-// prove is ~ maxInFlight × perWorker, where perWorker = witness + (coeffs+3·domain)/nChunks.
-//   - nChunks shrinks perWorker (and gives the pool chunks to load-balance);
-//   - maxInFlight is then chosen to keep that persistent floor under floorBudget,
-//     using as much parallelism (speed) as the budget allows (capped by concurrency).
-// Small circuits get nChunks≈concurrency and high parallelism (memory is a non-issue);
-// large ones get more chunks and a parallelism bounded by floorBudget.
-function pickStreamParams(curve, zkey, coeffs, options) {
-    // coverage: defaulted-parameter fallbacks; internal callers always pass values
-    /* c8 ignore next 2 */
-    options = options || {};
-    const n8 = curve.Fr.n8;
-    /* c8 ignore next */
-    const concurrency = curve.tm.concurrency || 1;
-    // Per-task bytes: coeff chunk + gathered witness values (n8 per coefficient)
-    // + 3 output chunks. The witness itself stays JS-side (gathered per chunk).
-    const nCoefs = (coeffs.byteLength - 4) / (12 + n8);
-    const variableBytes = coeffs.byteLength + nCoefs * n8 + 3 * zkey.domainSize * n8;
-
-    // Persistent worker memory buildABC may leave behind (default 256 MB; override
-    // via options.buildABCFloorBudget — raise it for more parallelism/speed, lower it
-    // for a smaller peak). Because each busy worker's WASM memory never shrinks, this
-    // directly bounds the floor the rest of the prove inherits.
-    const floorBudget = options.buildABCFloorBudget || (256 * 1024 * 1024);
-
-    const targetPerChunk = 32 * 1024 * 1024;
-    let nChunks = Math.max(1, Math.ceil(variableBytes / targetPerChunk));
-    const perWorker = Math.ceil(variableBytes / nChunks);
-    let maxInFlight = Math.max(1, Math.min(concurrency, Math.floor(floorBudget / perWorker)));
-    nChunks = Math.min(256, Math.max(nChunks, maxInFlight * 3));
-    maxInFlight = Math.min(maxInFlight, nChunks);
-
-    if (options.buildABCnChunks) nChunks = options.buildABCnChunks;
-    if (options.buildABCmaxInFlight) maxInFlight = options.buildABCmaxInFlight;
-    return { nChunks, maxInFlight };
-}
-
-// Streaming buildABC: the domain is split into `nChunks` disjoint output ranges
-// processed with bounded concurrency. The witness values each chunk references
-// are gathered JS-side into a compact per-coefficient buffer (s-indices remapped
-// to sequential positions), so a task holds only its coeff chunk + gathered
-// values + output chunk -- the witness itself never enters WASM and its size is
-// unbounded.
-async function buildABCStream(curve, zkey, witness, coeffs, logger, nChunks, maxInFlight) {
-    const n8 = curve.Fr.n8;
-    const sCoef = 4 * 3 + zkey.n8r;
-    const domainSize = zkey.domainSize;
-
-    let getUint32;
-    // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-    /* c8 ignore start */
-    if (coeffs instanceof BigBuffer) {
-        const coeffsDV = [];
-        const PAGE_LEN = coeffs.buffers[0].length;
-        for (let i = 0; i < coeffs.buffers.length; i++) coeffsDV.push(new DataView(coeffs.buffers[i].buffer));
-        getUint32 = (pos) => coeffsDV[Math.floor(pos / PAGE_LEN)].getUint32(pos % PAGE_LEN, true);
-    } else {
-        const coeffsDV = new DataView(coeffs.buffer, coeffs.byteOffset, coeffs.byteLength);
-        getUint32 = (pos) => coeffsDV.getUint32(pos, true);
-    }
-    /* c8 ignore stop */
-    function getCutPoint(v) {
-        // lower_bound: first coefficient whose c-field is >= v.
-        // The coeffs are sorted by c-field, so this is a binary search.
-        let m = 0, n = getUint32(0);
-        while (m < n) {
-            const k = Math.floor((n + m) / 2);
-            const va = getUint32(4 + k * sCoef + 4);
-            if (va < v) m = k + 1; else n = k;
-        }
-        return 4 + m * sCoef;
-    }
-
-    const elementsPerChunk = Math.floor((domainSize - 1) / nChunks) + 1;
-    const cutPoints = [];
-    for (let i = 0; i < nChunks; i++) cutPoints.push(getCutPoint(i * elementsPerChunk));
-    cutPoints.push(coeffs.byteLength);
-
-    // Return a flat Uint8Array when the domain fits under BigBuffer's 1 GiB page,
-    // so the downstream IFFT can consume it in place (skip its defensive copy).
-    // Larger domains stay paged BigBuffers (the IFFT flattens those as before).
-    const outBytes = domainSize * n8;
-    // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-    /* c8 ignore start */
-    const mkOut = () => (outBytes < (1 << 30)) ? new Uint8Array(outBytes) : new BigBuffer(outBytes);
-    /* c8 ignore stop */
-    const outBuffA = mkOut();
-    const outBuffB = mkOut();
-    const outBuffC = mkOut();
-
-    const inFlight = new Set();
-    const tasks = [];
-    for (let i = 0; i < nChunks; i++) {
-        const outOffset = i * elementsPerChunk;
-        const n = Math.min(elementsPerChunk, domainSize - outOffset);
-        if (n <= 0) break;
-        const cpA = cutPoints[i], cpB = cutPoints[i + 1];
-        // Wait in case we have already max allowed chunks "in flight"
-        while (inFlight.size >= maxInFlight) await Promise.race(inFlight);
-        if (logger) logger.debug(`buildABCStream: ${i}/${nChunks}`);
-        const op = (async () => {
-            // Gather the witness values this chunk references into a compact
-            // buffer (one entry per coefficient, in coefficient order) and
-            // rewrite each coefficient's s-index to its sequential position.
-            // The witness itself never enters WASM, so its size is unbounded
-            // (it can stay a BigBuffer) and each task ships only what it uses
-            // -- typically much less than a full witness copy per task.
-            const coeffChunk = coeffs.slice(cpA, cpB);
-            const nCoefChunk = (cpB - cpA) / sCoef;
-            const gathered = new Uint8Array(nCoefChunk * n8);
-            // Hot loop (one iteration per coefficient): use typed-array lane
-            // copies instead of set(subarray) -- per-element memcpy dispatch
-            // dominated the profile otherwise. Uint32 lanes on purpose: the
-            // data is integer bit patterns, and Float64 lanes may legally
-            // canonicalize NaN-patterned lanes, silently corrupting them.
-            // The s-field offsets are 4-byte aligned (sCoef and the +8
-            // offset are multiples of 4).
-            const chunkU32 = new Uint32Array(coeffChunk.buffer, coeffChunk.byteOffset, coeffChunk.byteLength >> 2);
-            const sStep = sCoef >> 2;
-            const laneFast = !!witness.buffer && ((witness.byteOffset & 3) === 0) && (n8 === 32);
-            if (laneFast) {
-                const wU32 = new Uint32Array(witness.buffer, witness.byteOffset, witness.byteLength >> 2);
-                const gU32 = new Uint32Array(gathered.buffer);
-                for (let j = 0; j < nCoefChunk; j++) {
-                    const si = chunkU32[j * sStep + 2];
-                    const so = si << 3, go = j << 3;
-                    gU32[go] = wU32[so]; gU32[go + 1] = wU32[so + 1];
-                    gU32[go + 2] = wU32[so + 2]; gU32[go + 3] = wU32[so + 3];
-                    gU32[go + 4] = wU32[so + 4]; gU32[go + 5] = wU32[so + 5];
-                    gU32[go + 6] = wU32[so + 6]; gU32[go + 7] = wU32[so + 7];
-                    chunkU32[j * sStep + 2] = j;
-                }
-            } else {
-                // coverage: non-lane-fast gather needs a BigBuffer witness (>1 GiB) or n8 != 32
-                /* c8 ignore start */
-                const witnessIsView = !!witness.buffer;
-                for (let j = 0; j < nCoefChunk; j++) {
-                    const s = chunkU32[j * sStep + 2];
-                    if (witnessIsView) gathered.set(witness.subarray(s * n8, (s + 1) * n8), j * n8);
-                    else gathered.set(witness.slice(s * n8, (s + 1) * n8), j * n8);
-                    chunkU32[j * sStep + 2] = j;
-                }
-                /* c8 ignore stop */
-            }
-            const task = [
-                {cmd: "ALLOCSET", var: 0, buff: coeffChunk},
-                {cmd: "ALLOCSET", var: 1, buff: gathered},
-                {cmd: "ALLOC", var: 2, len: n * n8},
-                {cmd: "ALLOC", var: 3, len: n * n8},
-                {cmd: "ALLOC", var: 4, len: n * n8},
-                {cmd: "CALL", fnName: "qap_buildABC", params: [
-                    {var: 0}, {val: nCoefChunk}, {var: 1},
-                    {var: 2}, {var: 3}, {var: 4},
-                    {val: outOffset}, {val: n}, {val: 0}, {val: nCoefChunk},
-                ]},
-                {cmd: "GET", out: 0, var: 2, len: n * n8},
-                {cmd: "GET", out: 1, var: 3, len: n * n8},
-                {cmd: "GET", out: 2, var: 4, len: n * n8},
-            ];
-            const r = await curve.tm.queueAction(task, [coeffChunk.buffer, gathered.buffer]);
-            outBuffA.set(r[0], outOffset * n8);
-            outBuffB.set(r[1], outOffset * n8);
-            outBuffC.set(r[2], outOffset * n8);
-        })();
-        const slot = op.finally(() => inFlight.delete(slot));
-        inFlight.add(slot);
-        tasks.push(slot);
-    }
-    await Promise.all(tasks);
-    return [outBuffA, outBuffB, outBuffC];
-}
-
-async function joinABC(curve, zkey, a, b, c, logger) {
-    const MAX_CHUNK_SIZE = 1 << 16;
-
-    const n8 = curve.Fr.n8;
-    const nElements = Math.floor(a.byteLength / curve.Fr.n8);
-
-    const promises = [];
-
-    for (let i=0; i<nElements; i += MAX_CHUNK_SIZE) {
-        if (logger) logger.debug(`JoinABC: ${i}/${nElements}`);
-        const n= Math.min(nElements - i, MAX_CHUNK_SIZE);
-
-        const task = [];
-
-        const aChunk = a.slice(i*n8, (i + n)*n8 );
-        const bChunk = b.slice(i*n8, (i + n)*n8 );
-        const cChunk = c.slice(i*n8, (i + n)*n8 );
-
-        task.push({cmd: "ALLOCSET", var: 0, buff: aChunk});
-        task.push({cmd: "ALLOCSET", var: 1, buff: bChunk});
-        task.push({cmd: "ALLOCSET", var: 2, buff: cChunk});
-        task.push({cmd: "ALLOC", var: 3, len: n*n8});
-        task.push({cmd: "CALL", fnName: "qap_joinABC", params:[
-            {var: 0},
-            {var: 1},
-            {var: 2},
-            {val: n},
-            {var: 3},
-        ]});
-        task.push({cmd: "CALL", fnName: "frm_batchFromMontgomery", params:[
-            {var: 3},
-            {val: n},
-            {var: 3}
-        ]});
-        task.push({cmd: "GET", out: 0, var: 3, len: n*n8});
-        promises.push(curve.tm.queueAction(task, [aChunk.buffer, bChunk.buffer, cChunk.buffer]) );
-    }
-
-    const result = await Promise.all(promises);
-
-    let outBuff;
-    // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-    /* c8 ignore start */
-    if (a instanceof BigBuffer) {
-        outBuff = new BigBuffer(a.byteLength);
-    } else {
-        outBuff = new Uint8Array(a.byteLength);
-    }
-    /* c8 ignore stop */
-
-    let p=0;
-    for (let i=0; i<result.length; i++) {
-        outBuff.set(result[i][0], p);
-        p += result[i][0].byteLength;
-    }
-
-    return outBuff;
-}
-
-function memUsage(logger) {
-    // coverage: defensive edge guard not reachable with valid inputs
-    /* c8 ignore start */
-    if (!logger) return;
-    /* c8 ignore stop */
-    const used = process.memoryUsage();
-    logger.info(
-        "         ",
-        "\x1b[0m Heap:\x1b[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m / \x1b[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m RSS:\x1b[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m External:\x1b[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m ArrBuffers:\x1b[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m"
-    );
-}
-
-function monitorMemoryUsage(logger, interval = 5000) {
-    return setInterval(() => {
-        memUsage(logger);
-    }, interval);
-}
-
-/*
-
-Copyright 2020 0KIMS association.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-*/
-
-function flatArray(a) {
-    let res = [];
-    fillArray(res, a);
-    return res;
-
-    function fillArray(res, a) {
-        if (Array.isArray(a)) {
-            for (let i = 0; i < a.length; i++) {
-                fillArray(res, a[i]);
-            }
-        } else {
-            res.push(a);
-        }
-    }
-}
-
-// Ref https://github.com/iden3/circom/commit/ec6388cf6eb62463539cb4c40cc3ceae9826de19
-function normalize(n, prime) {
-    let res = BigInt(n) % prime;
-    if (res < 0) res += prime;
-    return res;
-}
-
-function fnvHash(str) {
-    const uint64_max = BigInt(2) ** BigInt(64);
-    let hash = BigInt("0xCBF29CE484222325");
-    for (let i = 0; i < str.length; i++) {
-        hash ^= BigInt(str[i].charCodeAt(0));
-        hash *= BigInt(0x100000001B3);
-        hash %= uint64_max;
-    }
-    let shash = hash.toString(16);
-    let n = 16 - shash.length;
-    shash = "0".repeat(n).concat(shash);
-    return shash;
-}
-
-// Note that this pads zeros
-function toArray32(s, size) {
-    const res = []; //new Uint32Array(size); //has no unshift
-    let rem = BigInt(s);
-    const radix = BigInt(0x100000000);
-    while (rem) {
-        res.unshift(Number(rem % radix));
-        rem = rem / radix;
-    }
-    if (size) {
-        let i = size - res.length;
-        while (i > 0) {
-            res.unshift(0);
-            i--;
-        }
-    }
-    return res;
-}
-
-/* globals WebAssembly */
-/*
-
-Copyright 2020 0KIMS association.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-*/
-
-
-async function builder(code, options) {
-    let instance;
-    let wc;
-    let memory;
-    options = options || {};
-
-    // Only circom 2 implements version lookup through exports in the WASM
-    // We default to `1` and update if we see the `getVersion` export (major version)
-    // These are updated after the instance is instantiated, assuming the functions are available
-    let majorVersion = 1;
-    // After Circom 2.0.7, Blaine added exported functions for getting minor and patch versions
-    let minorVersion = 0;
-    // If we can't look up the patch version, assume the lowest
-    let patchVersion = 0;
-
-    let codeIsWebAssemblyInstance = false;
-
-    // If code is already prepared WebAssembly.Instance, we use it directly
-    if (code instanceof WebAssembly.Instance) {
-        instance = code;
-        codeIsWebAssemblyInstance = true;
-    } else {
-        let memorySize = 32767;
-
-        if (options.memorySize) {
-            // make sure we have int
-            memorySize = parseInt(options.memorySize);
-            if (memorySize < 0) {
-                throw new Error("Invalid memory size");
-            }
-        }
-
-        let memoryAllocated = false;
-        while (!memoryAllocated) {
-            try {
-                memory = new WebAssembly.Memory({initial: memorySize});
-                memoryAllocated = true;
-            } catch (err) {
-                if (memorySize <= 1) {
-                    throw err;
-                }
-                console.warn("Could not allocate " + memorySize * 1024 * 64 + " bytes. This may cause severe instability. Trying with " + memorySize * 1024 * 64 / 2 + " bytes");
-                memorySize = Math.floor(memorySize / 2);
-            }
-        }
-
-        const wasmModule = await WebAssembly.compile(code);
-
-        let errStr = "";
-        let msgStr = "";
-
-        instance = await WebAssembly.instantiate(wasmModule, {
-            env: {
-                "memory": memory
-            },
-            runtime: {
-                printDebug : function(value) {
-                    console.log("printDebug:", value);
-                },
-                exceptionHandler: function (code) {
-                    let err;
-                    if (code === 1) {
-                        err = "Signal not found. ";
-                    } else if (code === 2) {
-                        err = "Too many signals set. ";
-                    } else if (code === 3) {
-                        err = "Signal already set. ";
-                    } else if (code === 4) {
-                        err = "Assert Failed. ";
-                    } else if (code === 5) {
-                        err = "Not enough memory. ";
-                    } else if (code === 6) {
-                        err = "Input signal array access exceeds the size. ";
-                    } else {
-                        err = "Unknown error. ";
-                    }
-                    console.error("ERROR: ", code, errStr);
-                    throw new Error(err + errStr);
-                },
-                // A new way of logging messages was added in Circom 2.0.7 that requires 2 new imports
-                // `printErrorMessage` and `writeBufferMessage`.
-                printErrorMessage: function () {
-                    errStr += getMessage() + "\n";
-                },
-                writeBufferMessage: function () {
-                    const msg = getMessage();
-                    // Any calls to `log()` will always end with a `\n`, so that's when we print and reset
-                    if (msg === "\n") {
-                        console.log(msgStr);
-                        msgStr = "";
-                    } else {
-                        // If we've buffered other content, put a space in between the items
-                        if (msgStr !== "") {
-                            msgStr += " ";
-                        }
-                        // Then append the message to the message we are creating
-                        msgStr += msg;
-                    }
-                },
-                showSharedRWMemory: function () {
-                    const shared_rw_memory_size = instance.exports.getFieldNumLen32();
-                    const arr = new Uint32Array(shared_rw_memory_size);
-                    for (let j = 0; j < shared_rw_memory_size; j++) {
-                        arr[shared_rw_memory_size - 1 - j] = instance.exports.readSharedRWMemory(j);
-                    }
-
-                    // In circom 2.0.7, they changed the log() function to allow strings and changed the
-                    // output API. This smoothes over the breaking change.
-                    if (majorVersion >= 2 && (minorVersion >= 1 || patchVersion >= 7)) {
-                        // If we've buffered other content, put a space in between the items
-                        if (msgStr !== "") {
-                            msgStr += " ";
-                        }
-                        // Then append the value to the message we are creating
-                        const msg = (Scalar.fromArray(arr, 0x100000000).toString());
-                        msgStr += msg;
-                    } else {
-                        console.log(Scalar.fromArray(arr, 0x100000000));
-                    }
-                },
-                error: function (code, pstr, a, b, c, d) {
-                    let errStr;
-                    if (code === 7) {
-                        errStr = p2str(pstr) + " " + wc.getFr(b).toString() + " != " + wc.getFr(c).toString() + " " + p2str(d);
-                    } else if (code === 9) {
-                        errStr = p2str(pstr) + " " + wc.getFr(b).toString() + " " + p2str(c);
-                    } else if ((code === 5) && (options.sym)) {
-                        errStr = p2str(pstr) + " " + options.sym.labelIdx2Name[c];
-                    } else {
-                        errStr = p2str(pstr) + " " + a + " " + b + " " + c + " " + d;
-                    }
-                    console.log("ERROR: ", code, errStr);
-                    throw new Error(errStr);
-                },
-                log: function (a) {
-                    console.log(wc.getFr(a).toString());
-                },
-                logGetSignal: function (signal, pVal) {
-                    if (options.logGetSignal) {
-                        options.logGetSignal(signal, wc.getFr(pVal));
-                    }
-                },
-                logSetSignal: function (signal, pVal) {
-                    if (options.logSetSignal) {
-                        options.logSetSignal(signal, wc.getFr(pVal));
-                    }
-                },
-                logStartComponent: function (cIdx) {
-                    if (options.logStartComponent) {
-                        options.logStartComponent(cIdx);
-                    }
-                },
-                logFinishComponent: function (cIdx) {
-                    if (options.logFinishComponent) {
-                        options.logFinishComponent(cIdx);
-                    }
-                }
-            }
-        });
-    }
-
-    if (typeof instance.exports.getVersion == "function") {
-        majorVersion = instance.exports.getVersion();
-    }
-    if (typeof instance.exports.getMinorVersion == "function") {
-        minorVersion = instance.exports.getMinorVersion();
-    }
-    if (typeof instance.exports.getPatchVersion == "function") {
-        patchVersion = instance.exports.getPatchVersion();
-    }
-
-    const sanityCheck =
-        options &&
-        (
-            options.sanityCheck ||
-            options.logGetSignal ||
-            options.logSetSignal ||
-            options.logStartComponent ||
-            options.logFinishComponent
-        );
-
-    // We explicitly check for major version 2 in case there's a circom v3 in the future
-    if (majorVersion === 2) {
-        wc = new WitnessCalculatorCircom2(instance, sanityCheck);
-    } else if (majorVersion === 1) {
-        if (codeIsWebAssemblyInstance) {
-            throw new Error('Loading code from WebAssembly instance is not supported for circom version 1');
-        }
-        wc = new WitnessCalculatorCircom1(memory, instance, sanityCheck);
-    } else {
-        throw new Error(`Unsupported circom version: ${majorVersion}`);
-    }
-    return wc;
-
-    function getMessage() {
-        let message = "";
-        let c = instance.exports.getMessageChar();
-        while (c !== 0) {
-            message += String.fromCharCode(c);
-            c = instance.exports.getMessageChar();
-        }
-        return message;
-    }
-
-    function p2str(p) {
-        const i8 = new Uint8Array(memory.buffer);
-
-        const bytes = [];
-
-        for (let i = 0; i8[p + i] > 0; i++) bytes.push(i8[p + i]);
-
-        return String.fromCharCode.apply(null, bytes);
-    }
-}
-
-class WitnessCalculatorCircom1 {
-    constructor(memory, instance, sanityCheck) {
-        this.memory = memory;
-        this.i32 = new Uint32Array(memory.buffer);
-        this.instance = instance;
-
-        this.n32 = (this.instance.exports.getFrLen() >> 2) - 2;
-        const pRawPrime = this.instance.exports.getPRawPrime();
-
-        const arr = new Array(this.n32);
-        for (let i = 0; i < this.n32; i++) {
-            arr[this.n32 - 1 - i] = this.i32[(pRawPrime >> 2) + i];
-        }
-
-        this.prime = Scalar.fromArray(arr, 0x100000000);
-
-        this.Fr = new F1Field(this.prime);
-
-        this.mask32 = Scalar.fromString("FFFFFFFF", 16);
-        this.NVars = this.instance.exports.getNVars();
-        this.n64 = Math.floor((this.Fr.bitLength - 1) / 64) + 1;
-        this.R = this.Fr.e(Scalar.shiftLeft(1, this.n64 * 64));
-        this.RInv = this.Fr.inv(this.R);
-        this.sanityCheck = sanityCheck;
-    }
-
-    circom_version() {
-        return 1;
-    }
-
-    async _doCalculateWitness(input, sanityCheck) {
-        this.instance.exports.init((this.sanityCheck || sanityCheck) ? 1 : 0);
-        const pSigOffset = this.allocInt();
-        const pFr = this.allocFr();
-        const keys = Object.keys(input);
-        keys.forEach((k) => {
-            const h = fnvHash(k);
-            const hMSB = parseInt(h.slice(0, 8), 16);
-            const hLSB = parseInt(h.slice(8, 16), 16);
-            try {
-                this.instance.exports.getSignalOffset32(pSigOffset, 0, hMSB, hLSB);
-            } catch (err) {
-                throw new Error(`Signal ${k} is not an input of the circuit.`);
-            }
-            const sigOffset = this.getInt(pSigOffset);
-            const fArr = flatArray(input[k]);
-            for (let i = 0; i < fArr.length; i++) {
-                this.setFr(pFr, fArr[i]);
-                this.instance.exports.setSignal(0, 0, sigOffset + i, pFr);
-            }
-        });
-    }
-
-    async calculateWitness(input, sanityCheck) {
-        const self = this;
-
-        const old0 = self.i32[0];
-        const w = [];
-
-        await self._doCalculateWitness(input, sanityCheck);
-
-        for (let i = 0; i < self.NVars; i++) {
-            const pWitness = self.instance.exports.getPWitness(i);
-            w.push(self.getFr(pWitness));
-        }
-
-        self.i32[0] = old0;
-        return w;
-    }
-
-    async calculateBinWitness(input, sanityCheck) {
-        const self = this;
-
-        const old0 = self.i32[0];
-
-        await self._doCalculateWitness(input, sanityCheck);
-
-        const pWitnessBuffer = self.instance.exports.getWitnessBuffer();
-
-        self.i32[0] = old0;
-
-        const buff = self.memory.buffer.slice(pWitnessBuffer, pWitnessBuffer + (self.NVars * self.n64 * 8));
-        return new Uint8Array(buff);
-    }
-
-    allocInt() {
-        const p = this.i32[0];
-        this.i32[0] = p + 8;
-        return p;
-    }
-
-    allocFr() {
-        const p = this.i32[0];
-        this.i32[0] = p + this.n32 * 4 + 8;
-        return p;
-    }
-
-    getInt(p) {
-        return this.i32[p >> 2];
-    }
-
-    setInt(p, v) {
-        this.i32[p >> 2] = v;
-    }
-
-    getFr(p) {
-        const self = this;
-        const idx = (p >> 2);
-
-        if (self.i32[idx + 1] & 0x80000000) {
-            const arr = new Array(self.n32);
-            for (let i = 0; i < self.n32; i++) {
-                arr[self.n32 - 1 - i] = self.i32[idx + 2 + i];
-            }
-            const res = self.Fr.e(Scalar.fromArray(arr, 0x100000000));
-            if (self.i32[idx + 1] & 0x40000000) {
-                return fromMontgomery(res);
-            } else {
-                return res;
-            }
-
-        } else {
-            if (self.i32[idx] & 0x80000000) {
-                return self.Fr.e(self.i32[idx] - 0x100000000);
-            } else {
-                return self.Fr.e(self.i32[idx]);
-            }
-        }
-
-        function fromMontgomery(n) {
-            return self.Fr.mul(self.RInv, n);
-        }
-
-    }
-
-
-    setFr(p, v) {
-        const self = this;
-
-        v = self.Fr.e(v);
-
-        const minShort = self.Fr.neg(self.Fr.e("80000000", 16));
-        const maxShort = self.Fr.e("7FFFFFFF", 16);
-
-        if ((self.Fr.geq(v, minShort))
-            && (self.Fr.leq(v, maxShort))) {
-            let a;
-            if (self.Fr.geq(v, self.Fr.zero)) {
-                a = Scalar.toNumber(v);
-            } else {
-                a = Scalar.toNumber(self.Fr.sub(v, minShort));
-                a = a - 0x80000000;
-                a = 0x100000000 + a;
-            }
-            self.i32[(p >> 2)] = a;
-            self.i32[(p >> 2) + 1] = 0;
-            return;
-        }
-
-        self.i32[(p >> 2)] = 0;
-        self.i32[(p >> 2) + 1] = 0x80000000;
-        const arr = Scalar.toArray(v, 0x100000000);
-        for (let i = 0; i < self.n32; i++) {
-            const idx = arr.length - 1 - i;
-
-            if (idx >= 0) {
-                self.i32[(p >> 2) + 2 + i] = arr[idx];
-            } else {
-                self.i32[(p >> 2) + 2 + i] = 0;
-            }
-        }
-    }
-}
-
-class WitnessCalculatorCircom2 {
-    constructor(instance, sanityCheck) {
-        this.instance = instance;
-
-        this.version = this.instance.exports.getVersion();
-        this.n32 = this.instance.exports.getFieldNumLen32();
-
-        this.instance.exports.getRawPrime();
-        const arr = new Uint32Array(this.n32);
-        for (let i = 0; i < this.n32; i++) {
-            arr[this.n32 - 1 - i] = this.instance.exports.readSharedRWMemory(i);
-        }
-        this.prime = Scalar.fromArray(arr, 0x100000000);
-
-        this.witnessSize = this.instance.exports.getWitnessSize();
-
-        this.sanityCheck = sanityCheck;
-    }
-
-    circom_version() {
-        return this.instance.exports.getVersion();
-    }
-
-    async _doCalculateWitness(input, sanityCheck) {
-        //input is assumed to be a map from signals to arrays of bigints
-        this.instance.exports.init((this.sanityCheck || sanityCheck) ? 1 : 0);
-        const keys = Object.keys(input);
-        let input_counter = 0;
-        keys.forEach((k) => {
-            const h = fnvHash(k);
-            const hMSB = parseInt(h.slice(0, 8), 16);
-            const hLSB = parseInt(h.slice(8, 16), 16);
-            const fArr = flatArray(input[k]);
-            // Slight deviation from https://github.com/iden3/circom/blob/v2.1.6/code_producers/src/wasm_elements/common/witness_calculator.js
-            // because I don't know when this exported function was added
-            if (typeof this.instance.exports.getInputSignalSize === "function") {
-                let signalSize = this.instance.exports.getInputSignalSize(hMSB, hLSB);
-                if (signalSize < 0) {
-                    throw new Error(`Signal ${k} not found\n`);
-                }
-                if (fArr.length < signalSize) {
-                    throw new Error(`Not enough values for input signal ${k}\n`);
-                }
-                if (fArr.length > signalSize) {
-                    throw new Error(`Too many values for input signal ${k}\n`);
-                }
-            }
-            for (let i = 0; i < fArr.length; i++) {
-                const arrFr = toArray32(normalize(fArr[i], this.prime), this.n32);
-                for (let j = 0; j < this.n32; j++) {
-                    this.instance.exports.writeSharedRWMemory(j, arrFr[this.n32 - 1 - j]);
-                }
-                try {
-                    this.instance.exports.setInputSignal(hMSB, hLSB, i);
-                    input_counter++;
-                } catch (err) {
-                    // console.log(`After adding signal ${i} of ${k}`)
-                    throw new Error(err);
-                }
-            }
-
-        });
-        if (input_counter < this.instance.exports.getInputSize()) {
-            throw new Error(`Not all inputs have been set. Only ${input_counter} out of ${this.instance.exports.getInputSize()}`);
-        }
-    }
-
-    async calculateWitness(input, sanityCheck) {
-        const w = [];
-
-        await this._doCalculateWitness(input, sanityCheck);
-
-        for (let i = 0; i < this.witnessSize; i++) {
-            this.instance.exports.getWitness(i);
-            const arr = new Uint32Array(this.n32);
-            for (let j = 0; j < this.n32; j++) {
-                arr[this.n32 - 1 - j] = this.instance.exports.readSharedRWMemory(j);
-            }
-            w.push(Scalar.fromArray(arr, 0x100000000));
-        }
-
-        return w;
-    }
-
-    async calculateWTNSBin(input, sanityCheck) {
-        const buff32 = new Uint32Array(this.witnessSize * this.n32 + this.n32 + 11);
-        const buff = new Uint8Array(buff32.buffer);
-        await this._doCalculateWitness(input, sanityCheck);
-
-        //"wtns"
-        buff[0] = "w".charCodeAt(0);
-        buff[1] = "t".charCodeAt(0);
-        buff[2] = "n".charCodeAt(0);
-        buff[3] = "s".charCodeAt(0);
-
-        //version 2
-        buff32[1] = 2;
-
-        //number of sections: 2
-        buff32[2] = 2;
-
-        //id section 1
-        buff32[3] = 1;
-
-        const n8 = this.n32 * 4;
-        //id section 1 length in 64bytes
-        const idSection1length = 8 + n8;
-        const idSection1lengthHex = idSection1length.toString(16);
-        buff32[4] = parseInt(idSection1lengthHex.slice(0, 8), 16);
-        buff32[5] = parseInt(idSection1lengthHex.slice(8, 16), 16);
-
-        //this.n32
-        buff32[6] = n8;
-
-        //prime number
-        this.instance.exports.getRawPrime();
-
-        let pos = 7;
-        for (let j = 0; j < this.n32; j++) {
-            buff32[pos + j] = this.instance.exports.readSharedRWMemory(j);
-        }
-        pos += this.n32;
-
-        // witness size
-        buff32[pos] = this.witnessSize;
-        pos++;
-
-        //id section 2
-        buff32[pos] = 2;
-        pos++;
-
-        // section 2 length
-        const idSection2length = n8 * this.witnessSize;
-        const idSection2lengthHex = idSection2length.toString(16);
-        buff32[pos] = parseInt(idSection2lengthHex.slice(0, 8), 16);
-        buff32[pos + 1] = parseInt(idSection2lengthHex.slice(8, 16), 16);
-
-        pos += 2;
-        for (let i = 0; i < this.witnessSize; i++) {
-            this.instance.exports.getWitness(i);
-            for (let j = 0; j < this.n32; j++) {
-                buff32[pos + j] = this.instance.exports.readSharedRWMemory(j);
-            }
-            pos += this.n32;
-        }
-
-        return buff;
-    }
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const { unstringifyBigInts: unstringifyBigInts$b} = utils;
-
-async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
-    const input = unstringifyBigInts$b(_input);
-
-    const fdWasm = await readExisting(wasmFileName);
-    const wasm = await fdWasm.read(fdWasm.totalSize);
-    await fdWasm.close();
-
-    const wc = await builder(wasm, options);
-    if (wc.circom_version() === 1) {
-        const w = await wc.calculateBinWitness(input);
-
-        const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
-        try {
-            await writeBin(fdWtns, w, wc.prime);
-        } finally {
-            // close on failure too: a write error (or, pre-open, a witness
-            // calculation throw -- e.g. an assert in the circuit) must not
-            // leak the output fd.
-            await fdWtns.close();
-        }
-    } else {
-        // Calculate BEFORE opening the output file: a circuit assert/trap in
-        // calculateWTNSBin used to leak the just-created fd (and leave a
-        // zero-byte wtns file behind).
-        const w = await wc.calculateWTNSBin(input);
-
-        const fdWtns = await createOverride(wtnsFileName);
-        try {
-            await fdWtns.write(w);
-        } finally {
-            await fdWtns.close();
-        }
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$a} = utils;
-
-async function groth16FullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$a(_input);
-
-    const wtns= {
-        type: "mem"
-    };
-    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
-    return await groth16Prove(zkeyFileName, wtns, logger, proverOptions);
-}
-
-/*
-    Copyright 2018 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$9} = utils;
-
-async function groth16Verify(_vk_verifier, _publicSignals, _proof, logger) {
-/*
-    let cpub = vk_verifier.IC[0];
-    for (let s= 0; s< vk_verifier.nPublic; s++) {
-        cpub  = G1.add( cpub, G1.timesScalar( vk_verifier.IC[s+1], publicSignals[s]));
-    }
-*/
-
-    const vk_verifier = unstringifyBigInts$9(_vk_verifier);
-    const proof = unstringifyBigInts$9(_proof);
-    const publicSignals = unstringifyBigInts$9(_publicSignals);
-
-    const curve = await getCurveFromName(vk_verifier.curve);
-
-    const IC0 = curve.G1.fromObject(vk_verifier.IC[0]);
-    const IC = new Uint8Array(curve.G1.F.n8*2 * publicSignals.length);
-    const w = new Uint8Array(curve.Fr.n8 * publicSignals.length);
-
-    if (!publicInputsAreValid$2(curve, publicSignals)) {
-        if (logger) logger.error("Public inputs are not valid.");
-        return false;
-    }
-
-    for (let i=0; i<publicSignals.length; i++) {
-        const buffP = curve.G1.fromObject(vk_verifier.IC[i+1]);
-        IC.set(buffP, i*curve.G1.F.n8*2);
-        Scalar.toRprLE(w, curve.Fr.n8*i, publicSignals[i], curve.Fr.n8);
-    }
-
-    let cpub = await curve.G1.multiExpAffine(IC, w);
-    cpub = curve.G1.add(cpub, IC0);
-
-    const pi_a = curve.G1.fromObject(proof.pi_a);
-    const pi_b = curve.G2.fromObject(proof.pi_b);
-    const pi_c = curve.G1.fromObject(proof.pi_c);
-
-    if (!isWellConstructed$1(curve, {pi_a, pi_b, pi_c})) {
-        if(logger) logger.error("Proof commitments are not valid.");
-        return false;
-    }
-
-    const vk_gamma_2 = curve.G2.fromObject(vk_verifier.vk_gamma_2);
-    const vk_delta_2 = curve.G2.fromObject(vk_verifier.vk_delta_2);
-    const vk_alpha_1 = curve.G1.fromObject(vk_verifier.vk_alpha_1);
-    const vk_beta_2 = curve.G2.fromObject(vk_verifier.vk_beta_2);
-
-    const res = await curve.pairingEq(
-        curve.G1.neg(pi_a) , pi_b,
-        cpub , vk_gamma_2,
-        pi_c , vk_delta_2,
-
-        vk_alpha_1, vk_beta_2
-    );
-
-    if (! res) {
-        if (logger) logger.error("Invalid proof");
-        return false;
-    }
-
-    if (logger) logger.info("OK!");
-    return true;
-}
-
-function isWellConstructed$1(curve, proof) {
-    const G1 = curve.G1;
-    const G2 = curve.G2;
-
-    return G1.isValid(proof.pi_a)
-        && G2.isValid(proof.pi_b)
-        && G1.isValid(proof.pi_c);
-}
-
-function checkValueBelongToField$2(curve, value) {
-    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
-}
-
-function publicInputsAreValid$2(curve, publicInputs) {
-    for(let i = 0; i < publicInputs.length; i++) {
-        if(!checkValueBelongToField$2(curve, publicInputs[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-const { unstringifyBigInts: unstringifyBigInts$8} = utils;
-
-function p256$2(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0"+nstr;
-    nstr = `"0x${nstr}"`;
-    return nstr;
-}
-
-async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$8(_proof);
-    const pub = unstringifyBigInts$8(_pub);
-
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256$2(pub[i]);
-    }
-
-    let S;
-    S=`[${p256$2(proof.pi_a[0])}, ${p256$2(proof.pi_a[1])}],` +
-        `[[${p256$2(proof.pi_b[0][1])}, ${p256$2(proof.pi_b[0][0])}],[${p256$2(proof.pi_b[1][1])}, ${p256$2(proof.pi_b[1][0])}]],` +
-        `[${p256$2(proof.pi_c[0])}, ${p256$2(proof.pi_c[1])}],` +
-        `[${inputs}]`;
-
-    return S;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var groth16 = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    exportSolidityCallData: groth16ExportSolidityCallData,
-    fullProve: groth16FullProve,
-    prove: groth16Prove,
-    verify: groth16Verify
-});
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-function hashToG2(curve, hash) {
-    const hashV = new DataView(hash.buffer, hash.byteOffset, hash.byteLength);
-    const seed = [];
-    for (let i=0; i<8; i++) {
-        seed[i] = hashV.getUint32(i*4);
-    }
-
-    const rng = new ChaCha(seed);
-
-    const g2_sp = curve.G2.fromRng(rng);
-
-    return g2_sp;
-}
-
-function getG2sp(curve, persinalization, challenge, g1s, g1sx) {
-
-    const h = blake2b.create({ dkLen: 64 });
-    const b1 = new Uint8Array([persinalization]);
-    h.update(b1);
-    h.update(challenge);
-    const b3 = curve.G1.toUncompressed(g1s);
-    h.update( b3);
-    const b4 = curve.G1.toUncompressed(g1sx);
-    h.update( b4);
-    const hash =h.digest();
-
-    return hashToG2(curve, hash);
-}
-
-function calculatePubKey(k, curve, personalization, challengeHash, rng ) {
-    k.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    k.g1_sx = curve.G1.toAffine(curve.G1.timesFr(k.g1_s, k.prvKey));
-    k.g2_sp = curve.G2.toAffine(getG2sp(curve, personalization, challengeHash, k.g1_s, k.g1_sx));
-    k.g2_spx = curve.G2.toAffine(curve.G2.timesFr(k.g2_sp, k.prvKey));
-    return k;
-}
-
-function createPTauKey(curve, challengeHash, rng) {
-    const key = {
-        tau: {},
-        alpha: {},
-        beta: {}
-    };
-    key.tau.prvKey = curve.Fr.fromRng(rng);
-    key.alpha.prvKey = curve.Fr.fromRng(rng);
-    key.beta.prvKey = curve.Fr.fromRng(rng);
-    calculatePubKey(key.tau, curve, 0, challengeHash, rng);
-    calculatePubKey(key.alpha, curve, 1, challengeHash, rng);
-    calculatePubKey(key.beta, curve, 2, challengeHash, rng);
-    return key;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function writePTauHeader(fd, curve, power, ceremonyPower) {
-    // Write the header
-    ///////////
-
-    if (! ceremonyPower) ceremonyPower = power;
-    await fd.writeULE32(1); // Header type
-    const pHeaderSize = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
-
-    await fd.writeULE32(curve.F1.n64*8);
-
-    const buff = new Uint8Array(curve.F1.n8);
-    Scalar.toRprLE(buff, 0, curve.q, curve.F1.n8);
-    await fd.write(buff);
-    await fd.writeULE32(power);                    // power
-    await fd.writeULE32(ceremonyPower);               // power
-
-    const headerSize = fd.pos - pHeaderSize - 8;
-
-    const oldPos = fd.pos;
-
-    await fd.writeULE64(headerSize, pHeaderSize);
-
-    fd.pos = oldPos;
-}
-
-async function readPTauHeader(fd, sections) {
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (!sections[1])  throw new Error(fd.fileName + ": File has no  header");
-    /* c8 ignore stop */
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (sections[1].length>1) throw new Error(fd.fileName +": File has more than one header");
-    /* c8 ignore stop */
-
-    fd.pos = sections[1][0].p;
-    const n8 = await fd.readULE32();
-    const buff = await fd.read(n8);
-    const q = Scalar.fromRprLE(buff);
-
-    const curve = await getCurveFromQ(q);
-
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (curve.F1.n64*8 != n8) throw new Error(fd.fileName +": Invalid size");
-    /* c8 ignore stop */
-
-    const power = await fd.readULE32();
-    const ceremonyPower = await fd.readULE32();
-
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (fd.pos-sections[1][0].p != sections[1][0].size) throw new Error("Invalid PTau header size");
-    /* c8 ignore stop */
-
-    return {curve, power, ceremonyPower};
-}
-
-
-async function readPtauPubKey(fd, curve, montgomery) {
-
-    const buff = await fd.read(curve.F1.n8*2*6 + curve.F2.n8*2*3);
-
-    return fromPtauPubKeyRpr(buff, 0, curve, montgomery);
-}
-
-function fromPtauPubKeyRpr(buff, pos, curve, montgomery) {
-
-    const key = {
-        tau: {},
-        alpha: {},
-        beta: {}
-    };
-
-    key.tau.g1_s = readG1();
-    key.tau.g1_sx = readG1();
-    key.alpha.g1_s = readG1();
-    key.alpha.g1_sx = readG1();
-    key.beta.g1_s = readG1();
-    key.beta.g1_sx = readG1();
-    key.tau.g2_spx = readG2();
-    key.alpha.g2_spx = readG2();
-    key.beta.g2_spx = readG2();
-
-    return key;
-
-    function readG1() {
-        let p;
-        if (montgomery) {
-            p = curve.G1.fromRprLEM( buff, pos );
-        } else {
-            p = curve.G1.fromRprUncompressed( buff, pos );
-        }
-        pos += curve.G1.F.n8*2;
-        return p;
-    }
-
-    function readG2() {
-        let p;
-        if (montgomery) {
-            p = curve.G2.fromRprLEM( buff, pos );
-        } else {
-            p = curve.G2.fromRprUncompressed( buff, pos );
-        }
-        pos += curve.G2.F.n8*2;
-        return p;
-    }
-}
-
-function toPtauPubKeyRpr(buff, pos, curve, key, montgomery) {
-
-    writeG1(key.tau.g1_s);
-    writeG1(key.tau.g1_sx);
-    writeG1(key.alpha.g1_s);
-    writeG1(key.alpha.g1_sx);
-    writeG1(key.beta.g1_s);
-    writeG1(key.beta.g1_sx);
-    writeG2(key.tau.g2_spx);
-    writeG2(key.alpha.g2_spx);
-    writeG2(key.beta.g2_spx);
-
-    async function writeG1(p) {
-        if (montgomery) {
-            curve.G1.toRprLEM(buff, pos, p);
-        } else {
-            curve.G1.toRprUncompressed(buff, pos, p);
-        }
-        pos += curve.F1.n8*2;
-    }
-
-    async function writeG2(p) {
-        if (montgomery) {
-            curve.G2.toRprLEM(buff, pos, p);
-        } else {
-            curve.G2.toRprUncompressed(buff, pos, p);
-        }
-        pos += curve.F2.n8*2;
-    }
-
-    return buff;
-}
-
-async function writePtauPubKey(fd, curve, key, montgomery) {
-    const buff = new Uint8Array(curve.F1.n8*2*6 + curve.F2.n8*2*3);
-    toPtauPubKeyRpr(buff, 0, curve, key, montgomery);
-    await fd.write(buff);
-}
-
-async function readContribution(fd, curve) {
-    const c = {};
-
-    c.tauG1 = await readG1();
-    c.tauG2 = await readG2();
-    c.alphaG1 = await readG1();
-    c.betaG1 = await readG1();
-    c.betaG2 = await readG2();
-    c.key = await readPtauPubKey(fd, curve, true);
-    c.partialHash = await fd.read(216);
-    c.nextChallenge = await fd.read(64);
-    c.type = await fd.readULE32();
-
-    const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
-    toPtauPubKeyRpr(buffV, 0, curve, c.key, false);
-
-    const responseHasher =  fromPartialHash(c.partialHash);
-    responseHasher.update(buffV);
-    c.responseHash = responseHasher.digest();
-
-    const paramLength = await fd.readULE32();
-    const curPos = fd.pos;
-    let lastType =0;
-    while (fd.pos-curPos < paramLength) {
-        const buffType = await readDV(1);
-        // coverage: defensive guard against malformed files that binfileutils rejects earlier
-        /* c8 ignore start */
-        if (buffType[0]<= lastType) throw new Error("Parameters in the contribution must be sorted");
-        /* c8 ignore stop */
-        lastType = buffType[0];
-        if (buffType[0]==1) {     // Name
-            const buffLen = await readDV(1);
-            const buffStr = await readDV(buffLen[0]);
-            c.name = new TextDecoder().decode(buffStr);
-        } else if (buffType[0]==2) {
-            const buffExp = await readDV(1);
-            c.numIterationsExp = buffExp[0];
-        } else if (buffType[0]==3) {
-            const buffLen = await readDV(1);
-            c.beaconHash = await readDV(buffLen[0]);
-        } else {
-            // coverage: requires a hand-crafted contribution parameter list
-            /* c8 ignore start */
-            throw new Error("Parameter not recognized");
-            /* c8 ignore stop */
-        }
-    }
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (fd.pos != curPos + paramLength) {
-        throw new Error("Parameters do not match");
-    }
-    /* c8 ignore stop */
-
-    return c;
-
-    async function readG1() {
-        const pBuff = await fd.read(curve.G1.F.n8*2);
-        return curve.G1.fromRprLEM( pBuff );
-    }
-
-    async function readG2() {
-        const pBuff = await fd.read(curve.G2.F.n8*2);
-        return curve.G2.fromRprLEM( pBuff );
-    }
-
-    async function readDV(n) {
-        const b = await fd.read(n);
-        return new Uint8Array(b);
-    }
-}
-
-async function readContributions(fd, curve, sections) {
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (!sections[7])  throw new Error(fd.fileName + ": File has no  contributions");
-    /* c8 ignore stop */
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (sections[7][0].length>1) throw new Error(fd.fileName +": File has more than one contributions section");
-    /* c8 ignore stop */
-
-    fd.pos = sections[7][0].p;
-    const nContributions = await fd.readULE32();
-    const contributions = [];
-    for (let i=0; i<nContributions; i++) {
-        const c = await readContribution(fd, curve);
-        c.id = i+1;
-        contributions.push(c);
-    }
-
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (fd.pos-sections[7][0].p != sections[7][0].size) throw new Error("Invalid contribution section size");
-    /* c8 ignore stop */
-
-    return contributions;
-}
-
-async function writeContribution(fd, curve, contribution) {
-
-    const buffG1 = new Uint8Array(curve.F1.n8*2);
-    const buffG2 = new Uint8Array(curve.F2.n8*2);
-    await writeG1(contribution.tauG1);
-    await writeG2(contribution.tauG2);
-    await writeG1(contribution.alphaG1);
-    await writeG1(contribution.betaG1);
-    await writeG2(contribution.betaG2);
-    await writePtauPubKey(fd, curve, contribution.key, true);
-    await fd.write(contribution.partialHash);
-    await fd.write(contribution.nextChallenge);
-    await fd.writeULE32(contribution.type || 0);
-
-    const params = [];
-    if (contribution.name) {
-        params.push(1);      // Param Name
-        const nameData = new TextEncoder("utf-8").encode(contribution.name.substring(0,64));
-        params.push(nameData.byteLength);
-        for (let i=0; i<nameData.byteLength; i++) params.push(nameData[i]);
-    }
-    if (contribution.type == 1) {
-        params.push(2);      // Param numIterationsExp
-        params.push(contribution.numIterationsExp);
-
-        params.push(3);      // Beacon Hash
-        params.push(contribution.beaconHash.byteLength);
-        for (let i=0; i<contribution.beaconHash.byteLength; i++) params.push(contribution.beaconHash[i]);
-    }
-    if (params.length>0) {
-        const paramsBuff = new Uint8Array(params);
-        await fd.writeULE32(paramsBuff.byteLength);
-        await fd.write(paramsBuff);
-    } else {
-        await fd.writeULE32(0);
-    }
-
-
-    async function writeG1(p) {
-        curve.G1.toRprLEM(buffG1, 0, p);
-        await fd.write(buffG1);
-    }
-
-    async function writeG2(p) {
-        curve.G2.toRprLEM(buffG2, 0, p);
-        await fd.write(buffG2);
-    }
-
-}
-
-async function writeContributions(fd, curve, contributions) {
-
-    await fd.writeULE32(7); // Header type
-    const pContributionsSize = fd.pos;
-    await fd.writeULE64(0); // Temporally set to 0 length
-
-    await fd.writeULE32(contributions.length);
-    for (let i=0; i< contributions.length; i++) {
-        await writeContribution(fd, curve, contributions[i]);
-    }
-    const contributionsSize = fd.pos - pContributionsSize - 8;
-
-    const oldPos = fd.pos;
-
-    await fd.writeULE64(contributionsSize, pContributionsSize);
-    fd.pos = oldPos;
-}
-
-function calculateFirstChallengeHash(curve, power, logger) {
-    if (logger) logger.debug("Calculating First Challenge Hash");
-
-    const hasher = blake2b.create({ dkLen: 64 });
-
-    const vG1 = new Uint8Array(curve.G1.F.n8*2);
-    const vG2 = new Uint8Array(curve.G2.F.n8*2);
-    curve.G1.toRprUncompressed(vG1, 0, curve.G1.g);
-    curve.G2.toRprUncompressed(vG2, 0, curve.G2.g);
-
-    hasher.update(blake2b.create({ dkLen: 64 }).digest());
-
-    let n;
-
-    n=(2 ** power)*2 -1;
-    if (logger) logger.debug("Calculate Initial Hash: tauG1");
-    hashBlock(vG1, n);
-    n= 2 ** power;
-    if (logger) logger.debug("Calculate Initial Hash: tauG2");
-    hashBlock(vG2, n);
-    if (logger) logger.debug("Calculate Initial Hash: alphaTauG1");
-    hashBlock(vG1, n);
-    if (logger) logger.debug("Calculate Initial Hash: betaTauG1");
-    hashBlock(vG1, n);
-    hasher.update(vG2);
-
-    return hasher.digest();
-
-    function hashBlock(buff, n) {
-        // this block size is a good compromise between speed and the maximum
-        // input size of the Blake2b update method (65,535,720 bytes).
-        const blockSize = 341000;
-        const nBlocks = Math.floor(n / blockSize);
-        const rem = n % blockSize;
-        const bigBuff = new Uint8Array(blockSize * buff.byteLength);
-        for (let i=0; i<blockSize; i++) {
-            bigBuff.set(buff, i*buff.byteLength);
-        }
-        // coverage: defensive edge guard not reachable with valid inputs
-        /* c8 ignore start */
-        for (let i=0; i<nBlocks; i++) {
-            hasher.update(bigBuff);
-            if (logger) logger.debug("Initial hash: " +i*blockSize);
-        }
-        /* c8 ignore stop */
-        for (let i=0; i<rem; i++) {
-            hasher.update(buff);
-        }
-    }
-}
-
-
-async function keyFromBeacon(curve, challengeHash, beaconHash, numIterationsExp) {
-
-    const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
-
-    const key = createPTauKey(curve, challengeHash, rng);
-
-    return key;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function newAccumulator(curve, power, fileName, logger) {
-
-    const fd = await createBinFile(fileName, "ptau", 1, 7);
-
-    await writePTauHeader(fd, curve, power, 0);
-
-    const buffG1 = curve.G1.oneAffine;
-    const buffG2 = curve.G2.oneAffine;
-
-    // Write tauG1
-    ///////////
-    await startWriteSection(fd, 2);
-    const nTauG1 = (2 ** power) * 2 -1;
-    for (let i=0; i< nTauG1; i++) {
-        await fd.write(buffG1);
-        if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG1: " + i);
-    }
-    await endWriteSection(fd);
-
-    // Write tauG2
-    ///////////
-    await startWriteSection(fd, 3);
-    const nTauG2 = (2 ** power);
-    for (let i=0; i< nTauG2; i++) {
-        await fd.write(buffG2);
-        if ((logger)&&((i%100000) == 0)&&i) logger.log("tauG2: " + i);
-    }
-    await endWriteSection(fd);
-
-    // Write alphaTauG1
-    ///////////
-    await startWriteSection(fd, 4);
-    const nAlfaTauG1 = (2 ** power);
-    for (let i=0; i< nAlfaTauG1; i++) {
-        await fd.write(buffG1);
-        if ((logger)&&((i%100000) == 0)&&i) logger.log("alphaTauG1: " + i);
-    }
-    await endWriteSection(fd);
-
-    // Write betaTauG1
-    ///////////
-    await startWriteSection(fd, 5);
-    const nBetaTauG1 = (2 ** power);
-    for (let i=0; i< nBetaTauG1; i++) {
-        await fd.write(buffG1);
-        if ((logger)&&((i%100000) == 0)&&i) logger.log("betaTauG1: " + i);
-    }
-    await endWriteSection(fd);
-
-    // Write betaG2
-    ///////////
-    await startWriteSection(fd, 6);
-    await fd.write(buffG2);
-    await endWriteSection(fd);
-
-    // Contributions
-    ///////////
-    await startWriteSection(fd, 7);
-    await fd.writeULE32(0); // 0 Contributions
-    await endWriteSection(fd);
-
-    await fd.close();
-
-    const firstChallengeHash = calculateFirstChallengeHash(curve, power, logger);
-
-    if (logger) logger.debug(formatHash(blake2b.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:"));
-
-    if (logger) logger.info(formatHash(firstChallengeHash, "First Contribution Hash:"));
-
-    return firstChallengeHash;
-
-}
-
-// Format of the outpu
-//     Hash of the last contribution  64Bytes
-//     2^N * 2 -1  TauG1 points (uncompressed)
-//     2^N  TauG2 Points (uncompressed)
-//     2^N  AlphaTauG1 Points (uncompressed)
-//     2^N  BetaTauG1 Points (uncompressed)
-//     BetaG2 (uncompressed)
-
-
-async function exportChallenge(pTauFilename, challengeFilename, logger) {
-    const {fd: fdFrom, sections} = await readBinFile(pTauFilename, "ptau", 1);
-
-    const {curve, power} = await readPTauHeader(fdFrom, sections);
-
-    const contributions = await readContributions(fdFrom, curve, sections);
-    let lastResponseHash, curChallengeHash;
-    if (contributions.length == 0) {
-        lastResponseHash = blake2b.create({ dkLen: 64 }).digest();
-        curChallengeHash = calculateFirstChallengeHash(curve, power);
-    } else {
-        lastResponseHash = contributions[contributions.length-1].responseHash;
-        curChallengeHash = contributions[contributions.length-1].nextChallenge;
-    }
-
-    if (logger) logger.info(formatHash(lastResponseHash, "Last Response Hash: "));
-
-    if (logger) logger.info(formatHash(curChallengeHash, "New Challenge Hash: "));
-
-
-    const fdTo = await createOverride(challengeFilename);
-
-    const toHash = blake2b.create({ dkLen: 64 });
-    await fdTo.write(lastResponseHash);
-    toHash.update(lastResponseHash);
-
-    await exportSection(2, "G1", (2 ** power) * 2 -1, "tauG1");
-    await exportSection(3, "G2", (2 ** power)       , "tauG2");
-    await exportSection(4, "G1", (2 ** power)       , "alphaTauG1");
-    await exportSection(5, "G1", (2 ** power)       , "betaTauG1");
-    await exportSection(6, "G2", 1                  , "betaG2");
-
-    await fdFrom.close();
-    await fdTo.close();
-
-    const calcCurChallengeHash = toHash.digest();
-
-    if (!hashIsEqual (curChallengeHash, calcCurChallengeHash)) {
-        if (logger) logger.info(formatHash(calcCurChallengeHash, "Calc Curret Challenge Hash: "));
-
-        if (logger) logger.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
-        throw new Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
-    }
-
-    return curChallengeHash;
-
-    async function exportSection(sectionId, groupName, nPoints, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
-
-        await startReadUniqueSection(fdFrom, sections, sectionId);
-        for (let i=0; i< nPoints; i+= nPointsChunk) {
-            if (logger) logger.debug(`Exporting ${sectionName}: ${i}/${nPoints}`);
-            const n = Math.min(nPoints-i, nPointsChunk);
-            let buff;
-            buff = await fdFrom.read(n*sG);
-            buff = await G.batchLEMtoU(buff);
-            await fdTo.write(buff);
-            toHash.update(buff);
-        }
-        await endReadSection(fdFrom);
-    }
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function importResponse(oldPtauFilename, contributionFilename, newPTauFilename, name, importPoints, logger) {
-
-    const noHash = new Uint8Array(64);
-    for (let i=0; i<64; i++) noHash[i] = 0xFF;
-
-    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power} = await readPTauHeader(fdOld, sections);
-    const contributions = await readContributions(fdOld, curve, sections);
-    const currentContribution = {};
-
-    if (name) currentContribution.name = name;
-
-    const sG1 = curve.F1.n8*2;
-    const scG1 = curve.F1.n8; // Compressed size
-    const sG2 = curve.F2.n8*2;
-    const scG2 = curve.F2.n8; // Compressed size
-
-    const fdResponse = await readExisting(contributionFilename);
-
-    if  (fdResponse.totalSize !=
-        64 +                            // Old Hash
-        ((2 ** power)*2-1)*scG1 +
-        (2 ** power)*scG2 +
-        (2 ** power)*scG1 +
-        (2 ** power)*scG1 +
-        scG2 +
-        sG1*6 + sG2*3)
-        throw new Error("Size of the contribution is invalid");
-
-    let lastChallengeHash;
-
-    if (contributions.length>0) {
-        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
-    } else {
-        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
-    }
-
-    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, importPoints ? 7: 2);
-    await writePTauHeader(fdNew, curve, power);
-
-    const contributionPreviousHash = await fdResponse.read(64);
-
-    if (hashIsEqual(noHash,lastChallengeHash)) {
-        lastChallengeHash = contributionPreviousHash;
-        contributions[contributions.length-1].nextChallenge = lastChallengeHash;
-    }
-
-    if(!hashIsEqual(contributionPreviousHash,lastChallengeHash))
-        throw new Error("Wrong contribution. This contribution is not based on the previous hash");
-
-    const hasherResponse = blake2b.create({ dkLen: 64 });
-    hasherResponse.update(contributionPreviousHash);
-
-    const startSections = [];
-    let res;
-    res = await processSection(fdResponse, fdNew, "G1", 2, (2 ** power) * 2 -1, [1], "tauG1");
-    currentContribution.tauG1 = res[0];
-    res = await processSection(fdResponse, fdNew, "G2", 3, (2 ** power)       , [1], "tauG2");
-    currentContribution.tauG2 = res[0];
-    res = await processSection(fdResponse, fdNew, "G1", 4, (2 ** power)       , [0], "alphaG1");
-    currentContribution.alphaG1 = res[0];
-    res = await processSection(fdResponse, fdNew, "G1", 5, (2 ** power)       , [0], "betaG1");
-    currentContribution.betaG1 = res[0];
-    res = await processSection(fdResponse, fdNew, "G2", 6, 1                  , [0], "betaG2");
-    currentContribution.betaG2 = res[0];
-
-    currentContribution.partialHash = toPartialHash(hasherResponse);
-
-
-    const buffKey = await fdResponse.read(curve.F1.n8*2*6+curve.F2.n8*2*3);
-
-    currentContribution.key = fromPtauPubKeyRpr(buffKey, 0, curve, false);
-
-    hasherResponse.update(new Uint8Array(buffKey));
-    const hashResponse = hasherResponse.digest();
-
-    if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
-
-    if (importPoints) {
-        const nextChallengeHasher = blake2b.create({ dkLen: 64 });
-        nextChallengeHasher.update(hashResponse);
-
-        await hashSection(nextChallengeHasher, fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G2", 3, (2 ** power)       , "tauG2", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G1", 4, (2 ** power)       , "alphaTauG1", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G1", 5, (2 ** power)       , "betaTauG1", logger);
-        await hashSection(nextChallengeHasher, fdNew, "G2", 6, 1                  , "betaG2", logger);
-
-        currentContribution.nextChallenge = nextChallengeHasher.digest();
-
-        if (logger) logger.info(formatHash(currentContribution.nextChallenge, "Next Challenge Hash: "));
-    } else {
-        currentContribution.nextChallenge = noHash;
-    }
-
-    contributions.push(currentContribution);
-
-    await writeContributions(fdNew, curve, contributions);
-
-    await fdResponse.close();
-    await fdNew.close();
-    await fdOld.close();
-
-    return currentContribution.nextChallenge;
-
-    async function processSection(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
-        if (importPoints) {
-            return await processSectionImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName);
-        } else {
-            return await processSectionNoImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName);
-        }
-    }
-
-    async function processSectionImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
-
-        const G = curve[groupName];
-        const scG = G.F.n8;
-        const sG = G.F.n8*2;
-
-        const singularPoints = [];
-
-        await startWriteSection(fdTo, sectionId);
-        const nPointsChunk = Math.floor((1<<24)/sG);
-
-        startSections[sectionId] = fdTo.pos;
-
-        for (let i=0; i< nPoints; i += nPointsChunk) {
-            if (logger) logger.debug(`Importing ${sectionName}: ${i}/${nPoints}`);
-            const n = Math.min(nPoints-i, nPointsChunk);
-
-            const buffC = await fdFrom.read(n * scG);
-            hasherResponse.update(buffC);
-
-            const buffLEM = await G.batchCtoLEM(buffC);
-
-            await fdTo.write(buffLEM);
-            for (let j=0; j<singularPointIndexes.length; j++) {
-                const sp = singularPointIndexes[j];
-                if ((sp >=i) && (sp < i+n)) {
-                    const P = G.fromRprLEM(buffLEM, (sp-i)*sG);
-                    singularPoints.push(P);
-                }
-            }
-        }
-
-        await endWriteSection(fdTo);
-
-        return singularPoints;
-    }
-
-
-    async function processSectionNoImportPoints(fdFrom, fdTo, groupName, sectionId, nPoints, singularPointIndexes, sectionName) {
-
-        const G = curve[groupName];
-        const scG = G.F.n8;
-
-        const singularPoints = [];
-
-        const nPointsChunk = Math.floor((1<<24)/scG);
-
-        for (let i=0; i< nPoints; i += nPointsChunk) {
-            if (logger) logger.debug(`Importing ${sectionName}: ${i}/${nPoints}`);
-            const n = Math.min(nPoints-i, nPointsChunk);
-
-            const buffC = await fdFrom.read(n * scG);
-            hasherResponse.update(buffC);
-
-            for (let j=0; j<singularPointIndexes.length; j++) {
-                const sp = singularPointIndexes[j];
-                if ((sp >=i) && (sp < i+n)) {
-                    const P = G.fromRprCompressed(buffC, (sp-i)*scG);
-                    singularPoints.push(P);
-                }
-            }
-        }
-
-        return singularPoints;
-    }
-
-
-    async function hashSection(nextChallengeHasher, fdTo, groupName, sectionId, nPoints, sectionName, logger) {
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
-
-        const oldPos = fdTo.pos;
-        fdTo.pos = startSections[sectionId];
-
-        for (let i=0; i< nPoints; i += nPointsChunk) {
-            if (logger) logger.debug(`Hashing ${sectionName}: ${i}/${nPoints}`);
-            const n = Math.min(nPoints-i, nPointsChunk);
-
-            const buffLEM = await fdTo.read(n * sG);
-
-            const buffU = await G.batchLEMtoU(buffLEM);
-
-            nextChallengeHasher.update(buffU);
-        }
-
-        fdTo.pos = oldPos;
-    }
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const sameRatio$1 = sameRatio$2;
-
-async function verifyContribution(curve, cur, prev, logger) {
-    let sr;
-    if (cur.type == 1) {    // Verify the beacon.
-        const beaconKey = await keyFromBeacon(curve, prev.nextChallenge, cur.beaconHash, cur.numIterationsExp);
-
-        if (!curve.G1.eq(cur.key.tau.g1_s, beaconKey.tau.g1_s)) {
-            if (logger) logger.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G1.eq(cur.key.tau.g1_sx, beaconKey.tau.g1_sx)) {
-            if (logger) logger.error(`BEACON key (tauG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G2.eq(cur.key.tau.g2_spx, beaconKey.tau.g2_spx)) {
-            if (logger) logger.error(`BEACON key (tauG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-
-        if (!curve.G1.eq(cur.key.alpha.g1_s, beaconKey.alpha.g1_s)) {
-            if (logger) logger.error(`BEACON key (alphaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G1.eq(cur.key.alpha.g1_sx, beaconKey.alpha.g1_sx)) {
-            if (logger) logger.error(`BEACON key (alphaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G2.eq(cur.key.alpha.g2_spx, beaconKey.alpha.g2_spx)) {
-            if (logger) logger.error(`BEACON key (alphaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-
-        if (!curve.G1.eq(cur.key.beta.g1_s, beaconKey.beta.g1_s)) {
-            if (logger) logger.error(`BEACON key (betaG1_s) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G1.eq(cur.key.beta.g1_sx, beaconKey.beta.g1_sx)) {
-            if (logger) logger.error(`BEACON key (betaG1_sx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-        if (!curve.G2.eq(cur.key.beta.g2_spx, beaconKey.beta.g2_spx)) {
-            if (logger) logger.error(`BEACON key (betaG2_spx) is not generated correctly in challenge #${cur.id}  ${cur.name || ""}` );
-            return false;
-        }
-    }
-
-    cur.key.tau.g2_sp = curve.G2.toAffine(getG2sp(curve, 0, prev.nextChallenge, cur.key.tau.g1_s, cur.key.tau.g1_sx));
-    cur.key.alpha.g2_sp = curve.G2.toAffine(getG2sp(curve, 1, prev.nextChallenge, cur.key.alpha.g1_s, cur.key.alpha.g1_sx));
-    cur.key.beta.g2_sp = curve.G2.toAffine(getG2sp(curve, 2, prev.nextChallenge, cur.key.beta.g1_s, cur.key.beta.g1_sx));
-
-    sr = await sameRatio$1(curve, cur.key.tau.g1_s, cur.key.tau.g1_sx, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID key (tau) in challenge #"+cur.id);
-        return false;
-    }
-
-    sr = await sameRatio$1(curve, cur.key.alpha.g1_s, cur.key.alpha.g1_sx, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID key (alpha) in challenge #"+cur.id);
-        return false;
-    }
-
-    sr = await sameRatio$1(curve, cur.key.beta.g1_s, cur.key.beta.g1_sx, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID key (beta) in challenge #"+cur.id);
-        return false;
-    }
-
-    sr = await sameRatio$1(curve, prev.tauG1, cur.tauG1, cur.key.tau.g2_sp, cur.key.tau.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G1. challenge #"+cur.id+" It does not follow the previous contribution");
-        return false;
-    }
-
-    sr = await sameRatio$1(curve,  cur.key.tau.g1_s, cur.key.tau.g1_sx, prev.tauG2, cur.tauG2);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID tau*G2. challenge #"+cur.id+" It does not follow the previous contribution");
-        return false;
-    }
-
-    sr = await sameRatio$1(curve, prev.alphaG1, cur.alphaG1, cur.key.alpha.g2_sp, cur.key.alpha.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID alpha*G1. challenge #"+cur.id+" It does not follow the previous contribution");
-        return false;
-    }
-
-    sr = await sameRatio$1(curve, prev.betaG1, cur.betaG1, cur.key.beta.g2_sp, cur.key.beta.g2_spx);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G1. challenge #"+cur.id+" It does not follow the previous contribution");
-        return false;
-    }
-
-    sr = await sameRatio$1(curve,  cur.key.beta.g1_s, cur.key.beta.g1_sx, prev.betaG2, cur.betaG2);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID beta*G2. challenge #"+cur.id+"It does not follow the previous contribution");
-        return false;
-    }
-
-    if (logger) logger.info("Powers Of tau file OK!");
-    return true;
-}
-
-async function verify(tauFilename, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fd, sections;
-    try {
-
-    let sr;
-
-    ({fd, sections} = await readBinFile(tauFilename, "ptau", 1));
-    const {curve, power, ceremonyPower} = await readPTauHeader(fd, sections);
-    const contrs = await readContributions(fd, curve, sections);
-
-    if (logger) logger.debug("power: 2**" + power);
-    // Verify Last contribution
-
-    if (logger) logger.debug("Computing initial contribution hash");
-    const initialContribution = {
-        tauG1: curve.G1.g,
-        tauG2: curve.G2.g,
-        alphaG1: curve.G1.g,
-        betaG1: curve.G1.g,
-        betaG2: curve.G2.g,
-        nextChallenge: calculateFirstChallengeHash(curve, ceremonyPower, logger),
-        responseHash: blake2b.create({ dkLen: 64 }).digest()
-    };
-
-    if (contrs.length == 0) {
-        if (logger) logger.error("This file has no contribution! It cannot be used in production");
-        return false;
-    }
-
-    let prevContr;
-    if (contrs.length>1) {
-        prevContr = contrs[contrs.length-2];
-    } else {
-        prevContr = initialContribution;
-    }
-    const curContr = contrs[contrs.length-1];
-    if (logger) logger.debug("Validating contribution #"+contrs[contrs.length-1].id);
-    const res = await verifyContribution(curve, curContr, prevContr, logger);
-    if (!res) return false;
-
-
-    const nextContributionHasher = blake2b.create({ dkLen: 64 });
-    nextContributionHasher.update(curContr.responseHash);
-
-    // Verify powers and compute nextChallengeHash
-
-    // await test();
-
-    // Verify Section tau*G1
-    if (logger) logger.debug("Verifying powers in tau*G1 section");
-    const rTau1 = await processSection(2, "G1", "tauG1", (2 ** power)*2-1, [0, 1], logger);
-    sr = await sameRatio$1(curve, rTau1.R1, rTau1.R2, curve.G2.g, curContr.tauG2);
-    if (sr !== true) {
-        if (logger) logger.error("tauG1 section. Powers do not match");
-        return false;
-    }
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G1.eq(curve.G1.g, rTau1.singularPoints[0])) {
-        if (logger) logger.error("First element of tau*G1 section must be the generator");
-        return false;
-    }
-    /* c8 ignore stop */
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G1.eq(curContr.tauG1, rTau1.singularPoints[1])) {
-        if (logger) logger.error("Second element of tau*G1 section does not match the one in the contribution section");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    // await test();
-
-    // Verify Section tau*G2
-    if (logger) logger.debug("Verifying powers in tau*G2 section");
-    const rTau2 = await processSection(3, "G2", "tauG2", 2 ** power, [0, 1],  logger);
-    sr = await sameRatio$1(curve, curve.G1.g, curContr.tauG1, rTau2.R1, rTau2.R2);
-    if (sr !== true) {
-        if (logger) logger.error("tauG2 section. Powers do not match");
-        return false;
-    }
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G2.eq(curve.G2.g, rTau2.singularPoints[0])) {
-        if (logger) logger.error("First element of tau*G2 section must be the generator");
-        return false;
-    }
-    /* c8 ignore stop */
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G2.eq(curContr.tauG2, rTau2.singularPoints[1])) {
-        if (logger) logger.error("Second element of tau*G2 section does not match the one in the contribution section");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    // Verify Section alpha*tau*G1
-    if (logger) logger.debug("Verifying powers in alpha*tau*G1 section");
-    const rAlphaTauG1 = await processSection(4, "G1", "alphatauG1", 2 ** power, [0], logger);
-    sr = await sameRatio$1(curve, rAlphaTauG1.R1, rAlphaTauG1.R2, curve.G2.g, curContr.tauG2);
-    if (sr !== true) {
-        if (logger) logger.error("alphaTauG1 section. Powers do not match");
-        return false;
-    }
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G1.eq(curContr.alphaG1, rAlphaTauG1.singularPoints[0])) {
-        if (logger) logger.error("First element of alpha*tau*G1 section (alpha*G1) does not match the one in the contribution section");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    // Verify Section beta*tau*G1
-    if (logger) logger.debug("Verifying powers in beta*tau*G1 section");
-    const rBetaTauG1 = await processSection(5, "G1", "betatauG1", 2 ** power, [0], logger);
-    sr = await sameRatio$1(curve, rBetaTauG1.R1, rBetaTauG1.R2, curve.G2.g, curContr.tauG2);
-    if (sr !== true) {
-        if (logger) logger.error("betaTauG1 section. Powers do not match");
-        return false;
-    }
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!curve.G1.eq(curContr.betaG1, rBetaTauG1.singularPoints[0])) {
-        if (logger) logger.error("First element of beta*tau*G1 section (beta*G1) does not match the one in the contribution section");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    //Verify Beta G2
-    const betaG2 = await processSectionBetaG2(logger);
-    if (!curve.G2.eq(curContr.betaG2, betaG2)) {
-        if (logger) logger.error("betaG2 element in betaG2 section does not match the one in the contribution section");
-        return false;
-    }
-
-
-    const nextContributionHash = nextContributionHasher.digest();
-
-    // Check the nextChallengeHash
-    if (power == ceremonyPower) {
-        if (!hashIsEqual(nextContributionHash,curContr.nextChallenge)) {
-            if (logger) logger.error("Hash of the values does not match the next challenge of the last contributor in the contributions section");
-            return false;
-        }
-    }
-
-    if (logger) logger.info(formatHash(nextContributionHash, "Next challenge hash: "));
-
-    // Verify Previous contributions
-
-    printContribution(curContr, prevContr);
-    for (let i = contrs.length-2; i>=0; i--) {
-        const curContr = contrs[i];
-        const prevContr =  (i>0) ? contrs[i-1] : initialContribution;
-        const res = await verifyContribution(curve, curContr, prevContr, logger);
-        if (!res) return false;
-        printContribution(curContr, prevContr);
-    }
-    if (logger) logger.info("-----------------------------------------------------");
-
-    if ((!sections[12]) || (!sections[13]) || (!sections[14]) || (!sections[15])) {
-        if (logger) logger.warn(
-            "this file does not contain phase2 precalculated values. Please run: \n" +
-            "   snarkjs \"powersoftau preparephase2\" to prepare this file to be used in the phase2 ceremony."
-        );
-    } else {
-        let res;
-        res = await verifyLagrangeEvaluations("G1", 2, 12, "tauG1", logger);
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!res) return false;
-        /* c8 ignore stop */
-        res = await verifyLagrangeEvaluations("G2", 3, 13, "tauG2", logger);
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!res) return false;
-        /* c8 ignore stop */
-        res = await verifyLagrangeEvaluations("G1", 4, 14, "alphaTauG1", logger);
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!res) return false;
-        /* c8 ignore stop */
-        res = await verifyLagrangeEvaluations("G1", 5, 15, "betaTauG1", logger);
-        if (!res) return false;
-    }
-
-    await fd.close();
-
-    if (logger) logger.info("Powers of Tau Ok!");
-
-    return true;
-
-    function printContribution(curContr, prevContr) {
-        if (!logger) return;
-        logger.info("-----------------------------------------------------");
-        logger.info(`Contribution #${curContr.id}: ${curContr.name ||""}`);
-
-        logger.info(formatHash(curContr.nextChallenge, "Next Challenge: "));
-
-        const buffV  = new Uint8Array(curve.G1.F.n8*2*6+curve.G2.F.n8*2*3);
-        toPtauPubKeyRpr(buffV, 0, curve, curContr.key, false);
-
-        const responseHasher =  fromPartialHash(curContr.partialHash);
-        responseHasher.update(buffV);
-        const responseHash = responseHasher.digest();
-
-        logger.info(formatHash(responseHash, "Response Hash:"));
-
-        logger.info(formatHash(prevContr.nextChallenge, "Response Hash:"));
-
-        if (curContr.type == 1) {
-            logger.info(`Beacon generator: ${byteArray2hex(curContr.beaconHash)}`);
-            logger.info(`Beacon iterations Exp: ${curContr.numIterationsExp}`);
-        }
-
-    }
-
-    async function processSectionBetaG2(logger) {
-        const G = curve.G2;
-        const sG = G.F.n8*2;
-        const buffUv = new Uint8Array(sG);
-
-        // coverage: defensive guard against malformed files that binfileutils rejects earlier
-        /* c8 ignore start */
-        if (!sections[6])  {
-            logger.error("File has no BetaG2 section");
-            throw new Error("File has no BetaG2 section");
-        }
-        /* c8 ignore stop */
-        // coverage: defensive guard against malformed files that binfileutils rejects earlier
-        /* c8 ignore start */
-        if (sections[6].length>1) {
-            logger.error("File has no BetaG2 section");
-            throw new Error("File has more than one GetaG2 section");
-        }
-        /* c8 ignore stop */
-        fd.pos = sections[6][0].p;
-
-        const buff = await fd.read(sG);
-        const P = G.fromRprLEM(buff);
-
-        G.toRprUncompressed(buffUv, 0, P);
-        nextContributionHasher.update(buffUv);
-
-        return P;
-    }
-
-    async function processSection(idSection, groupName, sectionName, nPoints, singularPointIndexes, logger) {
-        const MAX_CHUNK_SIZE = 1<<16;
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        await startReadUniqueSection(fd, sections, idSection);
-
-        const singularPoints = [];
-
-        let R1 = G.zero;
-        let R2 = G.zero;
-
-        let lastBase = G.zero;
-
-        for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`points relations: ${sectionName}: ${i}/${nPoints} `);
-            const n = Math.min(nPoints - i, MAX_CHUNK_SIZE);
-            const bases = await fd.read(n*sG);
-
-            const basesU = await G.batchLEMtoU(bases);
-            nextContributionHasher.update(basesU);
-
-            const scalars = getRandomBytes(4*(n-1));
-
-            // coverage: defensive edge guard not reachable with valid inputs
-            /* c8 ignore start */
-            if (i>0) {
-                const firstBase = G.fromRprLEM(bases, 0);
-                const r = readUInt32BE(getRandomBytes(4), 0);
-
-                R1 = G.add(R1, G.timesScalar(lastBase, r));
-                R2 = G.add(R2, G.timesScalar(firstBase, r));
-            }
-            /* c8 ignore stop */
-
-            const r1 = await G.multiExpAffine(bases.slice(0, (n-1)*sG), scalars);
-            const r2 = await G.multiExpAffine(bases.slice(sG), scalars);
-
-            R1 = G.add(R1, r1);
-            R2 = G.add(R2, r2);
-
-            lastBase = G.fromRprLEM( bases, (n-1)*sG);
-
-            for (let j=0; j<singularPointIndexes.length; j++) {
-                const sp = singularPointIndexes[j];
-                if ((sp >=i) && (sp < i+n)) {
-                    const P = G.fromRprLEM(bases, (sp-i)*sG);
-                    singularPoints.push(P);
-                }
-            }
-
-        }
-        await endReadSection(fd);
-
-        return {
-            R1: R1,
-            R2: R2,
-            singularPoints: singularPoints
-        };
-
-    }
-
-    async function verifyLagrangeEvaluations(gName, tauSection, lagrangeSection, sectionName, logger) {
-
-        if (logger) logger.debug(`Verifying phase2 calculated values ${sectionName}...`);
-        const G = curve[gName];
-        const sG = G.F.n8*2;
-
-        const seed= new Array(8);
-        for (let i=0; i<8; i++) {
-            seed[i] = readUInt32BE(getRandomBytes(4), 0);
-        }
-
-        for (let p=0; p<= power; p ++) {
-            const res = await verifyPower(p);
-            if (!res) return false;
-        }
-
-        if (tauSection == 2) {
-            const res = await verifyPower(power+1);
-            // coverage: reachable only with a hand-forged ceremony/response file
-            /* c8 ignore start */
-            if (!res) return false;
-            /* c8 ignore stop */
-        }
-
-        return true;
-
-        async function verifyPower(p) {
-            if (logger) logger.debug(`Power ${p}...`);
-            const n8r = curve.Fr.n8;
-            const nPoints = 2 ** p;
-            let buff_r = new Uint32Array(nPoints);
-            let buffG;
-
-            let rng = new ChaCha(seed);
-
-            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
-            for (let i=0; i<nPoints; i++) {
-                if ((p == power+1)&&(i == nPoints-1)) {
-                    buff_r[i] = 0;
-                } else {
-                    buff_r[i] = rng.nextU32();
-                }
-            }
-
-            buff_r = new Uint8Array(buff_r.buffer, buff_r.byteOffset, buff_r.byteLength);
-
-            if (logger) logger.debug(`reading points Powers${p}...`);
-            await startReadUniqueSection(fd, sections, tauSection);
-            buffG = new BigBuffer(nPoints*sG);
-            if (p == power+1) {
-                await fd.readToBuffer(buffG, 0, (nPoints-1)*sG);
-                buffG.set(curve.G1.zeroAffine, (nPoints-1)*sG);
-            } else {
-                await fd.readToBuffer(buffG, 0, nPoints*sG);
-            }
-            await endReadSection(fd, true);
-
-            const resTau = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p);
-
-            buff_r = new BigBuffer(nPoints * n8r);
-
-            rng = new ChaCha(seed);
-
-            const buff4 = new Uint8Array(4);
-            const buff4V = new DataView(buff4.buffer);
-
-            if (logger) logger.debug(`Creating random numbers Powers${p}...`);
-            for (let i=0; i<nPoints; i++) {
-                if ((i != nPoints-1) || (p != power+1)) {
-                    buff4V.setUint32(0, rng.nextU32(), true);
-                    buff_r.set(buff4, i*n8r);
-                }
-            }
-
-            if (logger) logger.debug(`batchToMontgomery ${p}...`);
-            buff_r = await curve.Fr.batchToMontgomery(buff_r);
-            if (logger) logger.debug(`fft ${p}...`);
-            buff_r = await curve.Fr.fft(buff_r);
-            if (logger) logger.debug(`batchFromMontgomery ${p}...`);
-            buff_r = await curve.Fr.batchFromMontgomery(buff_r);
-
-            if (logger) logger.debug(`reading points Lagrange${p}...`);
-            await startReadUniqueSection(fd, sections, lagrangeSection);
-            fd.pos += sG*((2 ** p)-1);
-            await fd.readToBuffer(buffG, 0, nPoints*sG);
-            await endReadSection(fd, true);
-
-            const resLagrange = await G.multiExpAffine(buffG, buff_r, logger, sectionName + "_" + p + "_transformed");
-
-            if (!G.eq(resTau, resLagrange)) {
-                if (logger) logger.error("Phase2 caclutation does not match with powers of tau");
-                return false;
-            }
-
-            return true;
-        }
-    }
-
-    } finally {
-        for (const openFd of [fd]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-/*
-    This function creates a new section in the fdTo file with id idSection.
-    It multiplies the points in fdFrom by first, first*inc, first*inc^2, ....
-    nPoint Times.
-    It also updates the newChallengeHasher with the new points
-*/
-
-async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, groupName, first, inc, sectionName, logger) {
-    const MAX_CHUNK_SIZE = 1 << 16;
-    const G = curve[groupName];
-    const sG = G.F.n8*2;
-    const nPoints = sections[idSection][0].size / sG;
-
-    await startReadUniqueSection(fdOld, sections,idSection );
-    await startWriteSection(fdNew, idSection);
-
-    let t = first;
-    for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
-        if (logger) logger.debug(`Applying key: ${sectionName}: ${i}/${nPoints}`);
-        const n= Math.min(nPoints - i, MAX_CHUNK_SIZE);
-        let buff;
-        buff = await fdOld.read(n*sG);
-        buff = await G.batchApplyKey(buff, t, inc);
-        await fdNew.write(buff);
-        t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
-    }
-
-    await endWriteSection(fdNew);
-    await endReadSection(fdOld);
-}
-
-
-
-async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
-    const G = curve[groupName];
-    const sG = G.F.n8*2;
-    const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
-    let t = first;
-    for (let i=0 ; i<nPoints ; i+= chunkSize) {
-        if (logger) logger.debug(`Applying key ${sectionName}: ${i}/${nPoints}`);
-        const n= Math.min(nPoints-i, chunkSize );
-        const buffInU = await fdOld.read(n * sG);
-        const buffInLEM = await G.batchUtoLEM(buffInU);
-        const buffOutLEM = await G.batchApplyKey(buffInLEM, t, inc);
-        let buffOut;
-        if (formatOut == "COMPRESSED") {
-            buffOut = await G.batchLEMtoC(buffOutLEM);
-        } else {
-            buffOut = await G.batchLEMtoU(buffOutLEM);
-        }
-
-        if (responseHasher) responseHasher.update(buffOut);
-        await fdNew.write(buffOut);
-        t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function challengeContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    const fdFrom = await readExisting(challengeFilename);
-
-
-    const sG1 = curve.F1.n64*8*2;
-    const sG2 = curve.F2.n64*8*2;
-    const domainSize = (fdFrom.totalSize + sG1 - 64 - sG2) / (4*sG1 + sG2);
-    let e = domainSize;
-    let power = 0;
-    while (e>1) {
-        e = e /2;
-        power += 1;
-    }
-
-    if (2 ** power != domainSize) throw new Error("Invalid file size");
-    if (logger) logger.debug("Power to tau size: "+power);
-
-    const rng = await getRandomRng(entropy);
-
-    const fdTo = await createOverride(responseFileName);
-
-    // Calculate the hash
-    const challengeHasher = blake2b.create({ dkLen: 64 });
-    for (let i=0; i<fdFrom.totalSize; i+= fdFrom.pageSize) {
-        if (logger) logger.debug(`Hashing challenge ${i}/${fdFrom.totalSize}`);
-        const s = Math.min(fdFrom.totalSize - i, fdFrom.pageSize);
-        const buff = await fdFrom.read(s);
-        challengeHasher.update(buff);
-    }
-
-    const claimedHash = await fdFrom.read(64, 0);
-    if (logger) logger.info(formatHash(claimedHash, "Claimed Previous Response Hash: "));
-
-    const challengeHash = challengeHasher.digest();
-    if (logger) logger.info(formatHash(challengeHash, "Current Challenge Hash: "));
-
-    const key = createPTauKey(curve, challengeHash, rng);
-
-    if (logger) {
-        ["tau", "alpha", "beta"].forEach( (k) => {
-            logger.debug(k + ".g1_s: " + curve.G1.toString(key[k].g1_s, 16));
-            logger.debug(k + ".g1_sx: " + curve.G1.toString(key[k].g1_sx, 16));
-            logger.debug(k + ".g2_sp: " + curve.G2.toString(key[k].g2_sp, 16));
-            logger.debug(k + ".g2_spx: " + curve.G2.toString(key[k].g2_spx, 16));
-            logger.debug("");
-        });
-    }
-
-    const responseHasher = blake2b.create({ dkLen: 64 });
-
-    await fdTo.write(challengeHash);
-    responseHasher.update(challengeHash);
-
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)*2-1, curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG1"     , logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", (2 ** power)    , curve.Fr.one    , key.tau.prvKey, "COMPRESSED", "tauG2"     , logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)    , key.alpha.prvKey, key.tau.prvKey, "COMPRESSED", "alphaTauG1", logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G1", (2 ** power)    , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG1" , logger );
-    await applyKeyToChallengeSection(fdFrom, fdTo, responseHasher, curve, "G2", 1             , key.beta.prvKey , key.tau.prvKey, "COMPRESSED", "betaTauG2" , logger );
-
-    // Write and hash key
-    const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
-    toPtauPubKeyRpr(buffKey, 0, curve, key, false);
-    await fdTo.write(buffKey);
-    responseHasher.update(buffKey);
-    const responseHash = responseHasher.digest();
-    if (logger) logger.info(formatHash(responseHash, "Contribution Response Hash: "));
-
-    await fdTo.close();
-    await fdFrom.close();
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function beacon$1(oldPtauFilename, newPTauFilename, name,  beaconHashStr,numIterationsExp, logger) {
-    const beaconHash = hex2ByteArray(beaconHashStr);
-    if (   (beaconHash.byteLength == 0)
-        || (beaconHash.byteLength*2 !=beaconHashStr.length))
-    {
-        if (logger) logger.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
-        return false;
-    }
-    if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
-        return false;
-    }
-
-    numIterationsExp = parseInt(numIterationsExp);
-    if ((numIterationsExp<10)||(numIterationsExp>63)) {
-        if (logger) logger.error("Invalid numIterationsExp. (Must be between 10 and 63)");
-        return false;
-    }
-
-
-    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
-    if (power != ceremonyPower) {
-        if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
-        return false;
-    }
-    if (sections[12]) {
-        if (logger) logger.warn("Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
-    }
-    const contributions = await readContributions(fdOld, curve, sections);
-    const curContribution = {
-        name: name,
-        type: 1, // Beacon
-        numIterationsExp: numIterationsExp,
-        beaconHash: beaconHash
-    };
-
-    let lastChallengeHash;
-
-    if (contributions.length>0) {
-        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
-    } else {
-        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
-    }
-
-    curContribution.key = await keyFromBeacon(curve, lastChallengeHash, beaconHash, numIterationsExp);
-
-    const responseHasher = blake2b.create({ dkLen: 64 });
-    responseHasher.update(lastChallengeHash);
-
-    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
-    await writePTauHeader(fdNew, curve, power);
-
-    const startSections = [];
-
-    let firstPoints;
-    firstPoints = await processSection(2, "G1",  (2 ** power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1", logger );
-    curContribution.tauG1 = firstPoints[1];
-    firstPoints = await processSection(3, "G2",  (2 ** power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2", logger );
-    curContribution.tauG2 = firstPoints[1];
-    firstPoints = await processSection(4, "G1",  (2 ** power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1", logger );
-    curContribution.alphaG1 = firstPoints[0];
-    firstPoints = await processSection(5, "G1",  (2 ** power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1", logger );
-    curContribution.betaG1 = firstPoints[0];
-    firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2", logger );
-    curContribution.betaG2 = firstPoints[0];
-
-    curContribution.partialHash = toPartialHash(responseHasher);
-
-    const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
-
-    toPtauPubKeyRpr(buffKey, 0, curve, curContribution.key, false);
-
-    responseHasher.update(new Uint8Array(buffKey));
-    const hashResponse = responseHasher.digest();
-
-    if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
-
-    const nextChallengeHasher = blake2b.create({ dkLen: 64 });
-    nextChallengeHasher.update(hashResponse);
-
-    await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1", logger);
-    await hashSection(fdNew, "G2", 3, (2 ** power)       , "tauG2", logger);
-    await hashSection(fdNew, "G1", 4, (2 ** power)       , "alphaTauG1", logger);
-    await hashSection(fdNew, "G1", 5, (2 ** power)       , "betaTauG1", logger);
-    await hashSection(fdNew, "G2", 6, 1                  , "betaG2", logger);
-
-    curContribution.nextChallenge = nextChallengeHasher.digest();
-
-    if (logger) logger.info(formatHash(curContribution.nextChallenge, "Next Challenge Hash: "));
-
-    contributions.push(curContribution);
-
-    await writeContributions(fdNew, curve, contributions);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    return hashResponse;
-
-    async function processSection(sectionId, groupName, NPoints, first, inc, sectionName, logger) {
-        const res = [];
-        fdOld.pos = sections[sectionId][0].p;
-
-        await startWriteSection(fdNew, sectionId);
-
-        startSections[sectionId] = fdNew.pos;
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
-        let t = first;
-        for (let i=0 ; i<NPoints ; i+= chunkSize) {
-            if (logger) logger.debug(`applying key${sectionName}: ${i}/${NPoints}`);
-            const n= Math.min(NPoints-i, chunkSize );
-            const buffIn = await fdOld.read(n * sG);
-            const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
-
-            /* Code to test the case where we don't have the 2^m-2 component
-            if (sectionName== "tauG1") {
-                const bz = new Uint8Array(64);
-                buffOutLEM.set(bz, 64*((2 ** power) - 1 ));
-            }
-            */
-
-            const promiseWrite = fdNew.write(buffOutLEM);
-            const buffOutC = await G.batchLEMtoC(buffOutLEM);
-
-            responseHasher.update(buffOutC);
-            await promiseWrite;
-            if (i==0)   // Return the 2 first points.
-                for (let j=0; j<Math.min(2, NPoints); j++)
-                    res.push(G.fromRprLEM(buffOutLEM, j*sG));
-            t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
-        }
-
-        await endWriteSection(fdNew);
-
-        return res;
-    }
-
-
-    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName, logger) {
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
-
-        const oldPos = fdTo.pos;
-        fdTo.pos = startSections[sectionId];
-
-        for (let i=0; i< nPoints; i += nPointsChunk) {
-            if (logger) logger.debug(`Hashing ${sectionName}: ${i}/${nPoints}`);
-            const n = Math.min(nPoints-i, nPointsChunk);
-
-            const buffLEM = await fdTo.read(n * sG);
-
-            const buffU = await G.batchLEMtoU(buffLEM);
-
-            nextChallengeHasher.update(buffU);
-        }
-
-        fdTo.pos = oldPos;
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logger) {
-
-    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
-    if (power != ceremonyPower) {
-        if (logger) logger.error("This file has been reduced. You cannot contribute into a reduced file.");
-        throw new Error("This file has been reduced. You cannot contribute into a reduced file.");
-    }
-    if (sections[12]) {
-        if (logger) logger.warn("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
-    }
-    const contributions = await readContributions(fdOld, curve, sections);
-    const curContribution = {
-        name: name,
-        type: 0, // Beacon
-    };
-
-    let lastChallengeHash;
-
-    const rng = await getRandomRng(entropy);
-
-    if (contributions.length>0) {
-        lastChallengeHash = contributions[contributions.length-1].nextChallenge;
-    } else {
-        lastChallengeHash = calculateFirstChallengeHash(curve, power, logger);
-    }
-
-    // Generate a random key
-
-
-    curContribution.key = createPTauKey(curve, lastChallengeHash, rng);
-
-
-    const responseHasher = blake2b.create({ dkLen: 64 });
-    responseHasher.update(lastChallengeHash);
-
-    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 7);
-    await writePTauHeader(fdNew, curve, power);
-
-    const startSections = [];
-
-    let firstPoints;
-    firstPoints = await processSection(2, "G1",  (2 ** power) * 2 -1, curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG1" );
-    curContribution.tauG1 = firstPoints[1];
-    firstPoints = await processSection(3, "G2",  (2 ** power) , curve.Fr.e(1), curContribution.key.tau.prvKey, "tauG2" );
-    curContribution.tauG2 = firstPoints[1];
-    firstPoints = await processSection(4, "G1",  (2 ** power) , curContribution.key.alpha.prvKey, curContribution.key.tau.prvKey, "alphaTauG1" );
-    curContribution.alphaG1 = firstPoints[0];
-    firstPoints = await processSection(5, "G1",  (2 ** power) , curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG1" );
-    curContribution.betaG1 = firstPoints[0];
-    firstPoints = await processSection(6, "G2",  1, curContribution.key.beta.prvKey, curContribution.key.tau.prvKey, "betaTauG2" );
-    curContribution.betaG2 = firstPoints[0];
-
-    curContribution.partialHash = toPartialHash(responseHasher);
-
-    const buffKey = new Uint8Array(curve.F1.n8*2*6+curve.F2.n8*2*3);
-
-    toPtauPubKeyRpr(buffKey, 0, curve, curContribution.key, false);
-
-    responseHasher.update(new Uint8Array(buffKey));
-    const hashResponse = responseHasher.digest();
-
-    if (logger) logger.info(formatHash(hashResponse, "Contribution Response Hash imported: "));
-
-    const nextChallengeHasher = blake2b.create({ dkLen: 64 });
-    nextChallengeHasher.update(hashResponse);
-
-    await hashSection(fdNew, "G1", 2, (2 ** power) * 2 -1, "tauG1");
-    await hashSection(fdNew, "G2", 3, (2 ** power)       , "tauG2");
-    await hashSection(fdNew, "G1", 4, (2 ** power)       , "alphaTauG1");
-    await hashSection(fdNew, "G1", 5, (2 ** power)       , "betaTauG1");
-    await hashSection(fdNew, "G2", 6, 1                  , "betaG2");
-
-    curContribution.nextChallenge = nextChallengeHasher.digest();
-
-    if (logger) logger.info(formatHash(curContribution.nextChallenge, "Next Challenge Hash: "));
-
-    contributions.push(curContribution);
-
-    await writeContributions(fdNew, curve, contributions);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    return hashResponse;
-
-    async function processSection(sectionId, groupName, NPoints, first, inc, sectionName) {
-        const res = [];
-        fdOld.pos = sections[sectionId][0].p;
-
-        await startWriteSection(fdNew, sectionId);
-
-        startSections[sectionId] = fdNew.pos;
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
-        let t = first;
-        for (let i=0 ; i<NPoints ; i+= chunkSize) {
-            if (logger) logger.debug(`processing: ${sectionName}: ${i}/${NPoints}`);
-            const n= Math.min(NPoints-i, chunkSize );
-            const buffIn = await fdOld.read(n * sG);
-            const buffOutLEM = await G.batchApplyKey(buffIn, t, inc);
-
-            /* Code to test the case where we don't have the 2^m-2 component
-            if (sectionName== "tauG1") {
-                const bz = new Uint8Array(64);
-                buffOutLEM.set(bz, 64*((2 ** power) - 1 ));
-            }
-            */
-
-            const promiseWrite = fdNew.write(buffOutLEM);
-            const buffOutC = await G.batchLEMtoC(buffOutLEM);
-
-            responseHasher.update(buffOutC);
-            await promiseWrite;
-            if (i==0)   // Return the 2 first points.
-                for (let j=0; j<Math.min(2, NPoints); j++)
-                    res.push(G.fromRprLEM(buffOutLEM, j*sG));
-            t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
-        }
-
-        await endWriteSection(fdNew);
-
-        return res;
-    }
-
-
-    async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
-
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
-
-        const oldPos = fdTo.pos;
-        fdTo.pos = startSections[sectionId];
-
-        for (let i=0; i< nPoints; i += nPointsChunk) {
-            if ((logger)&&i) logger.debug(`Hashing ${sectionName}: ` + i);
-            const n = Math.min(nPoints-i, nPointsChunk);
-
-            const buffLEM = await fdTo.read(n * sG);
-
-            const buffU = await G.batchLEMtoU(buffLEM);
-
-            nextChallengeHasher.update(buffU);
-        }
-
-        fdTo.pos = oldPos;
-    }
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function preparePhase2(oldPtauFilename, newPTauFilename, logger) {
-
-    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power} = await readPTauHeader(fdOld, sections);
-
-    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 11);
-    await writePTauHeader(fdNew, curve, power);
-
-    await copySection(fdOld, sections, fdNew, 2);
-    await copySection(fdOld, sections, fdNew, 3);
-    await copySection(fdOld, sections, fdNew, 4);
-    await copySection(fdOld, sections, fdNew, 5);
-    await copySection(fdOld, sections, fdNew, 6);
-    await copySection(fdOld, sections, fdNew, 7);
-
-    await processSection(2, 12, "G1", "tauG1" );
-    await processSection(3, 13, "G2", "tauG2" );
-    await processSection(4, 14, "G1", "alphaTauG1" );
-    await processSection(5, 15, "G1", "betaTauG1" );
-
-    await fdOld.close();
-    await fdNew.close();
-
-    // await fs.promises.unlink(newPTauFilename+ ".tmp");
-
-    return;
-
-    async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
-        if (logger) logger.debug("Starting section: "+sectionName);
-
-        await startWriteSection(fdNew, newSectionId);
-
-        for (let p=0; p<=power; p++) {
-            await processSectionPower(p);
-        }
-
-        if (oldSectionId == 2) {
-            await processSectionPower(power+1);
-        }
-
-        await endWriteSection(fdNew);
-
-
-        async function processSectionPower(p) {
-            const nPoints = 2 ** p;
-            const G = curve[Gstr];
-            const sGin = G.F.n8*2;
-
-            let buff;
-            buff = new BigBuffer(nPoints*sGin);
-
-            await startReadUniqueSection(fdOld, sections, oldSectionId);
-            if ((oldSectionId == 2)&&(p==power+1)) {
-                await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
-                buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
-            } else {
-                await fdOld.readToBuffer(buff, 0,nPoints*sGin );
-            }
-            await endReadSection(fdOld, true);
-
-
-            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
-            await fdNew.write(buff);
-
-            /*
-            if (p <= curve.Fr.s) {
-                buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
-                await fdNew.write(buff);
-            } else if (p == curve.Fr.s+1) {
-                const smallM = 1<<curve.Fr.s;
-                let t0 = new BigBuffer( smallM * sGmid );
-                let t1 = new BigBuffer( smallM * sGmid );
-
-                const shift_to_small_m = Fr.exp(Fr.shift, smallM);
-                const one_over_denom = Fr.inv(Fr.sub(shift_to_small_m, Fr.one));
-
-                let sInvAcc = Fr.one;
-                for (let i=0; i<smallM; i++) {
-                    const ti =  buff.slice(i*sGin, (i+1)*sGin);
-                    const tmi = buff.slice((i+smallM)*sGin, (i+smallM+1)*sGin);
-
-                    t0.set(
-                        G.timesFr(
-                            G.sub(
-                                G.timesFr(ti , shift_to_small_m),
-                                tmi
-                            ),
-                            one_over_denom
-                        ),
-                        i*sGmid
-                    );
-                    t1.set(
-                        G.timesFr(
-                            G.sub( tmi, ti),
-                            Fr.mul(sInvAcc, one_over_denom)
-                        ),
-                        i*sGmid
-                    );
-
-
-                    sInvAcc = Fr.mul(sInvAcc, Fr.shiftInv);
-                }
-                t0 = await G.ifft(t0, "jacobian", "affine", logger, sectionName + " t0");
-                await fdNew.write(t0);
-                t0 = null;
-                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t0");
-                await fdNew.write(t1);
-
-            } else {
-                if (logger) logger.error("Power too big");
-                throw new Error("Power to big");
-            }
-*/
-        }
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function truncate(ptauFilename, template, logger) {
-
-    const {fd: fdOld, sections} = await readBinFile(ptauFilename, "ptau", 1);
-    const {curve, power, ceremonyPower} = await readPTauHeader(fdOld, sections);
-
-    const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
-
-    for (let p=1; p<power; p++) {
-        await generateTruncate(p);
-    }
-
-    await fdOld.close();
-
-    return true;
-
-    async function generateTruncate(p) {
-
-        let sP = p.toString();
-        while (sP.length<2) sP = "0" + sP;
-
-        if (logger) logger.debug("Writing Power: "+sP);
-
-        const fdNew = await createBinFile(template + sP + ".ptau", "ptau", 1, 11);
-        await writePTauHeader(fdNew, curve, p, ceremonyPower);
-
-        await copySection(fdOld, sections, fdNew, 2, ((2 ** p)*2-1) * sG1 ); // tagG1
-        await copySection(fdOld, sections, fdNew, 3, (2 ** p) * sG2); // tauG2
-        await copySection(fdOld, sections, fdNew, 4, (2 ** p) * sG1); // alfaTauG1
-        await copySection(fdOld, sections, fdNew, 5, (2 ** p) * sG1); // betaTauG1
-        await copySection(fdOld, sections, fdNew, 6,  sG2); // betaTauG2
-        await copySection(fdOld, sections, fdNew, 7); // contributions
-        await copySection(fdOld, sections, fdNew, 12, ((2 ** (p+1))*2 -1) * sG1); // L_tauG1
-        await copySection(fdOld, sections, fdNew, 13, ((2 ** p)*2 -1) * sG2); // L_tauG2
-        await copySection(fdOld, sections, fdNew, 14, ((2 ** p)*2 -1) * sG1); // L_alfaTauG1
-        await copySection(fdOld, sections, fdNew, 15, ((2 ** p)*2 -1) * sG1); // L_betaTauG1
-
-        await fdNew.close();
-    }
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function convert(oldPtauFilename, newPTauFilename, logger) {
-
-    const {fd: fdOld, sections} = await readBinFile(oldPtauFilename, "ptau", 1);
-    const {curve, power} = await readPTauHeader(fdOld, sections);
-
-    const fdNew = await createBinFile(newPTauFilename, "ptau", 1, 11);
-    await writePTauHeader(fdNew, curve, power);
-
-    // const fdTmp = await fastFile.createOverride(newPTauFilename+ ".tmp");
-
-    await copySection(fdOld, sections, fdNew, 2);
-    await copySection(fdOld, sections, fdNew, 3);
-    await copySection(fdOld, sections, fdNew, 4);
-    await copySection(fdOld, sections, fdNew, 5);
-    await copySection(fdOld, sections, fdNew, 6);
-    await copySection(fdOld, sections, fdNew, 7);
-
-    await processSection(2, 12, "G1", "tauG1" );
-    await copySection(fdOld, sections, fdNew, 13);
-    await copySection(fdOld, sections, fdNew, 14);
-    await copySection(fdOld, sections, fdNew, 15);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    // await fs.promises.unlink(newPTauFilename+ ".tmp");
-
-    return;
-
-    async function processSection(oldSectionId, newSectionId, Gstr, sectionName) {
-        if (logger) logger.debug("Starting section: "+sectionName);
-
-        await startWriteSection(fdNew, newSectionId);
-
-        const size = sections[newSectionId][0].size;
-        const chunkSize = fdOld.pageSize;
-        await startReadUniqueSection(fdOld, sections, newSectionId);
-        for (let p=0; p<size; p+=chunkSize) {
-            const l = Math.min(size -p, chunkSize);
-            const buff = await fdOld.read(l);
-            await fdNew.write(buff);
-        }
-        await endReadSection(fdOld);
-
-        {
-            await processSectionPower(power+1);
-        }
-
-        await endWriteSection(fdNew);
-
-        async function processSectionPower(p) {
-            const nPoints = 2 ** p;
-            const G = curve[Gstr];
-            const sGin = G.F.n8*2;
-
-            let buff;
-            buff = new BigBuffer(nPoints*sGin);
-
-            await startReadUniqueSection(fdOld, sections, oldSectionId);
-            if ((p==power+1)) {
-                await fdOld.readToBuffer(buff, 0,(nPoints-1)*sGin );
-                buff.set(curve.G1.zeroAffine, (nPoints-1)*sGin );
-            } else {
-                await fdOld.readToBuffer(buff, 0,nPoints*sGin );
-            }
-            await endReadSection(fdOld, true);
-
-            buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
-            await fdNew.write(buff);
-
-            /*
-            if (p <= curve.Fr.s) {
-                buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
-                await fdNew.write(buff);
-            } else if (p == curve.Fr.s+1) {
-                const smallM = 1<<curve.Fr.s;
-                let t0 = new BigBuffer( smallM * sGmid );
-                let t1 = new BigBuffer( smallM * sGmid );
-
-                const shift_to_small_m = Fr.exp(Fr.shift, smallM);
-                const one_over_denom = Fr.inv(Fr.sub(shift_to_small_m, Fr.one));
-
-                let sInvAcc = Fr.one;
-                for (let i=0; i<smallM; i++) {
-                    if (i%10000) logger.debug(`sectionName prepare L calc: ${sectionName}, ${i}/${smallM}`);
-                    const ti =  buff.slice(i*sGin, (i+1)*sGin);
-                    const tmi = buff.slice((i+smallM)*sGin, (i+smallM+1)*sGin);
-
-                    t0.set(
-                        G.timesFr(
-                            G.sub(
-                                G.timesFr(ti , shift_to_small_m),
-                                tmi
-                            ),
-                            one_over_denom
-                        ),
-                        i*sGmid
-                    );
-                    t1.set(
-                        G.timesFr(
-                            G.sub( tmi, ti),
-                            Fr.mul(sInvAcc, one_over_denom)
-                        ),
-                        i*sGmid
-                    );
-
-
-                    sInvAcc = Fr.mul(sInvAcc, Fr.shiftInv);
-                }
-                t0 = await G.ifft(t0, "jacobian", "affine", logger, sectionName + " t0");
-                await fdNew.write(t0);
-                t0 = null;
-                t1 = await G.ifft(t1, "jacobian", "affine", logger, sectionName + " t1");
-                await fdNew.write(t1);
-
-            } else {
-                if (logger) logger.error("Power too big");
-                throw new Error("Power to big");
-            }
-*/
-        }
-
-
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function exportJson(pTauFilename, verbose) {
-    const {fd, sections} = await readBinFile(pTauFilename, "ptau", 1);
-
-    const {curve, power} = await readPTauHeader(fd, sections);
-
-    const pTau = {};
-    pTau.q = curve.q;
-    pTau.power = power;
-    pTau.contributions = await readContributions(fd, curve, sections);
-
-    pTau.tauG1 = await exportSection(2, "G1", (2 ** power)*2 -1, "tauG1");
-    pTau.tauG2 = await exportSection(3, "G2", (2 ** power), "tauG2");
-    pTau.alphaTauG1 = await exportSection(4, "G1", (2 ** power), "alphaTauG1");
-    pTau.betaTauG1 = await exportSection(5, "G1", (2 ** power), "betaTauG1");
-    pTau.betaG2 = await exportSection(6, "G2", 1, "betaG2");
-
-    pTau.lTauG1 = await exportLagrange(12, "G1", "lTauG1");
-    pTau.lTauG2 = await exportLagrange(13, "G2", "lTauG2");
-    pTau.lAlphaTauG1 = await exportLagrange(14, "G1", "lAlphaTauG2");
-    pTau.lBetaTauG1 = await exportLagrange(15, "G1", "lBetaTauG2");
-
-    await fd.close();
-
-    return stringifyBigIntsWithField(curve.Fr, pTau);
-
-
-
-    async function exportSection(sectionId, groupName, nPoints, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
-        const res = [];
-        await startReadUniqueSection(fd, sections, sectionId);
-        for (let i=0; i< nPoints; i++) {
-            if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ` + i);
-            const buff = await fd.read(sG);
-            res.push(G.fromRprLEM(buff, 0));
-        }
-        await endReadSection(fd);
-
-        return res;
-    }
-
-    async function exportLagrange(sectionId, groupName, sectionName) {
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-
-        const res = [];
-        await startReadUniqueSection(fd, sections, sectionId);
-        for (let p=0; p<=power; p++) {
-            if (verbose) console.log(`${sectionName}: Power: ${p}`);
-            res[p] = [];
-            const nPoints = (2 ** p);
-            for (let i=0; i<nPoints; i++) {
-                if ((verbose)&&i&&(i%10000 == 0)) console.log(`${sectionName}: ${i}/${nPoints}`);
-                const buff = await fd.read(sG);
-                res[p].push(G.fromRprLEM(buff, 0));
-            }
-        }
-        await endReadSection(fd, true);
-        return res;
-    }
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var powersoftau = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    beacon: beacon$1,
-    challengeContribute: challengeContribute,
-    contribute: contribute,
-    convert: convert,
-    exportChallenge: exportChallenge,
-    exportJson: exportJson,
-    importResponse: importResponse,
-    newAccumulator: newAccumulator,
-    preparePhase2: preparePhase2,
-    truncate: truncate,
-    verify: verify
-});
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-function r1csPrint(r1cs, syms, logger) {
-    for (let i=0; i<r1cs.constraints.length; i++) {
-        printCostraint(r1cs.constraints[i]);
-    }
-    function printCostraint(c) {
-        const lc2str = (lc) => {
-            let S = "";
-            const keys = Object.keys(lc);
-            keys.forEach( (k) => {
-                let name = syms.varIdx2Name[k];
-                if (name == "one") name = "1";
-
-                let vs = r1cs.curve.Fr.toString(lc[k]);
-                if (vs == "1") vs = "";  // Do not show ones
-                if (vs == "-1") vs = "-";  // Do not show ones
-                if ((S!="")&&(vs[0]!="-")) vs = "+"+vs;
-                if (S!="") vs = " "+vs;
-                S= S + vs   + name;
-            });
-            return S;
-        };
-        const S = `[ ${lc2str(c[0])} ] * [ ${lc2str(c[1])} ] - [ ${lc2str(c[2])} ] = 0`;
-        if (logger) logger.info(S);
-    }
-
-}
-
-const SUBARRAY_SIZE$1 = 0x40000;
-
-const BigArrayHandler$1 = {
-    get: function(obj, prop) {
-        if (!isNaN(prop)) {
-            return obj.getElement(prop);
-        } else return obj[prop];
-    },
-    set: function(obj, prop, value) {
-        if (!isNaN(prop)) {
-            return obj.setElement(prop, value);
-        } else {
-            obj[prop] = value;
-            return true;
-        }
-    }
+import * as e from "@iden3/binfileutils";
+import { createBinFile as t, endWriteSection as n, readBinFile as r, readSection as i, startWriteSection as a, writeBigInt as o } from "@iden3/binfileutils";
+import { BigBuffer as s, ChaCha as c, F1Field as l, Scalar as u, buildBls12381 as d, buildBn128 as f, utils as p } from "ffjavascript";
+import { readR1cs as m, readR1csFd as h, readR1csHeader as g } from "r1csfile";
+//#region \0rolldown/runtime.js
+var _ = Object.defineProperty, v = (e, t) => {
+	let n = {};
+	for (var r in e) _(n, r, {
+		get: e[r],
+		enumerable: !0
+	});
+	return t || _(n, Symbol.toStringTag, { value: "Module" }), n;
+}, y = /* @__PURE__ */ v({
+	getCurveFromName: () => E,
+	getCurveFromQ: () => T,
+	getCurveFromR: () => w
+}), b = u.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), x = u.e("21888242871839275222246405745257275088548364400416034343698204186575808495617"), S = u.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16), C = u.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+async function w(e, t) {
+	let n, r = t && t.singleThread;
+	if (u.eq(e, x)) n = await f(r);
+	else if (u.eq(e, b)) n = await d(r);
+	else throw Error(`Curve not supported: ${u.toString(e)}`);
+	return n;
+}
+async function T(e, t) {
+	let n, r = t && t.singleThread;
+	if (u.eq(e, C)) n = await f(r);
+	else if (u.eq(e, S)) n = await d(r);
+	else throw Error(`Curve not supported: ${u.toString(e)}`);
+	return n;
+}
+async function E(e, t) {
+	let n, r = t && t.singleThread, i = a(e);
+	if ([
+		"BN128",
+		"BN254",
+		"ALTBN128"
+	].indexOf(i) >= 0) n = await f(r);
+	else if (["BLS12381"].indexOf(i) >= 0) n = await d(r);
+	else throw Error(`Curve not supported: ${e}`);
+	return n;
+	function a(e) {
+		return e.toUpperCase().match(/[A-Za-z0-9]+/g).join("");
+	}
+}
+//#endregion
+//#region node_modules/@noble/hashes/utils.js
+function D(e) {
+	return e instanceof Uint8Array || ArrayBuffer.isView(e) && e.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in e && e.BYTES_PER_ELEMENT === 1;
+}
+function O(e, t = "") {
+	if (typeof e != "number") {
+		let n = t && `"${t}" `;
+		throw TypeError(`${n}expected number, got ${typeof e}`);
+	}
+	if (!Number.isSafeInteger(e) || e < 0) {
+		let n = t && `"${t}" `;
+		throw RangeError(`${n}expected integer >= 0, got ${e}`);
+	}
+}
+function k(e, t, n = "") {
+	let r = D(e), i = e?.length, a = t !== void 0;
+	if (!r || a && i !== t) {
+		let o = n && `"${n}" `, s = a ? ` of length ${t}` : "", c = r ? `length=${i}` : `type=${typeof e}`, l = o + "expected Uint8Array" + s + ", got " + c;
+		throw r ? RangeError(l) : TypeError(l);
+	}
+	return e;
+}
+function A(e, t = !0) {
+	if (e.destroyed) throw Error("Hash instance has been destroyed");
+	if (t && e.finished) throw Error("Hash#digest() has already been called");
+}
+function j(e, t) {
+	k(e, void 0, "digestInto() output");
+	let n = t.outputLen;
+	if (e.length < n) throw RangeError("\"digestInto() output\" expected to be of length >=" + n);
+}
+function M(e) {
+	return new Uint32Array(e.buffer, e.byteOffset, Math.floor(e.byteLength / 4));
+}
+function N(...e) {
+	for (let t = 0; t < e.length; t++) e[t].fill(0);
+}
+var P = new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68;
+function F(e) {
+	return e << 24 & 4278190080 | e << 8 & 16711680 | e >>> 8 & 65280 | e >>> 24 & 255;
+}
+var I = P ? (e) => e : (e) => F(e) >>> 0;
+function L(e) {
+	for (let t = 0; t < e.length; t++) e[t] = F(e[t]);
+	return e;
+}
+var R = P ? (e) => e : L;
+function z(e, t = {}) {
+	let n = (t, n) => e(n).update(t).digest(), r = e(void 0);
+	return n.outputLen = r.outputLen, n.blockLen = r.blockLen, n.canXOF = r.canXOF, n.create = (t) => e(t), Object.assign(n, t), Object.freeze(n);
+}
+//#endregion
+//#region node_modules/@noble/hashes/_blake.js
+var B = /* @__PURE__ */ Uint8Array.from([
+	0,
+	1,
+	2,
+	3,
+	4,
+	5,
+	6,
+	7,
+	8,
+	9,
+	10,
+	11,
+	12,
+	13,
+	14,
+	15,
+	14,
+	10,
+	4,
+	8,
+	9,
+	15,
+	13,
+	6,
+	1,
+	12,
+	0,
+	2,
+	11,
+	7,
+	5,
+	3,
+	11,
+	8,
+	12,
+	0,
+	5,
+	2,
+	15,
+	13,
+	10,
+	14,
+	3,
+	6,
+	7,
+	1,
+	9,
+	4,
+	7,
+	9,
+	3,
+	1,
+	13,
+	12,
+	11,
+	14,
+	2,
+	6,
+	5,
+	10,
+	4,
+	0,
+	15,
+	8,
+	9,
+	0,
+	5,
+	7,
+	2,
+	4,
+	10,
+	15,
+	14,
+	1,
+	11,
+	12,
+	6,
+	8,
+	3,
+	13,
+	2,
+	12,
+	6,
+	10,
+	0,
+	11,
+	8,
+	3,
+	4,
+	13,
+	7,
+	5,
+	15,
+	14,
+	1,
+	9,
+	12,
+	5,
+	1,
+	15,
+	14,
+	13,
+	4,
+	10,
+	0,
+	7,
+	6,
+	3,
+	9,
+	2,
+	8,
+	11,
+	13,
+	11,
+	7,
+	14,
+	12,
+	1,
+	3,
+	9,
+	5,
+	0,
+	15,
+	4,
+	8,
+	6,
+	2,
+	10,
+	6,
+	15,
+	14,
+	9,
+	11,
+	3,
+	0,
+	8,
+	12,
+	2,
+	13,
+	7,
+	1,
+	4,
+	10,
+	5,
+	10,
+	2,
+	8,
+	4,
+	7,
+	6,
+	1,
+	5,
+	15,
+	11,
+	9,
+	14,
+	3,
+	12,
+	13,
+	0,
+	0,
+	1,
+	2,
+	3,
+	4,
+	5,
+	6,
+	7,
+	8,
+	9,
+	10,
+	11,
+	12,
+	13,
+	14,
+	15,
+	14,
+	10,
+	4,
+	8,
+	9,
+	15,
+	13,
+	6,
+	1,
+	12,
+	0,
+	2,
+	11,
+	7,
+	5,
+	3,
+	11,
+	8,
+	12,
+	0,
+	5,
+	2,
+	15,
+	13,
+	10,
+	14,
+	3,
+	6,
+	7,
+	1,
+	9,
+	4,
+	7,
+	9,
+	3,
+	1,
+	13,
+	12,
+	11,
+	14,
+	2,
+	6,
+	5,
+	10,
+	4,
+	0,
+	15,
+	8,
+	9,
+	0,
+	5,
+	7,
+	2,
+	4,
+	10,
+	15,
+	14,
+	1,
+	11,
+	12,
+	6,
+	8,
+	3,
+	13,
+	2,
+	12,
+	6,
+	10,
+	0,
+	11,
+	8,
+	3,
+	4,
+	13,
+	7,
+	5,
+	15,
+	14,
+	1,
+	9
+]), V = /* @__PURE__ */ BigInt(2 ** 32 - 1), ee = /* @__PURE__ */ BigInt(32);
+function te(e, t = !1) {
+	return t ? {
+		h: Number(e & V),
+		l: Number(e >> ee & V)
+	} : {
+		h: Number(e >> ee & V) | 0,
+		l: Number(e & V) | 0
+	};
+}
+function ne(e, t = !1) {
+	let n = e.length, r = new Uint32Array(n), i = new Uint32Array(n);
+	for (let a = 0; a < n; a++) {
+		let { h: n, l: o } = te(e[a], t);
+		[r[a], i[a]] = [n, o];
+	}
+	return [r, i];
+}
+var re = (e, t, n) => e >>> n | t << 32 - n, ie = (e, t, n) => e << 32 - n | t >>> n, ae = (e, t, n) => e << 64 - n | t >>> n - 32, oe = (e, t, n) => e >>> n - 32 | t << 64 - n, se = (e, t) => t, ce = (e, t) => e, le = (e, t, n) => e << n | t >>> 32 - n, ue = (e, t, n) => t << n | e >>> 32 - n, de = (e, t, n) => t << n - 32 | e >>> 64 - n, fe = (e, t, n) => e << n - 32 | t >>> 64 - n;
+function pe(e, t, n, r) {
+	let i = (t >>> 0) + (r >>> 0);
+	return {
+		h: e + n + (i / 2 ** 32 | 0) | 0,
+		l: i | 0
+	};
+}
+var me = (e, t, n) => (e >>> 0) + (t >>> 0) + (n >>> 0), he = (e, t, n, r) => t + n + r + (e / 2 ** 32 | 0) | 0, H = /* @__PURE__ */ Uint32Array.from([
+	4089235720,
+	1779033703,
+	2227873595,
+	3144134277,
+	4271175723,
+	1013904242,
+	1595750129,
+	2773480762,
+	2917565137,
+	1359893119,
+	725511199,
+	2600822924,
+	4215389547,
+	528734635,
+	327033209,
+	1541459225
+]), U = /* @__PURE__ */ new Uint32Array(32);
+function ge(e, t, n, r, i, a) {
+	let o = i[a], s = i[a + 1], c = U[2 * e], l = U[2 * e + 1], u = U[2 * t], d = U[2 * t + 1], f = U[2 * n], p = U[2 * n + 1], m = U[2 * r], h = U[2 * r + 1], g = me(c, u, o);
+	l = he(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
+		Dh: h ^ l,
+		Dl: m ^ c
+	}, {Dh: h, Dl: m} = {
+		Dh: se(h, m),
+		Dl: ce(h, m)
+	}, {h: p, l: f} = pe(p, f, h, m), {Bh: d, Bl: u} = {
+		Bh: d ^ p,
+		Bl: u ^ f
+	}, {Bh: d, Bl: u} = {
+		Bh: re(d, u, 24),
+		Bl: ie(d, u, 24)
+	}, U[2 * e] = c, U[2 * e + 1] = l, U[2 * t] = u, U[2 * t + 1] = d, U[2 * n] = f, U[2 * n + 1] = p, U[2 * r] = m, U[2 * r + 1] = h;
+}
+function _e(e, t, n, r, i, a) {
+	let o = i[a], s = i[a + 1], c = U[2 * e], l = U[2 * e + 1], u = U[2 * t], d = U[2 * t + 1], f = U[2 * n], p = U[2 * n + 1], m = U[2 * r], h = U[2 * r + 1], g = me(c, u, o);
+	l = he(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
+		Dh: h ^ l,
+		Dl: m ^ c
+	}, {Dh: h, Dl: m} = {
+		Dh: re(h, m, 16),
+		Dl: ie(h, m, 16)
+	}, {h: p, l: f} = pe(p, f, h, m), {Bh: d, Bl: u} = {
+		Bh: d ^ p,
+		Bl: u ^ f
+	}, {Bh: d, Bl: u} = {
+		Bh: ae(d, u, 63),
+		Bl: oe(d, u, 63)
+	}, U[2 * e] = c, U[2 * e + 1] = l, U[2 * t] = u, U[2 * t + 1] = d, U[2 * n] = f, U[2 * n + 1] = p, U[2 * r] = m, U[2 * r + 1] = h;
+}
+function ve(e, t = {}, n, r, i) {
+	if (O(n), e <= 0 || e > n) throw Error("outputLen bigger than keyLen");
+	let { key: a, salt: o, personalization: s } = t;
+	if (a !== void 0 && (a.length < 1 || a.length > n)) throw Error("\"key\" expected to be undefined or of length=1.." + n);
+	o !== void 0 && k(o, r, "salt"), s !== void 0 && k(s, i, "personalization");
+}
+var ye = class {
+	buffer;
+	buffer32;
+	finished = !1;
+	destroyed = !1;
+	length = 0;
+	pos = 0;
+	blockLen;
+	outputLen;
+	canXOF = !1;
+	constructor(e, t) {
+		O(e), O(t), this.blockLen = e, this.outputLen = t, this.buffer = new Uint8Array(e), this.buffer32 = M(this.buffer);
+	}
+	update(e) {
+		A(this), k(e);
+		let { blockLen: t, buffer: n, buffer32: r } = this, i = e.length, a = e.byteOffset, o = e.buffer;
+		for (let s = 0; s < i;) {
+			this.pos === t && (R(r), this.compress(r, 0, !1), R(r), this.pos = 0);
+			let c = Math.min(t - this.pos, i - s), l = a + s;
+			if (c === t && !(l % 4) && s + c < i) {
+				let e = new Uint32Array(o, l, Math.floor((i - s) / 4));
+				R(e);
+				for (let n = 0; s + t < i; n += r.length, s += t) this.length += t, this.compress(e, n, !1);
+				R(e);
+				continue;
+			}
+			n.set(e.subarray(s, s + c), this.pos), this.pos += c, this.length += c, s += c;
+		}
+		return this;
+	}
+	digestInto(e) {
+		A(this), j(e, this);
+		let { pos: t, buffer32: n } = this;
+		if (this.finished = !0, N(this.buffer.subarray(t)), R(n), this.compress(n, 0, !0), R(n), e.byteOffset & 3) throw RangeError("\"digestInto() output\" expected 4-byte aligned byteOffset, got " + e.byteOffset);
+		let r = this.get(), i = M(e), a = Math.floor(this.outputLen / 4);
+		for (let e = 0; e < a; e++) i[e] = I(r[e]);
+		let o = this.outputLen % 4;
+		if (!o) return;
+		let s = a * 4, c = r[a];
+		for (let t = 0; t < o; t++) e[s + t] = c >>> 8 * t;
+	}
+	digest() {
+		let { buffer: e, outputLen: t } = this;
+		this.digestInto(e);
+		let n = e.slice(0, t);
+		return this.destroy(), n;
+	}
+	_cloneInto(e) {
+		let { buffer: t, length: n, finished: r, destroyed: i, outputLen: a, pos: o } = this;
+		return e ||= new this.constructor({ dkLen: a }), e.set(...this.get()), e.buffer.set(t), e.destroyed = i, e.finished = r, e.length = n, e.pos = o, e.outputLen = a, e;
+	}
+	clone() {
+		return this._cloneInto();
+	}
+}, be = class extends ye {
+	v0l = H[0] | 0;
+	v0h = H[1] | 0;
+	v1l = H[2] | 0;
+	v1h = H[3] | 0;
+	v2l = H[4] | 0;
+	v2h = H[5] | 0;
+	v3l = H[6] | 0;
+	v3h = H[7] | 0;
+	v4l = H[8] | 0;
+	v4h = H[9] | 0;
+	v5l = H[10] | 0;
+	v5h = H[11] | 0;
+	v6l = H[12] | 0;
+	v6h = H[13] | 0;
+	v7l = H[14] | 0;
+	v7h = H[15] | 0;
+	constructor(e = {}) {
+		let t = e.dkLen === void 0 ? 64 : e.dkLen;
+		super(128, t), ve(t, e, 64, 16, 16);
+		let { key: n, personalization: r, salt: i } = e, a = 0;
+		if (n !== void 0 && (k(n, void 0, "key"), a = n.length), this.v0l ^= this.outputLen | a << 8 | 16842752, i !== void 0) {
+			k(i, void 0, "salt");
+			let e = M(i);
+			this.v4l ^= I(e[0]), this.v4h ^= I(e[1]), this.v5l ^= I(e[2]), this.v5h ^= I(e[3]);
+		}
+		if (r !== void 0) {
+			k(r, void 0, "personalization");
+			let e = M(r);
+			this.v6l ^= I(e[0]), this.v6h ^= I(e[1]), this.v7l ^= I(e[2]), this.v7h ^= I(e[3]);
+		}
+		if (n !== void 0) {
+			let e = new Uint8Array(this.blockLen);
+			e.set(n), this.update(e);
+		}
+	}
+	get() {
+		let { v0l: e, v0h: t, v1l: n, v1h: r, v2l: i, v2h: a, v3l: o, v3h: s, v4l: c, v4h: l, v5l: u, v5h: d, v6l: f, v6h: p, v7l: m, v7h: h } = this;
+		return [
+			e,
+			t,
+			n,
+			r,
+			i,
+			a,
+			o,
+			s,
+			c,
+			l,
+			u,
+			d,
+			f,
+			p,
+			m,
+			h
+		];
+	}
+	set(e, t, n, r, i, a, o, s, c, l, u, d, f, p, m, h) {
+		this.v0l = e | 0, this.v0h = t | 0, this.v1l = n | 0, this.v1h = r | 0, this.v2l = i | 0, this.v2h = a | 0, this.v3l = o | 0, this.v3h = s | 0, this.v4l = c | 0, this.v4h = l | 0, this.v5l = u | 0, this.v5h = d | 0, this.v6l = f | 0, this.v6h = p | 0, this.v7l = m | 0, this.v7h = h | 0;
+	}
+	compress(e, t, n) {
+		this.get().forEach((e, t) => U[t] = e), U.set(H, 16);
+		let { h: r, l: i } = te(BigInt(this.length));
+		U[24] = H[8] ^ i, U[25] = H[9] ^ r, n && (U[28] = ~U[28], U[29] = ~U[29]);
+		let a = 0, o = B;
+		for (let n = 0; n < 12; n++) ge(0, 4, 8, 12, e, t + 2 * o[a++]), _e(0, 4, 8, 12, e, t + 2 * o[a++]), ge(1, 5, 9, 13, e, t + 2 * o[a++]), _e(1, 5, 9, 13, e, t + 2 * o[a++]), ge(2, 6, 10, 14, e, t + 2 * o[a++]), _e(2, 6, 10, 14, e, t + 2 * o[a++]), ge(3, 7, 11, 15, e, t + 2 * o[a++]), _e(3, 7, 11, 15, e, t + 2 * o[a++]), ge(0, 5, 10, 15, e, t + 2 * o[a++]), _e(0, 5, 10, 15, e, t + 2 * o[a++]), ge(1, 6, 11, 12, e, t + 2 * o[a++]), _e(1, 6, 11, 12, e, t + 2 * o[a++]), ge(2, 7, 8, 13, e, t + 2 * o[a++]), _e(2, 7, 8, 13, e, t + 2 * o[a++]), ge(3, 4, 9, 14, e, t + 2 * o[a++]), _e(3, 4, 9, 14, e, t + 2 * o[a++]);
+		this.v0l ^= U[0] ^ U[16], this.v0h ^= U[1] ^ U[17], this.v1l ^= U[2] ^ U[18], this.v1h ^= U[3] ^ U[19], this.v2l ^= U[4] ^ U[20], this.v2h ^= U[5] ^ U[21], this.v3l ^= U[6] ^ U[22], this.v3h ^= U[7] ^ U[23], this.v4l ^= U[8] ^ U[24], this.v4h ^= U[9] ^ U[25], this.v5l ^= U[10] ^ U[26], this.v5h ^= U[11] ^ U[27], this.v6l ^= U[12] ^ U[28], this.v6h ^= U[13] ^ U[29], this.v7l ^= U[14] ^ U[30], this.v7h ^= U[15] ^ U[31], N(U);
+	}
+	destroy() {
+		this.destroyed = !0, N(this.buffer32), this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	}
+}, W = /* @__PURE__ */ z((e) => new be(e)), xe = {}, Se = [];
+for (let e = 0; e < 256; e++) Se[e] = Ce(e, 8);
+function Ce(e, t) {
+	let n = 0, r = e;
+	for (let e = 0; e < t; e++) n <<= 1, n |= r & 1, r >>= 1;
+	return n;
+}
+function we(e) {
+	return (e & 4294901760 ? (e &= 4294901760, 16) : 0) | (e & 4278255360 ? (e &= 4278255360, 8) : 0) | (e & 4042322160 ? (e &= 4042322160, 4) : 0) | (e & 3435973836 ? (e &= 3435973836, 2) : 0) | !!(e & 2863311530);
+}
+function G(e, t) {
+	let n = new DataView(e.buffer, e.byteOffset, e.byteLength), r = "";
+	for (let e = 0; e < 4; e++) {
+		e > 0 && (r += "\n"), r += "		";
+		for (let t = 0; t < 4; t++) t > 0 && (r += " "), r += n.getUint32(e * 16 + t * 4).toString(16).padStart(8, "0");
+	}
+	return t && (r = t + "\n" + r), r;
+}
+function Te(e, t) {
+	if (e.byteLength != t.byteLength) return !1;
+	for (var n = new Int8Array(e), r = new Int8Array(t), i = 0; i != e.byteLength; i++) if (n[i] != r[i]) return !1;
+	return !0;
+}
+function Ee(e) {
+	return e.clone();
+}
+function De(e) {
+	let t = e.subarray(0, 128), n = M(e.subarray(128)), r = W.create({ dkLen: 64 });
+	r.buffer.set(t), r.v0l = n[0] | 0, r.v0h = n[1] | 0, r.v1l = n[2] | 0, r.v1h = n[3] | 0, r.v2l = n[4] | 0, r.v2h = n[5] | 0, r.v3l = n[6] | 0, r.v3h = n[7] | 0, r.v4l = n[8] | 0, r.v4h = n[9] | 0, r.v5l = n[10] | 0, r.v5h = n[11] | 0, r.v6l = n[12] | 0, r.v6h = n[13] | 0, r.v7l = n[14] | 0, r.v7h = n[15] | 0;
+	let i = 2 ** 32, a = n[16] + n[17] * i, o = n[18] + n[19] * i;
+	return r.length = a + o, r.pos = o, r;
+}
+function Oe(e) {
+	let t = /* @__PURE__ */ new Uint8Array(216), n = M(t.subarray(128));
+	return t.set(e.buffer), n[0] = e.v0l, n[1] = e.v0h, n[2] = e.v1l, n[3] = e.v1h, n[4] = e.v2l, n[5] = e.v2h, n[6] = e.v3l, n[7] = e.v3h, n[8] = e.v4l, n[9] = e.v4h, n[10] = e.v5l, n[11] = e.v5h, n[12] = e.v6l, n[13] = e.v6h, n[14] = e.v7l, n[15] = e.v7h, n[18] = e.pos, n[16] = e.length - e.pos, t;
+}
+async function ke(e, t, n, r, i) {
+	return e.G1.isZero(t) || e.G1.isZero(n) || e.G2.isZero(r) || e.G2.isZero(i) ? !1 : await e.pairingEq(t, i, e.G1.neg(n), r);
+}
+function Ae() {
+	if (typeof window < "u" && typeof window.prompt == "function") return window.prompt("Enter a random text. (Entropy): ", "");
+	{
+		let e = xe.createInterface({
+			input: process.stdin,
+			output: process.stdout
+		});
+		return new Promise((t) => {
+			e.question("Enter a random text. (Entropy): ", (e) => t(e));
+		});
+	}
+}
+function je(e) {
+	let t = new Uint8Array(e);
+	if (xe && xe.randomFillSync) xe.randomFillSync(t);
+	else if (globalThis.crypto !== void 0 && globalThis.crypto.getRandomValues) for (let n = 0; n < e; n += 65536) globalThis.crypto.getRandomValues(t.subarray(n, Math.min(n + 65536, e)));
+	else throw Error("No secure random source available");
+	return t;
+}
+async function Me(e) {
+	if (xe && xe.createHash) return xe.createHash("sha256").update(e).digest();
+	{
+		let t = await globalThis.crypto.subtle.digest("SHA-256", e);
+		return new Uint8Array(t);
+	}
+}
+function Ne(e, t) {
+	return new DataView(e.buffer).getUint32(t, !1);
+}
+async function Pe(e) {
+	for (; !e;) e = await Ae();
+	let t = W.create(64);
+	t.update(je(64));
+	let n = new TextEncoder();
+	t.update(n.encode(e));
+	let r = t.digest(), i = [];
+	for (let e = 0; e < 8; e++) i[e] = Ne(r, e * 4);
+	return new c(i);
+}
+async function Fe(e, t) {
+	let n, r;
+	t < 32 ? (n = 1 << t >>> 0, r = 1) : (n = 4294967296, r = 1 << t - 32 >>> 0);
+	let i = e;
+	for (let e = 0; e < r; e++) for (let e = 0; e < n; e++) i = await Me(i);
+	let a = new DataView(i.buffer, i.byteOffset, i.byteLength), o = [];
+	for (let e = 0; e < 8; e++) o[e] = a.getUint32(e * 4, !1);
+	return new c(o);
+}
+function Ie(e) {
+	return e instanceof Uint8Array ? e : (e.slice(0, 2) == "0x" && (e = e.slice(2)), new Uint8Array(e.match(/[\da-f]{2}/gi).map(function(e) {
+		return parseInt(e, 16);
+	})));
+}
+function Le(e) {
+	return Array.prototype.map.call(e, function(e) {
+		return ("0" + (e & 255).toString(16)).slice(-2);
+	}).join("");
+}
+function Re(e, t) {
+	if (t instanceof Uint8Array) return e.toString(t);
+	if (Array.isArray(t)) return t.map(Re.bind(null, e));
+	if (typeof t == "object") {
+		let n = {};
+		return Object.keys(t).forEach((r) => {
+			n[r] = Re(e, t[r]);
+		}), n;
+	}
+	return typeof t == "bigint" || t.eq !== void 0 ? t.toString(10) : t;
+}
+//#endregion
+//#region src/zkey_utils.js
+async function ze(t, n) {
+	await e.startWriteSection(t, 1), await t.writeULE32(1), await e.endWriteSection(t);
+	let r = await T(n.q);
+	await e.startWriteSection(t, 2);
+	let i = r.q, a = (Math.floor((u.bitLength(i) - 1) / 64) + 1) * 8, o = r.r, s = (Math.floor((u.bitLength(o) - 1) / 64) + 1) * 8;
+	await t.writeULE32(a), await e.writeBigInt(t, i, a), await t.writeULE32(s), await e.writeBigInt(t, o, s), await t.writeULE32(n.nVars), await t.writeULE32(n.nPublic), await t.writeULE32(n.domainSize), await Be(t, r, n.vk_alpha_1), await Be(t, r, n.vk_beta_1), await Ve(t, r, n.vk_beta_2), await Ve(t, r, n.vk_gamma_2), await Be(t, r, n.vk_delta_1), await Ve(t, r, n.vk_delta_2), await e.endWriteSection(t);
+}
+async function Be(e, t, n) {
+	let r = new Uint8Array(t.G1.F.n8 * 2);
+	t.G1.toRprLEM(r, 0, n), await e.write(r);
+}
+async function Ve(e, t, n) {
+	let r = new Uint8Array(t.G2.F.n8 * 2);
+	t.G2.toRprLEM(r, 0, n), await e.write(r);
+}
+async function K(e, t, n) {
+	let r = await e.read(t.G1.F.n8 * 2), i = t.G1.fromRprLEM(r, 0);
+	return n ? t.G1.toObject(i) : i;
+}
+async function He(e, t, n) {
+	let r = await e.read(t.G2.F.n8 * 2), i = t.G2.fromRprLEM(r, 0);
+	return n ? t.G2.toObject(i) : i;
+}
+async function Ue(t, n, r, i) {
+	await e.startReadUniqueSection(t, n, 1);
+	let a = await t.readULE32();
+	if (await e.endReadSection(t), a === 1) return await We(t, n, r, i);
+	if (a === 2) return await Ge(t, n, r, i);
+	if (a === 10) return await Ke(t, n, r, i);
+	throw Error("Protocol not supported: ");
+}
+async function We(t, n, r, i) {
+	let a = {};
+	a.protocol = "groth16", await e.startReadUniqueSection(t, n, 2);
+	let o = await t.readULE32();
+	a.n8q = o, a.q = await e.readBigInt(t, o);
+	let s = await t.readULE32();
+	return a.n8r = s, a.r = await e.readBigInt(t, s), a.curve = await T(a.q, i), a.nVars = await t.readULE32(), a.nPublic = await t.readULE32(), a.domainSize = await t.readULE32(), a.power = we(a.domainSize), a.vk_alpha_1 = await K(t, a.curve, r), a.vk_beta_1 = await K(t, a.curve, r), a.vk_beta_2 = await He(t, a.curve, r), a.vk_gamma_2 = await He(t, a.curve, r), a.vk_delta_1 = await K(t, a.curve, r), a.vk_delta_2 = await He(t, a.curve, r), await e.endReadSection(t), a;
+}
+async function Ge(t, n, r, i) {
+	let a = {};
+	a.protocol = "plonk", await e.startReadUniqueSection(t, n, 2);
+	let o = await t.readULE32();
+	a.n8q = o, a.q = await e.readBigInt(t, o);
+	let s = await t.readULE32();
+	return a.n8r = s, a.r = await e.readBigInt(t, s), a.curve = await T(a.q, i), a.nVars = await t.readULE32(), a.nPublic = await t.readULE32(), a.domainSize = await t.readULE32(), a.power = we(a.domainSize), a.nAdditions = await t.readULE32(), a.nConstraints = await t.readULE32(), a.k1 = await t.read(s), a.k2 = await t.read(s), a.Qm = await K(t, a.curve, r), a.Ql = await K(t, a.curve, r), a.Qr = await K(t, a.curve, r), a.Qo = await K(t, a.curve, r), a.Qc = await K(t, a.curve, r), a.S1 = await K(t, a.curve, r), a.S2 = await K(t, a.curve, r), a.S3 = await K(t, a.curve, r), a.X_2 = await He(t, a.curve, r), await e.endReadSection(t), a;
+}
+async function Ke(t, n, r, i) {
+	let a = {};
+	a.protocol = "fflonk", a.protocolId = 10, await e.startReadUniqueSection(t, n, 2);
+	let o = await t.readULE32();
+	a.n8q = o, a.q = await e.readBigInt(t, o), a.curve = await T(a.q, i);
+	let s = await t.readULE32();
+	return a.n8r = s, a.r = await e.readBigInt(t, s), a.nVars = await t.readULE32(), a.nPublic = await t.readULE32(), a.domainSize = await t.readULE32(), a.power = we(a.domainSize), a.nAdditions = await t.readULE32(), a.nConstraints = await t.readULE32(), a.k1 = await t.read(s), a.k2 = await t.read(s), a.w3 = await t.read(s), a.w4 = await t.read(s), a.w8 = await t.read(s), a.wr = await t.read(s), a.X_2 = await He(t, a.curve, r), a.C0 = await K(t, a.curve, r), await e.endReadSection(t), a;
+}
+async function qe(t, n) {
+	let { fd: r, sections: i } = await e.readBinFile(t, "zkey", 1), a = await Ue(r, i, n), o = new l(a.r), s = u.mod(u.shl(1, a.n8r * 8), a.r), c = o.inv(s), d = o.mul(c, c), f = await T(a.q);
+	await e.startReadUniqueSection(r, i, 3), a.IC = [];
+	for (let e = 0; e <= a.nPublic; e++) {
+		let e = await K(r, f, n);
+		a.IC.push(e);
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 4);
+	let p = await r.readULE32();
+	a.ccoefs = [];
+	for (let e = 0; e < p; e++) {
+		let e = await r.readULE32(), t = await r.readULE32(), i = await r.readULE32(), o = await m(n);
+		a.ccoefs.push({
+			matrix: e,
+			constraint: t,
+			signal: i,
+			value: o
+		});
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 5), a.A = [];
+	for (let e = 0; e < a.nVars; e++) {
+		let t = await K(r, f, n);
+		a.A[e] = t;
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 6), a.B1 = [];
+	for (let e = 0; e < a.nVars; e++) {
+		let t = await K(r, f, n);
+		a.B1[e] = t;
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 7), a.B2 = [];
+	for (let e = 0; e < a.nVars; e++) {
+		let t = await He(r, f, n);
+		a.B2[e] = t;
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 8), a.C = [];
+	for (let e = a.nPublic + 1; e < a.nVars; e++) {
+		let t = await K(r, f, n);
+		a.C[e] = t;
+	}
+	await e.endReadSection(r), await e.startReadUniqueSection(r, i, 9), a.hExps = [];
+	for (let e = 0; e < a.domainSize; e++) {
+		let e = await K(r, f, n);
+		a.hExps.push(e);
+	}
+	return await e.endReadSection(r), await r.close(), a;
+	async function m() {
+		let t = await e.readBigInt(r, a.n8r);
+		return o.mul(t, d);
+	}
+}
+async function Je(e, t, n) {
+	let r = { delta: {} };
+	r.deltaAfter = await K(e, t, n), r.delta.g1_s = await K(e, t, n), r.delta.g1_sx = await K(e, t, n), r.delta.g2_spx = await He(e, t, n), r.transcript = await e.read(64), r.type = await e.readULE32();
+	let i = await e.readULE32(), a = e.pos, o = 0;
+	for (; e.pos - a < i;) {
+		let t = await e.read(1);
+		if (t[0] <= o) throw Error("Parameters in the contribution must be sorted");
+		if (o = t[0], t[0] == 1) {
+			let t = await e.read(1), n = await e.read(t[0]);
+			r.name = new TextDecoder().decode(n);
+		} else if (t[0] == 2) r.numIterationsExp = (await e.read(1))[0];
+		else if (t[0] == 3) {
+			let t = await e.read(1);
+			r.beaconHash = await e.read(t[0]);
+		} else throw Error("Parameter not recognized");
+	}
+	if (e.pos != a + i) throw Error("Parameters do not match");
+	return r;
+}
+async function Ye(t, n, r) {
+	await e.startReadUniqueSection(t, r, 10);
+	let i = { contributions: [] };
+	i.csHash = await t.read(64);
+	let a = await t.readULE32();
+	for (let e = 0; e < a; e++) {
+		let e = await Je(t, n);
+		i.contributions.push(e);
+	}
+	return await e.endReadSection(t), i;
+}
+async function Xe(e, t, n) {
+	await Be(e, t, n.deltaAfter), await Be(e, t, n.delta.g1_s), await Be(e, t, n.delta.g1_sx), await Ve(e, t, n.delta.g2_spx), await e.write(n.transcript), await e.writeULE32(n.type || 0);
+	let r = [];
+	if (n.name) {
+		r.push(1);
+		let e = new TextEncoder("utf-8").encode(n.name.substring(0, 64));
+		r.push(e.byteLength);
+		for (let t = 0; t < e.byteLength; t++) r.push(e[t]);
+	}
+	if (n.type == 1) {
+		r.push(2), r.push(n.numIterationsExp), r.push(3), r.push(n.beaconHash.byteLength);
+		for (let e = 0; e < n.beaconHash.byteLength; e++) r.push(n.beaconHash[e]);
+	}
+	if (r.length > 0) {
+		let t = new Uint8Array(r);
+		await e.writeULE32(t.byteLength), await e.write(t);
+	} else await e.writeULE32(0);
+}
+async function Ze(t, n, r) {
+	await e.startWriteSection(t, 10), await t.write(r.csHash), await t.writeULE32(r.contributions.length);
+	for (let e = 0; e < r.contributions.length; e++) await Xe(t, n, r.contributions[e]);
+	await e.endWriteSection(t);
+}
+function Qe(e, t, n) {
+	let r = new Uint8Array(t.G1.F.n8 * 2);
+	t.G1.toRprUncompressed(r, 0, n), e.update(r);
+}
+function $e(e, t, n) {
+	let r = new Uint8Array(t.G2.F.n8 * 2);
+	t.G2.toRprUncompressed(r, 0, n), e.update(r);
+}
+function et(e, t, n) {
+	Qe(e, t, n.deltaAfter), Qe(e, t, n.delta.g1_s), Qe(e, t, n.delta.g1_sx), $e(e, t, n.delta.g2_spx), e.update(n.transcript);
+}
+//#endregion
+//#region src/wtns_utils.js
+async function tt(t, n, r) {
+	await e.startWriteSection(t, 1);
+	let i = (Math.floor((u.bitLength(r) - 1) / 64) + 1) * 8;
+	await t.writeULE32(i), await e.writeBigInt(t, r, i), await t.writeULE32(n.length), await e.endWriteSection(t), await e.startWriteSection(t, 2);
+	for (let r = 0; r < n.length; r++) await e.writeBigInt(t, n[r], i);
+	await e.endWriteSection(t, 2);
+}
+async function nt(t, n, r) {
+	await e.startWriteSection(t, 1);
+	let i = (Math.floor((u.bitLength(r) - 1) / 64) + 1) * 8;
+	if (await t.writeULE32(i), await e.writeBigInt(t, r, i), n.byteLength % i != 0) throw Error("Invalid witness length");
+	await t.writeULE32(n.byteLength / i), await e.endWriteSection(t), await e.startWriteSection(t, 2), await t.write(n), await e.endWriteSection(t);
+}
+async function rt(t, n) {
+	await e.startReadUniqueSection(t, n, 1);
+	let r = await t.readULE32(), i = await e.readBigInt(t, r), a = await t.readULE32();
+	return await e.endReadSection(t), {
+		n8: r,
+		q: i,
+		nWitness: a
+	};
+}
+async function it(t) {
+	let { fd: n, sections: r } = await e.readBinFile(t, "wtns", 2), { n8: i, nWitness: a } = await rt(n, r);
+	await e.startReadUniqueSection(n, r, 2);
+	let o = [];
+	for (let t = 0; t < a; t++) {
+		let t = await e.readBigInt(n, i);
+		o.push(t);
+	}
+	return await e.endReadSection(n), await n.close(), o;
+}
+//#endregion
+//#region src/groth16_prove.js
+var { stringifyBigInts: at } = p;
+async function ot(t, n, r, i) {
+	let a = null;
+	r && i && i.memoryLogging && typeof process < "u" && typeof process.memoryUsage == "function" && (a = pt(r, Number(i.memoryLogging) > 1 ? Number(i.memoryLogging) : 1e3));
+	let o, s;
+	try {
+		let a = await e.readBinFile(n, "wtns", 2, 1 << 25, 1 << 23);
+		o = a.fd;
+		let c = await e.readBinFile(t, "zkey", 2, 1 << 25, 1 << 23);
+		return s = c.fd, await st(s, c.sections, o, a.sections, r, i);
+	} finally {
+		a && (clearInterval(a), ft(r)), s && await Promise.resolve(s.close()).catch(() => {}), o && await Promise.resolve(o.close()).catch(() => {});
+	}
+}
+async function st(t, n, r, i, a, o) {
+	let s = await rt(r, i), c = await Ue(t, n, void 0, o);
+	if (c.protocol !== "groth16") throw Error("zkey file is not groth16");
+	if (!u.eq(c.r, s.q)) throw Error("Curve of the witness does not match the curve of the proving key");
+	if (s.nWitness !== c.nVars) throw Error(`Invalid witness length. Circuit: ${c.nVars}, witness: ${s.nWitness}`);
+	let l = c.curve, d = l.Fr, f = l.G1, p = l.G2;
+	o ||= {};
+	let m = o.msmBatching || "auto";
+	if (m !== "auto" && m !== "enabled" && m !== "disabled") throw Error(`groth16Prove: invalid msmBatching "${m}" (expected "auto", "enabled" or "disabled")`);
+	let h = o.msmGlv || "auto", g = o.msmGls || "auto";
+	for (let [e, t] of [["msmGlv", h], ["msmGls", g]]) if (t !== "auto" && t !== "disabled") throw Error(`groth16Prove: invalid ${e} "${t}" (expected "auto" or "disabled")`);
+	let _ = {
+		batch: m,
+		glv: h,
+		gls: g
+	};
+	if (o.buildABC !== void 0 && o.buildABC !== "js" && o.buildABC !== "stream") throw Error(`groth16Prove: invalid buildABC "${o.buildABC}" (expected "js" or "stream")`);
+	let v = we(c.domainSize);
+	a && a.debug("Reading Wtns");
+	let y = await e.readSection(r, i, 2), b = (e) => {
+		let r = n[e][0].p, i = n[e][0].size;
+		return async (n, a) => {
+			/* c8 ignore start */
+			if (n + a > i) throw Error(`groth16Prove: read out of range of section ${e}`);
+			/* c8 ignore stop */
+			let o = new Uint8Array(a);
+			return await t.readToBuffer(o, 0, a, r + n), o;
+		};
+	}, x, S, C, w = (async function() {
+		let r, i, s;
+		await (async function() {
+			a && a.debug("Reading Coeffs");
+			let u = await e.readSection(t, n, 4);
+			if (a && a.debug("Building ABC"), o.buildABC === "js") [r, i, s] = await ct(l, c, y, u, a);
+			else {
+				let e = lt(l, c, u, o);
+				a && a.debug(`buildABC: stream nChunks=${e.nChunks} maxInFlight=${e.maxInFlight}`), [r, i, s] = await ut(l, c, y, u, a, e.nChunks, e.maxInFlight);
+			}
+		})();
+		/* c8 ignore start */
+		let u = v === d.s ? l.Fr.shift : l.Fr.w[v + 1], f, p, m;
+		await Promise.all([
+			(async function() {
+				let e = await d.ifft(r, "", "", a, "IFFT_A", !0);
+				r = null;
+				let t = await d.batchApplyKey(e, d.e(1), u);
+				f = await d.fft(t, "", "", a, "FFT_A", !0);
+			})(),
+			(async function() {
+				let e = await d.ifft(i, "", "", a, "IFFT_B", !0);
+				i = null;
+				let t = await d.batchApplyKey(e, d.e(1), u);
+				p = await d.fft(t, "", "", a, "FFT_B", !0);
+			})(),
+			(async function() {
+				let e = await d.ifft(s, "", "", a, "IFFT_C", !0);
+				s = null;
+				let t = await d.batchApplyKey(e, d.e(1), u);
+				m = await d.fft(t, "", "", a, "FFT_C", !0);
+			})()
+		]), a && a.debug("Join ABC"), C = await dt(l, c, f, p, m, a), a && a.debug("Join ABC finished"), f = null, p = null, m = null;
+	})(), T = {};
+	async function E() {
+		a && a.debug("Reading A Points"), T.pi_a = await l.G1.multiExpAffineChunked(b(5), n[5][0].size, y, a, "multiexp A", _);
+	}
+	let D = E(), O;
+	async function k() {
+		a && a.debug("Reading B1 Points"), O = await l.G1.multiExpAffineChunked(b(6), n[6][0].size, y, a, "multiexp B1", _);
+	}
+	let A = k();
+	async function j() {
+		a && a.debug("Reading B2 Points"), T.pi_b = await l.G2.multiExpAffineChunked(b(7), n[7][0].size, y, a, "multiexp B2", _);
+	}
+	let M = j(), N = (async function() {
+		a && a.debug("Reading C Points"), T.pi_c = await l.G1.multiExpAffineChunked(b(8), n[8][0].size, y.slice((c.nPublic + 1) * l.Fr.n8), a, "multiexp C", _);
+	})();
+	S = (async function() {
+		a && a.debug("Reading H Points"), await w, x = await l.G1.multiExpAffineChunked(b(9), n[9][0].size, C, a, "multiexp H", _);
+	})();
+	for (let e of [
+		w,
+		D,
+		A,
+		M,
+		N,
+		S
+	]) e.catch(() => {});
+	let P = l.Fr.random(), F = l.Fr.random();
+	await D, T.pi_a = f.add(T.pi_a, c.vk_alpha_1), T.pi_a = f.add(T.pi_a, f.timesFr(c.vk_delta_1, P)), await M, T.pi_b = p.add(T.pi_b, c.vk_beta_2), T.pi_b = p.add(T.pi_b, p.timesFr(c.vk_delta_2, F)), await A, O = f.add(O, c.vk_beta_1), O = f.add(O, f.timesFr(c.vk_delta_1, F)), await Promise.all([N, S]), T.pi_c = f.add(T.pi_c, x), T.pi_c = f.add(T.pi_c, f.timesFr(T.pi_a, F)), T.pi_c = f.add(T.pi_c, f.timesFr(O, P)), T.pi_c = f.add(T.pi_c, f.timesFr(c.vk_delta_1, d.neg(d.mul(P, F))));
+	let I = [];
+	for (let e = 1; e <= c.nPublic; e++) {
+		let t = y.slice(e * d.n8, e * d.n8 + d.n8);
+		I.push(u.fromRprLE(t));
+	}
+	return T.pi_a = f.toObject(f.toAffine(T.pi_a)), T.pi_b = p.toObject(p.toAffine(T.pi_b)), T.pi_c = f.toObject(f.toAffine(T.pi_c)), T.protocol = "groth16", T.curve = l.name, T = at(T), I = at(I), {
+		proof: T,
+		publicSignals: I
+	};
+}
+async function ct(e, t, n, r, i) {
+	let a = e.Fr.n8, o = 12 + t.n8r, c = (r.byteLength - 4) / o, l = new s(t.domainSize * a), u = new s(t.domainSize * a), d = new s(t.domainSize * a), f = [l, u];
+	for (let t = 0; t < c; t++) {
+		/* c8 ignore start */
+		i && t % 1e6 == 0 && i.debug(`QAP AB: ${t}/${c}`);
+		/* c8 ignore stop */
+		let s, l;
+		if (r.buffer) {
+			let e = 4 + t * o;
+			s = new DataView(r.buffer, r.byteOffset + e, o), l = new Uint8Array(r.buffer, r.byteOffset + e + 12, a);
+		} else {
+			/* c8 ignore start */
+			let e = r.slice(4 + t * o, 4 + t * o + o);
+			s = new DataView(e.buffer), l = e.slice(12, 12 + a);
+		}
+		let u = s.getUint32(0, !0), d = s.getUint32(4, !0), p = s.getUint32(8, !0);
+		f[u].set(e.Fr.add(f[u].slice(d * a, d * a + a), e.Fr.mul(l, n.slice(p * a, p * a + a))), d * a);
+	}
+	for (let n = 0; n < t.domainSize; n++)
+ /* c8 ignore stop */
+	i && n % 1e6 == 0 && i.debug(`QAP C: ${n}/${t.domainSize}`), d.set(e.Fr.mul(l.slice(n * a, n * a + a), u.slice(n * a, n * a + a)), n * a);
+	return [
+		l,
+		u,
+		d
+	];
+}
+function lt(e, t, n, r) {
+	/* c8 ignore next 2 */
+	r ||= {};
+	let i = e.Fr.n8, a = e.tm.concurrency || 1, o = (n.byteLength - 4) / (12 + i), s = n.byteLength + o * i + 3 * t.domainSize * i, c = r.buildABCFloorBudget || 268435456, l = Math.max(1, Math.ceil(s / 33554432)), u = Math.ceil(s / l), d = Math.max(1, Math.min(a, Math.floor(c / u)));
+	return l = Math.min(256, Math.max(l, d * 3)), d = Math.min(d, l), r.buildABCnChunks && (l = r.buildABCnChunks), r.buildABCmaxInFlight && (d = r.buildABCmaxInFlight), {
+		nChunks: l,
+		maxInFlight: d
+	};
+}
+async function ut(e, t, n, r, i, a, o) {
+	let c = e.Fr.n8, l = 12 + t.n8r, u = t.domainSize, d;
+	/* c8 ignore start */
+	if (r instanceof s) {
+		let e = [], t = r.buffers[0].length;
+		for (let t = 0; t < r.buffers.length; t++) e.push(new DataView(r.buffers[t].buffer));
+		d = (n) => e[Math.floor(n / t)].getUint32(n % t, !0);
+	} else {
+		let e = new DataView(r.buffer, r.byteOffset, r.byteLength);
+		d = (t) => e.getUint32(t, !0);
+	}
+	/* c8 ignore stop */
+	function f(e) {
+		let t = 0, n = d(0);
+		for (; t < n;) {
+			let r = Math.floor((n + t) / 2);
+			d(4 + r * l + 4) < e ? t = r + 1 : n = r;
+		}
+		return 4 + t * l;
+	}
+	let p = Math.floor((u - 1) / a) + 1, m = [];
+	for (let e = 0; e < a; e++) m.push(f(e * p));
+	m.push(r.byteLength);
+	let h = u * c, g = () => h < 1 << 30 ? new Uint8Array(h) : new s(h), _ = g(), v = g(), y = g(), b = /* @__PURE__ */ new Set(), x = [];
+	for (let t = 0; t < a; t++) {
+		let s = t * p, d = Math.min(p, u - s);
+		if (d <= 0) break;
+		let f = m[t], h = m[t + 1];
+		for (; b.size >= o;) await Promise.race(b);
+		i && i.debug(`buildABCStream: ${t}/${a}`);
+		let g = (async () => {
+			let t = r.slice(f, h), i = (h - f) / l, a = new Uint8Array(i * c), o = new Uint32Array(t.buffer, t.byteOffset, t.byteLength >> 2), u = l >> 2;
+			if (n.buffer && !(n.byteOffset & 3) && c === 32) {
+				let e = new Uint32Array(n.buffer, n.byteOffset, n.byteLength >> 2), t = new Uint32Array(a.buffer);
+				for (let n = 0; n < i; n++) {
+					let r = o[n * u + 2] << 3, i = n << 3;
+					t[i] = e[r], t[i + 1] = e[r + 1], t[i + 2] = e[r + 2], t[i + 3] = e[r + 3], t[i + 4] = e[r + 4], t[i + 5] = e[r + 5], t[i + 6] = e[r + 6], t[i + 7] = e[r + 7], o[n * u + 2] = n;
+				}
+			} else {
+				/* c8 ignore start */
+				let e = !!n.buffer;
+				for (let t = 0; t < i; t++) {
+					let r = o[t * u + 2];
+					e ? a.set(n.subarray(r * c, (r + 1) * c), t * c) : a.set(n.slice(r * c, (r + 1) * c), t * c), o[t * u + 2] = t;
+				}
+			}
+			let p = [
+				{
+					cmd: "ALLOCSET",
+					var: 0,
+					buff: t
+				},
+				{
+					cmd: "ALLOCSET",
+					var: 1,
+					buff: a
+				},
+				{
+					cmd: "ALLOC",
+					var: 2,
+					len: d * c
+				},
+				{
+					cmd: "ALLOC",
+					var: 3,
+					len: d * c
+				},
+				{
+					cmd: "ALLOC",
+					var: 4,
+					len: d * c
+				},
+				{
+					cmd: "CALL",
+					fnName: "qap_buildABC",
+					params: [
+						{ var: 0 },
+						{ val: i },
+						{ var: 1 },
+						{ var: 2 },
+						{ var: 3 },
+						{ var: 4 },
+						{ val: s },
+						{ val: d },
+						{ val: 0 },
+						{ val: i }
+					]
+				},
+				{
+					cmd: "GET",
+					out: 0,
+					var: 2,
+					len: d * c
+				},
+				{
+					cmd: "GET",
+					out: 1,
+					var: 3,
+					len: d * c
+				},
+				{
+					cmd: "GET",
+					out: 2,
+					var: 4,
+					len: d * c
+				}
+			], m = await e.tm.queueAction(p, [t.buffer, a.buffer]);
+			_.set(m[0], s * c), v.set(m[1], s * c), y.set(m[2], s * c);
+		})().finally(() => b.delete(g));
+		b.add(g), x.push(g);
+	}
+	return await Promise.all(x), [
+		_,
+		v,
+		y
+	];
+}
+async function dt(e, t, n, r, i, a) {
+	let o = 65536, c = e.Fr.n8, l = Math.floor(n.byteLength / e.Fr.n8), u = [];
+	for (let t = 0; t < l; t += o) {
+		a && a.debug(`JoinABC: ${t}/${l}`);
+		let s = Math.min(l - t, o), d = [], f = n.slice(t * c, (t + s) * c), p = r.slice(t * c, (t + s) * c), m = i.slice(t * c, (t + s) * c);
+		d.push({
+			cmd: "ALLOCSET",
+			var: 0,
+			buff: f
+		}), d.push({
+			cmd: "ALLOCSET",
+			var: 1,
+			buff: p
+		}), d.push({
+			cmd: "ALLOCSET",
+			var: 2,
+			buff: m
+		}), d.push({
+			cmd: "ALLOC",
+			var: 3,
+			len: s * c
+		}), d.push({
+			cmd: "CALL",
+			fnName: "qap_joinABC",
+			params: [
+				{ var: 0 },
+				{ var: 1 },
+				{ var: 2 },
+				{ val: s },
+				{ var: 3 }
+			]
+		}), d.push({
+			cmd: "CALL",
+			fnName: "frm_batchFromMontgomery",
+			params: [
+				{ var: 3 },
+				{ val: s },
+				{ var: 3 }
+			]
+		}), d.push({
+			cmd: "GET",
+			out: 0,
+			var: 3,
+			len: s * c
+		}), u.push(e.tm.queueAction(d, [
+			f.buffer,
+			p.buffer,
+			m.buffer
+		]));
+	}
+	let d = await Promise.all(u), f;
+	/* c8 ignore start */
+	f = n instanceof s ? new s(n.byteLength) : new Uint8Array(n.byteLength);
+	/* c8 ignore stop */
+	let p = 0;
+	for (let e = 0; e < d.length; e++) f.set(d[e][0], p), p += d[e][0].byteLength;
+	return f;
+}
+function ft(e) {
+	/* c8 ignore start */
+	if (!e) return;
+	/* c8 ignore stop */
+	let t = process.memoryUsage();
+	e.info("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(t.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(t.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(t.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(t.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(t.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
+}
+function pt(e, t = 5e3) {
+	return setInterval(() => {
+		ft(e);
+	}, t);
+}
+//#endregion
+//#region node_modules/fastfile/build/browser/browser.esm.js
+function mt(e) {
+	let t = e.initialSize || 1 << 20, n = new bt();
+	return n.o = e, n.o.data = new Uint8Array(t), n.allocSize = t, n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
+}
+function ht(e) {
+	let t = new bt();
+	return t.o = e, t.allocSize = e.data.byteLength, t.totalSize = e.data.byteLength, t.readOnly = !0, t.pos = 0, t;
+}
+var gt = /* @__PURE__ */ new Uint8Array(4), _t = new DataView(gt.buffer), vt = /* @__PURE__ */ new Uint8Array(8), yt = new DataView(vt.buffer), bt = class {
+	constructor() {
+		this.pageSize = 16384;
+	}
+	_resizeIfNeeded(e) {
+		if (e > this.allocSize) {
+			let t = Math.max(this.allocSize + (1 << 20), Math.floor(this.allocSize * 1.1), e), n = new Uint8Array(t);
+			n.set(this.o.data), this.o.data = n, this.allocSize = t;
+		}
+	}
+	async write(e, t) {
+		let n = this;
+		if (t === void 0 && (t = n.pos), this.readOnly) throw Error("Writing a read only file");
+		this._resizeIfNeeded(t + e.byteLength), this.o.data.set(e.slice(), t), t + e.byteLength > this.totalSize && (this.totalSize = t + e.byteLength), this.pos = t + e.byteLength;
+	}
+	async readToBuffer(e, t, n, r) {
+		let i = this;
+		if (r === void 0 && (r = i.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
+		this._resizeIfNeeded(r + n);
+		let a = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + r, n);
+		e.set(a, t), this.pos = r + n;
+	}
+	async read(e, t) {
+		let n = this, r = new Uint8Array(e);
+		return await n.readToBuffer(r, 0, e, t), r;
+	}
+	close() {
+		this.o.data.byteLength != this.totalSize && (this.o.data = this.o.data.slice(0, this.totalSize));
+	}
+	async discard() {}
+	async writeULE32(e, t) {
+		let n = this;
+		_t.setUint32(0, e, !0), await n.write(gt, t);
+	}
+	async writeUBE32(e, t) {
+		let n = this;
+		_t.setUint32(0, e, !1), await n.write(gt, t);
+	}
+	async writeULE64(e, t) {
+		let n = this;
+		yt.setUint32(0, e & 4294967295, !0), yt.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(vt, t);
+	}
+	async readULE32(e) {
+		let t = await this.read(4, e);
+		return new Uint32Array(t.buffer)[0];
+	}
+	async readUBE32(e) {
+		let t = await this.read(4, e);
+		return new DataView(t.buffer).getUint32(0, !1);
+	}
+	async readULE64(e) {
+		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
+		return n[1] * 4294967296 + n[0];
+	}
+	async readString(e) {
+		let t = this, n = e === void 0 ? t.pos : e;
+		if (n >= this.totalSize) {
+			if (this.readOnly) throw Error("Reading out of bounds");
+			return "";
+		}
+		let r = new Uint8Array(t.o.data.buffer, n, this.totalSize - n), i = r.findIndex((e) => e === 0), a = i !== -1, o = "";
+		return a ? (o = new TextDecoder().decode(r.slice(0, i)), t.pos = n + i + 1) : t.pos = n, o;
+	}
+}, q = 1 << 22;
+function xt(e) {
+	let t = e.initialSize || 0, n = new Dt();
+	n.o = e;
+	let r = t ? Math.floor((t - 1) / q) + 1 : 0;
+	n.o.data = [];
+	for (let e = 0; e < r - 1; e++) n.o.data.push(new Uint8Array(q));
+	return r && n.o.data.push(new Uint8Array(t - q * (r - 1))), n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
+}
+function St(e) {
+	let t = new Dt();
+	return t.o = e, t.totalSize = (e.data.length - 1) * q + e.data[e.data.length - 1].byteLength, t.readOnly = !0, t.pos = 0, t;
+}
+var Ct = /* @__PURE__ */ new Uint8Array(4), wt = new DataView(Ct.buffer), Tt = /* @__PURE__ */ new Uint8Array(8), Et = new DataView(Tt.buffer), Dt = class {
+	constructor() {
+		this.pageSize = 16384;
+	}
+	_resizeIfNeeded(e) {
+		if (e <= this.totalSize) return;
+		if (this.readOnly) throw Error("Reading out of file bounds");
+		let t = Math.floor((e - 1) / q) + 1;
+		for (let n = Math.max(this.o.data.length - 1, 0); n < t; n++) {
+			let r = n < t - 1 ? q : e - (t - 1) * q, i = new Uint8Array(r);
+			n == this.o.data.length - 1 && i.set(this.o.data[n]), this.o.data[n] = i;
+		}
+		this.totalSize = e;
+	}
+	async write(e, t) {
+		let n = this;
+		if (t === void 0 && (t = n.pos), this.readOnly) throw Error("Writing a read only file");
+		this._resizeIfNeeded(t + e.byteLength);
+		let r = Math.floor(t / q), i = t % q, a = e.byteLength;
+		for (; a > 0;) {
+			let t = i + a > q ? q - i : a, o = e.slice(e.byteLength - a, e.byteLength - a + t);
+			new Uint8Array(n.o.data[r].buffer, i, t).set(o), a -= t, r++, i = 0;
+		}
+		this.pos = t + e.byteLength;
+	}
+	async readToBuffer(e, t, n, r) {
+		let i = this;
+		if (r === void 0 && (r = i.pos), this.readOnly && r + n > this.totalSize) throw Error("Reading out of bounds");
+		this._resizeIfNeeded(r + n);
+		let a = Math.floor(r / q), o = r % q, s = n;
+		for (; s > 0;) {
+			let r = o + s > q ? q - o : s, c = new Uint8Array(i.o.data[a].buffer, o, r);
+			e.set(c, t + n - s), s -= r, a++, o = 0;
+		}
+		this.pos = r + n;
+	}
+	async read(e, t) {
+		let n = this, r = new Uint8Array(e);
+		return await n.readToBuffer(r, 0, e, t), r;
+	}
+	close() {}
+	async discard() {}
+	async writeULE32(e, t) {
+		let n = this;
+		wt.setUint32(0, e, !0), await n.write(Ct, t);
+	}
+	async writeUBE32(e, t) {
+		let n = this;
+		wt.setUint32(0, e, !1), await n.write(Ct, t);
+	}
+	async writeULE64(e, t) {
+		let n = this;
+		Et.setUint32(0, e & 4294967295, !0), Et.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(Tt, t);
+	}
+	async readULE32(e) {
+		let t = await this.read(4, e);
+		return new Uint32Array(t.buffer)[0];
+	}
+	async readUBE32(e) {
+		let t = await this.read(4, e);
+		return new DataView(t.buffer).getUint32(0, !1);
+	}
+	async readULE64(e) {
+		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
+		return n[1] * 4294967296 + n[0];
+	}
+	async readString(e) {
+		let t = this, n = e === void 0 ? t.pos : e;
+		if (n > this.totalSize) {
+			if (this.readOnly) throw Error("Reading out of bounds");
+			this._resizeIfNeeded(e);
+		}
+		let r = !1, i = "";
+		for (; !r;) {
+			let e = Math.floor(n / q), a = n % q;
+			if (t.o.data[e] === void 0) throw Error("ERROR");
+			let o = Math.min(2048, t.o.data[e].length - a);
+			if (o <= 0) return t.pos = n, i;
+			let s = new Uint8Array(t.o.data[e].buffer, a, o), c = s.findIndex((e) => e === 0);
+			r = c !== -1, r ? (i += new TextDecoder().decode(s.slice(0, c)), t.pos = e * q + a + c + 1) : (i += new TextDecoder().decode(s), t.pos = e * q + a + s.length), n = t.pos;
+		}
+		return i;
+	}
+}, Ot = 1 << 20, kt = 8192, At = class {
+	constructor(e, t, n, r) {
+		this.readRangeInto = e, this.totalSize = t, this.pos = 0, this.pageSize = r || kt, this.maxPagesLoaded = Math.floor((n || Ot) / this.pageSize) + 1, this.pages = /* @__PURE__ */ new Map(), this.readOnly = !0;
+	}
+	_pageLen(e) {
+		let t = e * this.pageSize;
+		return Math.min(t + this.pageSize, this.totalSize) - t;
+	}
+	_loadPage(e) {
+		let t = this, n = t.pages.get(e);
+		if (n) return t.pages.delete(e), t.pages.set(e, n), n.promise;
+		let r = new Uint8Array(t._pageLen(e));
+		return n = {
+			buff: null,
+			promise: null
+		}, n.promise = t.readRangeInto(r, 0, e * t.pageSize, r.byteLength).then(function() {
+			return n.buff = r, r;
+		}, function(n) {
+			throw t.pages.delete(e), n;
+		}), t.pages.set(e, n), t._trimCache(), n.promise;
+	}
+	_trimCache() {
+		let e = this;
+		if (!(e.pages.size <= e.maxPagesLoaded)) for (let t of e.pages) {
+			if (e.pages.size <= e.maxPagesLoaded) return;
+			t[1].buff && e.pages.delete(t[0]);
+		}
+	}
+	async readToBuffer(e, t, n, r) {
+		let i = this;
+		if (n === 0) return;
+		if (i.pendingClose) throw Error("Reading a closing file");
+		if (r === void 0 && (r = i.pos), r + n > i.totalSize) throw Error("Reading out of bounds");
+		if (i.pos = r + n, n >= i.pageSize) {
+			await i.readRangeInto(e, t, r, n);
+			return;
+		}
+		let a = Math.floor(r / i.pageSize), o = Math.floor((r + n - 1) / i.pageSize), s = r % i.pageSize, c = 0;
+		for (let r = a; r <= o; r++) {
+			let a = await i._loadPage(r), o = Math.min(n - c, i.pageSize - s);
+			e.set(a.subarray(s, s + o), t + c), c += o, s = 0;
+		}
+	}
+	async read(e, t) {
+		let n = new Uint8Array(e);
+		return await this.readToBuffer(n, 0, e, t), n;
+	}
+	async readULE32(e) {
+		let t = await this.read(4, e);
+		return new Uint32Array(t.buffer)[0];
+	}
+	async readUBE32(e) {
+		let t = await this.read(4, e);
+		return new DataView(t.buffer).getUint32(0, !1);
+	}
+	async readULE64(e) {
+		let t = await this.read(8, e), n = new Uint32Array(t.buffer);
+		return n[1] * 4294967296 + n[0];
+	}
+	async readString(e) {
+		let t = this;
+		if (t.pendingClose) throw Error("Reading a closing file");
+		let n = e === void 0 ? t.pos : e, r = [];
+		for (; n < t.totalSize;) {
+			let e = Math.min(t.pageSize, t.totalSize - n), i = await t.read(e, n), a = i.indexOf(0);
+			if (a >= 0) return r.push(i.subarray(0, a)), t.pos = n + a + 1, jt(r);
+			r.push(i), n += e;
+		}
+		return t.pos = n, jt(r);
+	}
+	async write() {
+		throw Error("Writing a read only file");
+	}
+	async writeULE32() {
+		throw Error("Writing a read only file");
+	}
+	async writeUBE32() {
+		throw Error("Writing a read only file");
+	}
+	async writeULE64() {
+		throw Error("Writing a read only file");
+	}
+	async close() {
+		this.pendingClose || (this.pendingClose = !0, this.pages.clear());
+	}
+	async discard() {
+		await this.close();
+	}
 };
-
-let _BigArray$1 = class _BigArray {
-    constructor (initSize) {
-        this.length = initSize || 0;
-        this.arr = new Array(SUBARRAY_SIZE$1);
-
-        for (let i=0; i<initSize; i+=SUBARRAY_SIZE$1) {
-            this.arr[i/SUBARRAY_SIZE$1] = new Array(Math.min(SUBARRAY_SIZE$1, initSize - i));
-        }
-        return this;
-    }
-    push () {
-        for (let i=0; i<arguments.length; i++) {
-            this.setElement (this.length, arguments[i]);
-        }
-    }
-
-    slice (f, t) {
-        const arr = new Array(t-f);
-        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
-        return arr;
-    }
-    getElement(idx) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE$1);
-        const idx2 = idx % SUBARRAY_SIZE$1;
-        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
-    }
-    setElement(idx, value) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE$1);
-        if (!this.arr[idx1]) {
-            this.arr[idx1] = new Array(SUBARRAY_SIZE$1);
-        }
-        const idx2 = idx % SUBARRAY_SIZE$1;
-        this.arr[idx1][idx2] = value;
-        if (idx >= this.length) this.length = idx+1;
-        return true;
-    }
-    getKeys() {
-        const newA = new BigArray$1();
-        for (let i=0; i<this.arr.length; i++) {
-            if (this.arr[i]) {
-                for (let j=0; j<this.arr[i].length; j++) {
-                    if (typeof this.arr[i][j] !== "undefined") {
-                        newA.push(i*SUBARRAY_SIZE$1+j);
-                    }
-                }
-            }
-        }
-        return newA;
-    }
+function jt(e) {
+	let t = 0;
+	for (let n = 0; n < e.length; n++) t += e[n].byteLength;
+	let n = new Uint8Array(t), r = 0;
+	for (let t = 0; t < e.length; t++) n.set(e[t], r), r += e[t].byteLength;
+	return new TextDecoder().decode(n);
+}
+var Mt = 65536;
+async function Nt(e) {
+	let t = e.url, n = await fetch(t, { headers: { Range: "bytes=0-0" } });
+	if (n.status === 206) {
+		let r = n.headers.get("content-range"), i = r ? /\/(\d+)\s*$/.exec(r) : null;
+		if (i) {
+			let r = parseInt(i[1]);
+			await n.arrayBuffer();
+			let a = Ft(n), o = null, s = async function(e, n, r, i) {
+				if (!o) try {
+					return await It(t, a, e, n, r, i);
+				} catch (e) {
+					if (!e || !e.degradeToFull) throw e;
+					o = e.fullBodyPromise;
+				}
+				let s = await o;
+				if (r + i > s.byteLength) throw Error(t + ": read past the end of the buffered body");
+				e.set(s.subarray(r, r + i), n);
+			}, c = Math.min(e.pageSize || Mt, Mt);
+			return new At(s, r, e.cacheSize, c);
+		}
+		return await n.arrayBuffer(), await Pt(t);
+	}
+	if (!n.ok && n.status !== 416) throw Error("HTTP " + n.status + " fetching " + t);
+	if (n.status === 416) {
+		let e = n.headers.get("content-range");
+		return e && /\/0\s*$/.test(e) ? ht({
+			type: "mem",
+			data: /* @__PURE__ */ new Uint8Array()
+		}) : await Pt(t);
+	}
+	return ht({
+		type: "mem",
+		data: new Uint8Array(await n.arrayBuffer())
+	});
+}
+async function Pt(e) {
+	let t = await fetch(e);
+	if (!t.ok) throw Error("HTTP " + t.status + " fetching " + e);
+	return ht({
+		type: "mem",
+		data: new Uint8Array(await t.arrayBuffer())
+	});
+}
+function Ft(e) {
+	let t = e.headers.get("etag");
+	return t && t.indexOf("W/") !== 0 ? t : e.headers.get("last-modified") || null;
+}
+async function It(e, t, n, r, i, a) {
+	let o = { Range: "bytes=" + i + "-" + (i + a - 1) };
+	t && (o["If-Range"] = t);
+	let s = await fetch(e, { headers: o });
+	if (s.status === 200) {
+		let n = Ft(s);
+		if (!t || n && n === t) {
+			let t = /* @__PURE__ */ Error(e + ": origin ignored Range; degrading to full buffering");
+			throw t.degradeToFull = !0, t.fullBodyPromise = s.arrayBuffer().then((e) => new Uint8Array(e)), t;
+		}
+		throw await Lt(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
+	}
+	if (s.status !== 206) throw await Lt(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
+	let c = s.headers.get("content-range"), l = c ? /bytes\s+(\d+)-(\d+)\//.exec(c) : null;
+	if (l && parseInt(l[1]) !== i) throw await Lt(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
+	let u = 0;
+	if (s.body && typeof s.body.getReader == "function") {
+		let t = s.body.getReader();
+		for (;;) {
+			let i = await t.read();
+			if (i.done) break;
+			if (u + i.value.byteLength > a) throw t.cancel().catch(function() {}), Error(e + ": range response longer than requested");
+			n.set(i.value, r + u), u += i.value.byteLength;
+		}
+	} else {
+		/* c8 ignore start */
+		let t = new Uint8Array(await s.arrayBuffer());
+		if (t.byteLength > a) throw Error(e + ": range response longer than requested");
+		n.set(t, r), u = t.byteLength;
+	}
+	if (u !== a) throw Error(e + ": short range response (" + u + "/" + a + " bytes at " + i + ")");
+}
+async function Lt(e) {
+	try {
+		e.body && typeof e.body.cancel == "function" ? await e.body.cancel() : await e.arrayBuffer();
+	} catch {}
+}
+var Rt = 1 << 20;
+function zt(e) {
+	let t = e.blob, n = async function(e, n, r, i) {
+		let a = await t.slice(r, r + i).arrayBuffer();
+		if (a.byteLength !== i) throw Error("short blob read (" + a.byteLength + "/" + i + " bytes at " + r + ")");
+		e.set(new Uint8Array(a), n);
+	}, r = Math.min(e.pageSize || Rt, Rt);
+	return new At(n, t.size, e.cacheSize, r);
+}
+function Bt() {
+	throw Error("File I/O is not supported in the browser");
+}
+function Vt(e) {
+	return e instanceof Uint8Array ? {
+		type: "mem",
+		data: e
+	} : (typeof e == "string" && Bt(), e);
+}
+function Ht(e, t, n) {
+	if (e.type === "file" && Bt(), e.type === "mem") return t(e);
+	if (e.type === "bigMem") return n(e);
+	throw Error("Invalid FastFile type: " + e.type);
+}
+function Ut(e) {
+	return Ht(Vt(e), mt, xt);
+}
+async function Wt(e, t, n) {
+	return e instanceof Uint8Array && (e = {
+		type: "mem",
+		data: e
+	}), typeof Blob < "u" && e instanceof Blob && (e = {
+		type: "blob",
+		blob: e,
+		cacheSize: t,
+		pageSize: n
+	}), typeof e == "string" && (e = {
+		type: "http",
+		url: e,
+		cacheSize: t,
+		pageSize: n
+	}), e.type === "http" ? await Nt(e) : e.type === "blob" ? zt(e) : Ht(e, ht, St);
+}
+//#endregion
+//#region node_modules/circom_runtime/js/utils.js
+function Gt(e) {
+	let t = [];
+	return n(t, e), t;
+	function n(e, t) {
+		if (Array.isArray(t)) for (let r = 0; r < t.length; r++) n(e, t[r]);
+		else e.push(t);
+	}
+}
+function Kt(e, t) {
+	let n = BigInt(e) % t;
+	return n < 0 && (n += t), n;
+}
+function qt(e) {
+	let t = BigInt(2) ** BigInt(64), n = BigInt("0xCBF29CE484222325");
+	for (let r = 0; r < e.length; r++) n ^= BigInt(e[r].charCodeAt(0)), n *= BigInt(1099511628211), n %= t;
+	let r = n.toString(16), i = 16 - r.length;
+	return r = "0".repeat(i).concat(r), r;
+}
+function Jt(e, t) {
+	let n = [], r = BigInt(e), i = BigInt(4294967296);
+	for (; r;) n.unshift(Number(r % i)), r /= i;
+	if (t) {
+		let e = t - n.length;
+		for (; e > 0;) n.unshift(0), e--;
+	}
+	return n;
+}
+//#endregion
+//#region node_modules/circom_runtime/js/witness_calculator.js
+async function Yt(e, t) {
+	let n, r, i;
+	t ||= {};
+	let a = 1, o = 0, s = 0, c = !1;
+	if (e instanceof WebAssembly.Instance) n = e, c = !0;
+	else {
+		let c = 32767;
+		if (t.memorySize && (c = parseInt(t.memorySize), c < 0)) throw Error("Invalid memory size");
+		let l = !1;
+		for (; !l;) try {
+			i = new WebAssembly.Memory({ initial: c }), l = !0;
+		} catch (e) {
+			if (c <= 1) throw e;
+			console.warn("Could not allocate " + c * 1024 * 64 + " bytes. This may cause severe instability. Trying with " + c * 1024 * 64 / 2 + " bytes"), c = Math.floor(c / 2);
+		}
+		let p = await WebAssembly.compile(e), m = "", h = "";
+		n = await WebAssembly.instantiate(p, {
+			env: { memory: i },
+			runtime: {
+				printDebug: function(e) {
+					console.log("printDebug:", e);
+				},
+				exceptionHandler: function(e) {
+					let t;
+					throw t = e === 1 ? "Signal not found. " : e === 2 ? "Too many signals set. " : e === 3 ? "Signal already set. " : e === 4 ? "Assert Failed. " : e === 5 ? "Not enough memory. " : e === 6 ? "Input signal array access exceeds the size. " : "Unknown error. ", console.error("ERROR: ", e, m), Error(t + m);
+				},
+				printErrorMessage: function() {
+					m += d() + "\n";
+				},
+				writeBufferMessage: function() {
+					let e = d();
+					e === "\n" ? (console.log(h), h = "") : (h !== "" && (h += " "), h += e);
+				},
+				showSharedRWMemory: function() {
+					let e = n.exports.getFieldNumLen32(), t = new Uint32Array(e);
+					for (let r = 0; r < e; r++) t[e - 1 - r] = n.exports.readSharedRWMemory(r);
+					if (a >= 2 && (o >= 1 || s >= 7)) {
+						h !== "" && (h += " ");
+						let e = u.fromArray(t, 4294967296).toString();
+						h += e;
+					} else console.log(u.fromArray(t, 4294967296));
+				},
+				error: function(e, n, i, a, o, s) {
+					let c;
+					throw c = e === 7 ? f(n) + " " + r.getFr(a).toString() + " != " + r.getFr(o).toString() + " " + f(s) : e === 9 ? f(n) + " " + r.getFr(a).toString() + " " + f(o) : e === 5 && t.sym ? f(n) + " " + t.sym.labelIdx2Name[o] : f(n) + " " + i + " " + a + " " + o + " " + s, console.log("ERROR: ", e, c), Error(c);
+				},
+				log: function(e) {
+					console.log(r.getFr(e).toString());
+				},
+				logGetSignal: function(e, n) {
+					t.logGetSignal && t.logGetSignal(e, r.getFr(n));
+				},
+				logSetSignal: function(e, n) {
+					t.logSetSignal && t.logSetSignal(e, r.getFr(n));
+				},
+				logStartComponent: function(e) {
+					t.logStartComponent && t.logStartComponent(e);
+				},
+				logFinishComponent: function(e) {
+					t.logFinishComponent && t.logFinishComponent(e);
+				}
+			}
+		});
+	}
+	typeof n.exports.getVersion == "function" && (a = n.exports.getVersion()), typeof n.exports.getMinorVersion == "function" && (o = n.exports.getMinorVersion()), typeof n.exports.getPatchVersion == "function" && (s = n.exports.getPatchVersion());
+	let l = t && (t.sanityCheck || t.logGetSignal || t.logSetSignal || t.logStartComponent || t.logFinishComponent);
+	if (a === 2) r = new Zt(n, l);
+	else if (a === 1) {
+		if (c) throw Error("Loading code from WebAssembly instance is not supported for circom version 1");
+		r = new Xt(i, n, l);
+	} else throw Error(`Unsupported circom version: ${a}`);
+	return r;
+	function d() {
+		let e = "", t = n.exports.getMessageChar();
+		for (; t !== 0;) e += String.fromCharCode(t), t = n.exports.getMessageChar();
+		return e;
+	}
+	function f(e) {
+		let t = new Uint8Array(i.buffer), n = [];
+		for (let r = 0; t[e + r] > 0; r++) n.push(t[e + r]);
+		return String.fromCharCode.apply(null, n);
+	}
+}
+var Xt = class {
+	constructor(e, t, n) {
+		this.memory = e, this.i32 = new Uint32Array(e.buffer), this.instance = t, this.n32 = (this.instance.exports.getFrLen() >> 2) - 2;
+		let r = this.instance.exports.getPRawPrime(), i = Array(this.n32);
+		for (let e = 0; e < this.n32; e++) i[this.n32 - 1 - e] = this.i32[(r >> 2) + e];
+		this.prime = u.fromArray(i, 4294967296), this.Fr = new l(this.prime), this.mask32 = u.fromString("FFFFFFFF", 16), this.NVars = this.instance.exports.getNVars(), this.n64 = Math.floor((this.Fr.bitLength - 1) / 64) + 1, this.R = this.Fr.e(u.shiftLeft(1, this.n64 * 64)), this.RInv = this.Fr.inv(this.R), this.sanityCheck = n;
+	}
+	circom_version() {
+		return 1;
+	}
+	async _doCalculateWitness(e, t) {
+		this.instance.exports.init(this.sanityCheck || t ? 1 : 0);
+		let n = this.allocInt(), r = this.allocFr();
+		Object.keys(e).forEach((t) => {
+			let i = qt(t), a = parseInt(i.slice(0, 8), 16), o = parseInt(i.slice(8, 16), 16);
+			try {
+				this.instance.exports.getSignalOffset32(n, 0, a, o);
+			} catch {
+				throw Error(`Signal ${t} is not an input of the circuit.`);
+			}
+			let s = this.getInt(n), c = Gt(e[t]);
+			for (let e = 0; e < c.length; e++) this.setFr(r, c[e]), this.instance.exports.setSignal(0, 0, s + e, r);
+		});
+	}
+	async calculateWitness(e, t) {
+		let n = this, r = n.i32[0], i = [];
+		await n._doCalculateWitness(e, t);
+		for (let e = 0; e < n.NVars; e++) {
+			let t = n.instance.exports.getPWitness(e);
+			i.push(n.getFr(t));
+		}
+		return n.i32[0] = r, i;
+	}
+	async calculateBinWitness(e, t) {
+		let n = this, r = n.i32[0];
+		await n._doCalculateWitness(e, t);
+		let i = n.instance.exports.getWitnessBuffer();
+		n.i32[0] = r;
+		let a = n.memory.buffer.slice(i, i + n.NVars * n.n64 * 8);
+		return new Uint8Array(a);
+	}
+	allocInt() {
+		let e = this.i32[0];
+		return this.i32[0] = e + 8, e;
+	}
+	allocFr() {
+		let e = this.i32[0];
+		return this.i32[0] = e + this.n32 * 4 + 8, e;
+	}
+	getInt(e) {
+		return this.i32[e >> 2];
+	}
+	setInt(e, t) {
+		this.i32[e >> 2] = t;
+	}
+	getFr(e) {
+		let t = this, n = e >> 2;
+		if (t.i32[n + 1] & 2147483648) {
+			let e = Array(t.n32);
+			for (let r = 0; r < t.n32; r++) e[t.n32 - 1 - r] = t.i32[n + 2 + r];
+			let i = t.Fr.e(u.fromArray(e, 4294967296));
+			return t.i32[n + 1] & 1073741824 ? r(i) : i;
+		}
+		if (t.i32[n] & 2147483648) return t.Fr.e(t.i32[n] - 4294967296);
+		return t.Fr.e(t.i32[n]);
+		function r(e) {
+			return t.Fr.mul(t.RInv, e);
+		}
+	}
+	setFr(e, t) {
+		let n = this;
+		t = n.Fr.e(t);
+		let r = n.Fr.neg(n.Fr.e("80000000", 16)), i = n.Fr.e("7FFFFFFF", 16);
+		if (n.Fr.geq(t, r) && n.Fr.leq(t, i)) {
+			let i;
+			n.Fr.geq(t, n.Fr.zero) ? i = u.toNumber(t) : (i = u.toNumber(n.Fr.sub(t, r)), i -= 2147483648, i = 4294967296 + i), n.i32[e >> 2] = i, n.i32[(e >> 2) + 1] = 0;
+			return;
+		}
+		n.i32[e >> 2] = 0, n.i32[(e >> 2) + 1] = 2147483648;
+		let a = u.toArray(t, 4294967296);
+		for (let t = 0; t < n.n32; t++) {
+			let r = a.length - 1 - t;
+			r >= 0 ? n.i32[(e >> 2) + 2 + t] = a[r] : n.i32[(e >> 2) + 2 + t] = 0;
+		}
+	}
+}, Zt = class {
+	constructor(e, t) {
+		this.instance = e, this.version = this.instance.exports.getVersion(), this.n32 = this.instance.exports.getFieldNumLen32(), this.instance.exports.getRawPrime();
+		let n = new Uint32Array(this.n32);
+		for (let e = 0; e < this.n32; e++) n[this.n32 - 1 - e] = this.instance.exports.readSharedRWMemory(e);
+		this.prime = u.fromArray(n, 4294967296), this.witnessSize = this.instance.exports.getWitnessSize(), this.sanityCheck = t;
+	}
+	circom_version() {
+		return this.instance.exports.getVersion();
+	}
+	async _doCalculateWitness(e, t) {
+		this.instance.exports.init(this.sanityCheck || t ? 1 : 0);
+		let n = Object.keys(e), r = 0;
+		if (n.forEach((t) => {
+			let n = qt(t), i = parseInt(n.slice(0, 8), 16), a = parseInt(n.slice(8, 16), 16), o = Gt(e[t]);
+			if (typeof this.instance.exports.getInputSignalSize == "function") {
+				let e = this.instance.exports.getInputSignalSize(i, a);
+				if (e < 0) throw Error(`Signal ${t} not found\n`);
+				if (o.length < e) throw Error(`Not enough values for input signal ${t}\n`);
+				if (o.length > e) throw Error(`Too many values for input signal ${t}\n`);
+			}
+			for (let e = 0; e < o.length; e++) {
+				let t = Jt(Kt(o[e], this.prime), this.n32);
+				for (let e = 0; e < this.n32; e++) this.instance.exports.writeSharedRWMemory(e, t[this.n32 - 1 - e]);
+				try {
+					this.instance.exports.setInputSignal(i, a, e), r++;
+				} catch (e) {
+					throw Error(e);
+				}
+			}
+		}), r < this.instance.exports.getInputSize()) throw Error(`Not all inputs have been set. Only ${r} out of ${this.instance.exports.getInputSize()}`);
+	}
+	async calculateWitness(e, t) {
+		let n = [];
+		await this._doCalculateWitness(e, t);
+		for (let e = 0; e < this.witnessSize; e++) {
+			this.instance.exports.getWitness(e);
+			let t = new Uint32Array(this.n32);
+			for (let e = 0; e < this.n32; e++) t[this.n32 - 1 - e] = this.instance.exports.readSharedRWMemory(e);
+			n.push(u.fromArray(t, 4294967296));
+		}
+		return n;
+	}
+	async calculateWTNSBin(e, t) {
+		let n = new Uint32Array(this.witnessSize * this.n32 + this.n32 + 11), r = new Uint8Array(n.buffer);
+		await this._doCalculateWitness(e, t), r[0] = 119, r[1] = 116, r[2] = 110, r[3] = 115, n[1] = 2, n[2] = 2, n[3] = 1;
+		let i = this.n32 * 4, a = (8 + i).toString(16);
+		n[4] = parseInt(a.slice(0, 8), 16), n[5] = parseInt(a.slice(8, 16), 16), n[6] = i, this.instance.exports.getRawPrime();
+		let o = 7;
+		for (let e = 0; e < this.n32; e++) n[o + e] = this.instance.exports.readSharedRWMemory(e);
+		o += this.n32, n[o] = this.witnessSize, o++, n[o] = 2, o++;
+		let s = (i * this.witnessSize).toString(16);
+		n[o] = parseInt(s.slice(0, 8), 16), n[o + 1] = parseInt(s.slice(8, 16), 16), o += 2;
+		for (let e = 0; e < this.witnessSize; e++) {
+			this.instance.exports.getWitness(e);
+			for (let e = 0; e < this.n32; e++) n[o + e] = this.instance.exports.readSharedRWMemory(e);
+			o += this.n32;
+		}
+		return r;
+	}
+}, { unstringifyBigInts: Qt } = p;
+async function $t(t, n, r, i) {
+	let a = Qt(t), o = await Wt(n), s = await o.read(o.totalSize);
+	await o.close();
+	let c = await Yt(s, i);
+	if (c.circom_version() === 1) {
+		let t = await c.calculateBinWitness(a), n = await e.createBinFile(r, "wtns", 2, 2);
+		try {
+			await nt(n, t, c.prime);
+		} finally {
+			await n.close();
+		}
+	} else {
+		let e = await c.calculateWTNSBin(a), t = await Ut(r);
+		try {
+			await t.write(e);
+		} finally {
+			await t.close();
+		}
+	}
+}
+//#endregion
+//#region src/groth16_fullprove.js
+var { unstringifyBigInts: en } = p;
+async function tn(e, t, n, r, i, a) {
+	let o = en(e), s = { type: "mem" };
+	return await $t(o, t, s, i), await ot(n, s, r, a);
+}
+//#endregion
+//#region src/groth16_verify.js
+var { unstringifyBigInts: nn } = p;
+async function rn(e, t, n, r) {
+	let i = nn(e), a = nn(n), o = nn(t), s = await E(i.curve), c = s.G1.fromObject(i.IC[0]), l = new Uint8Array(s.G1.F.n8 * 2 * o.length), d = new Uint8Array(s.Fr.n8 * o.length);
+	if (!sn(s, o)) return r && r.error("Public inputs are not valid."), !1;
+	for (let e = 0; e < o.length; e++) {
+		let t = s.G1.fromObject(i.IC[e + 1]);
+		l.set(t, e * s.G1.F.n8 * 2), u.toRprLE(d, s.Fr.n8 * e, o[e], s.Fr.n8);
+	}
+	let f = await s.G1.multiExpAffine(l, d);
+	f = s.G1.add(f, c);
+	let p = s.G1.fromObject(a.pi_a), m = s.G2.fromObject(a.pi_b), h = s.G1.fromObject(a.pi_c);
+	if (!an(s, {
+		pi_a: p,
+		pi_b: m,
+		pi_c: h
+	})) return r && r.error("Proof commitments are not valid."), !1;
+	let g = s.G2.fromObject(i.vk_gamma_2), _ = s.G2.fromObject(i.vk_delta_2), v = s.G1.fromObject(i.vk_alpha_1), y = s.G2.fromObject(i.vk_beta_2);
+	return await s.pairingEq(s.G1.neg(p), m, f, g, h, _, v, y) ? (r && r.info("OK!"), !0) : (r && r.error("Invalid proof"), !1);
+}
+function an(e, t) {
+	let n = e.G1, r = e.G2;
+	return n.isValid(t.pi_a) && r.isValid(t.pi_b) && n.isValid(t.pi_c);
+}
+function on(e, t) {
+	return u.geq(t, 0) && u.lt(t, e.r);
+}
+function sn(e, t) {
+	for (let n = 0; n < t.length; n++) if (!on(e, t[n])) return !1;
+	return !0;
+}
+//#endregion
+//#region src/groth16_exportsoliditycalldata.js
+var { unstringifyBigInts: cn } = p;
+function ln(e) {
+	let t = e.toString(16);
+	for (; t.length < 64;) t = "0" + t;
+	return t = `"0x${t}"`, t;
+}
+async function un(e, t) {
+	let n = cn(e), r = cn(t), i = "";
+	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += ln(r[e]);
+	let a;
+	return a = `[${ln(n.pi_a[0])}, ${ln(n.pi_a[1])}],[[${ln(n.pi_b[0][1])}, ${ln(n.pi_b[0][0])}],[${ln(n.pi_b[1][1])}, ${ln(n.pi_b[1][0])}]],[${ln(n.pi_c[0])}, ${ln(n.pi_c[1])}],[${i}]`, a;
+}
+//#endregion
+//#region src/groth16.js
+var dn = /* @__PURE__ */ v({
+	exportSolidityCallData: () => un,
+	fullProve: () => tn,
+	prove: () => ot,
+	verify: () => rn
+});
+//#endregion
+//#region src/keypair.js
+function fn(e, t) {
+	let n = new DataView(t.buffer, t.byteOffset, t.byteLength), r = [];
+	for (let e = 0; e < 8; e++) r[e] = n.getUint32(e * 4);
+	let i = new c(r);
+	return e.G2.fromRng(i);
+}
+function pn(e, t, n, r, i) {
+	let a = W.create({ dkLen: 64 }), o = new Uint8Array([t]);
+	a.update(o), a.update(n);
+	let s = e.G1.toUncompressed(r);
+	a.update(s);
+	let c = e.G1.toUncompressed(i);
+	return a.update(c), fn(e, a.digest());
+}
+function mn(e, t, n, r, i) {
+	return e.g1_s = t.G1.toAffine(t.G1.fromRng(i)), e.g1_sx = t.G1.toAffine(t.G1.timesFr(e.g1_s, e.prvKey)), e.g2_sp = t.G2.toAffine(pn(t, n, r, e.g1_s, e.g1_sx)), e.g2_spx = t.G2.toAffine(t.G2.timesFr(e.g2_sp, e.prvKey)), e;
+}
+function hn(e, t, n) {
+	let r = {
+		tau: {},
+		alpha: {},
+		beta: {}
+	};
+	return r.tau.prvKey = e.Fr.fromRng(n), r.alpha.prvKey = e.Fr.fromRng(n), r.beta.prvKey = e.Fr.fromRng(n), mn(r.tau, e, 0, t, n), mn(r.alpha, e, 1, t, n), mn(r.beta, e, 2, t, n), r;
+}
+//#endregion
+//#region src/powersoftau_utils.js
+async function gn(e, t, n, r) {
+	r ||= n, await e.writeULE32(1);
+	let i = e.pos;
+	await e.writeULE64(0), await e.writeULE32(t.F1.n64 * 8);
+	let a = new Uint8Array(t.F1.n8);
+	u.toRprLE(a, 0, t.q, t.F1.n8), await e.write(a), await e.writeULE32(n), await e.writeULE32(r);
+	let o = e.pos - i - 8, s = e.pos;
+	await e.writeULE64(o, i), e.pos = s;
+}
+async function _n(e, t) {
+	/* c8 ignore start */
+	if (!t[1]) throw Error(e.fileName + ": File has no  header");
+	/* c8 ignore stop */
+	/* c8 ignore start */
+	if (t[1].length > 1) throw Error(e.fileName + ": File has more than one header");
+	/* c8 ignore stop */
+	e.pos = t[1][0].p;
+	let n = await e.readULE32(), r = await e.read(n), i = await T(u.fromRprLE(r));
+	/* c8 ignore start */
+	if (i.F1.n64 * 8 != n) throw Error(e.fileName + ": Invalid size");
+	/* c8 ignore stop */
+	let a = await e.readULE32(), o = await e.readULE32();
+	/* c8 ignore start */
+	if (e.pos - t[1][0].p != t[1][0].size) throw Error("Invalid PTau header size");
+	/* c8 ignore stop */
+	return {
+		curve: i,
+		power: a,
+		ceremonyPower: o
+	};
+}
+async function vn(e, t, n) {
+	return yn(await e.read(t.F1.n8 * 2 * 6 + t.F2.n8 * 2 * 3), 0, t, n);
+}
+function yn(e, t, n, r) {
+	let i = {
+		tau: {},
+		alpha: {},
+		beta: {}
+	};
+	return i.tau.g1_s = a(), i.tau.g1_sx = a(), i.alpha.g1_s = a(), i.alpha.g1_sx = a(), i.beta.g1_s = a(), i.beta.g1_sx = a(), i.tau.g2_spx = o(), i.alpha.g2_spx = o(), i.beta.g2_spx = o(), i;
+	function a() {
+		let i;
+		return i = r ? n.G1.fromRprLEM(e, t) : n.G1.fromRprUncompressed(e, t), t += n.G1.F.n8 * 2, i;
+	}
+	function o() {
+		let i;
+		return i = r ? n.G2.fromRprLEM(e, t) : n.G2.fromRprUncompressed(e, t), t += n.G2.F.n8 * 2, i;
+	}
+}
+function bn(e, t, n, r, i) {
+	a(r.tau.g1_s), a(r.tau.g1_sx), a(r.alpha.g1_s), a(r.alpha.g1_sx), a(r.beta.g1_s), a(r.beta.g1_sx), o(r.tau.g2_spx), o(r.alpha.g2_spx), o(r.beta.g2_spx);
+	async function a(r) {
+		i ? n.G1.toRprLEM(e, t, r) : n.G1.toRprUncompressed(e, t, r), t += n.F1.n8 * 2;
+	}
+	async function o(r) {
+		i ? n.G2.toRprLEM(e, t, r) : n.G2.toRprUncompressed(e, t, r), t += n.F2.n8 * 2;
+	}
+	return e;
+}
+async function xn(e, t, n, r) {
+	let i = new Uint8Array(t.F1.n8 * 2 * 6 + t.F2.n8 * 2 * 3);
+	bn(i, 0, t, n, r), await e.write(i);
+}
+async function Sn(e, t) {
+	let n = {};
+	n.tauG1 = await c(), n.tauG2 = await l(), n.alphaG1 = await c(), n.betaG1 = await c(), n.betaG2 = await l(), n.key = await vn(e, t, !0), n.partialHash = await e.read(216), n.nextChallenge = await e.read(64), n.type = await e.readULE32();
+	let r = new Uint8Array(t.G1.F.n8 * 2 * 6 + t.G2.F.n8 * 2 * 3);
+	bn(r, 0, t, n.key, !1);
+	let i = De(n.partialHash);
+	i.update(r), n.responseHash = i.digest();
+	let a = await e.readULE32(), o = e.pos, s = 0;
+	for (; e.pos - o < a;) {
+		let e = await u(1);
+		/* c8 ignore start */
+		if (e[0] <= s) throw Error("Parameters in the contribution must be sorted");
+		if (s = e[0], e[0] == 1) {
+			let e = await u((await u(1))[0]);
+			n.name = new TextDecoder().decode(e);
+		} else if (e[0] == 2) n.numIterationsExp = (await u(1))[0];
+		else if (e[0] == 3) n.beaconHash = await u((await u(1))[0]);
+		else
+ /* c8 ignore start */
+		throw Error("Parameter not recognized");
+	}
+	/* c8 ignore start */
+	if (e.pos != o + a) throw Error("Parameters do not match");
+	/* c8 ignore stop */
+	return n;
+	async function c() {
+		let n = await e.read(t.G1.F.n8 * 2);
+		return t.G1.fromRprLEM(n);
+	}
+	async function l() {
+		let n = await e.read(t.G2.F.n8 * 2);
+		return t.G2.fromRprLEM(n);
+	}
+	async function u(t) {
+		let n = await e.read(t);
+		return new Uint8Array(n);
+	}
+}
+async function Cn(e, t, n) {
+	/* c8 ignore start */
+	if (!n[7]) throw Error(e.fileName + ": File has no  contributions");
+	/* c8 ignore stop */
+	/* c8 ignore start */
+	if (n[7][0].length > 1) throw Error(e.fileName + ": File has more than one contributions section");
+	/* c8 ignore stop */
+	e.pos = n[7][0].p;
+	let r = await e.readULE32(), i = [];
+	for (let n = 0; n < r; n++) {
+		let r = await Sn(e, t);
+		r.id = n + 1, i.push(r);
+	}
+	/* c8 ignore start */
+	if (e.pos - n[7][0].p != n[7][0].size) throw Error("Invalid contribution section size");
+	/* c8 ignore stop */
+	return i;
+}
+async function wn(e, t, n) {
+	let r = new Uint8Array(t.F1.n8 * 2), i = new Uint8Array(t.F2.n8 * 2);
+	await o(n.tauG1), await s(n.tauG2), await o(n.alphaG1), await o(n.betaG1), await s(n.betaG2), await xn(e, t, n.key, !0), await e.write(n.partialHash), await e.write(n.nextChallenge), await e.writeULE32(n.type || 0);
+	let a = [];
+	if (n.name) {
+		a.push(1);
+		let e = new TextEncoder("utf-8").encode(n.name.substring(0, 64));
+		a.push(e.byteLength);
+		for (let t = 0; t < e.byteLength; t++) a.push(e[t]);
+	}
+	if (n.type == 1) {
+		a.push(2), a.push(n.numIterationsExp), a.push(3), a.push(n.beaconHash.byteLength);
+		for (let e = 0; e < n.beaconHash.byteLength; e++) a.push(n.beaconHash[e]);
+	}
+	if (a.length > 0) {
+		let t = new Uint8Array(a);
+		await e.writeULE32(t.byteLength), await e.write(t);
+	} else await e.writeULE32(0);
+	async function o(n) {
+		t.G1.toRprLEM(r, 0, n), await e.write(r);
+	}
+	async function s(n) {
+		t.G2.toRprLEM(i, 0, n), await e.write(i);
+	}
+}
+async function Tn(e, t, n) {
+	await e.writeULE32(7);
+	let r = e.pos;
+	await e.writeULE64(0), await e.writeULE32(n.length);
+	for (let r = 0; r < n.length; r++) await wn(e, t, n[r]);
+	let i = e.pos - r - 8, a = e.pos;
+	await e.writeULE64(i, r), e.pos = a;
+}
+function En(e, t, n) {
+	n && n.debug("Calculating First Challenge Hash");
+	let r = W.create({ dkLen: 64 }), i = new Uint8Array(e.G1.F.n8 * 2), a = new Uint8Array(e.G2.F.n8 * 2);
+	e.G1.toRprUncompressed(i, 0, e.G1.g), e.G2.toRprUncompressed(a, 0, e.G2.g), r.update(W.create({ dkLen: 64 }).digest());
+	let o;
+	return o = 2 ** t * 2 - 1, n && n.debug("Calculate Initial Hash: tauG1"), s(i, o), o = 2 ** t, n && n.debug("Calculate Initial Hash: tauG2"), s(a, o), n && n.debug("Calculate Initial Hash: alphaTauG1"), s(i, o), n && n.debug("Calculate Initial Hash: betaTauG1"), s(i, o), r.update(a), r.digest();
+	function s(e, t) {
+		let i = 341e3, a = Math.floor(t / i), o = t % i, s = new Uint8Array(i * e.byteLength);
+		for (let t = 0; t < i; t++) s.set(e, t * e.byteLength);
+		/* c8 ignore start */
+		for (let e = 0; e < a; e++) r.update(s), n && n.debug("Initial hash: " + e * i);
+		/* c8 ignore stop */
+		for (let t = 0; t < o; t++) r.update(e);
+	}
+}
+async function Dn(e, t, n, r) {
+	return hn(e, t, await Fe(n, r));
+}
+//#endregion
+//#region src/powersoftau_new.js
+async function On(t, n, r, i) {
+	let a = await e.createBinFile(r, "ptau", 1, 7);
+	await gn(a, t, n, 0);
+	let o = t.G1.oneAffine, s = t.G2.oneAffine;
+	await e.startWriteSection(a, 2);
+	let c = 2 ** n * 2 - 1;
+	for (let e = 0; e < c; e++) await a.write(o), i && e % 1e5 == 0 && e && i.log("tauG1: " + e);
+	await e.endWriteSection(a), await e.startWriteSection(a, 3);
+	let l = 2 ** n;
+	for (let e = 0; e < l; e++) await a.write(s), i && e % 1e5 == 0 && e && i.log("tauG2: " + e);
+	await e.endWriteSection(a), await e.startWriteSection(a, 4);
+	let u = 2 ** n;
+	for (let e = 0; e < u; e++) await a.write(o), i && e % 1e5 == 0 && e && i.log("alphaTauG1: " + e);
+	await e.endWriteSection(a), await e.startWriteSection(a, 5);
+	let d = 2 ** n;
+	for (let e = 0; e < d; e++) await a.write(o), i && e % 1e5 == 0 && e && i.log("betaTauG1: " + e);
+	await e.endWriteSection(a), await e.startWriteSection(a, 6), await a.write(s), await e.endWriteSection(a), await e.startWriteSection(a, 7), await a.writeULE32(0), await e.endWriteSection(a), await a.close();
+	let f = En(t, n, i);
+	return i && i.debug(G(W.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:")), i && i.info(G(f, "First Contribution Hash:")), f;
+}
+//#endregion
+//#region src/powersoftau_export_challenge.js
+async function kn(t, n, r) {
+	let { fd: i, sections: a } = await e.readBinFile(t, "ptau", 1), { curve: o, power: s } = await _n(i, a), c = await Cn(i, o, a), l, u;
+	c.length == 0 ? (l = W.create({ dkLen: 64 }).digest(), u = En(o, s)) : (l = c[c.length - 1].responseHash, u = c[c.length - 1].nextChallenge), r && r.info(G(l, "Last Response Hash: ")), r && r.info(G(u, "New Challenge Hash: "));
+	let d = await Ut(n), f = W.create({ dkLen: 64 });
+	await d.write(l), f.update(l), await m(2, "G1", 2 ** s * 2 - 1, "tauG1"), await m(3, "G2", 2 ** s, "tauG2"), await m(4, "G1", 2 ** s, "alphaTauG1"), await m(5, "G1", 2 ** s, "betaTauG1"), await m(6, "G2", 1, "betaG2"), await i.close(), await d.close();
+	let p = f.digest();
+	if (!Te(u, p)) throw r && r.info(G(p, "Calc Curret Challenge Hash: ")), r && r.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one"), Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+	return u;
+	async function m(t, n, s, c) {
+		let l = o[n], u = l.F.n8 * 2, p = Math.floor((1 << 24) / u);
+		await e.startReadUniqueSection(i, a, t);
+		for (let e = 0; e < s; e += p) {
+			r && r.debug(`Exporting ${c}: ${e}/${s}`);
+			let t = Math.min(s - e, p), n;
+			n = await i.read(t * u), n = await l.batchLEMtoU(n), await d.write(n), f.update(n);
+		}
+		await e.endReadSection(i);
+	}
+}
+//#endregion
+//#region src/powersoftau_import.js
+async function An(t, n, r, i, a, o) {
+	let s = /* @__PURE__ */ new Uint8Array(64);
+	for (let e = 0; e < 64; e++) s[e] = 255;
+	let { fd: c, sections: l } = await e.readBinFile(t, "ptau", 1), { curve: u, power: d } = await _n(c, l), f = await Cn(c, u, l), p = {};
+	i && (p.name = i);
+	let m = u.F1.n8 * 2, h = u.F1.n8, g = u.F2.n8 * 2, _ = u.F2.n8, v = await Wt(n);
+	if (v.totalSize != 64 + (2 ** d * 2 - 1) * h + 2 ** d * _ + 2 ** d * h + 2 ** d * h + _ + m * 6 + g * 3) throw Error("Size of the contribution is invalid");
+	let y;
+	y = f.length > 0 ? f[f.length - 1].nextChallenge : En(u, d, o);
+	let b = await e.createBinFile(r, "ptau", 1, a ? 7 : 2);
+	await gn(b, u, d);
+	let x = await v.read(64);
+	if (Te(s, y) && (y = x, f[f.length - 1].nextChallenge = y), !Te(x, y)) throw Error("Wrong contribution. This contribution is not based on the previous hash");
+	let S = W.create({ dkLen: 64 });
+	S.update(x);
+	let C = [], w;
+	w = await D(v, b, "G1", 2, 2 ** d * 2 - 1, [1], "tauG1"), p.tauG1 = w[0], w = await D(v, b, "G2", 3, 2 ** d, [1], "tauG2"), p.tauG2 = w[0], w = await D(v, b, "G1", 4, 2 ** d, [0], "alphaG1"), p.alphaG1 = w[0], w = await D(v, b, "G1", 5, 2 ** d, [0], "betaG1"), p.betaG1 = w[0], w = await D(v, b, "G2", 6, 1, [0], "betaG2"), p.betaG2 = w[0], p.partialHash = Oe(S);
+	let T = await v.read(u.F1.n8 * 2 * 6 + u.F2.n8 * 2 * 3);
+	p.key = yn(T, 0, u, !1), S.update(new Uint8Array(T));
+	let E = S.digest();
+	if (o && o.info(G(E, "Contribution Response Hash imported: ")), a) {
+		let e = W.create({ dkLen: 64 });
+		e.update(E), await A(e, b, "G1", 2, 2 ** d * 2 - 1, "tauG1", o), await A(e, b, "G2", 3, 2 ** d, "tauG2", o), await A(e, b, "G1", 4, 2 ** d, "alphaTauG1", o), await A(e, b, "G1", 5, 2 ** d, "betaTauG1", o), await A(e, b, "G2", 6, 1, "betaG2", o), p.nextChallenge = e.digest(), o && o.info(G(p.nextChallenge, "Next Challenge Hash: "));
+	} else p.nextChallenge = s;
+	return f.push(p), await Tn(b, u, f), await v.close(), await b.close(), await c.close(), p.nextChallenge;
+	async function D(e, t, n, r, i, o, s) {
+		return a ? await O(e, t, n, r, i, o, s) : await k(e, t, n, r, i, o, s);
+	}
+	async function O(t, n, r, i, a, s, c) {
+		let l = u[r], d = l.F.n8, f = l.F.n8 * 2, p = [];
+		await e.startWriteSection(n, i);
+		let m = Math.floor((1 << 24) / f);
+		C[i] = n.pos;
+		for (let e = 0; e < a; e += m) {
+			o && o.debug(`Importing ${c}: ${e}/${a}`);
+			let r = Math.min(a - e, m), i = await t.read(r * d);
+			S.update(i);
+			let u = await l.batchCtoLEM(i);
+			await n.write(u);
+			for (let t = 0; t < s.length; t++) {
+				let n = s[t];
+				if (n >= e && n < e + r) {
+					let t = l.fromRprLEM(u, (n - e) * f);
+					p.push(t);
+				}
+			}
+		}
+		return await e.endWriteSection(n), p;
+	}
+	async function k(e, t, n, r, i, a, s) {
+		let c = u[n], l = c.F.n8, d = [], f = Math.floor((1 << 24) / l);
+		for (let t = 0; t < i; t += f) {
+			o && o.debug(`Importing ${s}: ${t}/${i}`);
+			let n = Math.min(i - t, f), r = await e.read(n * l);
+			S.update(r);
+			for (let e = 0; e < a.length; e++) {
+				let i = a[e];
+				if (i >= t && i < t + n) {
+					let e = c.fromRprCompressed(r, (i - t) * l);
+					d.push(e);
+				}
+			}
+		}
+		return d;
+	}
+	async function A(e, t, n, r, i, a, o) {
+		let s = u[n], c = s.F.n8 * 2, l = Math.floor((1 << 24) / c), d = t.pos;
+		t.pos = C[r];
+		for (let n = 0; n < i; n += l) {
+			o && o.debug(`Hashing ${a}: ${n}/${i}`);
+			let r = Math.min(i - n, l), u = await t.read(r * c), d = await s.batchLEMtoU(u);
+			e.update(d);
+		}
+		t.pos = d;
+	}
+}
+//#endregion
+//#region src/powersoftau_verify.js
+var jn = ke;
+async function Mn(e, t, n, r) {
+	let i;
+	if (t.type == 1) {
+		let i = await Dn(e, n.nextChallenge, t.beaconHash, t.numIterationsExp);
+		if (!e.G1.eq(t.key.tau.g1_s, i.tau.g1_s)) return r && r.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G1.eq(t.key.tau.g1_sx, i.tau.g1_sx)) return r && r.error(`BEACON key (tauG1_sx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G2.eq(t.key.tau.g2_spx, i.tau.g2_spx)) return r && r.error(`BEACON key (tauG2_spx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G1.eq(t.key.alpha.g1_s, i.alpha.g1_s)) return r && r.error(`BEACON key (alphaG1_s) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G1.eq(t.key.alpha.g1_sx, i.alpha.g1_sx)) return r && r.error(`BEACON key (alphaG1_sx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G2.eq(t.key.alpha.g2_spx, i.alpha.g2_spx)) return r && r.error(`BEACON key (alphaG2_spx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G1.eq(t.key.beta.g1_s, i.beta.g1_s)) return r && r.error(`BEACON key (betaG1_s) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G1.eq(t.key.beta.g1_sx, i.beta.g1_sx)) return r && r.error(`BEACON key (betaG1_sx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+		if (!e.G2.eq(t.key.beta.g2_spx, i.beta.g2_spx)) return r && r.error(`BEACON key (betaG2_spx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
+	}
+	return t.key.tau.g2_sp = e.G2.toAffine(pn(e, 0, n.nextChallenge, t.key.tau.g1_s, t.key.tau.g1_sx)), t.key.alpha.g2_sp = e.G2.toAffine(pn(e, 1, n.nextChallenge, t.key.alpha.g1_s, t.key.alpha.g1_sx)), t.key.beta.g2_sp = e.G2.toAffine(pn(e, 2, n.nextChallenge, t.key.beta.g1_s, t.key.beta.g1_sx)), i = await jn(e, t.key.tau.g1_s, t.key.tau.g1_sx, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await jn(e, t.key.alpha.g1_s, t.key.alpha.g1_sx, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await jn(e, t.key.beta.g1_s, t.key.beta.g1_sx, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await jn(e, n.tauG1, t.tauG1, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await jn(e, t.key.tau.g1_s, t.key.tau.g1_sx, n.tauG2, t.tauG2), i === !0 ? (i = await jn(e, n.alphaG1, t.alphaG1, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await jn(e, n.betaG1, t.betaG1, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await jn(e, t.key.beta.g1_s, t.key.beta.g1_sx, n.betaG2, t.betaG2), i === !0 ? (r && r.info("Powers Of tau file OK!"), !0) : (r && r.error("INVALID beta*G2. challenge #" + t.id + "It does not follow the previous contribution"), !1)) : (r && r.error("INVALID beta*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID alpha*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G2. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID key (beta) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (alpha) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (tau) in challenge #" + t.id), !1);
+}
+async function Nn(t, n) {
+	let r, i;
+	try {
+		let a;
+		({fd: r, sections: i} = await e.readBinFile(t, "ptau", 1));
+		let { curve: o, power: l, ceremonyPower: u } = await _n(r, i), d = await Cn(r, o, i);
+		n && n.debug("power: 2**" + l), n && n.debug("Computing initial contribution hash");
+		let f = {
+			tauG1: o.G1.g,
+			tauG2: o.G2.g,
+			alphaG1: o.G1.g,
+			betaG1: o.G1.g,
+			betaG2: o.G2.g,
+			nextChallenge: En(o, u, n),
+			responseHash: W.create({ dkLen: 64 }).digest()
+		};
+		if (d.length == 0) return n && n.error("This file has no contribution! It cannot be used in production"), !1;
+		let p;
+		p = d.length > 1 ? d[d.length - 2] : f;
+		let m = d[d.length - 1];
+		if (n && n.debug("Validating contribution #" + d[d.length - 1].id), !await Mn(o, m, p, n)) return !1;
+		let h = W.create({ dkLen: 64 });
+		h.update(m.responseHash), n && n.debug("Verifying powers in tau*G1 section");
+		let g = await w(2, "G1", "tauG1", 2 ** l * 2 - 1, [0, 1], n);
+		if (a = await jn(o, g.R1, g.R2, o.G2.g, m.tauG2), a !== !0) return n && n.error("tauG1 section. Powers do not match"), !1;
+		/* c8 ignore start */
+		if (!o.G1.eq(o.G1.g, g.singularPoints[0])) return n && n.error("First element of tau*G1 section must be the generator"), !1;
+		/* c8 ignore stop */
+		/* c8 ignore start */
+		if (!o.G1.eq(m.tauG1, g.singularPoints[1])) return n && n.error("Second element of tau*G1 section does not match the one in the contribution section"), !1;
+		/* c8 ignore stop */
+		n && n.debug("Verifying powers in tau*G2 section");
+		let _ = await w(3, "G2", "tauG2", 2 ** l, [0, 1], n);
+		if (a = await jn(o, o.G1.g, m.tauG1, _.R1, _.R2), a !== !0) return n && n.error("tauG2 section. Powers do not match"), !1;
+		/* c8 ignore start */
+		if (!o.G2.eq(o.G2.g, _.singularPoints[0])) return n && n.error("First element of tau*G2 section must be the generator"), !1;
+		/* c8 ignore stop */
+		/* c8 ignore start */
+		if (!o.G2.eq(m.tauG2, _.singularPoints[1])) return n && n.error("Second element of tau*G2 section does not match the one in the contribution section"), !1;
+		/* c8 ignore stop */
+		n && n.debug("Verifying powers in alpha*tau*G1 section");
+		let v = await w(4, "G1", "alphatauG1", 2 ** l, [0], n);
+		if (a = await jn(o, v.R1, v.R2, o.G2.g, m.tauG2), a !== !0) return n && n.error("alphaTauG1 section. Powers do not match"), !1;
+		/* c8 ignore start */
+		if (!o.G1.eq(m.alphaG1, v.singularPoints[0])) return n && n.error("First element of alpha*tau*G1 section (alpha*G1) does not match the one in the contribution section"), !1;
+		/* c8 ignore stop */
+		n && n.debug("Verifying powers in beta*tau*G1 section");
+		let y = await w(5, "G1", "betatauG1", 2 ** l, [0], n);
+		if (a = await jn(o, y.R1, y.R2, o.G2.g, m.tauG2), a !== !0) return n && n.error("betaTauG1 section. Powers do not match"), !1;
+		/* c8 ignore start */
+		if (!o.G1.eq(m.betaG1, y.singularPoints[0])) return n && n.error("First element of beta*tau*G1 section (beta*G1) does not match the one in the contribution section"), !1;
+		/* c8 ignore stop */
+		let b = await C(n);
+		if (!o.G2.eq(m.betaG2, b)) return n && n.error("betaG2 element in betaG2 section does not match the one in the contribution section"), !1;
+		let x = h.digest();
+		if (l == u && !Te(x, m.nextChallenge)) return n && n.error("Hash of the values does not match the next challenge of the last contributor in the contributions section"), !1;
+		n && n.info(G(x, "Next challenge hash: ")), S(m, p);
+		for (let e = d.length - 2; e >= 0; e--) {
+			let t = d[e], r = e > 0 ? d[e - 1] : f;
+			if (!await Mn(o, t, r, n)) return !1;
+			S(t, r, n);
+		}
+		if (n && n.info("-----------------------------------------------------"), !i[12] || !i[13] || !i[14] || !i[15]) n && n.warn("this file does not contain phase2 precalculated values. Please run: \n   snarkjs \"powersoftau preparephase2\" to prepare this file to be used in the phase2 ceremony.");
+		else {
+			let e;
+			if (e = await T("G1", 2, 12, "tauG1", n), !e || 
+			/* c8 ignore stop */
+			(e = await T("G2", 3, 13, "tauG2", n), !e) || 
+			/* c8 ignore stop */
+			(e = await T("G1", 4, 14, "alphaTauG1", n), !e) || 
+			/* c8 ignore stop */
+			(e = await T("G1", 5, 15, "betaTauG1", n), !e)) return !1;
+		}
+		return await r.close(), n && n.info("Powers of Tau Ok!"), !0;
+		function S(e, t) {
+			if (!n) return;
+			n.info("-----------------------------------------------------"), n.info(`Contribution #${e.id}: ${e.name || ""}`), n.info(G(e.nextChallenge, "Next Challenge: "));
+			let r = new Uint8Array(o.G1.F.n8 * 2 * 6 + o.G2.F.n8 * 2 * 3);
+			bn(r, 0, o, e.key, !1);
+			let i = De(e.partialHash);
+			i.update(r);
+			let a = i.digest();
+			n.info(G(a, "Response Hash:")), n.info(G(t.nextChallenge, "Response Hash:")), e.type == 1 && (n.info(`Beacon generator: ${Le(e.beaconHash)}`), n.info(`Beacon iterations Exp: ${e.numIterationsExp}`));
+		}
+		async function C(e) {
+			let t = o.G2, n = t.F.n8 * 2, a = new Uint8Array(n);
+			/* c8 ignore start */
+			if (!i[6]) throw e.error("File has no BetaG2 section"), Error("File has no BetaG2 section");
+			/* c8 ignore stop */
+			/* c8 ignore start */
+			if (i[6].length > 1) throw e.error("File has no BetaG2 section"), Error("File has more than one GetaG2 section");
+			/* c8 ignore stop */
+			r.pos = i[6][0].p;
+			let s = await r.read(n), c = t.fromRprLEM(s);
+			return t.toRprUncompressed(a, 0, c), h.update(a), c;
+		}
+		async function w(t, n, a, s, c, l) {
+			let u = 65536, d = o[n], f = d.F.n8 * 2;
+			await e.startReadUniqueSection(r, i, t);
+			let p = [], m = d.zero, g = d.zero, _ = d.zero;
+			for (let e = 0; e < s; e += u) {
+				l && l.debug(`points relations: ${a}: ${e}/${s} `);
+				let t = Math.min(s - e, u), n = await r.read(t * f), i = await d.batchLEMtoU(n);
+				h.update(i);
+				let o = je(4 * (t - 1));
+				/* c8 ignore start */
+				if (e > 0) {
+					let e = d.fromRprLEM(n, 0), t = Ne(je(4), 0);
+					m = d.add(m, d.timesScalar(_, t)), g = d.add(g, d.timesScalar(e, t));
+				}
+				/* c8 ignore stop */
+				let v = await d.multiExpAffine(n.slice(0, (t - 1) * f), o), y = await d.multiExpAffine(n.slice(f), o);
+				m = d.add(m, v), g = d.add(g, y), _ = d.fromRprLEM(n, (t - 1) * f);
+				for (let r = 0; r < c.length; r++) {
+					let i = c[r];
+					if (i >= e && i < e + t) {
+						let t = d.fromRprLEM(n, (i - e) * f);
+						p.push(t);
+					}
+				}
+			}
+			return await e.endReadSection(r), {
+				R1: m,
+				R2: g,
+				singularPoints: p
+			};
+		}
+		async function T(t, n, a, u, d) {
+			d && d.debug(`Verifying phase2 calculated values ${u}...`);
+			let f = o[t], p = f.F.n8 * 2, m = Array(8);
+			for (let e = 0; e < 8; e++) m[e] = Ne(je(4), 0);
+			for (let e = 0; e <= l; e++) if (!await h(e)) return !1;
+			if (n == 2 && !await h(l + 1)) return !1;
+			return !0;
+			async function h(t) {
+				d && d.debug(`Power ${t}...`);
+				let h = o.Fr.n8, g = 2 ** t, _ = new Uint32Array(g), v, y = new c(m);
+				d && d.debug(`Creating random numbers Powers${t}...`);
+				for (let e = 0; e < g; e++) t == l + 1 && e == g - 1 ? _[e] = 0 : _[e] = y.nextU32();
+				_ = new Uint8Array(_.buffer, _.byteOffset, _.byteLength), d && d.debug(`reading points Powers${t}...`), await e.startReadUniqueSection(r, i, n), v = new s(g * p), t == l + 1 ? (await r.readToBuffer(v, 0, (g - 1) * p), v.set(o.G1.zeroAffine, (g - 1) * p)) : await r.readToBuffer(v, 0, g * p), await e.endReadSection(r, !0);
+				let b = await f.multiExpAffine(v, _, d, u + "_" + t);
+				_ = new s(g * h), y = new c(m);
+				let x = /* @__PURE__ */ new Uint8Array(4), S = new DataView(x.buffer);
+				d && d.debug(`Creating random numbers Powers${t}...`);
+				for (let e = 0; e < g; e++) (e != g - 1 || t != l + 1) && (S.setUint32(0, y.nextU32(), !0), _.set(x, e * h));
+				d && d.debug(`batchToMontgomery ${t}...`), _ = await o.Fr.batchToMontgomery(_), d && d.debug(`fft ${t}...`), _ = await o.Fr.fft(_), d && d.debug(`batchFromMontgomery ${t}...`), _ = await o.Fr.batchFromMontgomery(_), d && d.debug(`reading points Lagrange${t}...`), await e.startReadUniqueSection(r, i, a), r.pos += p * (2 ** t - 1), await r.readToBuffer(v, 0, g * p), await e.endReadSection(r, !0);
+				let C = await f.multiExpAffine(v, _, d, u + "_" + t + "_transformed");
+				return f.eq(b, C) ? !0 : (d && d.error("Phase2 caclutation does not match with powers of tau"), !1);
+			}
+		}
+	} finally {
+		for (let e of [r]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/mpc_applykey.js
+async function Pn(t, n, r, i, a, o, s, c, l, u) {
+	let d = 65536, f = a[o], p = f.F.n8 * 2, m = n[i][0].size / p;
+	await e.startReadUniqueSection(t, n, i), await e.startWriteSection(r, i);
+	let h = s;
+	for (let e = 0; e < m; e += d) {
+		u && u.debug(`Applying key: ${l}: ${e}/${m}`);
+		let n = Math.min(m - e, d), i;
+		i = await t.read(n * p), i = await f.batchApplyKey(i, h, c), await r.write(i), h = a.Fr.mul(h, a.Fr.exp(c, n));
+	}
+	await e.endWriteSection(r), await e.endReadSection(t);
+}
+async function Fn(e, t, n, r, i, a, o, s, c, l, u) {
+	let d = r[i], f = d.F.n8 * 2, p = Math.floor((1 << 20) / f), m = o;
+	for (let i = 0; i < a; i += p) {
+		u && u.debug(`Applying key ${l}: ${i}/${a}`);
+		let o = Math.min(a - i, p), h = await e.read(o * f), g = await d.batchUtoLEM(h), _ = await d.batchApplyKey(g, m, s), v;
+		v = c == "COMPRESSED" ? await d.batchLEMtoC(_) : await d.batchLEMtoU(_), n && n.update(v), await t.write(v), m = r.Fr.mul(m, r.Fr.exp(s, o));
+	}
+}
+//#endregion
+//#region src/powersoftau_challenge_contribute.js
+async function In(e, t, n, r, i) {
+	let a = await Wt(t), o = e.F1.n64 * 8 * 2, s = e.F2.n64 * 8 * 2, c = (a.totalSize + o - 64 - s) / (4 * o + s), l = c, u = 0;
+	for (; l > 1;) l /= 2, u += 1;
+	if (2 ** u != c) throw Error("Invalid file size");
+	i && i.debug("Power to tau size: " + u);
+	let d = await Pe(r), f = await Ut(n), p = W.create({ dkLen: 64 });
+	for (let e = 0; e < a.totalSize; e += a.pageSize) {
+		i && i.debug(`Hashing challenge ${e}/${a.totalSize}`);
+		let t = Math.min(a.totalSize - e, a.pageSize), n = await a.read(t);
+		p.update(n);
+	}
+	let m = await a.read(64, 0);
+	i && i.info(G(m, "Claimed Previous Response Hash: "));
+	let h = p.digest();
+	i && i.info(G(h, "Current Challenge Hash: "));
+	let g = hn(e, h, d);
+	i && [
+		"tau",
+		"alpha",
+		"beta"
+	].forEach((t) => {
+		i.debug(t + ".g1_s: " + e.G1.toString(g[t].g1_s, 16)), i.debug(t + ".g1_sx: " + e.G1.toString(g[t].g1_sx, 16)), i.debug(t + ".g2_sp: " + e.G2.toString(g[t].g2_sp, 16)), i.debug(t + ".g2_spx: " + e.G2.toString(g[t].g2_spx, 16)), i.debug("");
+	});
+	let _ = W.create({ dkLen: 64 });
+	await f.write(h), _.update(h), await Fn(a, f, _, e, "G1", 2 ** u * 2 - 1, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG1", i), await Fn(a, f, _, e, "G2", 2 ** u, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG2", i), await Fn(a, f, _, e, "G1", 2 ** u, g.alpha.prvKey, g.tau.prvKey, "COMPRESSED", "alphaTauG1", i), await Fn(a, f, _, e, "G1", 2 ** u, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG1", i), await Fn(a, f, _, e, "G2", 1, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG2", i);
+	let v = new Uint8Array(e.F1.n8 * 2 * 6 + e.F2.n8 * 2 * 3);
+	bn(v, 0, e, g, !1), await f.write(v), _.update(v);
+	let y = _.digest();
+	i && i.info(G(y, "Contribution Response Hash: ")), await f.close(), await a.close();
+}
+//#endregion
+//#region src/powersoftau_beacon.js
+async function Ln(t, n, r, i, a, o) {
+	let s = Ie(i);
+	if (s.byteLength == 0 || s.byteLength * 2 != i.length) return o && o.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)"), !1;
+	if (s.length >= 256) return o && o.error("Maximum length of beacon hash is 255 bytes"), !1;
+	if (a = parseInt(a), a < 10 || a > 63) return o && o.error("Invalid numIterationsExp. (Must be between 10 and 63)"), !1;
+	let { fd: c, sections: l } = await e.readBinFile(t, "ptau", 1), { curve: u, power: d, ceremonyPower: f } = await _n(c, l);
+	if (d != f) return o && o.error("This file has been reduced. You cannot contribute into a reduced file."), !1;
+	l[12] && o && o.warn("Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
+	let p = await Cn(c, u, l), m = {
+		name: r,
+		type: 1,
+		numIterationsExp: a,
+		beaconHash: s
+	}, h;
+	h = p.length > 0 ? p[p.length - 1].nextChallenge : En(u, d, o), m.key = await Dn(u, h, s, a);
+	let g = W.create({ dkLen: 64 });
+	g.update(h);
+	let _ = await e.createBinFile(n, "ptau", 1, 7);
+	await gn(_, u, d);
+	let v = [], y;
+	y = await C(2, "G1", 2 ** d * 2 - 1, u.Fr.e(1), m.key.tau.prvKey, "tauG1", o), m.tauG1 = y[1], y = await C(3, "G2", 2 ** d, u.Fr.e(1), m.key.tau.prvKey, "tauG2", o), m.tauG2 = y[1], y = await C(4, "G1", 2 ** d, m.key.alpha.prvKey, m.key.tau.prvKey, "alphaTauG1", o), m.alphaG1 = y[0], y = await C(5, "G1", 2 ** d, m.key.beta.prvKey, m.key.tau.prvKey, "betaTauG1", o), m.betaG1 = y[0], y = await C(6, "G2", 1, m.key.beta.prvKey, m.key.tau.prvKey, "betaTauG2", o), m.betaG2 = y[0], m.partialHash = Oe(g);
+	let b = new Uint8Array(u.F1.n8 * 2 * 6 + u.F2.n8 * 2 * 3);
+	bn(b, 0, u, m.key, !1), g.update(new Uint8Array(b));
+	let x = g.digest();
+	o && o.info(G(x, "Contribution Response Hash imported: "));
+	let S = W.create({ dkLen: 64 });
+	return S.update(x), await w(_, "G1", 2, 2 ** d * 2 - 1, "tauG1", o), await w(_, "G2", 3, 2 ** d, "tauG2", o), await w(_, "G1", 4, 2 ** d, "alphaTauG1", o), await w(_, "G1", 5, 2 ** d, "betaTauG1", o), await w(_, "G2", 6, 1, "betaG2", o), m.nextChallenge = S.digest(), o && o.info(G(m.nextChallenge, "Next Challenge Hash: ")), p.push(m), await Tn(_, u, p), await c.close(), await _.close(), x;
+	async function C(t, n, r, i, a, o, s) {
+		let d = [];
+		c.pos = l[t][0].p, await e.startWriteSection(_, t), v[t] = _.pos;
+		let f = u[n], p = f.F.n8 * 2, m = Math.floor((1 << 20) / p), h = i;
+		for (let e = 0; e < r; e += m) {
+			s && s.debug(`applying key${o}: ${e}/${r}`);
+			let t = Math.min(r - e, m), n = await c.read(t * p), i = await f.batchApplyKey(n, h, a), l = _.write(i), v = await f.batchLEMtoC(i);
+			if (g.update(v), await l, e == 0) for (let e = 0; e < Math.min(2, r); e++) d.push(f.fromRprLEM(i, e * p));
+			h = u.Fr.mul(h, u.Fr.exp(a, t));
+		}
+		return await e.endWriteSection(_), d;
+	}
+	async function w(e, t, n, r, i, a) {
+		let o = u[t], s = o.F.n8 * 2, c = Math.floor((1 << 24) / s), l = e.pos;
+		e.pos = v[n];
+		for (let t = 0; t < r; t += c) {
+			a && a.debug(`Hashing ${i}: ${t}/${r}`);
+			let n = Math.min(r - t, c), l = await e.read(n * s), u = await o.batchLEMtoU(l);
+			S.update(u);
+		}
+		e.pos = l;
+	}
+}
+//#endregion
+//#region src/powersoftau_contribute.js
+async function Rn(t, n, r, i, a) {
+	let { fd: o, sections: s } = await e.readBinFile(t, "ptau", 1), { curve: c, power: l, ceremonyPower: u } = await _n(o, s);
+	if (l != u) throw a && a.error("This file has been reduced. You cannot contribute into a reduced file."), Error("This file has been reduced. You cannot contribute into a reduced file.");
+	s[12] && a && a.warn("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
+	let d = await Cn(o, c, s), f = {
+		name: r,
+		type: 0
+	}, p, m = await Pe(i);
+	p = d.length > 0 ? d[d.length - 1].nextChallenge : En(c, l, a), f.key = hn(c, p, m);
+	let h = W.create({ dkLen: 64 });
+	h.update(p);
+	let g = await e.createBinFile(n, "ptau", 1, 7);
+	await gn(g, c, l);
+	let _ = [], v;
+	v = await S(2, "G1", 2 ** l * 2 - 1, c.Fr.e(1), f.key.tau.prvKey, "tauG1"), f.tauG1 = v[1], v = await S(3, "G2", 2 ** l, c.Fr.e(1), f.key.tau.prvKey, "tauG2"), f.tauG2 = v[1], v = await S(4, "G1", 2 ** l, f.key.alpha.prvKey, f.key.tau.prvKey, "alphaTauG1"), f.alphaG1 = v[0], v = await S(5, "G1", 2 ** l, f.key.beta.prvKey, f.key.tau.prvKey, "betaTauG1"), f.betaG1 = v[0], v = await S(6, "G2", 1, f.key.beta.prvKey, f.key.tau.prvKey, "betaTauG2"), f.betaG2 = v[0], f.partialHash = Oe(h);
+	let y = new Uint8Array(c.F1.n8 * 2 * 6 + c.F2.n8 * 2 * 3);
+	bn(y, 0, c, f.key, !1), h.update(new Uint8Array(y));
+	let b = h.digest();
+	a && a.info(G(b, "Contribution Response Hash imported: "));
+	let x = W.create({ dkLen: 64 });
+	return x.update(b), await C(g, "G1", 2, 2 ** l * 2 - 1, "tauG1"), await C(g, "G2", 3, 2 ** l, "tauG2"), await C(g, "G1", 4, 2 ** l, "alphaTauG1"), await C(g, "G1", 5, 2 ** l, "betaTauG1"), await C(g, "G2", 6, 1, "betaG2"), f.nextChallenge = x.digest(), a && a.info(G(f.nextChallenge, "Next Challenge Hash: ")), d.push(f), await Tn(g, c, d), await o.close(), await g.close(), b;
+	async function S(t, n, r, i, l, u) {
+		let d = [];
+		o.pos = s[t][0].p, await e.startWriteSection(g, t), _[t] = g.pos;
+		let f = c[n], p = f.F.n8 * 2, m = Math.floor((1 << 20) / p), v = i;
+		for (let e = 0; e < r; e += m) {
+			a && a.debug(`processing: ${u}: ${e}/${r}`);
+			let t = Math.min(r - e, m), n = await o.read(t * p), i = await f.batchApplyKey(n, v, l), s = g.write(i), _ = await f.batchLEMtoC(i);
+			if (h.update(_), await s, e == 0) for (let e = 0; e < Math.min(2, r); e++) d.push(f.fromRprLEM(i, e * p));
+			v = c.Fr.mul(v, c.Fr.exp(l, t));
+		}
+		return await e.endWriteSection(g), d;
+	}
+	async function C(e, t, n, r, i) {
+		let o = c[t], s = o.F.n8 * 2, l = Math.floor((1 << 24) / s), u = e.pos;
+		e.pos = _[n];
+		for (let t = 0; t < r; t += l) {
+			a && t && a.debug(`Hashing ${i}: ` + t);
+			let n = Math.min(r - t, l), c = await e.read(n * s), u = await o.batchLEMtoU(c);
+			x.update(u);
+		}
+		e.pos = u;
+	}
+}
+//#endregion
+//#region src/powersoftau_preparephase2.js
+async function zn(t, n, r) {
+	let { fd: i, sections: a } = await e.readBinFile(t, "ptau", 1), { curve: o, power: c } = await _n(i, a), l = await e.createBinFile(n, "ptau", 1, 11);
+	await gn(l, o, c), await e.copySection(i, a, l, 2), await e.copySection(i, a, l, 3), await e.copySection(i, a, l, 4), await e.copySection(i, a, l, 5), await e.copySection(i, a, l, 6), await e.copySection(i, a, l, 7), await u(2, 12, "G1", "tauG1"), await u(3, 13, "G2", "tauG2"), await u(4, 14, "G1", "alphaTauG1"), await u(5, 15, "G1", "betaTauG1"), await i.close(), await l.close();
+	return;
+	async function u(t, n, u, d) {
+		r && r.debug("Starting section: " + d), await e.startWriteSection(l, n);
+		for (let e = 0; e <= c; e++) await f(e);
+		t == 2 && await f(c + 1), await e.endWriteSection(l);
+		async function f(n) {
+			let f = 2 ** n, p = o[u], m = p.F.n8 * 2, h;
+			h = new s(f * m), await e.startReadUniqueSection(i, a, t), t == 2 && n == c + 1 ? (await i.readToBuffer(h, 0, (f - 1) * m), h.set(o.G1.zeroAffine, (f - 1) * m)) : await i.readToBuffer(h, 0, f * m), await e.endReadSection(i, !0), h = await p.lagrangeEvaluations(h, "affine", "affine", r, d), await l.write(h);
+		}
+	}
+}
+//#endregion
+//#region src/powersoftau_truncate.js
+async function Bn(t, n, r) {
+	let { fd: i, sections: a } = await e.readBinFile(t, "ptau", 1), { curve: o, power: s, ceremonyPower: c } = await _n(i, a), l = o.G1.F.n8 * 2, u = o.G2.F.n8 * 2;
+	for (let e = 1; e < s; e++) await d(e);
+	return await i.close(), !0;
+	async function d(t) {
+		let s = t.toString();
+		for (; s.length < 2;) s = "0" + s;
+		r && r.debug("Writing Power: " + s);
+		let d = await e.createBinFile(n + s + ".ptau", "ptau", 1, 11);
+		await gn(d, o, t, c), await e.copySection(i, a, d, 2, (2 ** t * 2 - 1) * l), await e.copySection(i, a, d, 3, 2 ** t * u), await e.copySection(i, a, d, 4, 2 ** t * l), await e.copySection(i, a, d, 5, 2 ** t * l), await e.copySection(i, a, d, 6, u), await e.copySection(i, a, d, 7), await e.copySection(i, a, d, 12, (2 ** (t + 1) * 2 - 1) * l), await e.copySection(i, a, d, 13, (2 ** t * 2 - 1) * u), await e.copySection(i, a, d, 14, (2 ** t * 2 - 1) * l), await e.copySection(i, a, d, 15, (2 ** t * 2 - 1) * l), await d.close();
+	}
+}
+//#endregion
+//#region src/powersoftau_convert.js
+async function Vn(t, n, r) {
+	let { fd: i, sections: a } = await e.readBinFile(t, "ptau", 1), { curve: o, power: c } = await _n(i, a), l = await e.createBinFile(n, "ptau", 1, 11);
+	await gn(l, o, c), await e.copySection(i, a, l, 2), await e.copySection(i, a, l, 3), await e.copySection(i, a, l, 4), await e.copySection(i, a, l, 5), await e.copySection(i, a, l, 6), await e.copySection(i, a, l, 7), await u(2, 12, "G1", "tauG1"), await e.copySection(i, a, l, 13), await e.copySection(i, a, l, 14), await e.copySection(i, a, l, 15), await i.close(), await l.close();
+	return;
+	async function u(t, n, u, d) {
+		r && r.debug("Starting section: " + d), await e.startWriteSection(l, n);
+		let f = a[n][0].size, p = i.pageSize;
+		await e.startReadUniqueSection(i, a, n);
+		for (let e = 0; e < f; e += p) {
+			let t = Math.min(f - e, p), n = await i.read(t);
+			await l.write(n);
+		}
+		await e.endReadSection(i), t == 2 && await m(c + 1), await e.endWriteSection(l);
+		async function m(n) {
+			let f = 2 ** n, p = o[u], m = p.F.n8 * 2, h;
+			h = new s(f * m), await e.startReadUniqueSection(i, a, t), t == 2 && n == c + 1 ? (await i.readToBuffer(h, 0, (f - 1) * m), h.set(o.G1.zeroAffine, (f - 1) * m)) : await i.readToBuffer(h, 0, f * m), await e.endReadSection(i, !0), h = await p.lagrangeEvaluations(h, "affine", "affine", r, d), await l.write(h);
+		}
+	}
+}
+//#endregion
+//#region src/powersoftau_export_json.js
+async function Hn(t, n) {
+	let { fd: r, sections: i } = await e.readBinFile(t, "ptau", 1), { curve: a, power: o } = await _n(r, i), s = {};
+	return s.q = a.q, s.power = o, s.contributions = await Cn(r, a, i), s.tauG1 = await c(2, "G1", 2 ** o * 2 - 1, "tauG1"), s.tauG2 = await c(3, "G2", 2 ** o, "tauG2"), s.alphaTauG1 = await c(4, "G1", 2 ** o, "alphaTauG1"), s.betaTauG1 = await c(5, "G1", 2 ** o, "betaTauG1"), s.betaG2 = await c(6, "G2", 1, "betaG2"), s.lTauG1 = await l(12, "G1", "lTauG1"), s.lTauG2 = await l(13, "G2", "lTauG2"), s.lAlphaTauG1 = await l(14, "G1", "lAlphaTauG2"), s.lBetaTauG1 = await l(15, "G1", "lBetaTauG2"), await r.close(), Re(a.Fr, s);
+	async function c(t, o, s, c) {
+		let l = a[o], u = l.F.n8 * 2, d = [];
+		await e.startReadUniqueSection(r, i, t);
+		for (let e = 0; e < s; e++) {
+			n && e && e % 1e4 == 0 && console.log(`${c}: ` + e);
+			let t = await r.read(u);
+			d.push(l.fromRprLEM(t, 0));
+		}
+		return await e.endReadSection(r), d;
+	}
+	async function l(t, s, c) {
+		let l = a[s], u = l.F.n8 * 2, d = [];
+		await e.startReadUniqueSection(r, i, t);
+		for (let e = 0; e <= o; e++) {
+			n && console.log(`${c}: Power: ${e}`), d[e] = [];
+			let t = 2 ** e;
+			for (let i = 0; i < t; i++) {
+				n && i && i % 1e4 == 0 && console.log(`${c}: ${i}/${t}`);
+				let a = await r.read(u);
+				d[e].push(l.fromRprLEM(a, 0));
+			}
+		}
+		return await e.endReadSection(r, !0), d;
+	}
+}
+//#endregion
+//#region src/powersoftau.js
+var Un = /* @__PURE__ */ v({
+	beacon: () => Ln,
+	challengeContribute: () => In,
+	contribute: () => Rn,
+	convert: () => Vn,
+	exportChallenge: () => kn,
+	exportJson: () => Hn,
+	importResponse: () => An,
+	newAccumulator: () => On,
+	preparePhase2: () => zn,
+	truncate: () => Bn,
+	verify: () => Nn
+});
+//#endregion
+//#region src/r1cs_print.js
+function Wn(e, t, n) {
+	for (let t = 0; t < e.constraints.length; t++) r(e.constraints[t]);
+	function r(r) {
+		let i = (n) => {
+			let r = "";
+			return Object.keys(n).forEach((i) => {
+				let a = t.varIdx2Name[i];
+				a == "one" && (a = "1");
+				let o = e.curve.Fr.toString(n[i]);
+				o == "1" && (o = ""), o == "-1" && (o = "-"), r != "" && o[0] != "-" && (o = "+" + o), r != "" && (o = " " + o), r = r + o + a;
+			}), r;
+		}, a = `[ ${i(r[0])} ] * [ ${i(r[1])} ] - [ ${i(r[2])} ] = 0`;
+		n && n.info(a);
+	}
+}
+//#endregion
+//#region src/r1cs_info.js
+var Gn = u.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), Kn = u.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+async function qn(e, t) {
+	let n = await m(e, {
+		loadConstraints: !1,
+		loadMap: !1
+	});
+	return u.eq(n.prime, Kn) ? t && t.info("Curve: bn-128") : u.eq(n.prime, Gn) ? t && t.info("Curve: bls12-381") : t && t.info(`Unknown Curve. Prime: ${u.toString(n.prime)}`), t && t.info(`# of Wires: ${n.nVars}`), t && t.info(`# of Constraints: ${n.nConstraints}`), t && t.info(`# of Private Inputs: ${n.nPrvInputs}`), t && t.info(`# of Public Inputs: ${n.nPubInputs}`), t && t.info(`# of Labels: ${n.nLabels}`), t && t.info(`# of Outputs: ${n.nOutputs}`), n;
+}
+//#endregion
+//#region src/r1cs_export_json.js
+async function Jn(e, t) {
+	let n = await m(e, !0, !0, !0, t), r = n.curve.Fr;
+	return delete n.curve, delete n.F, Re(r, n);
+}
+//#endregion
+//#region src/r1cs.js
+var Yn = /* @__PURE__ */ v({
+	exportJson: () => Jn,
+	info: () => qn,
+	print: () => Wn
+});
+//#endregion
+//#region src/loadsyms.js
+async function Xn(e) {
+	let t = {
+		labelIdx2Name: ["one"],
+		varIdx2Name: ["one"],
+		componentIdx2Name: []
+	}, n = await Wt(e), r = await n.read(n.totalSize), i = new TextDecoder("utf-8").decode(r).split("\n");
+	for (let e = 0; e < i.length; e++) {
+		let n = i[e].split(",");
+		n.length == 4 && (t.varIdx2Name[n[1]] ? t.varIdx2Name[n[1]] += "|" + n[3] : t.varIdx2Name[n[1]] = n[3], t.labelIdx2Name[n[0]] = n[3], t.componentIdx2Name[n[2]] || (t.componentIdx2Name[n[2]] = a(n[3])));
+	}
+	return await n.close(), t;
+	function a(e) {
+		let t = e.split(".");
+		return t.pop(), t.join(".");
+	}
+}
+//#endregion
+//#region src/wtns_debug.js
+var { unstringifyBigInts: Zn } = p;
+async function Qn(t, n, r, i, a, o) {
+	let s = Zn(t), c = await Wt(n), l = await c.read(c.totalSize);
+	await c.close();
+	let u = {
+		...a,
+		sanityCheck: !0
+	}, d = await Xn(i);
+	a.set && (d ||= await Xn(i), u.logSetSignal = function(e, t) {
+		o && o.info("SET " + d.labelIdx2Name[e] + " <-- " + t.toString());
+	}), a.get && (d ||= await Xn(i), u.logGetSignal = function(e, t) {
+		o && o.info("GET " + d.labelIdx2Name[e] + " --> " + t.toString());
+	}), a.trigger && (d ||= await Xn(i), u.logStartComponent = function(e) {
+		o && o.info("START: " + d.componentIdx2Name[e]);
+	}, u.logFinishComponent = function(e) {
+		o && o.info("FINISH: " + d.componentIdx2Name[e]);
+	}), u.sym = d;
+	let f = await Yt(l, u), p = await f.calculateWitness(s, !0), m = await e.createBinFile(r, "wtns", 2, 2);
+	await tt(m, p, f.prime), await m.close();
+}
+//#endregion
+//#region src/wtns_export_json.js
+async function $n(e) {
+	return await it(e);
+}
+//#endregion
+//#region src/wtns_check.js
+async function er(t, n, r) {
+	let i, a, o, s;
+	try {
+		r && r.info("WITNESS CHECKING STARTED"), r && r.info("> Reading r1cs file"), {fd: i, sections: a} = await e.readBinFile(t, "r1cs", 1, 1 << 22, 1 << 24);
+		let c = await h(i, a, {
+			loadConstraints: !1,
+			loadCustomGates: !1
+		});
+		r && r.info("> Reading witness file"), {fd: o, sections: s} = await e.readBinFile(n, "wtns", 2, 1 << 22, 1 << 24);
+		let l = await rt(o, s);
+		if (!u.eq(c.prime, l.q)) throw Error("Curve of the witness does not match the curve of the proving key");
+		let d = await e.readSection(o, s, 2);
+		await o.close();
+		let f = (await w(c.prime)).Fr, p = f.n8, m = await e.readSection(i, a, 2);
+		r && (r.info("----------------------------"), r.info("  WITNESS CHECK"), r.info(`  Curve:          ${c.curve.name}`), r.info(`  Vars (wires):   ${c.nVars}`), r.info(`  Outputs:        ${c.nOutputs}`), r.info(`  Public Inputs:  ${c.nPubInputs}`), r.info(`  Private Inputs: ${c.nPrvInputs}`), r.info(`  Labels:         ${c.nLabels}`), r.info(`  Constraints:    ${c.nConstraints}`), r.info(`  Custom Gates:   ${c.useCustomGates}`), r.info("----------------------------")), r && r.info("> Checking witness correctness");
+		let g = 0, _ = !0;
+		for (let e = 0; e < c.nConstraints; e++) {
+			r && e !== 0 && e % 5e5 == 0 && r.info(`··· processing r1cs constraints ${e}/${c.nConstraints}`);
+			let t = y(), n = y(), i = y(), a = v(t), o = v(n), s = v(i);
+			if (!f.eq(f.sub(f.mul(a, o), s), f.zero)) {
+				r && r.warn("··· aborting checking process at constraint " + e), _ = !1;
+				break;
+			}
+		}
+		return await i.close(), r && (_ ? (r.info("WITNESS IS CORRECT"), r.info("WITNESS CHECKING FINISHED SUCCESSFULLY")) : (r.warn("WITNESS IS NOT CORRECT"), r.warn("WITNESS CHECKING FINISHED UNSUCCESSFULLY"))), _;
+		function v(e) {
+			let t = f.zero;
+			return Object.keys(e).forEach((n) => {
+				let r = b(n), i = e[n];
+				t = f.add(t, f.mul(r, i));
+			}), t;
+		}
+		function y() {
+			let e = {}, t = m.slice(g, g + 4);
+			g += 4;
+			let n = new DataView(t.buffer).getUint32(0, !0), r = m.slice(g, g + (4 + c.n8) * n);
+			g += (4 + c.n8) * n;
+			let i = new DataView(r.buffer);
+			for (let t = 0; t < n; t++) {
+				let n = i.getUint32(t * (4 + c.n8), !0);
+				e[n] = c.F.fromRprLE(r, t * (4 + c.n8) + 4);
+			}
+			return e;
+		}
+		function b(e) {
+			return f.fromRprLE(d.slice(e * p, e * p + p));
+		}
+	} finally {
+		for (let e of [i, o]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/wtns.js
+var tr = /* @__PURE__ */ v({
+	calculate: () => $t,
+	check: () => er,
+	debug: () => Qn,
+	exportJson: () => $n
+}), nr = 262144, rr = {
+	get: function(e, t) {
+		return isNaN(t) ? e[t] : e.getElement(t);
+	},
+	set: function(e, t, n) {
+		return isNaN(t) ? (e[t] = n, !0) : e.setElement(t, n);
+	}
+}, ir = class {
+	constructor(e) {
+		this.length = e || 0, this.arr = Array(nr);
+		for (let t = 0; t < e; t += nr) this.arr[t / nr] = Array(Math.min(nr, e - t));
+		return this;
+	}
+	push() {
+		for (let e = 0; e < arguments.length; e++) this.setElement(this.length, arguments[e]);
+	}
+	slice(e, t) {
+		let n = Array(t - e);
+		for (let r = e; r < t; r++) n[r - e] = this.getElement(r);
+		return n;
+	}
+	getElement(e) {
+		e = parseInt(e);
+		let t = Math.floor(e / nr), n = e % nr;
+		return this.arr[t] ? this.arr[t][n] : void 0;
+	}
+	setElement(e, t) {
+		e = parseInt(e);
+		let n = Math.floor(e / nr);
+		this.arr[n] || (this.arr[n] = Array(nr));
+		let r = e % nr;
+		return this.arr[n][r] = t, e >= this.length && (this.length = e + 1), !0;
+	}
+	getKeys() {
+		let e = new J();
+		for (let t = 0; t < this.arr.length; t++) if (this.arr[t]) for (let n = 0; n < this.arr[t].length; n++) this.arr[t][n] !== void 0 && e.push(t * nr + n);
+		return e;
+	}
+}, J = class {
+	constructor(e) {
+		let t = new ir(e);
+		return new Proxy(t, rr);
+	}
 };
-
-let BigArray$1 = class BigArray {
-    constructor( initSize ) {
-        const obj = new _BigArray$1(initSize);
-        const extObj = new Proxy(obj, BigArrayHandler$1);
-        return extObj;
-    }
+//#endregion
+//#region src/zkey_new.js
+async function ar(e, c, l, d) {
+	let f, p, m, h, _;
+	try {
+		let v = W.create({ dkLen: 64 });
+		({fd: f, sections: p} = await r(c, "ptau", 1, 1 << 22, 1 << 24));
+		let { curve: y, power: b } = await _n(f, p);
+		({fd: m, sections: h} = await r(e, "r1cs", 1, 1 << 22, 1 << 24));
+		let x = await g(m, h, !1);
+		_ = await t(l, "zkey", 1, 10, 1 << 22, 1 << 24);
+		let S = y.G1.F.n8 * 2, C = y.G2.F.n8 * 2;
+		if (x.prime != y.r) return d && d.error("r1cs curve does not match powers of tau ceremony curve"), -1;
+		let w = we(x.nConstraints + x.nPubInputs + x.nOutputs + 1 - 1) + 1;
+		if (w > b) return d && d.error(`circuit too big for this power of tau ceremony. ${x.nConstraints}*2 > 2**${b}`), -1;
+		if (!p[12]) return d && d.error("Powers of tau is not prepared."), -1;
+		let T = x.nOutputs + x.nPubInputs, E = 2 ** w;
+		await a(_, 1), await _.writeULE32(1), await n(_), await a(_, 2);
+		let D = y.q, O = (Math.floor((u.bitLength(D) - 1) / 64) + 1) * 8, k = y.r, A = (Math.floor((u.bitLength(k) - 1) / 64) + 1) * 8, j = u.mod(u.shl(1, A * 8), k), M = y.Fr.e(u.mod(u.mul(j, j), k));
+		await _.writeULE32(O), await o(_, D, O), await _.writeULE32(A), await o(_, k, A), await _.writeULE32(x.nVars), await _.writeULE32(T), await _.writeULE32(E), await (async function() {
+			let e = await f.read(S, p[4][0].p);
+			await _.write(e), e = await y.G1.batchLEMtoU(e), v.update(e);
+			let t = await f.read(S, p[5][0].p);
+			await _.write(t), t = await y.G1.batchLEMtoU(t), v.update(t);
+			let n = await f.read(C, p[6][0].p);
+			await _.write(n), n = await y.G2.batchLEMtoU(n), v.update(n);
+			let r = new Uint8Array(S);
+			y.G1.toRprLEM(r, 0, y.G1.g);
+			let i = new Uint8Array(C);
+			y.G2.toRprLEM(i, 0, y.G2.g);
+			let a = new Uint8Array(S);
+			y.G1.toRprUncompressed(a, 0, y.G1.g);
+			let o = new Uint8Array(C);
+			y.G2.toRprUncompressed(o, 0, y.G2.g), await _.write(i), await _.write(r), await _.write(i), v.update(o), v.update(a), v.update(o);
+		})(), await n(_), d && d.info("Reading r1cs");
+		let N = await i(m, h, 2);
+		await m.close();
+		let P = new J(x.nVars), F = new J(x.nVars), I = new J(x.nVars), L = new J(x.nVars - T - 1), R = Array(T + 1);
+		d && d.info("Reading tauG1");
+		let z = await i(f, p, 12, (E - 1) * S, E * S), B = null;
+		d && d.info("Reading alphatauG1");
+		let V = await i(f, p, 14, (E - 1) * S, E * S);
+		d && d.info("Reading betatauG1");
+		let ee = await i(f, p, 15, (E - 1) * S, E * S);
+		d && d.info("processConstraints"), await re(), d && d.info("composeAndWritePoints"), await ie(3, "G1", R, "IC"), R = null, d && d.info("writeHs"), await ne(), d && d.info("hashHPoints"), await oe(), d && d.info("composeAndWritePoints 8 G1 C"), await ie(8, "G1", L, "C"), L = null, V = null, ee = null, d && d.info("composeAndWritePoints 5 G1 A"), await ie(5, "G1", P, "A"), P = null, d && d.info("composeAndWritePoints 6 G1 B1"), await ie(6, "G1", F, "B1"), F = null, z = null, d && d.info("Reading tauG2"), B = await i(f, p, 13, (E - 1) * C, E * C), d && d.info("composeAndWritePoints 7 G2 B2"), await ie(7, "G2", I, "B2"), I = null, B = null, N = null, d && d.info("Contributions section");
+		let te = v.digest();
+		return await a(_, 10), await _.write(te), await _.writeULE32(0), await n(_), d && d.info(G(te, "Circuit hash: ")), await _.close(), await f.close(), te;
+		async function ne() {
+			await a(_, 9);
+			let e = new s(E * S);
+			if (w < y.Fr.s) {
+				let t = await i(f, p, 12, (E * 2 - 1) * S, E * 2 * S);
+				for (let n = 0; n < E; n++) {
+					d && n % 1e4 == 0 && d.debug(`splitting buffer: ${n}/${E}`);
+					let r = t.slice((n * 2 + 1) * S, (n * 2 + 1) * S + S);
+					e.set(r, n * S);
+				}
+			} else if (w == y.Fr.s) {
+				/* c8 ignore start */
+				let t = p[12][0].p + (2 ** (w + 1) - 1) * S;
+				await f.readToBuffer(e, 0, E * S, t + E * S);
+			} else throw d && d.error("Circuit too big"), Error("Circuit too big for this curve");
+			await _.write(e), await n(_);
+		}
+		async function re() {
+			let e = new Uint8Array(12 + y.Fr.n8), t = new DataView(e.buffer), r = new Uint8Array(y.Fr.n8);
+			y.Fr.toRprLE(r, 0, y.Fr.e(1));
+			let i = 0;
+			function o() {
+				let e = N.slice(i, i + 4);
+				return i += 4, new DataView(e.buffer).getUint32(0, !0);
+			}
+			let c = new J();
+			for (let e = 0; e < x.nConstraints; e++) {
+				d && e % 1e4 == 0 && d.debug(`processing constraints: ${e}/${x.nConstraints}`);
+				let t = o();
+				for (let n = 0; n < t; n++) {
+					let t = o(), n = i;
+					i += y.Fr.n8;
+					let r = S * e, a = S * e;
+					P[t] === void 0 && (P[t] = []), P[t].push([
+						0,
+						r,
+						n
+					]), t <= T ? (R[t] === void 0 && (R[t] = []), R[t].push([
+						3,
+						a,
+						n
+					])) : (L[t - T - 1] === void 0 && (L[t - T - 1] = []), L[t - T - 1].push([
+						3,
+						a,
+						n
+					])), c.push([
+						0,
+						e,
+						t,
+						n
+					]);
+				}
+				let n = o();
+				for (let t = 0; t < n; t++) {
+					let t = o(), n = i;
+					i += y.Fr.n8;
+					let r = S * e, a = C * e, s = S * e;
+					F[t] === void 0 && (F[t] = []), F[t].push([
+						0,
+						r,
+						n
+					]), I[t] === void 0 && (I[t] = []), I[t].push([
+						1,
+						a,
+						n
+					]), t <= T ? 
+					/* c8 ignore start */
+					(R[t] === void 0 && (R[t] = []), R[t].push([
+						2,
+						s,
+						n
+					])) : (L[t - T - 1] === void 0 && (L[t - T - 1] = []), L[t - T - 1].push([
+						2,
+						s,
+						n
+					])), c.push([
+						1,
+						e,
+						t,
+						n
+					]);
+				}
+				let r = o();
+				for (let t = 0; t < r; t++) {
+					let t = o(), n = i;
+					i += y.Fr.n8;
+					let r = S * e;
+					t <= T ? (R[t] === void 0 && (R[t] = []), R[t].push([
+						0,
+						r,
+						n
+					])) : (L[t - T - 1] === void 0 && (L[t - T - 1] = []), L[t - T - 1].push([
+						0,
+						r,
+						n
+					]));
+				}
+			}
+			for (let e = 0; e <= T; e++) {
+				let t = S * (x.nConstraints + e), n = S * (x.nConstraints + e);
+				P[e] === void 0 && (P[e] = []), P[e].push([
+					0,
+					t,
+					-1
+				]), R[e] === void 0 && (R[e] = []), R[e].push([
+					3,
+					n,
+					-1
+				]), c.push([
+					0,
+					x.nConstraints + e,
+					e,
+					-1
+				]);
+			}
+			await a(_, 4);
+			let l = new s(c.length * (12 + y.Fr.n8) + 4), u = /* @__PURE__ */ new Uint8Array(4);
+			new DataView(u.buffer).setUint32(0, c.length, !0), l.set(u);
+			let f = 4;
+			for (let e = 0; e < c.length; e++) d && e % 1e5 == 0 && d.debug(`writing coeffs: ${e}/${c.length}`), p(c[e]);
+			await _.write(l), await n(_);
+			function p(n) {
+				t.setUint32(0, n[0], !0), t.setUint32(4, n[1], !0), t.setUint32(8, n[2], !0);
+				let i;
+				i = n[3] >= 0 ? y.Fr.fromRprLE(N.slice(n[3], n[3] + y.Fr.n8), 0) : y.Fr.fromRprLE(r, 0);
+				let a = y.Fr.mul(i, M);
+				y.Fr.toRprLE(e, 12, a), l.set(e, f), f += e.length;
+			}
+		}
+		async function ie(e, t, r, i) {
+			let o = 32768, s = y[t];
+			le(r.length), await a(_, e);
+			let c = [], l = 0;
+			for (; l < r.length;) {
+				let e = 0;
+				for (; l < r.length && e < y.tm.concurrency;) {
+					d && d.debug(`Writing points start ${i}: ${l}/${r.length}`);
+					let n = 1, a = r[l] ? r[l].length : 0;
+					for (; l + n < r.length && a + (r[l + n] ? r[l + n].length : 0) < o && n < o;) a += r[l + n] ? r[l + n].length : 0, n++;
+					let s = r.slice(l, l + n), u = l;
+					c.push(ae(t, s, d, i).then((e) => (d && d.debug(`Writing points end ${i}: ${u}/${r.length}`), e))), l += n, e++;
+				}
+				let n = await Promise.all(c);
+				for (let e = 0; e < n.length; e++) {
+					await _.write(n[e][0]);
+					let t = await s.batchLEMtoU(n[e][0]);
+					v.update(t);
+				}
+				c = [];
+			}
+			await n(_);
+		}
+		async function ae(e, t, n, r) {
+			let i = y[e], a = i.F.n8 * 2, o = i.F.n8 * 3, c = i.F.n8 * 2, l, u, d, f;
+			if (e == "G1") l = "g1m_timesScalarAffine", u = "g1m_multiexpAffine", d = "g1m_batchToAffine", f = "g1m_zero";
+			else if (e == "G2") l = "g2m_timesScalarAffine", u = "g2m_multiexpAffine", d = "g2m_batchToAffine", f = "g2m_zero";
+			else throw Error("Invalid group");
+			let p = 0;
+			for (let e = 0; e < t.length; e++) p += t[e] ? t[e].length : 0;
+			let m, h;
+			/* c8 ignore start */
+			p > 32768 ? (m = new s(p * a), h = new s(p * y.Fr.n8)) : (m = new Uint8Array(p * a), h = new Uint8Array(p * y.Fr.n8));
+			/* c8 ignore stop */
+			let g = 0, _ = 0, v = [
+				z,
+				B,
+				V,
+				ee
+			], b = new Uint8Array(y.Fr.n8);
+			y.Fr.toRprLE(b, 0, y.Fr.e(1));
+			let x = 0;
+			for (let e = 0; e < t.length; e++) if (t[e]) for (let i = 0; i < t[e].length; i++) n && i && i % 1e4 == 0 && n.debug(`Configuring big array ${r}: ${i}/${t[e].length}`), m.set(v[t[e][i][0]].slice(t[e][i][1], t[e][i][1] + a), x * a), t[e][i][2] >= 0 ? h.set(N.slice(t[e][i][2], t[e][i][2] + y.Fr.n8), x * y.Fr.n8) : h.set(b, x * y.Fr.n8), x++;
+			if (t.length > 1) {
+				let e = [];
+				e.push({
+					cmd: "ALLOCSET",
+					var: 0,
+					buff: m
+				}), e.push({
+					cmd: "ALLOCSET",
+					var: 1,
+					buff: h
+				}), e.push({
+					cmd: "ALLOC",
+					var: 2,
+					len: t.length * o
+				}), g = 0, _ = 0;
+				let n = 0;
+				for (let r = 0; r < t.length; r++) {
+					if (!t[r]) {
+						e.push({
+							cmd: "CALL",
+							fnName: f,
+							params: [{
+								var: 2,
+								offset: n
+							}]
+						}), n += o;
+						continue;
+					}
+					t[r].length == 1 ? e.push({
+						cmd: "CALL",
+						fnName: l,
+						params: [
+							{
+								var: 0,
+								offset: g
+							},
+							{
+								var: 1,
+								offset: _
+							},
+							{ val: y.Fr.n8 },
+							{
+								var: 2,
+								offset: n
+							}
+						]
+					}) : e.push({
+						cmd: "CALL",
+						fnName: u,
+						params: [
+							{
+								var: 0,
+								offset: g
+							},
+							{
+								var: 1,
+								offset: _
+							},
+							{ val: y.Fr.n8 },
+							{ val: t[r].length },
+							{
+								var: 2,
+								offset: n
+							}
+						]
+					}), g += a * t[r].length, _ += y.Fr.n8 * t[r].length, n += o;
+				}
+				return e.push({
+					cmd: "CALL",
+					fnName: d,
+					params: [
+						{ var: 2 },
+						{ val: t.length },
+						{ var: 2 }
+					]
+				}), e.push({
+					cmd: "GET",
+					out: 0,
+					var: 2,
+					len: t.length * c
+				}), await y.tm.queueAction(e);
+			}
+			{
+				let e = await i.multiExpAffine(m, h, n, r);
+				return e = [i.toAffine(e)], e;
+			}
+		}
+		async function oe() {
+			let e = 16384;
+			le(E - 1);
+			for (let t = 0; t < E - 1; t += e) {
+				d && d.debug(`HashingHPoints: ${t}/${E}`);
+				let n = Math.min(E - 1, e);
+				await se(t, n);
+			}
+		}
+		async function se(e, t) {
+			let n = await f.read(t * S, p[2][0].p + (e + E) * S), r = await f.read(t * S, p[2][0].p + e * S), i = y.tm.concurrency, a = Math.floor(t / i), o = [];
+			for (let e = 0; e < i; e++) {
+				let s;
+				if (s = e < i - 1 ? a : t - e * a, s == 0) continue;
+				let c = n.slice(e * a * S, (e * a + s) * S), l = r.slice(e * a * S, (e * a + s) * S);
+				o.push(ce(c, l));
+			}
+			let s = await Promise.all(o);
+			for (let e = 0; e < s.length; e++) v.update(s[e][0]);
+		}
+		async function ce(e, t) {
+			let n = e.byteLength / S, r = y.G1.F.n8 * 3, i = [];
+			i.push({
+				cmd: "ALLOCSET",
+				var: 0,
+				buff: e
+			}), i.push({
+				cmd: "ALLOCSET",
+				var: 1,
+				buff: t
+			}), i.push({
+				cmd: "ALLOC",
+				var: 2,
+				len: n * r
+			});
+			for (let e = 0; e < n; e++) i.push({
+				cmd: "CALL",
+				fnName: "g1m_subAffine",
+				params: [
+					{
+						var: 0,
+						offset: e * S
+					},
+					{
+						var: 1,
+						offset: e * S
+					},
+					{
+						var: 2,
+						offset: e * r
+					}
+				]
+			});
+			return i.push({
+				cmd: "CALL",
+				fnName: "g1m_batchToAffine",
+				params: [
+					{ var: 2 },
+					{ val: n },
+					{ var: 2 }
+				]
+			}), i.push({
+				cmd: "CALL",
+				fnName: "g1m_batchLEMtoU",
+				params: [
+					{ var: 2 },
+					{ val: n },
+					{ var: 2 }
+				]
+			}), i.push({
+				cmd: "GET",
+				out: 0,
+				var: 2,
+				len: n * S
+			}), await y.tm.queueAction(i);
+		}
+		function le(e) {
+			let t = /* @__PURE__ */ new Uint8Array(4);
+			new DataView(t.buffer, t.byteOffset, t.byteLength).setUint32(0, e, !1), v.update(t);
+		}
+	} finally {
+		for (let e of [
+			f,
+			m,
+			_
+		]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/zkey_export_bellman.js
+async function or(t, n, r) {
+	let { fd: i, sections: a } = await e.readBinFile(t, "zkey", 2), o = await Ue(i, a);
+	if (o.protocol != "groth16") throw Error("zkey file is not groth16");
+	let s = await T(o.q), c = s.G1.F.n8 * 2, l = s.G2.F.n8 * 2, u = await Ye(i, s, a), d = await Ut(n);
+	await y(o.vk_alpha_1), await y(o.vk_beta_1), await b(o.vk_beta_2), await b(o.vk_gamma_2), await y(o.vk_delta_1), await b(o.vk_delta_2);
+	let f;
+	f = await e.readSection(i, a, 3), f = await s.G1.batchLEMtoU(f), await x("G1", f);
+	let p = await e.readSection(i, a, 9), m;
+	m = await s.G1.fft(p, "affine", "jacobian", r), m = await s.G1.batchApplyKey(m, s.Fr.neg(s.Fr.e(2)), s.Fr.w[o.power + 1], "jacobian", "affine", r), m = m.slice(0, m.byteLength - c), m = await s.G1.batchLEMtoU(m), await x("G1", m);
+	let h;
+	h = await e.readSection(i, a, 8), h = await s.G1.batchLEMtoU(h), await x("G1", h);
+	let g;
+	g = await e.readSection(i, a, 5), g = await s.G1.batchLEMtoU(g), await x("G1", g);
+	let _;
+	_ = await e.readSection(i, a, 6), _ = await s.G1.batchLEMtoU(_), await x("G1", _);
+	let v;
+	v = await e.readSection(i, a, 7), v = await s.G2.batchLEMtoU(v), await x("G2", v), await d.write(u.csHash), await S(u.contributions.length);
+	for (let e = 0; e < u.contributions.length; e++) {
+		let t = u.contributions[e];
+		await y(t.deltaAfter), await y(t.delta.g1_s), await y(t.delta.g1_sx), await b(t.delta.g2_spx), await d.write(t.transcript);
+	}
+	await i.close(), await d.close();
+	async function y(e) {
+		let t = new Uint8Array(c);
+		s.G1.toRprUncompressed(t, 0, e), await d.write(t);
+	}
+	async function b(e) {
+		let t = new Uint8Array(l);
+		s.G2.toRprUncompressed(t, 0, e), await d.write(t);
+	}
+	async function x(e, t) {
+		let n;
+		n = e == "G1" ? c : l;
+		let r = /* @__PURE__ */ new Uint8Array(4);
+		new DataView(r.buffer, r.byteOffset, r.byteLength).setUint32(0, t.byteLength / n, !1), await d.write(r), await d.write(t);
+	}
+	async function S(e) {
+		let t = /* @__PURE__ */ new Uint8Array(4);
+		new DataView(t.buffer, t.byteOffset, t.byteLength).setUint32(0, e, !1), await d.write(t);
+	}
+}
+//#endregion
+//#region src/zkey_import_bellman.js
+async function sr(t, n, r, i, a) {
+	let o, s, c, l;
+	try {
+		({fd: o, sections: s} = await e.readBinFile(t, "zkey", 2));
+		let u = await Ue(o, s, !1);
+		if (u.protocol != "groth16") throw Error("zkey file is not groth16");
+		let d = await T(u.q), f = d.G1.F.n8 * 2, p = d.G2.F.n8 * 2, m = await Ye(o, d, s), h = {};
+		c = await Wt(n), c.pos = f * 3 + p * 3 + 8 + f * u.nVars + 4 + f * (u.domainSize - 1) + 4 + f * u.nVars + 4 + f * u.nVars + 4 + p * u.nVars, h.csHash = await c.read(64);
+		let g = await c.readUBE32();
+		h.contributions = [];
+		for (let e = 0; e < g; e++) {
+			let t = { delta: {} };
+			t.deltaAfter = await C(c), t.delta.g1_s = await C(c), t.delta.g1_sx = await C(c), t.delta.g2_spx = await w(c), t.transcript = await c.read(64), e < m.contributions.length && (t.type = m.contributions[e].type, t.type == 1 && (t.beaconHash = m.contributions[e].beaconHash, t.numIterationsExp = m.contributions[e].numIterationsExp), m.contributions[e].name && (t.name = m.contributions[e].name)), h.contributions.push(t);
+		}
+		/* c8 ignore start */
+		if (!Te(h.csHash, m.csHash)) return a && a.error("Hash of the original circuit does not match with the MPC one"), !1;
+		/* c8 ignore stop */
+		if (m.contributions.length > h.contributions.length) return a && a.error("The impoerted file does not include new contributions"), !1;
+		for (let e = 0; e < m.contributions.length; e++) if (!E(m.contributions[e], h.contributions[e])) return a && a.error(`Previous contribution ${e} does not match`), !1;
+		if (i) for (let e = m.contributions.length; e < h.contributions.length; e++) h.contributions[e].name = i;
+		/* c8 ignore start */
+		if (l = await e.createBinFile(r, "zkey", 1, 10), c.pos = 0, c.pos += f, c.pos += f, c.pos += p, c.pos += p, u.vk_delta_1 = await C(c), u.vk_delta_2 = await w(c), await ze(l, u), await c.readUBE32() != u.nPublic + 1) return a && a.error("Invalid number of points in IC"), await l.discard(), !1;
+		/* c8 ignore start */
+		if (c.pos += f * (u.nPublic + 1), await e.copySection(o, s, l, 3), await e.copySection(o, s, l, 4), await c.readUBE32() != u.domainSize - 1) return a && a.error("Invalid number of points in H"), await l.discard(), !1;
+		/* c8 ignore stop */
+		let _, v = await c.read(f * (u.domainSize - 1)), y = await d.G1.batchUtoLEM(v);
+		_ = new Uint8Array(u.domainSize * f), _.set(y), d.G1.toRprLEM(_, f * (u.domainSize - 1), d.G1.zeroAffine);
+		let b = d.Fr.neg(d.Fr.inv(d.Fr.e(2))), x = d.Fr.inv(d.Fr.w[u.power + 1]);
+		/* c8 ignore start */
+		if (_ = await d.G1.batchApplyKey(_, b, x, "affine", "jacobian", a), _ = await d.G1.ifft(_, "jacobian", "affine", a), await e.startWriteSection(l, 9), await l.write(_), await e.endWriteSection(l), await c.readUBE32() != u.nVars - u.nPublic - 1) return a && a.error("Invalid number of points in L"), await l.discard(), !1;
+		/* c8 ignore stop */
+		let S;
+		/* c8 ignore start */
+		if (S = await c.read(f * (u.nVars - u.nPublic - 1)), S = await d.G1.batchUtoLEM(S), await e.startWriteSection(l, 8), await l.write(S), await e.endWriteSection(l), await c.readUBE32() != u.nVars) return a && a.error("Invalid number of points in A"), await l.discard(), !1;
+		/* c8 ignore start */
+		if (c.pos += f * u.nVars, await e.copySection(o, s, l, 5), await c.readUBE32() != u.nVars) return a && a.error("Invalid number of points in B1"), await l.discard(), !1;
+		/* c8 ignore start */
+		if (c.pos += f * u.nVars, await e.copySection(o, s, l, 6), await c.readUBE32() != u.nVars) return a && a.error("Invalid number of points in B2"), await l.discard(), !1;
+		return c.pos += p * u.nVars, await e.copySection(o, s, l, 7), await Ze(l, d, h), await c.close(), await l.close(), await o.close(), !0;
+		async function C(e) {
+			let t = await e.read(d.G1.F.n8 * 2);
+			return d.G1.fromRprUncompressed(t, 0);
+		}
+		async function w(e) {
+			let t = await e.read(d.G2.F.n8 * 2);
+			return d.G2.fromRprUncompressed(t, 0);
+		}
+		function E(e, t) {
+			/* c8 ignore stop */
+			return !(!d.G1.eq(e.deltaAfter, t.deltaAfter) || !d.G1.eq(e.delta.g1_s, t.delta.g1_s) || !d.G1.eq(e.delta.g1_sx, t.delta.g1_sx) || !d.G2.eq(e.delta.g2_spx, t.delta.g2_spx) || !Te(e.transcript, t.transcript));
+		}
+	} finally {
+		for (let e of [
+			o,
+			c,
+			l
+		]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/zkey_verify_frominit.js
+/* c8 ignore stop */ var cr = ke;
+async function lr(t, n, r, i) {
+	let a, o, l, d, f, p;
+	try {
+		let m;
+		({fd: a, sections: o} = await e.readBinFile(r, "zkey", 2));
+		let h = await Ue(a, o, !1);
+		if (h.protocol != "groth16") throw Error("zkey file is not groth16");
+		let g = await T(h.q), _ = g.G1.F.n8 * 2, v = await Ye(a, g, o), y = W.create({ dkLen: 64 });
+		y.update(v.csHash);
+		let b = g.G1.g;
+		for (let e = 0; e < v.contributions.length; e++) {
+			let t = v.contributions[e], n = Ee(y);
+			/* c8 ignore start */
+			if (Qe(n, g, t.delta.g1_s), Qe(n, g, t.delta.g1_sx), !Te(n.digest(), t.transcript)) return console.log(`INVALID(${e}): Inconsistent transcript `), !1;
+			/* c8 ignore stop */
+			let r = fn(g, t.transcript);
+			/* c8 ignore start */
+			if (m = await cr(g, t.delta.g1_s, t.delta.g1_sx, r, t.delta.g2_spx), m !== !0) return console.log(`INVALID(${e}): public key G1 and G2 do not have the same ration `), !1;
+			/* c8 ignore start */
+			if (m = await cr(g, b, t.deltaAfter, r, t.delta.g2_spx), m !== !0) return console.log(`INVALID(${e}): deltaAfter does not fillow the public key `), !1;
+			/* c8 ignore stop */
+			if (t.type == 1) {
+				let n = await Fe(t.beaconHash, t.numIterationsExp), r = g.Fr.fromRng(n), i = g.G1.toAffine(g.G1.fromRng(n)), a = g.G1.toAffine(g.G1.timesFr(i, r));
+				/* c8 ignore start */
+				if (g.G1.eq(i, t.delta.g1_s) !== !0) return console.log(`INVALID(${e}): Key of the beacon does not match. g1_s `), !1;
+				/* c8 ignore stop */
+				/* c8 ignore start */
+				if (g.G1.eq(a, t.delta.g1_sx) !== !0) return console.log(`INVALID(${e}): Key of the beacon does not match. g1_sx `), !1;
+			}
+			et(y, g, t);
+			let i = W.create({ dkLen: 64 });
+			et(i, g, t), t.contributionHash = i.digest(), b = t.deltaAfter;
+		}
+		({fd: l, sections: d} = await e.readBinFile(t, "zkey", 2));
+		let x = await Ue(l, d, !1);
+		if (x.protocol != "groth16") throw Error("zkeyinit file is not groth16");
+		if (!u.eq(x.q, h.q) || !u.eq(x.r, h.r) || x.n8q != h.n8q || x.n8r != h.n8r) return i && i.error("INVALID:  Different curves"), !1;
+		if (x.nVars != h.nVars || x.nPublic != h.nPublic || x.domainSize != h.domainSize) return i && i.error("INVALID:  Different circuit parameters"), !1;
+		if (!g.G1.eq(h.vk_alpha_1, x.vk_alpha_1)) return i && i.error("INVALID:  Invalid alpha1"), !1;
+		if (!g.G1.eq(h.vk_beta_1, x.vk_beta_1)) return i && i.error("INVALID:  Invalid beta1"), !1;
+		if (!g.G2.eq(h.vk_beta_2, x.vk_beta_2)) return i && i.error("INVALID:  Invalid beta2"), !1;
+		if (!g.G2.eq(h.vk_gamma_2, x.vk_gamma_2)) return i && i.error("INVALID:  Invalid gamma2"), !1;
+		if (!g.G1.eq(h.vk_delta_1, b)) return i && i.error("INVALID:  Invalid delta1"), !1;
+		if (m = await cr(g, g.G1.g, b, g.G2.g, h.vk_delta_2), m !== !0) return i && i.error("INVALID:  Invalid delta2"), !1;
+		let S = await Ye(l, g, d);
+		if (!Te(v.csHash, S.csHash)) return i && i.error("INVALID:  Circuit does not match"), !1;
+		/* c8 ignore start */
+		if (o[8][0].size != _ * (h.nVars - h.nPublic - 1)) return i && i.error("INVALID:  Invalid L section size"), !1;
+		/* c8 ignore stop */
+		/* c8 ignore start */
+		if (o[9][0].size != _ * h.domainSize) return i && i.error("INVALID:  Invalid H section size"), !1;
+		/* c8 ignore stop */
+		let C;
+		if (C = await e.sectionIsEqual(a, o, l, d, 3), !C) return i && i.error("INVALID:  IC section is not identical"), !1;
+		if (C = await e.sectionIsEqual(a, o, l, d, 4), !C) return i && i.error("Coeffs section is not identical"), !1;
+		if (C = await e.sectionIsEqual(a, o, l, d, 5), !C) return i && i.error("A section is not identical"), !1;
+		if (C = await e.sectionIsEqual(a, o, l, d, 6), !C) return i && i.error("B1 section is not identical"), !1;
+		if (C = await e.sectionIsEqual(a, o, l, d, 7), !C) return i && i.error("B2 section is not identical"), !1;
+		if (m = await w("G1", l, d, a, o, 8, h.vk_delta_2, x.vk_delta_2, "L section"), m !== !0) return i && i.error("L section does not match"), !1;
+		if (m = await E(), m !== !0) return i && i.error("H section does not match"), !1;
+		i && i.info(G(v.csHash, "Circuit Hash: ")), await a.close(), await l.close();
+		for (let e = v.contributions.length - 1; e >= 0; e--) {
+			let t = v.contributions[e];
+			i && i.info("-------------------------"), i && i.info(G(t.contributionHash, `contribution #${e + 1} ${t.name ? t.name : ""}:`)), t.type == 1 && (i && i.info(`Beacon generator: ${Le(t.beaconHash)}`), i && i.info(`Beacon iterations Exp: ${t.numIterationsExp}`));
+		}
+		return i && i.info("-------------------------"), i && i.info("ZKey Ok!"), !0;
+		async function w(t, n, r, a, o, s, c, l, u) {
+			let d = 1 << 20, f = g[t], p = f.F.n8 * 2;
+			await e.startReadUniqueSection(n, r, s), await e.startReadUniqueSection(a, o, s);
+			let h = f.zero, _ = f.zero, v = r[s][0].size / p;
+			for (let e = 0; e < v; e += d) {
+				i && i.debug(`Same ratio check ${u}:  ${e}/${v}`);
+				let t = Math.min(v - e, d), r = await n.read(t * p), o = await a.read(t * p), s = je(4 * t), c = await f.multiExpAffine(r, s), l = await f.multiExpAffine(o, s);
+				h = f.add(h, c), _ = f.add(_, l);
+			}
+			return await e.endReadSection(n), await e.endReadSection(a), v == 0 || 
+			/* c8 ignore stop */
+			(m = await cr(g, h, _, c, l), m === !0);
+		}
+		async function E() {
+			let t = 1 << 20, r = g.G1, l = g.Fr, u = r.F.n8 * 2;
+			({fd: f, sections: p} = await e.readBinFile(n, "ptau", 1));
+			let d = new s(h.domainSize * h.n8r), _ = Array(8);
+			for (let e = 0; e < 8; e++) _[e] = Ne(je(4), 0);
+			let v = new c(_);
+			for (let e = 0; e < h.domainSize - 1; e++) {
+				let t = l.fromRng(v);
+				l.toRprLE(d, e * h.n8r, t);
+			}
+			l.toRprLE(d, (h.domainSize - 1) * h.n8r, l.zero);
+			let y = r.zero;
+			for (let e = 0; e < h.domainSize; e += t) {
+				i && i.debug(`H Verification(tau):  ${e}/${h.domainSize}`);
+				let n = Math.min(h.domainSize - e, t), a = await D(await f.read(u * n, p[2][0].p + h.domainSize * u + e * u), await f.read(u * n, p[2][0].p + e * u)), o = d.slice(e * h.n8r, (e + n) * h.n8r), s = await r.multiExpAffine(a, o);
+				y = r.add(y, s);
+			}
+			d = await l.batchToMontgomery(d);
+			let b;
+			if (h.power < l.s) b = l.neg(l.e(2));
+			else {
+				/* c8 ignore start */
+				let e = 2 ** l.s, t = l.exp(l.shift, e);
+				b = l.sub(t, l.one);
+			}
+			/* c8 ignore start */
+			let S = h.power < l.s ? l.w[h.power + 1] : l.shift;
+			d = await l.batchApplyKey(d, b, S), d = await l.fft(d), d = await l.batchFromMontgomery(d), await e.startReadUniqueSection(a, o, 9);
+			let C = r.zero;
+			for (let e = 0; e < h.domainSize; e += t) {
+				i && i.debug(`H Verification(lagrange):  ${e}/${h.domainSize}`);
+				let n = Math.min(h.domainSize - e, t), o = await a.read(u * n), s = d.slice(e * h.n8r, (e + n) * h.n8r), c = await r.multiExpAffine(o, s);
+				C = r.add(C, c);
+			}
+			return await e.endReadSection(a), m = await cr(g, y, C, h.vk_delta_2, x.vk_delta_2), m === !0;
+		}
+		async function D(e, t) {
+			let n = g.G1.F.n8 * 2, r = e.byteLength / n, i = g.tm.concurrency, a = Math.floor(r / i), o = [];
+			for (let n = 0; n < i; n++) {
+				let s;
+				/* c8 ignore start */
+				if (s = n < i - 1 ? a : r - n * a, s == 0) continue;
+				/* c8 ignore stop */
+				let c = e.slice(n * a * _, (n * a + s) * _), l = t.slice(n * a * _, (n * a + s) * _);
+				o.push(O(c, l));
+			}
+			let s = await Promise.all(o), c = new Uint8Array(r * n), l = 0;
+			for (let e = 0; e < s.length; e++) c.set(s[e][0], l), l += s[e][0].byteLength;
+			return c;
+		}
+		async function O(e, t) {
+			let n = g.G1.F.n8 * 2, r = g.G1.F.n8 * 3, i = e.byteLength / n, a = [];
+			a.push({
+				cmd: "ALLOCSET",
+				var: 0,
+				buff: e
+			}), a.push({
+				cmd: "ALLOCSET",
+				var: 1,
+				buff: t
+			}), a.push({
+				cmd: "ALLOC",
+				var: 2,
+				len: i * r
+			});
+			for (let e = 0; e < i; e++) a.push({
+				cmd: "CALL",
+				fnName: "g1m_subAffine",
+				params: [
+					{
+						var: 0,
+						offset: e * n
+					},
+					{
+						var: 1,
+						offset: e * n
+					},
+					{
+						var: 2,
+						offset: e * r
+					}
+				]
+			});
+			return a.push({
+				cmd: "CALL",
+				fnName: "g1m_batchToAffine",
+				params: [
+					{ var: 2 },
+					{ val: i },
+					{ var: 2 }
+				]
+			}), a.push({
+				cmd: "GET",
+				out: 0,
+				var: 2,
+				len: i * n
+			}), await g.tm.queueAction(a);
+		}
+	} finally {
+		for (let e of [
+			a,
+			l,
+			f
+		]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/zkey_verify_fromr1cs.js
+async function ur(e, t, n, r) {
+	let i = { type: "bigMem" };
+	return await ar(e, t, i, r), await lr(i, t, n, r);
+}
+//#endregion
+//#region src/zkey_contribute.js
+async function dr(t, n, r, i, a) {
+	let { fd: o, sections: s } = await e.readBinFile(t, "zkey", 2), c = await Ue(o, s);
+	if (c.protocol != "groth16") throw Error("zkey file is not groth16");
+	let l = await T(c.q), u = await Ye(o, l, s), d = await e.createBinFile(n, "zkey", 1, 10), f = await Pe(i), p = W.create({ dkLen: 64 });
+	p.update(u.csHash);
+	for (let e = 0; e < u.contributions.length; e++) et(p, l, u.contributions[e]);
+	let m = {};
+	m.delta = {}, m.delta.prvKey = l.Fr.fromRng(f), m.delta.g1_s = l.G1.toAffine(l.G1.fromRng(f)), m.delta.g1_sx = l.G1.toAffine(l.G1.timesFr(m.delta.g1_s, m.delta.prvKey)), Qe(p, l, m.delta.g1_s), Qe(p, l, m.delta.g1_sx), m.transcript = p.digest(), m.delta.g2_sp = fn(l, m.transcript), m.delta.g2_spx = l.G2.toAffine(l.G2.timesFr(m.delta.g2_sp, m.delta.prvKey)), c.vk_delta_1 = l.G1.timesFr(c.vk_delta_1, m.delta.prvKey), c.vk_delta_2 = l.G2.timesFr(c.vk_delta_2, m.delta.prvKey), m.deltaAfter = c.vk_delta_1, m.type = 0, r && (m.name = r), u.contributions.push(m), await ze(d, c), await e.copySection(o, s, d, 3), await e.copySection(o, s, d, 4), await e.copySection(o, s, d, 5), await e.copySection(o, s, d, 6), await e.copySection(o, s, d, 7);
+	let h = l.Fr.inv(m.delta.prvKey);
+	await Pn(o, s, d, 8, l, "G1", h, l.Fr.e(1), "L Section", a), await Pn(o, s, d, 9, l, "G1", h, l.Fr.e(1), "H Section", a), await Ze(d, l, u), await o.close(), await d.close();
+	let g = W.create({ dkLen: 64 });
+	et(g, l, m);
+	let _ = g.digest();
+	return a && a.info(G(u.csHash, "Circuit Hash: ")), a && a.info(G(_, "Contribution Hash: ")), _;
+}
+//#endregion
+//#region src/zkey_beacon.js
+async function fr(t, n, r, i, a, o) {
+	let s = Ie(i);
+	if (s.byteLength == 0 || s.byteLength * 2 != i.length) return o && o.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)"), !1;
+	if (s.length >= 256) return o && o.error("Maximum length of beacon hash is 255 bytes"), !1;
+	if (a = parseInt(a), a < 10 || a > 63) return o && o.error("Invalid numIterationsExp. (Must be between 10 and 63)"), !1;
+	let { fd: c, sections: l } = await e.readBinFile(t, "zkey", 2), u = await Ue(c, l);
+	if (u.protocol != "groth16") throw Error("zkey file is not groth16");
+	let d = await T(u.q), f = await Ye(c, d, l), p = await e.createBinFile(n, "zkey", 1, 10), m = await Fe(s, a), h = W.create({ dkLen: 64 });
+	h.update(f.csHash);
+	for (let e = 0; e < f.contributions.length; e++) et(h, d, f.contributions[e]);
+	let g = {};
+	g.delta = {}, g.delta.prvKey = d.Fr.fromRng(m), g.delta.g1_s = d.G1.toAffine(d.G1.fromRng(m)), g.delta.g1_sx = d.G1.toAffine(d.G1.timesFr(g.delta.g1_s, g.delta.prvKey)), Qe(h, d, g.delta.g1_s), Qe(h, d, g.delta.g1_sx), g.transcript = h.digest(), g.delta.g2_sp = fn(d, g.transcript), g.delta.g2_spx = d.G2.toAffine(d.G2.timesFr(g.delta.g2_sp, g.delta.prvKey)), u.vk_delta_1 = d.G1.timesFr(u.vk_delta_1, g.delta.prvKey), u.vk_delta_2 = d.G2.timesFr(u.vk_delta_2, g.delta.prvKey), g.deltaAfter = u.vk_delta_1, g.type = 1, g.numIterationsExp = a, g.beaconHash = s, r && (g.name = r), f.contributions.push(g), await ze(p, u), await e.copySection(c, l, p, 3), await e.copySection(c, l, p, 4), await e.copySection(c, l, p, 5), await e.copySection(c, l, p, 6), await e.copySection(c, l, p, 7);
+	let _ = d.Fr.inv(g.delta.prvKey);
+	await Pn(c, l, p, 8, d, "G1", _, d.Fr.e(1), "L Section", o), await Pn(c, l, p, 9, d, "G1", _, d.Fr.e(1), "H Section", o), await Ze(p, d, f), await c.close(), await p.close();
+	let v = W.create({ dkLen: 64 });
+	et(v, d, g);
+	let y = v.digest();
+	return o && o.info(G(y, "Contribution Hash: ")), y;
+}
+//#endregion
+//#region src/zkey_export_json.js
+async function pr(e) {
+	let t = await qe(e, !0);
+	return delete t.curve, delete t.F, p.stringifyBigInts(t);
+}
+//#endregion
+//#region src/zkey_bellman_contribute.js
+async function mr(e, t, n, r, i) {
+	let a = await Pe(r), o = e.Fr.fromRng(a), s = e.Fr.inv(o), c = e.G1.F.n8 * 2, l = e.G2.F.n8 * 2, u = await Wt(t), d = await Ut(n);
+	await D(c), await D(c), await D(l), await D(l);
+	let f = await O(), p = e.G1.timesFr(f, o);
+	await A(p);
+	let m = await k();
+	await j(e.G2.timesFr(m, o));
+	let h = await u.readUBE32();
+	await d.writeUBE32(h), await D(h * c);
+	let g = await u.readUBE32();
+	await d.writeUBE32(g), await Fn(u, d, null, e, "G1", g, s, e.Fr.e(1), "UNCOMPRESSED", "H", i);
+	let _ = await u.readUBE32();
+	await d.writeUBE32(_), await Fn(u, d, null, e, "G1", _, s, e.Fr.e(1), "UNCOMPRESSED", "L", i);
+	let v = await u.readUBE32();
+	await d.writeUBE32(v), await D(v * c);
+	let y = await u.readUBE32();
+	await d.writeUBE32(y), await D(y * c);
+	let b = await u.readUBE32();
+	await d.writeUBE32(b), await D(b * l);
+	let x = W.create({ dkLen: 64 }), S = {};
+	S.csHash = await u.read(64), x.update(S.csHash);
+	let C = await u.readUBE32();
+	S.contributions = [];
+	for (let t = 0; t < C; t++) {
+		let t = { delta: {} };
+		t.deltaAfter = await O(), t.delta.g1_s = await O(), t.delta.g1_sx = await O(), t.delta.g2_spx = await k(), t.transcript = await u.read(64), S.contributions.push(t), et(x, e, t);
+	}
+	let w = {};
+	w.delta = {}, w.delta.prvKey = o, w.delta.g1_s = e.G1.toAffine(e.G1.fromRng(a)), w.delta.g1_sx = e.G1.toAffine(e.G1.timesFr(w.delta.g1_s, o)), Qe(x, e, w.delta.g1_s), Qe(x, e, w.delta.g1_sx), w.transcript = x.digest(), w.delta.g2_sp = fn(e, w.transcript), w.delta.g2_spx = e.G2.toAffine(e.G2.timesFr(w.delta.g2_sp, o)), w.deltaAfter = p, w.type = 0, S.contributions.push(w), await d.write(S.csHash), await d.writeUBE32(S.contributions.length);
+	for (let e = 0; e < S.contributions.length; e++) {
+		let t = S.contributions[e];
+		await A(t.deltaAfter), await A(t.delta.g1_s), await A(t.delta.g1_sx), await j(t.delta.g2_spx), await d.write(t.transcript);
+	}
+	let T = W.create({ dkLen: 64 });
+	et(T, e, w);
+	let E = T.digest();
+	return i && i.info(G(E, "Contribution Hash: ")), await d.close(), await u.close(), E;
+	async function D(e) {
+		let t = u.pageSize * 2;
+		for (let n = 0; n < e; n += t) {
+			let r = Math.min(e - n, t), i = await u.read(r);
+			await d.write(i);
+		}
+	}
+	async function O() {
+		let t = await u.read(e.G1.F.n8 * 2);
+		return e.G1.fromRprUncompressed(t, 0);
+	}
+	async function k() {
+		let t = await u.read(e.G2.F.n8 * 2);
+		return e.G2.fromRprUncompressed(t, 0);
+	}
+	async function A(t) {
+		let n = new Uint8Array(c);
+		e.G1.toRprUncompressed(n, 0, t), await d.write(n);
+	}
+	async function j(t) {
+		let n = new Uint8Array(l);
+		e.G2.toRprUncompressed(n, 0, t), await d.write(n);
+	}
+}
+//#endregion
+//#region src/zkey_export_verificationkey.js
+var { stringifyBigInts: hr } = p;
+async function gr(t, n) {
+	n && n.info("EXPORT VERIFICATION KEY STARTED");
+	let { fd: r, sections: i } = await e.readBinFile(t, "zkey", 2), a = await Ue(r, i);
+	n && n.info("> Detected protocol: " + a.protocol);
+	let o;
+	if (a.protocol === "groth16") o = await _r(a, r, i);
+	else if (a.protocol === "plonk") o = await vr(a);
+	else if (a.protocolId && a.protocolId === 10) o = await yr(a, n);
+	else throw Error("zkey file protocol unrecognized");
+	return await r.close(), n && n.info("EXPORT VERIFICATION KEY FINISHED"), o;
+}
+async function _r(t, n, r) {
+	let i = await T(t.q), a = i.G1.F.n8 * 2, o = await i.pairing(t.vk_alpha_1, t.vk_beta_2), s = {
+		protocol: t.protocol,
+		curve: i.name,
+		nPublic: t.nPublic,
+		vk_alpha_1: i.G1.toObject(t.vk_alpha_1),
+		vk_beta_2: i.G2.toObject(t.vk_beta_2),
+		vk_gamma_2: i.G2.toObject(t.vk_gamma_2),
+		vk_delta_2: i.G2.toObject(t.vk_delta_2),
+		vk_alphabeta_12: i.Gt.toObject(o)
+	};
+	await e.startReadUniqueSection(n, r, 3), s.IC = [];
+	for (let e = 0; e <= t.nPublic; e++) {
+		let e = await n.read(a), t = i.G1.toObject(e);
+		s.IC.push(t);
+	}
+	return await e.endReadSection(n), s = hr(s), s;
+}
+async function vr(e) {
+	let t = await T(e.q), n = {
+		protocol: e.protocol,
+		curve: t.name,
+		nPublic: e.nPublic,
+		power: e.power,
+		k1: t.Fr.toObject(e.k1),
+		k2: t.Fr.toObject(e.k2),
+		Qm: t.G1.toObject(e.Qm),
+		Ql: t.G1.toObject(e.Ql),
+		Qr: t.G1.toObject(e.Qr),
+		Qo: t.G1.toObject(e.Qo),
+		Qc: t.G1.toObject(e.Qc),
+		S1: t.G1.toObject(e.S1),
+		S2: t.G1.toObject(e.S2),
+		S3: t.G1.toObject(e.S3),
+		X_2: t.G2.toObject(e.X_2),
+		w: t.Fr.toObject(t.Fr.w[e.power])
+	};
+	return n = hr(n), n;
+}
+async function yr(e, t) {
+	let n = await T(e.q);
+	return hr({
+		protocol: e.protocol,
+		curve: n.name,
+		nPublic: e.nPublic,
+		power: e.power,
+		k1: n.Fr.toObject(e.k1),
+		k2: n.Fr.toObject(e.k2),
+		w: n.Fr.toObject(n.Fr.w[e.power]),
+		w3: n.Fr.toObject(e.w3),
+		w4: n.Fr.toObject(e.w4),
+		w8: n.Fr.toObject(e.w8),
+		wr: n.Fr.toObject(e.wr),
+		X_2: n.G2.toObject(e.X_2),
+		C0: n.G1.toObject(e.C0)
+	});
+}
+//#endregion
+//#region src/zkey.js
+var br = /* @__PURE__ */ v({
+	beacon: () => fr,
+	bellmanContribute: () => mr,
+	contribute: () => dr,
+	exportBellman: () => or,
+	exportJson: () => pr,
+	exportSolidityVerifier: () => null,
+	exportVerificationKey: () => gr,
+	importBellman: () => sr,
+	newZKey: () => ar,
+	verifyFromInit: () => lr,
+	verifyFromR1cs: () => ur
+});
+//#endregion
+//#region src/plonk_setup.js
+async function xr(e, i, c, l) {
+	let d, f, p, m, g;
+	try {
+		globalThis.gc && globalThis.gc(), {fd: d, sections: f} = await r(i, "ptau", 1, 1 << 22, 1 << 24);
+		let { curve: _, power: v } = await _n(d, f);
+		({fd: p, sections: m} = await r(e, "r1cs", 1, 1 << 22, 1 << 24));
+		let y = await h(p, m, {
+			loadConstraints: !0,
+			loadCustomGates: !0
+		}), b = _.G1.F.n8 * 2, x = _.G1, S = _.G2.F.n8 * 2, C = _.Fr, w = _.Fr.n8;
+		l && l.info("Reading r1cs");
+		let T = new J(), E = new J(), D = y.nVars, O = y.nOutputs + y.nPubInputs;
+		if (await L(_.Fr, y, l), globalThis.gc && globalThis.gc(), g = await t(c, "zkey", 1, 14, 1 << 22, 1 << 24), y.prime != _.r) return l && l.error("r1cs curve does not match powers of tau ceremony curve"), -1;
+		let k = we(T.length - 1) + 1;
+		/* c8 ignore start */
+		k < 3 && (k = 3);
+		/* c8 ignore stop */
+		let A = 2 ** k;
+		if (l && l.info("Plonk constraints: " + T.length), k > v) return l && l.error(`circuit too big for this power of tau ceremony. ${T.length} > 2**${v}`), -1;
+		if (!f[12]) return l && l.error("Powers of tau is not prepared."), -1;
+		let j = new s(A * b), M = f[12][0].p + (2 ** k - 1) * b;
+		await d.readToBuffer(j, 0, A * b, M);
+		let [N, P] = re(), F = {};
+		await V(3, "Additions"), globalThis.gc && globalThis.gc(), await R(4, 0, "Amap"), globalThis.gc && globalThis.gc(), await R(5, 1, "Bmap"), globalThis.gc && globalThis.gc(), await R(6, 2, "Cmap"), globalThis.gc && globalThis.gc(), await z(7, 3, "Qm"), globalThis.gc && globalThis.gc(), await z(8, 4, "Ql"), globalThis.gc && globalThis.gc(), await z(9, 5, "Qr"), globalThis.gc && globalThis.gc(), await z(10, 6, "Qo"), globalThis.gc && globalThis.gc(), await z(11, 7, "Qc"), globalThis.gc && globalThis.gc(), await ee(12, "sigma"), globalThis.gc && globalThis.gc(), await te(13, "lagrange polynomials"), globalThis.gc && globalThis.gc(), await a(g, 14);
+		let I = new s((A + 6) * b);
+		await d.readToBuffer(I, 0, (A + 6) * b, f[2][0].p), await g.write(I), await n(g), globalThis.gc && globalThis.gc(), await ne(), await g.close(), await p.close(), await d.close(), l && l.info("Setup Finished");
+		return;
+		async function L(e, t, n) {
+			function r(e) {
+				let t = Object.keys(e);
+				for (let n = 0; n < t.length; n++)
+ /* c8 ignore next */
+				e[t[n]] == 0n && delete e[t[n]];
+			}
+			function i(t, n, i) {
+				let a = {};
+				for (let r in t) a[r] = a[r] === void 0 ? e.mul(n, t[r]) : e.add(a[r], e.mul(n, t[r]));
+				for (let t in i) {
+					let n = e.neg(i[t]);
+					a[t] = a[t] === void 0 ? n : e.add(a[t], n);
+				}
+				return r(a), a;
+			}
+			function a(t, n) {
+				let r = {
+					k: e.zero,
+					s: [],
+					coefs: []
+				}, i = [];
+				for (let n in t) n == 0 ? r.k = e.add(r.k, t[n]) : t[n] != 0n && i.push([Number(n), t[n]]);
+				for (; i.length > n;) {
+					let t = i.shift(), n = i.shift(), r = t[0], a = n[0], o = D++, s = e.zero, c = e.neg(t[1]), l = e.neg(n[1]), u = e.one, d = e.zero;
+					T.push([
+						r,
+						a,
+						o,
+						s,
+						c,
+						l,
+						u,
+						d
+					]), E.push([
+						r,
+						a,
+						t[1],
+						n[1]
+					]), i.push([o, e.one]);
+				}
+				for (let e = 0; e < i.length; e++) r.s[e] = i[e][0], r.coefs[e] = i[e][1];
+				/* c8 ignore start */
+				for (; r.coefs.length < n;) r.s.push(0), r.coefs.push(e.zero);
+				/* c8 ignore stop */
+				return r;
+			}
+			function o(t) {
+				let n = a(t, 3), r = n.s[0], i = n.s[1], o = n.s[2], s = e.zero, c = n.coefs[0], l = n.coefs[1], u = n.coefs[2], d = n.k;
+				T.push([
+					r,
+					i,
+					o,
+					s,
+					c,
+					l,
+					u,
+					d
+				]);
+			}
+			function s(t, n, r) {
+				let i = a(t, 1), o = a(n, 1), s = a(r, 1), c = i.s[0], l = o.s[0], u = s.s[0], d = e.mul(i.coefs[0], o.coefs[0]), f = e.mul(i.coefs[0], o.k), p = e.mul(i.k, o.coefs[0]), m = e.neg(s.coefs[0]), h = e.sub(e.mul(i.k, o.k), s.k);
+				T.push([
+					c,
+					l,
+					u,
+					d,
+					f,
+					p,
+					m,
+					h
+				]);
+			}
+			function c(t) {
+				let n = e.zero, r = 0, i = Object.keys(t);
+				for (let a = 0; a < i.length; a++)
+ /* c8 ignore start */
+				t[i[a]] == 0n ? delete t[i[a]] : i[a] == 0 ? n = e.add(n, t[i[a]]) : r++;
+				return r > 0 ? r.toString() : 
+				/* c8 ignore next */
+				n == e.zero ? "0" : "k";
+			}
+			function l(e, t, n) {
+				let a = c(e), l = c(t);
+				a === "0" || l === "0" ? (r(n), o(n)) : a === "k" ? o(i(t, e[0], n)) : l === "k" ? o(i(e, t[0], n)) : s(e, t, n);
+			}
+			for (let t = 1; t <= O; t++) {
+				let n = t, r = e.zero, i = e.one, a = e.zero, o = e.zero, s = e.zero;
+				T.push([
+					n,
+					0,
+					0,
+					r,
+					i,
+					a,
+					o,
+					s
+				]);
+			}
+			for (let e = 0; e < t.constraints.length; e++) n && e % 1e4 == 0 && n.debug(`processing constraints: ${e}/${t.nConstraints}`), l(...t.constraints[e]);
+		}
+		async function R(e, t, r) {
+			await a(g, e);
+			for (let e = 0; e < T.length; e++) await g.writeULE32(T[e][t]), l && e % 1e6 == 0 && l.debug(`writing ${r}: ${e}/${T.length}`);
+			await n(g);
+		}
+		async function z(e, t, r) {
+			let i = new s(A * w);
+			for (let e = 0; e < T.length; e++) i.set(T[e][t], e * w), l && e % 1e6 == 0 && l.debug(`writing ${r}: ${e}/${T.length}`);
+			await a(g, e), await B(i), await n(g), i = await C.batchFromMontgomery(i), F[r] = await _.G1.multiExpAffine(j, i, l, "multiexp " + r);
+		}
+		async function B(e) {
+			let t = await C.ifft(e), n = new s(A * w * 4);
+			n.set(t, 0);
+			let r = await C.fft(n);
+			await g.write(t), await g.write(r);
+		}
+		async function V(e, t) {
+			await a(g, e);
+			let r = new Uint8Array(8 + 2 * w), i = new DataView(r.buffer);
+			for (let e = 0; e < E.length; e++) {
+				let n = E[e], a = 0;
+				/* c8 ignore start */
+				i.setUint32(a, n[0], !0), a += 4, i.setUint32(a, n[1], !0), a += 4, r.set(n[2], a), a += w, r.set(n[3], a), a += w, await g.write(r), l && e % 1e6 == 0 && l.debug(`writing ${t}: ${e}/${E.length}`);
+			}
+			await n(g);
+		}
+		async function ee(e, t) {
+			let r = new s(w * A * 3), i = new J(D), o = new J(D), c = C.one;
+			for (let e = 0; e < A; e++) e < T.length ? (p(T[e][0], e), p(T[e][1], A + e), p(T[e][2], A * 2 + e)) : (p(0, e), p(0, A + e), p(0, A * 2 + e)), c = C.mul(c, C.w[k]), l && e % 1e6 == 0 && l.debug(`writing ${t} phase1: ${e}/${T.length}`);
+			for (let e = 0; e < D; e++) o[e] === void 0 ? console.log("Variable not used") : r.set(i[e], o[e] * w), l && e % 1e6 == 0 && l.debug(`writing ${t} phase2: ${e}/${D}`);
+			globalThis.gc && globalThis.gc(), await a(g, e);
+			let u = r.slice(0, A * w);
+			await B(u), globalThis.gc && globalThis.gc();
+			let d = r.slice(A * w, A * w * 2);
+			await B(d), globalThis.gc && globalThis.gc();
+			let f = r.slice(A * w * 2, A * w * 3);
+			await B(f), globalThis.gc && globalThis.gc(), await n(g), u = await C.batchFromMontgomery(u), d = await C.batchFromMontgomery(d), f = await C.batchFromMontgomery(f), F.S1 = await _.G1.multiExpAffine(j, u, l, "multiexp S1"), globalThis.gc && globalThis.gc(), F.S2 = await _.G1.multiExpAffine(j, d, l, "multiexp S2"), globalThis.gc && globalThis.gc(), F.S3 = await _.G1.multiExpAffine(j, f, l, "multiexp S3"), globalThis.gc && globalThis.gc();
+			function p(e, t) {
+				i[e] === void 0 ? o[e] = t : r.set(i[e], t * w);
+				let n;
+				n = t < A ? c : t < 2 * A ? C.mul(c, N) : C.mul(c, P), i[e] = n;
+			}
+		}
+		async function te(e, t) {
+			await a(g, e);
+			let r = Math.max(O, 1);
+			for (let e = 0; e < r; e++) {
+				let n = new s(A * w);
+				n.set(C.one, e * w), await B(n), l && l.debug(`writing ${t} ${e}/${r}`);
+			}
+			await n(g);
+		}
+		async function ne() {
+			await a(g, 1), await g.writeULE32(2), await n(g), await a(g, 2);
+			let e = _.q, t = (Math.floor((u.bitLength(e) - 1) / 64) + 1) * 8, r = _.r, i = (Math.floor((u.bitLength(r) - 1) / 64) + 1) * 8;
+			await g.writeULE32(t), await o(g, e, t), await g.writeULE32(i), await o(g, r, i), await g.writeULE32(D), await g.writeULE32(O), await g.writeULE32(A), await g.writeULE32(E.length), await g.writeULE32(T.length), await g.write(N), await g.write(P), await g.write(x.toAffine(F.Qm)), await g.write(x.toAffine(F.Ql)), await g.write(x.toAffine(F.Qr)), await g.write(x.toAffine(F.Qo)), await g.write(x.toAffine(F.Qc)), await g.write(x.toAffine(F.S1)), await g.write(x.toAffine(F.S2)), await g.write(x.toAffine(F.S3));
+			let s;
+			s = await d.read(S, f[3][0].p + S), await g.write(s), await n(g);
+		}
+		function re() {
+			let e = C.two;
+			/* c8 ignore start */
+			for (; n(e, [], k);) C.add(e, C.one);
+			/* c8 ignore stop */
+			let t = C.add(e, C.one);
+			/* c8 ignore start */
+			for (; n(t, [e], k);) C.add(t, C.one);
+			/* c8 ignore stop */
+			return [e, t];
+			function n(e, t, n) {
+				let r = 2 ** n, i = C.one;
+				for (let a = 0; a < r; a++) {
+					/* c8 ignore start */
+					if (C.eq(e, i)) return !0;
+					/* c8 ignore stop */
+					for (let n = 0; n < t.length; n++)
+ /* c8 ignore start */
+					if (C.eq(e, C.mul(t[n], i))) return !0;
+					i = C.mul(i, C.w[n]);
+				}
+				return !1;
+			}
+		}
+	} finally {
+		for (let e of [
+			d,
+			p,
+			g
+		]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/proof.js
+var Sr = class {
+	constructor(e, t) {
+		this.curve = e, this.logger = t, this.resetProof();
+	}
+	resetProof() {
+		this.polynomials = {}, this.evaluations = {};
+	}
+	addPolynomial(e, t) {
+		e in this.polynomials && this.logger.warn(`proof: polynomial.${e} already exist in proof`), this.polynomials[e] = t;
+	}
+	getPolynomial(e) {
+		return e in this.polynomials || this.logger.warn(`proof: polynomial ${e} does not exist in proof`), this.polynomials[e];
+	}
+	addEvaluation(e, t) {
+		e in this.evaluations && this.logger.warn(`proof: evaluations.${e} already exist in proof`), this.evaluations[e] = t;
+	}
+	getEvaluation(e) {
+		return e in this.evaluations || this.logger.warn(`proof: evaluation ${e} does not exist in proof`), this.evaluations[e];
+	}
+	toObjectProof(e = !0) {
+		let t = e ? {
+			polynomials: {},
+			evaluations: {}
+		} : {};
+		return Object.keys(this.polynomials).forEach((n) => {
+			let r = this.curve.G1.toObject(this.polynomials[n]);
+			e ? t.polynomials[n] = r : t[n] = r;
+		}), Object.keys(this.evaluations).forEach((n) => {
+			let r = this.curve.Fr.toObject(this.evaluations[n]);
+			e ? t.evaluations[n] = r : t[n] = r;
+		}), t;
+	}
+	fromObjectProof(e) {
+		this.resetProof(), Object.keys(e.polynomials).forEach((t) => {
+			this.polynomials[t] = this.curve.G1.fromObject(e.polynomials[t]);
+		}), Object.keys(e.evaluations).forEach((t) => {
+			this.evaluations[t] = this.curve.Fr.fromObject(e.evaluations[t]);
+		});
+	}
+}, Cr = BigInt(0), wr = BigInt(1), Tr = BigInt(2), Er = BigInt(7), Dr = BigInt(256), Or = BigInt(113), kr = [], Ar = [], jr = [];
+for (let e = 0, t = wr, n = 1, r = 0; e < 24; e++) {
+	[n, r] = [r, (2 * n + 3 * r) % 5], kr.push(2 * (5 * r + n)), Ar.push((e + 1) * (e + 2) / 2 % 64);
+	let i = Cr;
+	for (let e = 0; e < 7; e++) t = (t << wr ^ (t >> Er) * Or) % Dr, t & Tr && (i ^= wr << (wr << BigInt(e)) - wr);
+	jr.push(i);
+}
+var Mr = ne(jr, !0), Nr = Mr[0], Pr = Mr[1], Fr = (e, t, n) => n > 32 ? de(e, t, n) : le(e, t, n), Ir = (e, t, n) => n > 32 ? fe(e, t, n) : ue(e, t, n);
+function Lr(e, t = 24) {
+	if (O(t, "rounds"), t < 1 || t > 24) throw Error("\"rounds\" expected integer 1..24");
+	let n = /* @__PURE__ */ new Uint32Array(10);
+	for (let r = 24 - t; r < 24; r++) {
+		for (let t = 0; t < 10; t++) n[t] = e[t] ^ e[t + 10] ^ e[t + 20] ^ e[t + 30] ^ e[t + 40];
+		for (let t = 0; t < 10; t += 2) {
+			let r = (t + 8) % 10, i = (t + 2) % 10, a = n[i], o = n[i + 1], s = Fr(a, o, 1) ^ n[r], c = Ir(a, o, 1) ^ n[r + 1];
+			for (let n = 0; n < 50; n += 10) e[t + n] ^= s, e[t + n + 1] ^= c;
+		}
+		let t = e[2], i = e[3];
+		for (let n = 0; n < 24; n++) {
+			let r = Ar[n], a = Fr(t, i, r), o = Ir(t, i, r), s = kr[n];
+			t = e[s], i = e[s + 1], e[s] = a, e[s + 1] = o;
+		}
+		for (let t = 0; t < 50; t += 10) {
+			let n = e[t], r = e[t + 1], i = e[t + 2], a = e[t + 3];
+			e[t] ^= ~e[t + 2] & e[t + 4], e[t + 1] ^= ~e[t + 3] & e[t + 5], e[t + 2] ^= ~e[t + 4] & e[t + 6], e[t + 3] ^= ~e[t + 5] & e[t + 7], e[t + 4] ^= ~e[t + 6] & e[t + 8], e[t + 5] ^= ~e[t + 7] & e[t + 9], e[t + 6] ^= ~e[t + 8] & n, e[t + 7] ^= ~e[t + 9] & r, e[t + 8] ^= ~n & i, e[t + 9] ^= ~r & a;
+		}
+		e[0] ^= Nr[r], e[1] ^= Pr[r];
+	}
+	N(n);
+}
+var Rr = class e {
+	state;
+	pos = 0;
+	posOut = 0;
+	finished = !1;
+	state32;
+	destroyed = !1;
+	blockLen;
+	suffix;
+	outputLen;
+	canXOF;
+	enableXOF = !1;
+	rounds;
+	constructor(e, t, n, r = !1, i = 24) {
+		if (this.blockLen = e, this.suffix = t, this.outputLen = n, this.enableXOF = r, this.canXOF = r, this.rounds = i, O(n, "outputLen"), !(0 < e && e < 200)) throw Error("only keccak-f1600 function is supported");
+		this.state = /* @__PURE__ */ new Uint8Array(200), this.state32 = M(this.state);
+	}
+	clone() {
+		return this._cloneInto();
+	}
+	keccak() {
+		R(this.state32), Lr(this.state32, this.rounds), R(this.state32), this.posOut = 0, this.pos = 0;
+	}
+	update(e) {
+		A(this), k(e);
+		let { blockLen: t, state: n } = this, r = e.length;
+		for (let i = 0; i < r;) {
+			let a = Math.min(t - this.pos, r - i);
+			for (let t = 0; t < a; t++) n[this.pos++] ^= e[i++];
+			this.pos === t && this.keccak();
+		}
+		return this;
+	}
+	finish() {
+		if (this.finished) return;
+		this.finished = !0;
+		let { state: e, suffix: t, pos: n, blockLen: r } = this;
+		e[n] ^= t, t & 128 && n === r - 1 && this.keccak(), e[r - 1] ^= 128, this.keccak();
+	}
+	writeInto(e) {
+		A(this, !1), k(e), this.finish();
+		let t = this.state, { blockLen: n } = this;
+		for (let r = 0, i = e.length; r < i;) {
+			this.posOut >= n && this.keccak();
+			let a = Math.min(n - this.posOut, i - r);
+			e.set(t.subarray(this.posOut, this.posOut + a), r), this.posOut += a, r += a;
+		}
+		return e;
+	}
+	xofInto(e) {
+		if (!this.enableXOF) throw Error("XOF is not possible for this instance");
+		return this.writeInto(e);
+	}
+	xof(e) {
+		return O(e), this.xofInto(new Uint8Array(e));
+	}
+	digestInto(e) {
+		if (j(e, this), this.finished) throw Error("digest() was already called");
+		this.writeInto(e.subarray(0, this.outputLen)), this.destroy();
+	}
+	digest() {
+		let e = new Uint8Array(this.outputLen);
+		return this.digestInto(e), e;
+	}
+	destroy() {
+		this.destroyed = !0, N(this.state);
+	}
+	_cloneInto(t) {
+		let { blockLen: n, suffix: r, outputLen: i, rounds: a, enableXOF: o } = this;
+		return t ||= new e(n, r, i, o, a), t.blockLen = n, t.state32.set(this.state32), t.pos = this.pos, t.posOut = this.posOut, t.finished = this.finished, t.rounds = a, t.suffix = r, t.outputLen = i, t.enableXOF = o, t.canXOF = this.canXOF, t.destroyed = this.destroyed, t;
+	}
+}, zr = /* @__PURE__ */ ((e, t, n, r = {}) => z(() => new Rr(t, e, n), r))(1, 136, 32), Br = 0, Vr = 1, Hr = class {
+	constructor(e) {
+		this.G1 = e.G1, this.Fr = e.Fr, this.reset();
+	}
+	reset() {
+		this.data = [];
+	}
+	addPolCommitment(e) {
+		this.data.push({
+			type: Br,
+			data: e
+		});
+	}
+	addScalar(e) {
+		this.data.push({
+			type: Vr,
+			data: e
+		});
+	}
+	getChallenge() {
+		if (this.data.length === 0) throw Error("Keccak256Transcript: No data to generate a transcript");
+		let e = 0, t = 0;
+		this.data.forEach((n) => Br === n.type ? e++ : t++);
+		let n = new Uint8Array(t * this.Fr.n8 + e * this.G1.F.n8 * 2), r = 0;
+		for (let e = 0; e < this.data.length; e++) Br === this.data[e].type ? (this.G1.toRprUncompressed(n, r, this.data[e].data), r += this.G1.F.n8 * 2) : (this.Fr.toRprBE(n, r, this.data[e].data), r += this.Fr.n8);
+		let i = u.fromRprBE(zr(n));
+		return this.Fr.e(i);
+	}
+}, Ur = class {
+	static getZ1(e) {
+		return [
+			e.zero,
+			e.add(e.e(-1), e.w[2]),
+			e.e(-2),
+			e.sub(e.e(-1), e.w[2])
+		];
+	}
+	static getZ2(e) {
+		return [
+			e.zero,
+			e.add(e.zero, e.mul(e.e(-2), e.w[2])),
+			e.e(4),
+			e.sub(e.zero, e.mul(e.e(-2), e.w[2]))
+		];
+	}
+	static getZ3(e) {
+		return [
+			e.zero,
+			e.add(e.e(2), e.mul(e.e(2), e.w[2])),
+			e.e(-8),
+			e.sub(e.e(2), e.mul(e.e(2), e.w[2]))
+		];
+	}
+	static mul2(e, t, n, r, i, a) {
+		let o = this.getZ1(a), s, c, l = a.mul(e, t), u = a.mul(e, r), d = a.mul(n, t), f = a.mul(n, r);
+		s = l;
+		let p = a.add(u, d), m = f;
+		return c = p, i && (c = a.add(c, a.mul(o[i], m))), [s, c];
+	}
+	static mul3(e, t, n, r, i, a, o, s) {
+		let c = this.getZ1(s), l = this.getZ2(s), u, d, f = s.mul(e, t), p = s.mul(e, i), m = s.mul(r, t), h = s.mul(r, i);
+		u = s.mul(f, n);
+		let g = s.mul(m, n);
+		g = s.add(g, s.mul(p, n)), g = s.add(g, s.mul(f, a));
+		let _ = s.mul(h, n);
+		if (_ = s.add(_, s.mul(p, a)), _ = s.add(_, s.mul(m, a)), d = g, o) {
+			let e = s.mul(h, a);
+			d = s.add(d, s.mul(c[o], _)), d = s.add(d, s.mul(l[o], e));
+		}
+		return [u, d];
+	}
+	static mul4(e, t, n, r, i, a, o, s, c, l) {
+		let u = this.getZ1(l), d = this.getZ2(l), f = this.getZ3(l), p, m, h = l.mul(e, t), g = l.mul(e, a), _ = l.mul(i, t), v = l.mul(i, a), y = l.mul(n, r), b = l.mul(n, s), x = l.mul(o, r), S = l.mul(o, s);
+		p = l.mul(h, y);
+		let C = l.mul(_, y);
+		C = l.add(C, l.mul(g, y)), C = l.add(C, l.mul(h, x)), C = l.add(C, l.mul(h, b));
+		let w = l.mul(v, y);
+		w = l.add(w, l.mul(_, x)), w = l.add(w, l.mul(_, b)), w = l.add(w, l.mul(g, x)), w = l.add(w, l.mul(g, b)), w = l.add(w, l.mul(h, S));
+		let T = l.mul(g, S);
+		T = l.add(T, l.mul(_, S)), T = l.add(T, l.mul(v, b)), T = l.add(T, l.mul(v, x));
+		let E = l.mul(v, S);
+		return m = C, c && (m = l.add(m, l.mul(u[c], w)), m = l.add(m, l.mul(d[c], T)), m = l.add(m, l.mul(f[c], E))), [p, m];
+	}
+}, Y = class e {
+	constructor(e, t, n) {
+		this.coef = e, this.curve = t, this.Fr = t.Fr, this.G1 = t.G1, this.logger = n;
+	}
+	static async fromEvaluations(t, n, r) {
+		let i = await n.Fr.ifft(t);
+		return new e(i, n, r);
+	}
+	static fromCoefficientsArray(t, n, r) {
+		let i = n.Fr, a = t.length > 32768 ? new s(t.length * i.n8) : new Uint8Array(t.length * i.n8);
+		for (let e = 0; e < t.length; e++) a.set(t[e], e * i.n8);
+		return new e(a, n, r);
+	}
+	static fromPolynomial(t, n, r) {
+		let i = t.length(), a = n.Fr, o = i > 32768 ? new s(i * a.n8) : new Uint8Array(i * a.n8);
+		return o.set(t.coef.slice(), 0), new e(o, n, r);
+	}
+	isEqual(e) {
+		let t = this.degree();
+		if (t !== e.degree()) return !1;
+		for (let n = 0; n < t + 1; n++) if (!this.Fr.eq(this.getCoef(n), e.getCoef(n))) return !1;
+		return !0;
+	}
+	blindCoefficients(e) {
+		e ||= [];
+		let t = this.length() + e.length > 32768 ? new s((this.length() + e.length) * this.Fr.n8) : new Uint8Array((this.length() + e.length) * this.Fr.n8);
+		t.set(this.coef, 0);
+		for (let n = 0; n < e.length; n++) t.set(this.Fr.add(t.slice((this.length() + n) * this.Fr.n8, (this.length() + n + 1) * this.Fr.n8), e[n]), (this.length() + n) * this.Fr.n8), t.set(this.Fr.sub(t.slice(n * this.Fr.n8, (n + 1) * this.Fr.n8), e[n]), n * this.Fr.n8);
+		this.coef = t;
+	}
+	getCoef(e) {
+		let t = e * this.Fr.n8;
+		return t + this.Fr.n8 > this.coef.byteLength ? this.Fr.zero : this.coef.slice(t, t + this.Fr.n8);
+	}
+	setCoef(e, t) {
+		if (e > this.length() - 1) throw Error("Coef index is not available");
+		this.coef.set(t, e * this.Fr.n8);
+	}
+	static async to4T(e, t, n, r) {
+		n ||= [];
+		let i = await r.ifft(e), a = t * 4 > 32768 ? new s(t * 4 * r.n8) : new Uint8Array(t * 4 * r.n8);
+		a.set(i, 0);
+		let o = await r.fft(a);
+		if (n.length === 0) return [i, o];
+		let c = t + n.length > 32768 ? new s((t + n.length) * r.n8) : new Uint8Array((t + n.length) * r.n8);
+		c.set(i, 0);
+		for (let e = 0; e < n.length; e++) c.set(r.add(c.slice((t + e) * r.n8, (t + e + 1) * r.n8), n[e]), (t + e) * r.n8), c.set(r.sub(c.slice(e * r.n8, (e + 1) * r.n8), n[e]), e * r.n8);
+		return [c, o];
+	}
+	length() {
+		let e = this.coef.byteLength / this.Fr.n8;
+		if (e !== Math.floor(this.coef.byteLength / this.Fr.n8)) throw Error("Polynomial coefficients buffer has incorrect size");
+		return e === 0 && this.logger && this.logger.warn("Polynomial has length zero"), e;
+	}
+	degree() {
+		for (let e = this.length() - 1; e > 0; e--) {
+			let t = e * this.Fr.n8;
+			if (!this.Fr.eq(this.Fr.zero, this.coef.slice(t, t + this.Fr.n8))) return e;
+		}
+		return 0;
+	}
+	evaluate(e) {
+		let t = this.Fr.zero;
+		for (let n = this.degree() + 1; n > 0; n--) {
+			let r = n * this.Fr.n8, i = this.coef.slice(r - this.Fr.n8, r);
+			t = this.Fr.add(i, this.Fr.mul(t, e));
+		}
+		return t;
+	}
+	fastEvaluate(e) {
+		let t = this.Fr, n = this.degree() + 1, r = parseInt(n / 3), i = n - r * 3, a = [], o = [];
+		o[0] = t.one;
+		for (let n = 0; n < 3; n++) {
+			a[n] = t.zero;
+			let s = n === 2 ? r + i : r;
+			for (let i = s; i > 0; i--) a[n] = t.add(this.getCoef(n * r + i - 1), t.mul(a[n], e)), n === 0 && (o[0] = t.mul(o[0], e));
+		}
+		for (let e = 1; e < 3; e++) a[0] = t.add(a[0], t.mul(o[e - 1], a[e])), o[e] = t.mul(o[e - 1], o[0]);
+		return a[0];
+	}
+	add(e, t) {
+		let n = !1;
+		e.length() > this.length() && (n = !0);
+		let r = this.length(), i = e.length();
+		for (let a = 0; a < Math.max(r, i); a++) {
+			let o = a * this.Fr.n8, s = a < r ? this.coef.slice(o, o + this.Fr.n8) : this.Fr.zero, c = a < i ? e.coef.slice(o, o + this.Fr.n8) : this.Fr.zero;
+			t !== void 0 && (c = this.Fr.mul(c, t)), n ? e.coef.set(this.Fr.add(s, c), o) : this.coef.set(this.Fr.add(s, c), o);
+		}
+		n && (delete this.coef, this.coef = e.coef);
+	}
+	sub(e, t) {
+		let n = !1;
+		e.length() > this.length() && (n = !0);
+		let r = this.length(), i = e.length();
+		for (let a = 0; a < Math.max(r, i); a++) {
+			let o = a * this.Fr.n8, s = a < r ? this.coef.slice(o, o + this.Fr.n8) : this.Fr.zero, c = a < i ? e.coef.slice(o, o + this.Fr.n8) : this.Fr.zero;
+			t !== void 0 && (c = this.Fr.mul(c, t)), n ? e.coef.set(this.Fr.sub(s, c), o) : this.coef.set(this.Fr.sub(s, c), o);
+		}
+		n && (delete this.coef, this.coef = e.coef);
+	}
+	mulScalar(e) {
+		for (let t = 0; t < this.length(); t++) {
+			let n = t * this.Fr.n8;
+			this.coef.set(this.Fr.mul(this.coef.slice(n, n + this.Fr.n8), e), n);
+		}
+	}
+	addScalar(e) {
+		/* c8 ignore start */
+		let t = this.length() === 0 ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+		/* c8 ignore stop */
+		this.coef.set(this.Fr.add(t, e), 0);
+	}
+	subScalar(e) {
+		/* c8 ignore start */
+		let t = this.length() === 0 ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
+		/* c8 ignore stop */
+		this.coef.set(this.Fr.sub(t, e), 0);
+	}
+	byXSubValue(t) {
+		let n = this.Fr, r = n.eq(n.zero, this.getCoef(this.length() - 1)) ? this.length() : this.length() + 1, i = r > 32768 ? new s(r * n.n8) : new Uint8Array(r * n.n8), a = new e(i, this.curve, this.logger);
+		a.coef.set(this.coef.slice(0, (r - 1) * n.n8), 32), this.mulScalar(n.neg(t)), a.add(this), this.coef = a.coef;
+	}
+	byXNSubValue(t, n) {
+		let r = this.Fr, i = this.length() - t - 1 >= this.degree() ? this.length() : this.length() + t, a = i > 32768 ? new s(i * r.n8) : new Uint8Array(i * r.n8), o = new e(a, this.curve, this.logger);
+		o.coef.set(this.coef.slice(0, (this.degree() + 1) * 32), t * 32), this.mulScalar(n), o.add(this), this.coef = o.coef;
+	}
+	divBy(t) {
+		let n = this.Fr, r = this.degree(), i = t.degree(), a = new e(this.coef, this.curve, this.logger);
+		this.coef = this.length() > 32768 ? new s(this.length() * n.n8) : new Uint8Array(this.length() * n.n8);
+		for (let e = r - i; e >= 0; e--) {
+			this.setCoef(e, n.div(a.getCoef(e + i), t.getCoef(i)));
+			for (let r = 0; r <= i; r++) a.setCoef(e + r, n.sub(a.getCoef(e + r), n.mul(this.getCoef(e), t.getCoef(r))));
+		}
+		return a;
+	}
+	divByMonic(t, n) {
+		let r = this.Fr, i = this.degree(), a = this.length() > 32768 ? new s(this.length() * r.n8) : new Uint8Array(this.length() * r.n8), o = new e(a, this.curve, this.logger), c = [];
+		for (let e = 0; e < t; e++) o.setCoef(i - e - t, this.getCoef(i - e)), c[e] = this.getCoef(i - e);
+		let l = t, u = 0;
+		for (let e = 0; e < l; e++) for (let a = i - 2 * t - e; a >= 0 && !(a < 0); a -= l) {
+			/* c8 ignore stop */
+			let i = e;
+			c[i] = r.add(this.getCoef(a + t), r.mul(c[i], n)), o.setCoef(a, c[i]), u = (u + 1) % t;
+		}
+		this.coef = o.coef;
+	}
+	divByVanishing(t, n) {
+		if (this.degree() < t) throw Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
+		let r = this.Fr, i = new e(this.coef, this.curve, this.logger);
+		this.coef = this.length() > 32768 ? new s(this.length() * r.n8) : new Uint8Array(this.length() * r.n8);
+		for (let e = this.length() - 1; e >= t; e--) {
+			let a = i.getCoef(e);
+			r.eq(r.zero, a) || (i.setCoef(e, r.zero), i.setCoef(e - t, r.add(i.getCoef(e - t), r.mul(n, a))), this.setCoef(e - t, r.add(this.getCoef(e - t), a)));
+		}
+		return i;
+	}
+	fastDivByVanishing(t) {
+		let n = this.Fr;
+		for (let r = 0; r < t.length; r++) {
+			let i = t[r][0], a = t[r][1];
+			if (this.degree() < i) throw Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
+			let o = this.length() - i, c = Math.floor(o / 5 / i), l = c * i, u = o - 5 * l, d = new e(this.length() > 32768 ? new s(this.length() * n.n8) : new Uint8Array(this.length() * n.n8), this.curve, this.logger), f = this.coef;
+			this.coef = d.coef, d.coef = f;
+			for (let e = 0; e < 5; e++) {
+				let t = (e + 1) * l + u;
+				for (let e = 0; e < i; e++) this.setCoef(t + e - i, d.getCoef(t + e));
+				for (let e = 0; e < l - i; e++) {
+					let r = t - e - 1, o = n.add(d.getCoef(r), n.mul(a, this.getCoef(r)));
+					this.setCoef(r - i, o);
+				}
+			}
+			let p = u, m = u;
+			for (let e = 0; e < i && m; e++) this.setCoef(p - e - 1, d.getCoef(p + i - e - 1)), m--;
+			for (let e = 0; e < m; e++) {
+				let t = p - e - 1, r = n.add(d.getCoef(t), n.mul(a, this.getCoef(t)));
+				this.setCoef(t - i, r);
+			}
+			let h = [], g = n.one;
+			for (let e = 0; e < c; e++) g = n.mul(g, a);
+			let _ = n.one;
+			for (let e = 5; e > 0; e--) {
+				let t = e - 1, r = t * l + u;
+				h[t] = [];
+				for (let a = 0; a < i; a++) h[t][a] = this.getCoef(r + a), e !== 5 && (h[t][a] = n.add(h[t][a], n.mul(g, h[t + 1][a])));
+				_ = n.mul(_, g);
+			}
+			for (let e = 0; e < 5; e++) {
+				let t = e * l + u, r = a, o = i - 1, s = e === 0 ? u : l;
+				for (let c = 0; c < s; c++) {
+					let s = t - c - 1, l = n.add(this.getCoef(s), n.mul(r, h[e][o]));
+					this.setCoef(s, l), o === 0 ? (o = i - 1, r = n.mul(r, a)) : o--;
+				}
+			}
+		}
+	}
+	divByXSubValue(e) {
+		let t = this.length() > 32768 ? new s(this.length() * this.Fr.n8) : new Uint8Array(this.length() * this.Fr.n8);
+		t.set(this.Fr.zero, (this.length() - 1) * this.Fr.n8), t.set(this.coef.slice((this.length() - 1) * this.Fr.n8, this.length() * this.Fr.n8), (this.length() - 2) * this.Fr.n8);
+		for (let n = this.length() - 3; n >= 0; n--) {
+			let r = n * this.Fr.n8;
+			t.set(this.Fr.add(this.coef.slice(r + this.Fr.n8, r + 2 * this.Fr.n8), this.Fr.mul(e, t.slice(r + this.Fr.n8, r + 2 * this.Fr.n8))), n * this.Fr.n8);
+		}
+		if (!this.Fr.eq(this.coef.slice(0, this.Fr.n8), this.Fr.mul(this.Fr.neg(e), t.slice(0, this.Fr.n8)))) throw Error("Polynomial does not divide");
+		this.coef = t;
+	}
+	divZh(e, t = 4) {
+		for (let t = 0; t < e; t++) {
+			let e = t * this.Fr.n8;
+			this.coef.set(this.Fr.neg(this.coef.slice(e, e + this.Fr.n8)), e);
+		}
+		let n = this.coef.byteLength / this.Fr.n8;
+		for (let r = e; r < n; r++) {
+			let n = r * this.Fr.n8, i = this.Fr.sub(this.coef.slice((r - e) * this.Fr.n8, (r - e) * this.Fr.n8 + this.Fr.n8), this.coef.slice(n, n + this.Fr.n8));
+			if (this.coef.set(i, n), r > e * (t - 1) - t && !this.Fr.isZero(i)) throw Error("Polynomial is not divisible");
+		}
+		return this;
+	}
+	divByZerofier(e, t) {
+		let n = this.Fr, r = n.inv(t), i = n.neg(r), a = n.eq(n.one, i), o = n.eq(n.negone, i);
+		if (!a) for (let t = 0; t < e; t++) {
+			let e = t * this.Fr.n8, r;
+			r = o ? n.neg(this.coef.slice(e, e + this.Fr.n8)) : n.mul(i, this.coef.slice(e, e + this.Fr.n8)), this.coef.set(r, e);
+		}
+		a = n.eq(n.one, r), o = n.eq(n.negone, r);
+		for (let t = e; t < this.length(); t++) {
+			let i = t * this.Fr.n8, s = (t - e) * this.Fr.n8, c = this.Fr.sub(this.coef.slice(s, s + this.Fr.n8), this.coef.slice(i, i + this.Fr.n8));
+			if (a || (c = o ? n.neg(c) : n.mul(r, c)), this.coef.set(c, i), t > this.length() - e - 1 && !this.Fr.isZero(c)) throw Error("Polynomial is not divisible");
+		}
+		return this;
+	}
+	byX() {
+		let e = this.length() + 1 > 32768 ? new s(this.coef.byteLength + this.Fr.n8) : new Uint8Array(this.coef.byteLength + this.Fr.n8);
+		e.set(this.Fr.zero, 0), e.set(this.coef, this.Fr.n8), this.coef = e;
+	}
+	static async expX(t, n, r = !1) {
+		let i = t.Fr;
+		if (n < 1) throw Error("Compute a new polynomial to a zero or negative number is not allowed");
+		if (n === 1) return e.fromPolynomial(t, t.curve, t.logger);
+		let a = r ? t.degree() : t.length() - 1, o = a * n + 1 > 32768 ? new s((a * n + 1) * i.n8) : new Uint8Array((a * n + 1) * i.n8);
+		o.set(t.getCoef(0), 0);
+		for (let e = 1; e <= a; e++) {
+			let r = e * i.n8, a = t.getCoef(e);
+			o.set(a, r * n);
+		}
+		return new e(o, t.curve, t.logger);
+	}
+	split(t, n, r) {
+		if (t < 1) throw Error(`Polynomials can't be split in ${t} parts`);
+		if (t === 1) return [this];
+		if (r.length !== 0 && r.length < t - 1) throw Error(`Blinding factors length must be ${t - 1}`);
+		let i = (n + 1) * this.Fr.n8, a = [], o = Math.ceil((this.degree() + 1) * this.Fr.n8 / i);
+		if (o < t) for (let n = o; n < t; n++) a[n] = new e(new Uint8Array(this.Fr.n8), this.curve, this.logger);
+		t = Math.min(t, o);
+		for (let n = 0; n < t; n++) {
+			let o = t - 1 === n, c = o ? this.coef.byteLength - (t - 1) * i : i + this.Fr.n8, l = c / this.Fr.n8 > 32768 ? new s(c) : new Uint8Array(c);
+			/* c8 ignore stop */
+			a[n] = new e(l, this.curve, this.logger);
+			let u = n * i, d = o ? this.coef.byteLength : (n + 1) * i;
+			if (a[n].coef.set(this.coef.slice(u, d), 0), o || a[n].coef.set(r[n], i), n !== 0) {
+				let e = this.Fr.sub(a[n].coef.slice(0, this.Fr.n8), r[n - 1]);
+				a[n].coef.set(e, 0);
+			}
+			o && a[n].truncate();
+		}
+		return a;
+	}
+	truncate() {
+		let e = this.degree();
+		if (e + 1 < this.coef.byteLength / this.Fr.n8) {
+			/* c8 ignore start */
+			let t = e + 1 > 32768 ? 
+			/* c8 ignore stop */
+			new s((e + 1) * this.Fr.n8) : new Uint8Array((e + 1) * this.Fr.n8);
+			t.set(this.coef.slice(0, (e + 1) * this.Fr.n8), 0), this.coef = t;
+		}
+	}
+	static lagrangePolynomialInterpolation(t, n, r) {
+		let i = r.Fr, a = o(0);
+		for (let e = 1; e < t.length; e++) a.add(o(e));
+		return a;
+		function o(a) {
+			let o;
+			for (let n = 0; n < t.length; n++) if (n !== a) {
+				if (o === void 0) {
+					/* c8 ignore start */
+					let a = t.length > 32768 ? 
+					/* c8 ignore stop */
+					new s(t.length * i.n8) : new Uint8Array(t.length * i.n8);
+					o = new e(a, r), o.setCoef(0, i.neg(t[n])), o.setCoef(1, i.one);
+				} else o.byXSubValue(t[n]);
+			}
+			let c = o.evaluate(t[a]);
+			c = i.inv(c);
+			let l = i.mul(n[a], c);
+			return o.mulScalar(l), o;
+		}
+	}
+	static zerofierPolynomial(t, n) {
+		let r = n.Fr, i = t.length + 1 > 32768 ? 
+		/* c8 ignore stop */
+		new s((t.length + 1) * r.n8) : new Uint8Array((t.length + 1) * r.n8), a = new e(i, n);
+		a.setCoef(0, r.neg(t[0])), a.setCoef(1, r.one);
+		for (let e = 1; e < t.length; e++) a.byXSubValue(t[e]);
+		return a;
+	}
+	print() {
+		let e = this.Fr, t = "";
+		for (let n = this.degree(); n >= 0; n--) {
+			let r = this.getCoef(n);
+			e.eq(e.zero, r) || (e.isNegative(r) ? t += " - " : n !== this.degree() && (t += " + "), t += e.toString(r), n > 0 && (t += n > 1 ? "x^" + n : "x"));
+		}
+		console.log(t);
+	}
+	async multiExponentiation(e, t) {
+		let n = this.coef.byteLength / this.Fr.n8, r = e.slice(0, n * this.G1.F.n8 * 2), i = await this.Fr.batchFromMontgomery(this.coef), a = await this.G1.multiExpAffine(r, i, this.logger, t);
+		return a = this.G1.toAffine(a), a;
+	}
+}, X = class e {
+	constructor(e, t, n) {
+		this.eval = e, this.curve = t, this.Fr = t.Fr, this.logger = n;
+	}
+	static async fromPolynomial(t, n, r, i) {
+		let a = new s(t.length() * n * r.Fr.n8);
+		a.set(t.coef, 0);
+		let o = await r.Fr.fft(a);
+		return new e(o, r, i);
+	}
+	getEvaluation(e) {
+		let t = e * this.Fr.n8;
+		if (t + this.Fr.n8 > this.eval.byteLength) throw Error("Evaluations.getEvaluation() out of bounds");
+		return this.eval.slice(t, t + this.Fr.n8);
+	}
+	length() {
+		let e = this.eval.byteLength / this.Fr.n8;
+		if (e !== Math.floor(this.eval.byteLength / this.Fr.n8)) throw Error("Polynomial evaluations buffer has incorrect size");
+		return e === 0 && this.logger.warn("Polynomial has length zero"), e;
+	}
+}, { stringifyBigInts: Wr } = p;
+async function Gr(t, n, r, i) {
+	let a, o, c, l;
+	try {
+		({fd: a, sections: o} = await e.readBinFile(n, "wtns", 2, 1 << 25, 1 << 23)), r && r.debug("> Reading witness file");
+		let d = await rt(a, o);
+		r && r.debug("> Reading zkey file"), {fd: c, sections: l} = await e.readBinFile(t, "zkey", 2, 1 << 25, 1 << 23);
+		let f = await Ue(c, l, void 0, i);
+		if (f.protocol != "plonk") throw Error("zkey file is not plonk");
+		if (!u.eq(f.r, d.q)) throw Error("Curve of the witness does not match the curve of the proving key");
+		if (d.nWitness != f.nVars - f.nAdditions) throw Error(`Invalid witness length. Circuit: ${f.nVars}, witness: ${d.nWitness}, ${f.nAdditions}`);
+		let p = f.curve, m = p.Fr, h = p.Fr.n8, g = f.domainSize * h;
+		r && (r.debug("----------------------------"), r.debug("  PLONK PROVE SETTINGS"), r.debug(`  Curve:         ${p.name}`), r.debug(`  Circuit power: ${f.power}`), r.debug(`  Domain size:   ${f.domainSize}`), r.debug(`  Vars:          ${f.nVars}`), r.debug(`  Public vars:   ${f.nPublic}`), r.debug(`  Constraints:   ${f.nConstraints}`), r.debug(`  Additions:     ${f.nAdditions}`), r.debug("----------------------------")), r && r.debug("> Reading witness file data");
+		let _ = await e.readSection(a, o, 2);
+		_.set(m.zero, 0);
+		let v = new s(h * f.nAdditions), y = {}, b = {}, x = {}, S = {}, C = new Sr(p, r), w = new Hr(p);
+		r && r.debug("> Reading Section 3. Additions"), await O(), r && r.debug("> Reading Section 12. Sigma1, Sigma2 & Sigma 3"), r && r.debug("··· Reading Sigma polynomials "), b.Sigma1 = new Y(new s(g), p, r), b.Sigma2 = new Y(new s(g), p, r), b.Sigma3 = new Y(new s(g), p, r), await c.readToBuffer(b.Sigma1.coef, 0, g, l[12][0].p), await c.readToBuffer(b.Sigma2.coef, 0, g, l[12][0].p + 5 * g), await c.readToBuffer(b.Sigma3.coef, 0, g, l[12][0].p + 10 * g), r && r.debug("··· Reading Sigma evaluations"), x.Sigma1 = new X(new s(g * 4), p, r), x.Sigma2 = new X(new s(g * 4), p, r), x.Sigma3 = new X(new s(g * 4), p, r), await c.readToBuffer(x.Sigma1.eval, 0, g * 4, l[12][0].p + g), await c.readToBuffer(x.Sigma2.eval, 0, g * 4, l[12][0].p + 6 * g), await c.readToBuffer(x.Sigma3.eval, 0, g * 4, l[12][0].p + 11 * g), r && r.debug("> Reading Section 14. Powers of Tau");
+		let T = await e.readSection(c, l, 14), E = [];
+		for (let e = 1; e <= f.nPublic; e++) {
+			let t = _.slice(e * m.n8, e * m.n8 + m.n8);
+			E.push(u.fromRprLE(t));
+		}
+		r && r.debug(""), r && r.debug("> ROUND 1"), await j(), r && r.debug("> ROUND 2"), await N(), r && r.debug("> ROUND 3"), await F(), r && r.debug("> ROUND 4"), await L(), r && r.debug("> ROUND 5"), await R(), await c.close(), await a.close();
+		let D = C.toObjectProof(!1);
+		return D.protocol = "plonk", D.curve = p.name, r && r.debug("PLONK PROVER FINISHED"), {
+			proof: Wr(D),
+			publicSignals: Wr(E)
+		};
+		async function O() {
+			r && r.debug("··· Computing additions");
+			let t = await e.readSection(c, l, 3), n = 8 + h * 2;
+			for (let e = 0; e < f.nAdditions; e++) {
+				/* c8 ignore start */
+				r && e !== 0 && e % 1e5 == 0 && r.debug(`    addition ${e}/${f.nAdditions}`);
+				/* c8 ignore stop */
+				let i = e * n, a = k(t, i);
+				i += 4;
+				let o = k(t, i);
+				i += 4;
+				let s = t.slice(i, i + h);
+				i += h;
+				let c = t.slice(i, i + h), l = A(a), u = A(o), d = m.add(m.mul(s, l), m.mul(c, u));
+				v.set(d, h * e);
+			}
+		}
+		function k(e, t) {
+			let n = e.slice(t, t + 4);
+			return new DataView(n.buffer, n.byteOffset, n.byteLength).getUint32(0, !0);
+		}
+		function A(e) {
+			return e < f.nVars - f.nAdditions ? _.slice(e * h, e * h + h) : e < f.nVars ? v.slice((e - (f.nVars - f.nAdditions)) * h, (e - (f.nVars - f.nAdditions)) * h + h) : p.Fr.zero;
+		}
+		async function j() {
+			S.b = [];
+			for (let e = 1; e <= 11; e++) S.b[e] = p.Fr.random();
+			r && r.debug("> Computing A, B, C wire polynomials"), await M(), r && r.debug("> Computing A, B, C MSM");
+			let e = await b.A.multiExponentiation(T, "A"), t = await b.B.multiExponentiation(T, "B"), n = await b.C.multiExponentiation(T, "C");
+			return C.addPolynomial("A", e), C.addPolynomial("B", t), C.addPolynomial("C", n), 0;
+		}
+		async function M() {
+			r && r.debug("··· Reading data from zkey file"), y.A = new s(g), y.B = new s(g), y.C = new s(g);
+			let t = await e.readSection(c, l, 4), n = await e.readSection(c, l, 5), i = await e.readSection(c, l, 6);
+			for (let e = 0; e < f.nConstraints; e++) {
+				let r = e * h, a = e * 4, o = k(t, a);
+				y.A.set(A(o), r);
+				let s = k(n, a);
+				y.B.set(A(s), r);
+				let c = k(i, a);
+				y.C.set(A(c), r);
+			}
+			/* c8 ignore start */
+			if (y.A = await m.batchToMontgomery(y.A), y.B = await m.batchToMontgomery(y.B), y.C = await m.batchToMontgomery(y.C), r && r.debug("··· Computing A ifft"), b.A = await Y.fromEvaluations(y.A, p, r), r && r.debug("··· Computing B ifft"), b.B = await Y.fromEvaluations(y.B, p, r), r && r.debug("··· Computing C ifft"), b.C = await Y.fromEvaluations(y.C, p, r), r && r.debug("··· Computing A fft"), x.A = await X.fromPolynomial(b.A, 4, p, r), r && r.debug("··· Computing B fft"), x.B = await X.fromPolynomial(b.B, 4, p, r), r && r.debug("··· Computing C fft"), x.C = await X.fromPolynomial(b.C, 4, p, r), b.A.blindCoefficients([S.b[2], S.b[1]]), b.B.blindCoefficients([S.b[4], S.b[3]]), b.C.blindCoefficients([S.b[6], S.b[5]]), b.A.degree() >= f.domainSize + 2) throw Error("A Polynomial is not well calculated");
+			/* c8 ignore stop */
+			/* c8 ignore start */
+			if (b.B.degree() >= f.domainSize + 2) throw Error("B Polynomial is not well calculated");
+			/* c8 ignore stop */
+			/* c8 ignore start */
+			if (b.C.degree() >= f.domainSize + 2) throw Error("C Polynomial is not well calculated");
+			/* c8 ignore stop */
+		}
+		async function N() {
+			r && r.debug("> Computing challenges beta and gamma"), w.reset(), w.addPolCommitment(f.Qm), w.addPolCommitment(f.Ql), w.addPolCommitment(f.Qr), w.addPolCommitment(f.Qo), w.addPolCommitment(f.Qc), w.addPolCommitment(f.S1), w.addPolCommitment(f.S2), w.addPolCommitment(f.S3);
+			for (let e = 0; e < f.nPublic; e++) w.addScalar(y.A.slice(e * h, e * h + h));
+			w.addPolCommitment(C.getPolynomial("A")), w.addPolCommitment(C.getPolynomial("B")), w.addPolCommitment(C.getPolynomial("C")), S.beta = w.getChallenge(), r && r.debug("··· challenges.beta: " + m.toString(S.beta, 16)), w.reset(), w.addScalar(S.beta), S.gamma = w.getChallenge(), r && r.debug("··· challenges.gamma: " + m.toString(S.gamma, 16)), r && r.debug("> Computing Z polynomial"), await P(), r && r.debug("> Computing Z MSM");
+			let e = await b.Z.multiExponentiation(T, "Z");
+			C.addPolynomial("Z", e);
+		}
+		async function P() {
+			r && r.debug("··· Computing Z evaluations");
+			let e = new s(g), t = new s(g);
+			e.set(m.one, 0), t.set(m.one, 0);
+			let n = m.one;
+			for (let r = 0; r < f.domainSize; r++) {
+				let i = r * h, a = y.A.slice(i, i + h), o = y.B.slice(i, i + h), s = y.C.slice(i, i + h), c = m.mul(S.beta, n), l = m.add(a, c);
+				l = m.add(l, S.gamma);
+				let u = m.add(o, m.mul(f.k1, c));
+				u = m.add(u, S.gamma);
+				let d = m.add(s, m.mul(f.k2, c));
+				d = m.add(d, S.gamma);
+				let p = m.mul(l, m.mul(u, d)), g = m.add(a, m.mul(x.Sigma1.getEvaluation(r * 4), S.beta));
+				g = m.add(g, S.gamma);
+				let _ = m.add(o, m.mul(x.Sigma2.getEvaluation(r * 4), S.beta));
+				_ = m.add(_, S.gamma);
+				let v = m.add(s, m.mul(x.Sigma3.getEvaluation(r * 4), S.beta));
+				v = m.add(v, S.gamma);
+				let b = m.mul(g, m.mul(_, v));
+				p = m.mul(e.slice(i, i + h), p), e.set(p, (r + 1) % f.domainSize * h), b = m.mul(t.slice(i, i + h), b), t.set(b, (r + 1) % f.domainSize * h), n = m.mul(n, m.w[f.power]);
+			}
+			t = await m.batchInverse(t);
+			for (let n = 0; n < f.domainSize; n++) {
+				let r = n * h, i = m.mul(e.slice(r, r + h), t.slice(r, r + h));
+				e.set(i, r);
+			}
+			/* c8 ignore start */
+			if (y.Z = e, !m.eq(e.slice(0, h), m.one)) throw Error("Copy constraints does not match");
+			/* c8 ignore start */
+			if (r && r.debug("··· Computing Z ifft"), b.Z = await Y.fromEvaluations(y.Z, p, r), r && r.debug("··· Computing Z fft"), x.Z = await X.fromPolynomial(b.Z, 4, p, r), b.Z.blindCoefficients([
+				S.b[9],
+				S.b[8],
+				S.b[7]
+			]), b.Z.degree() >= f.domainSize + 3) throw Error("Z Polynomial is not well calculated");
+			/* c8 ignore stop */
+			delete y.Z;
+		}
+		async function F() {
+			r && r.debug("> Computing challenge alpha"), w.reset(), w.addScalar(S.beta), w.addScalar(S.gamma), w.addPolCommitment(C.getPolynomial("Z")), S.alpha = w.getChallenge(), S.alpha2 = m.square(S.alpha), r && r.debug("··· challenges.alpha: " + m.toString(S.alpha, 16)), r && r.debug("> Computing T polynomial"), await I(), r && r.debug("> Computing T MSM");
+			let e = await b.T1.multiExponentiation(T, "T1"), t = await b.T2.multiExponentiation(T, "T2"), n = await b.T3.multiExponentiation(T, "T3");
+			C.addPolynomial("T1", e), C.addPolynomial("T2", t), C.addPolynomial("T3", n);
+		}
+		async function I() {
+			r && r.debug("··· Reading sections 8, 9, 7, 10, 11. Q selectors"), x.QL = new X(new s(g * 4), p, r), x.QR = new X(new s(g * 4), p, r), x.QM = new X(new s(g * 4), p, r), x.QO = new X(new s(g * 4), p, r), x.QC = new X(new s(g * 4), p, r), await c.readToBuffer(x.QL.eval, 0, g * 4, l[8][0].p + g), await c.readToBuffer(x.QR.eval, 0, g * 4, l[9][0].p + g), await c.readToBuffer(x.QM.eval, 0, g * 4, l[7][0].p + g), await c.readToBuffer(x.QO.eval, 0, g * 4, l[10][0].p + g), await c.readToBuffer(x.QC.eval, 0, g * 4, l[11][0].p + g), x.Lagrange = new X(new s(g * 4 * f.nPublic), p, r);
+			for (let e = 0; e < f.nPublic; e++) await c.readToBuffer(x.Lagrange.eval, e * g * 4, g * 4, l[13][0].p + e * 5 * g + g);
+			y.T = new s(g * 4), y.Tz = new s(g * 4), r && r.debug("··· Computing T evaluations");
+			let e = m.one;
+			for (let t = 0; t < f.domainSize * 4; t++) {
+				r && t !== 0 && t % 1e5 == 0 && 
+				/* c8 ignore start */
+				r.debug(`      T evaluation ${t}/${f.domainSize * 4}`);
+				/* c8 ignore stop */
+				let n = x.A.getEvaluation(t), i = x.B.getEvaluation(t), a = x.C.getEvaluation(t), o = x.Z.getEvaluation(t), s = x.Z.getEvaluation((f.domainSize * 4 + 4 + t) % (f.domainSize * 4)), c = x.QM.getEvaluation(t), l = x.QL.getEvaluation(t), u = x.QR.getEvaluation(t), d = x.QO.getEvaluation(t), p = x.QC.getEvaluation(t), g = x.Sigma1.getEvaluation(t), _ = x.Sigma2.getEvaluation(t), v = x.Sigma3.getEvaluation(t), b = m.add(S.b[2], m.mul(S.b[1], e)), C = m.add(S.b[4], m.mul(S.b[3], e)), w = m.add(S.b[6], m.mul(S.b[5], e)), T = m.square(e), E = m.add(m.add(m.mul(S.b[7], T), m.mul(S.b[8], e)), S.b[9]), D = m.mul(e, m.w[f.power]), O = m.square(D), k = m.add(m.add(m.mul(S.b[7], O), m.mul(S.b[8], D)), S.b[9]), A = m.zero;
+				for (let e = 0; e < f.nPublic; e++) {
+					let n = e * 4 * f.domainSize + t, r = x.Lagrange.getEvaluation(n), i = y.A.slice(e * h, (e + 1) * h);
+					A = m.sub(A, m.mul(r, i));
+				}
+				let [j, M] = Ur.mul2(n, i, b, C, t % 4, m);
+				j = m.mul(j, c), M = m.mul(M, c), j = m.add(j, m.mul(n, l)), M = m.add(M, m.mul(b, l)), j = m.add(j, m.mul(i, u)), M = m.add(M, m.mul(C, u)), j = m.add(j, m.mul(a, d)), M = m.add(M, m.mul(w, d)), j = m.add(j, A), j = m.add(j, p);
+				let N = m.mul(S.beta, e), P = n;
+				P = m.add(P, N), P = m.add(P, S.gamma);
+				let F = i;
+				F = m.add(F, m.mul(N, f.k1)), F = m.add(F, S.gamma);
+				let I = a;
+				I = m.add(I, m.mul(N, f.k2)), I = m.add(I, S.gamma);
+				let L = o, [R, z] = Ur.mul4(P, F, I, L, b, C, w, E, t % 4, m);
+				R = m.mul(R, S.alpha), z = m.mul(z, S.alpha);
+				let B = n;
+				B = m.add(B, m.mul(S.beta, g)), B = m.add(B, S.gamma);
+				let V = i;
+				V = m.add(V, m.mul(S.beta, _)), V = m.add(V, S.gamma);
+				let ee = a;
+				ee = m.add(ee, m.mul(S.beta, v)), ee = m.add(ee, S.gamma);
+				let te = s, [ne, re] = Ur.mul4(B, V, ee, te, b, C, w, k, t % 4, m);
+				ne = m.mul(ne, S.alpha), re = m.mul(re, S.alpha);
+				let ie = m.sub(o, m.one);
+				ie = m.mul(ie, x.Lagrange.getEvaluation(t)), ie = m.mul(ie, S.alpha2);
+				let ae = m.mul(E, x.Lagrange.getEvaluation(t));
+				ae = m.mul(ae, S.alpha2);
+				let oe = m.add(m.sub(m.add(j, R), ne), ie), se = m.add(m.sub(m.add(M, z), re), ae);
+				y.T.set(oe, t * h), y.Tz.set(se, t * h), e = m.mul(e, m.w[f.power + 2]);
+			}
+			/* c8 ignore start */
+			if (r && r.debug("··· Computing T ifft"), b.T = await Y.fromEvaluations(y.T, p, r), r && r.debug("··· Computing T / ZH"), b.T.divZh(f.domainSize, 4), r && r.debug("··· Computing Tz ifft"), b.Tz = await Y.fromEvaluations(y.Tz, p, r), b.T.add(b.Tz), b.T.degree() >= f.domainSize * 3 + 6) throw Error("T Polynomial is not well calculated");
+			r && r.debug("··· Computing T1, T2, T3 polynomials"), b.T1 = new Y(new s((f.domainSize + 1) * h), p, r), b.T2 = new Y(new s((f.domainSize + 1) * h), p, r), b.T3 = new Y(new s((f.domainSize + 6) * h), p, r), b.T1.coef.set(b.T.coef.slice(0, g), 0), b.T2.coef.set(b.T.coef.slice(g, g * 2), 0), b.T3.coef.set(b.T.coef.slice(g * 2, g * 3 + 6 * h), 0), b.T1.setCoef(f.domainSize, S.b[10]);
+			let t = m.sub(b.T2.getCoef(0), S.b[10]);
+			b.T2.setCoef(0, t), b.T2.setCoef(f.domainSize, S.b[11]);
+			let n = m.sub(b.T3.getCoef(0), S.b[11]);
+			b.T3.setCoef(0, n);
+		}
+		async function L() {
+			r && r.debug("> Computing challenge xi"), w.reset(), w.addScalar(S.alpha), w.addPolCommitment(C.getPolynomial("T1")), w.addPolCommitment(C.getPolynomial("T2")), w.addPolCommitment(C.getPolynomial("T3")), S.xi = w.getChallenge(), S.xiw = m.mul(S.xi, m.w[f.power]), r && r.debug("··· challenges.xi: " + m.toString(S.xi, 16)), C.addEvaluation("eval_a", b.A.evaluate(S.xi)), C.addEvaluation("eval_b", b.B.evaluate(S.xi)), C.addEvaluation("eval_c", b.C.evaluate(S.xi)), C.addEvaluation("eval_s1", b.Sigma1.evaluate(S.xi)), C.addEvaluation("eval_s2", b.Sigma2.evaluate(S.xi)), C.addEvaluation("eval_zw", b.Z.evaluate(S.xiw));
+		}
+		async function R() {
+			r && r.debug("> Computing challenge v"), w.reset(), w.addScalar(S.xi), w.addScalar(C.getEvaluation("eval_a")), w.addScalar(C.getEvaluation("eval_b")), w.addScalar(C.getEvaluation("eval_c")), w.addScalar(C.getEvaluation("eval_s1")), w.addScalar(C.getEvaluation("eval_s2")), w.addScalar(C.getEvaluation("eval_zw")), S.v = [], S.v[1] = w.getChallenge(), r && r.debug("··· challenges.v: " + m.toString(S.v[1], 16));
+			for (let e = 2; e < 6; e++) S.v[e] = m.mul(S.v[e - 1], S.v[1]);
+			r && r.debug("> Computing linearisation polynomial R(X)"), await z(), r && r.debug("> Computing opening proof polynomial Wxi(X) polynomial"), B(), r && r.debug("> Computing opening proof polynomial Wxiw(X) polynomial"), V(), r && r.debug("> Computing Wxi, Wxiw MSM");
+			let e = await b.Wxi.multiExponentiation(T, "Wxi"), t = await b.Wxiw.multiExponentiation(T, "Wxiw");
+			C.addPolynomial("Wxi", e), C.addPolynomial("Wxiw", t);
+		}
+		async function z() {
+			let e = p.Fr;
+			b.QL = new Y(new s(g), p, r), b.QR = new Y(new s(g), p, r), b.QM = new Y(new s(g), p, r), b.QO = new Y(new s(g), p, r), b.QC = new Y(new s(g), p, r), await c.readToBuffer(b.QL.coef, 0, g, l[8][0].p), await c.readToBuffer(b.QR.coef, 0, g, l[9][0].p), await c.readToBuffer(b.QM.coef, 0, g, l[7][0].p), await c.readToBuffer(b.QO.coef, 0, g, l[10][0].p), await c.readToBuffer(b.QC.coef, 0, g, l[11][0].p), S.xin = S.xi;
+			for (let t = 0; t < f.power; t++) S.xin = e.square(S.xin);
+			S.zh = e.sub(S.xin, e.one);
+			let t = [], n = e.e(f.domainSize), i = e.one;
+			for (let r = 1; r <= Math.max(1, f.nPublic); r++) t[r] = e.div(e.mul(i, S.zh), e.mul(n, e.sub(S.xi, i))), i = e.mul(i, e.w[f.power]);
+			let a = e.div(e.sub(S.xin, e.one), e.mul(n, e.sub(S.xi, e.one)));
+			if (r) {
+				r.debug("Lagrange Evaluations: ");
+				for (let n = 1; n < t.length; n++) r.debug(`L${n}(xi)=` + e.toString(t[n], 16));
+			}
+			let o = e.zero;
+			for (let n = 0; n < E.length; n++) {
+				let r = e.e(E[n]);
+				o = e.sub(o, e.mul(r, t[n + 1]));
+			}
+			r && r.debug("PI: " + e.toString(o, 16));
+			let u = e.mul(C.evaluations.eval_a, C.evaluations.eval_b), d = C.evaluations.eval_a, m = e.mul(S.beta, S.xi);
+			d = e.add(d, m), d = e.add(d, S.gamma);
+			let _ = C.evaluations.eval_b;
+			_ = e.add(_, e.mul(m, f.k1)), _ = e.add(_, S.gamma);
+			let v = C.evaluations.eval_c;
+			v = e.add(v, e.mul(m, f.k2)), v = e.add(v, S.gamma);
+			let y = e.mul(e.mul(e.mul(d, _), v), S.alpha), x = C.evaluations.eval_a;
+			x = e.add(x, e.mul(S.beta, C.evaluations.eval_s1)), x = e.add(x, S.gamma);
+			let w = C.evaluations.eval_b;
+			w = e.add(w, e.mul(S.beta, C.evaluations.eval_s2)), w = e.add(w, S.gamma);
+			let T = e.mul(x, w);
+			T = e.mul(T, C.evaluations.eval_zw), T = e.mul(T, S.alpha);
+			let D = e.mul(a, S.alpha2);
+			b.R = new Y(new s((f.domainSize + 6) * h), p, r), b.R.add(b.QM, u), b.R.add(b.QL, C.evaluations.eval_a), b.R.add(b.QR, C.evaluations.eval_b), b.R.add(b.QO, C.evaluations.eval_c), b.R.add(b.QC), b.R.add(b.Z, y), b.R.sub(b.Sigma3, e.mul(T, S.beta)), b.R.add(b.Z, D);
+			let O = Y.fromPolynomial(b.T3, p, r);
+			O.mulScalar(e.square(S.xin)), O.add(b.T2, S.xin), O.add(b.T1), O.mulScalar(S.zh), b.R.sub(O);
+			let k = e.sub(o, e.mul(T, e.add(C.evaluations.eval_c, S.gamma)));
+			k = e.sub(k, D), r && r.debug("r0: " + e.toString(k, 16)), b.R.addScalar(k);
+		}
+		function B() {
+			b.Wxi = new Y(new s(g + 6 * h), p, r), b.Wxi.add(b.R), b.Wxi.add(b.A, S.v[1]), b.Wxi.add(b.B, S.v[2]), b.Wxi.add(b.C, S.v[3]), b.Wxi.add(b.Sigma1, S.v[4]), b.Wxi.add(b.Sigma2, S.v[5]), b.Wxi.subScalar(m.mul(S.v[1], C.evaluations.eval_a)), b.Wxi.subScalar(m.mul(S.v[2], C.evaluations.eval_b)), b.Wxi.subScalar(m.mul(S.v[3], C.evaluations.eval_c)), b.Wxi.subScalar(m.mul(S.v[4], C.evaluations.eval_s1)), b.Wxi.subScalar(m.mul(S.v[5], C.evaluations.eval_s2)), b.Wxi.divByZerofier(1, S.xi);
+		}
+		async function V() {
+			b.Wxiw = Y.fromPolynomial(b.Z, p, r), b.Wxiw.subScalar(C.evaluations.eval_zw), b.Wxiw.divByZerofier(1, S.xiw);
+		}
+	} finally {
+		for (let e of [a, c]) try {
+			e && await e.close();
+		} catch {}
+	}
+}
+//#endregion
+//#region src/plonk_fullprove.js
+var { unstringifyBigInts: Kr } = p;
+async function qr(e, t, n, r, i, a) {
+	let o = Kr(e), s = { type: "mem" };
+	return await $t(o, t, s, i), await Gr(n, s, r, a);
+}
+//#endregion
+//#region src/plonk_verify.js
+var { unstringifyBigInts: Jr } = p;
+async function Yr(e, t, n, r) {
+	let i = Jr(e);
+	n = Jr(n);
+	let a = Jr(t), o = await E(i.curve), s = o.Fr, c = o.G1;
+	r && r.info("PLONK VERIFIER STARTED");
+	let l = Xr(o, n);
+	if (i = Zr(o, i), !Qr(o, l)) return r && r.error("Proof commitments are not valid."), !1;
+	if (a.length != i.nPublic) return r && r.error("Invalid number of public inputs"), !1;
+	if (!ti(o, l)) return r && r.error("Proof evaluations are not valid"), !1;
+	if (!ni(o, a)) return r && r.error("Public inputs are not valid."), !1;
+	let u = ri(o, l, a, i);
+	if (r) {
+		r.debug("beta: " + s.toString(u.beta, 16)), r.debug("gamma: " + s.toString(u.gamma, 16)), r.debug("alpha: " + s.toString(u.alpha, 16)), r.debug("xi: " + s.toString(u.xi, 16));
+		for (let e = 1; e < 6; e++) r && r.debug("v: " + s.toString(u.v[e], 16));
+		r.debug("u: " + s.toString(u.u, 16));
+	}
+	let d = ii(o, u, i);
+	if (r) for (let e = 1; e < d.length; e++) r.debug(`L${e}(xi)=` + s.toString(d[e], 16));
+	if (a.length != i.nPublic) return r && r.error("Number of public signals does not match with vk"), !1;
+	let f = ai(o, a, d);
+	r && r.debug("PI(xi): " + s.toString(f, 16));
+	let p = oi(o, l, u, f, d[1]);
+	r && r.debug("r0: " + s.toString(p, 16));
+	let m = si(o, l, u, i, d[1]);
+	r && r.debug("D: " + c.toString(c.toAffine(m), 16));
+	let h = ci(o, l, u, i, m);
+	r && r.debug("F: " + c.toString(c.toAffine(h), 16));
+	let g = li(o, l, u, p);
+	r && r.debug("E: " + c.toString(c.toAffine(g), 16));
+	let _ = await ui(o, l, u, i, g, h);
+	return r && (_ ? r.info("OK!") : r.warn("Invalid Proof")), _;
+}
+function Xr(e, t) {
+	let n = e.G1, r = e.Fr, i = {};
+	return i.A = n.fromObject(t.A), i.B = n.fromObject(t.B), i.C = n.fromObject(t.C), i.Z = n.fromObject(t.Z), i.T1 = n.fromObject(t.T1), i.T2 = n.fromObject(t.T2), i.T3 = n.fromObject(t.T3), i.eval_a = r.fromObject(t.eval_a), i.eval_b = r.fromObject(t.eval_b), i.eval_c = r.fromObject(t.eval_c), i.eval_zw = r.fromObject(t.eval_zw), i.eval_s1 = r.fromObject(t.eval_s1), i.eval_s2 = r.fromObject(t.eval_s2), i.Wxi = n.fromObject(t.Wxi), i.Wxiw = n.fromObject(t.Wxiw), i;
+}
+function Zr(e, t) {
+	let n = e.G1, r = e.G2, i = e.Fr, a = t;
+	return a.Qm = n.fromObject(t.Qm), a.Ql = n.fromObject(t.Ql), a.Qr = n.fromObject(t.Qr), a.Qo = n.fromObject(t.Qo), a.Qc = n.fromObject(t.Qc), a.S1 = n.fromObject(t.S1), a.S2 = n.fromObject(t.S2), a.S3 = n.fromObject(t.S3), a.k1 = i.fromObject(t.k1), a.k2 = i.fromObject(t.k2), a.X_2 = r.fromObject(t.X_2), a;
+}
+function Qr(e, t) {
+	let n = e.G1;
+	return !(!n.isValid(t.A) || !n.isValid(t.B) || !n.isValid(t.C) || !n.isValid(t.Z) || !n.isValid(t.T1) || !n.isValid(t.T2) || !n.isValid(t.T3) || !n.isValid(t.Wxi) || !n.isValid(t.Wxiw));
+}
+function $r(e, t) {
+	return u.geq(t, 0) && u.lt(t, e.r);
+}
+function ei(e, t) {
+	return $r(e, u.fromRprLE(t));
+}
+function ti(e, t) {
+	return ei(e, t.eval_a) && ei(e, t.eval_b) && ei(e, t.eval_c) && ei(e, t.eval_s1) && ei(e, t.eval_s2) && ei(e, t.eval_zw);
+}
+function ni(e, t) {
+	for (let n = 0; n < t.length; n++) if (!$r(e, t[n])) return !1;
+	return !0;
+}
+function ri(e, t, n, r) {
+	let i = e.Fr, a = {}, o = new Hr(e);
+	o.addPolCommitment(r.Qm), o.addPolCommitment(r.Ql), o.addPolCommitment(r.Qr), o.addPolCommitment(r.Qo), o.addPolCommitment(r.Qc), o.addPolCommitment(r.S1), o.addPolCommitment(r.S2), o.addPolCommitment(r.S3);
+	for (let e = 0; e < n.length; e++) o.addScalar(i.e(n[e]));
+	o.addPolCommitment(t.A), o.addPolCommitment(t.B), o.addPolCommitment(t.C), a.beta = o.getChallenge(), o.reset(), o.addScalar(a.beta), a.gamma = o.getChallenge(), o.reset(), o.addScalar(a.beta), o.addScalar(a.gamma), o.addPolCommitment(t.Z), a.alpha = o.getChallenge(), o.reset(), o.addScalar(a.alpha), o.addPolCommitment(t.T1), o.addPolCommitment(t.T2), o.addPolCommitment(t.T3), a.xi = o.getChallenge(), o.reset(), o.addScalar(a.xi), o.addScalar(t.eval_a), o.addScalar(t.eval_b), o.addScalar(t.eval_c), o.addScalar(t.eval_s1), o.addScalar(t.eval_s2), o.addScalar(t.eval_zw), a.v = [], a.v[1] = o.getChallenge();
+	for (let e = 2; e < 6; e++) a.v[e] = i.mul(a.v[e - 1], a.v[1]);
+	return o.reset(), o.addPolCommitment(t.Wxi), o.addPolCommitment(t.Wxiw), a.u = o.getChallenge(), a;
+}
+function ii(e, t, n) {
+	let r = e.Fr, i = t.xi, a = 1;
+	for (let e = 0; e < n.power; e++) i = r.square(i), a *= 2;
+	t.xin = i, t.zh = r.sub(i, r.one);
+	let o = [], s = r.e(a), c = r.one;
+	for (let e = 1; e <= Math.max(1, n.nPublic); e++) o[e] = r.div(r.mul(c, t.zh), r.mul(s, r.sub(t.xi, c))), c = r.mul(c, r.w[n.power]);
+	return o;
+}
+function ai(e, t, n) {
+	let r = e.Fr, i = r.zero;
+	for (let e = 0; e < t.length; e++) {
+		let a = r.e(t[e]);
+		i = r.sub(i, r.mul(a, n[e + 1]));
+	}
+	return i;
+}
+function oi(e, t, n, r, i) {
+	let a = e.Fr, o = r, s = a.mul(i, a.square(n.alpha)), c = a.add(t.eval_a, a.mul(n.beta, t.eval_s1));
+	c = a.add(c, n.gamma);
+	let l = a.add(t.eval_b, a.mul(n.beta, t.eval_s2));
+	l = a.add(l, n.gamma);
+	let u = a.add(t.eval_c, n.gamma), d = a.mul(a.mul(c, l), u);
+	return d = a.mul(d, t.eval_zw), d = a.mul(d, n.alpha), a.sub(a.sub(o, s), d);
+}
+function si(e, t, n, r, i) {
+	let a = e.G1, o = e.Fr, s = a.timesFr(r.Qm, o.mul(t.eval_a, t.eval_b));
+	s = a.add(s, a.timesFr(r.Ql, t.eval_a)), s = a.add(s, a.timesFr(r.Qr, t.eval_b)), s = a.add(s, a.timesFr(r.Qo, t.eval_c)), s = a.add(s, r.Qc);
+	let c = o.mul(n.beta, n.xi), l = o.add(o.add(t.eval_a, c), n.gamma), u = o.add(o.add(t.eval_b, o.mul(c, r.k1)), n.gamma), d = o.add(o.add(t.eval_c, o.mul(c, r.k2)), n.gamma), f = o.mul(o.mul(o.mul(l, u), d), n.alpha), p = o.mul(i, o.square(n.alpha)), m = a.timesFr(t.Z, o.add(o.add(f, p), n.u)), h = o.add(o.add(t.eval_a, o.mul(n.beta, t.eval_s1)), n.gamma), g = o.add(o.add(t.eval_b, o.mul(n.beta, t.eval_s2)), n.gamma), _ = o.mul(o.mul(n.alpha, n.beta), t.eval_zw), v = a.timesFr(r.S3, o.mul(o.mul(h, g), _)), y = t.T1, b = a.timesFr(t.T2, n.xin), x = a.timesFr(t.T3, o.square(n.xin)), S = a.add(y, a.add(b, x));
+	return S = a.timesFr(S, n.zh), a.sub(a.sub(a.add(s, m), v), S);
+}
+function ci(e, t, n, r, i) {
+	let a = e.G1, o = a.add(i, a.timesFr(t.A, n.v[1]));
+	return o = a.add(o, a.timesFr(t.B, n.v[2])), o = a.add(o, a.timesFr(t.C, n.v[3])), o = a.add(o, a.timesFr(r.S1, n.v[4])), o = a.add(o, a.timesFr(r.S2, n.v[5])), o;
+}
+function li(e, t, n, r) {
+	let i = e.G1, a = e.Fr, o = a.add(a.neg(r), a.mul(n.v[1], t.eval_a));
+	return o = a.add(o, a.mul(n.v[2], t.eval_b)), o = a.add(o, a.mul(n.v[3], t.eval_c)), o = a.add(o, a.mul(n.v[4], t.eval_s1)), o = a.add(o, a.mul(n.v[5], t.eval_s2)), o = a.add(o, a.mul(n.u, t.eval_zw)), i.timesFr(i.one, o);
+}
+async function ui(e, t, n, r, i, a) {
+	let o = e.G1, s = e.Fr, c = t.Wxi;
+	c = o.add(c, o.timesFr(t.Wxiw, n.u));
+	let l = o.timesFr(t.Wxi, n.xi), u = s.mul(s.mul(n.u, n.xi), s.w[r.power]);
+	return l = o.add(l, o.timesFr(t.Wxiw, u)), l = o.add(l, a), l = o.sub(l, i), await e.pairingEq(o.neg(c), r.X_2, l, e.G2.one);
+}
+//#endregion
+//#region src/plonk_exportsoliditycalldata.js
+var { unstringifyBigInts: di } = p;
+function Z(e) {
+	let t = e.toString(16);
+	for (; t.length < 64;) t = "0" + t;
+	return t = `"0x${t}"`, t;
+}
+async function fi(e, t) {
+	let n = di(e), r = di(t);
+	await E(n.curve);
+	let i = "";
+	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += Z(r[e]);
+	return `[${Z(n.A[0])}, ${Z(n.A[1])},${Z(n.B[0])},${Z(n.B[1])},${Z(n.C[0])},${Z(n.C[1])},${Z(n.Z[0])},${Z(n.Z[1])},${Z(n.T1[0])},${Z(n.T1[1])},${Z(n.T2[0])},${Z(n.T2[1])},${Z(n.T3[0])},${Z(n.T3[1])},${Z(n.Wxi[0])},${Z(n.Wxi[1])},${Z(n.Wxiw[0])},${Z(n.Wxiw[1])},${Z(n.eval_a)},${Z(n.eval_b)},${Z(n.eval_c)},${Z(n.eval_s1)},${Z(n.eval_s2)},${Z(n.eval_zw)}][${i}]`;
+}
+//#endregion
+//#region src/plonk.js
+var pi = /* @__PURE__ */ v({
+	exportSolidityCallData: () => fi,
+	fullProve: () => qr,
+	prove: () => Gr,
+	setup: () => xr,
+	verify: () => Yr
+});
+//#endregion
+//#region src/plonk_equation.js
+function mi(e, t) {
+	return [
+		e,
+		0,
+		0,
+		t.one,
+		t.zero,
+		t.zero,
+		t.zero,
+		t.zero
+	];
+}
+function hi(e, t, n, r, i, a, o, s) {
+	return [
+		e,
+		t,
+		n,
+		r,
+		i,
+		a,
+		o,
+		s
+	];
+}
+function gi(e, t, n, r, i, a, o, s, c) {
+	return [
+		e,
+		t,
+		n,
+		r,
+		i,
+		a,
+		o,
+		s
+	];
+}
+//#endregion
+//#region src/r1cs_constraint_processor.js
+var _i = 0, vi = 1, yi = 2, bi = class {
+	constructor(e, t, n, r, i) {
+		this.Fr = e, this.logger = i, this.fnGetAdditionConstraint = n, this.fnGetMultiplicationConstraint = r;
+	}
+	processR1csConstraint(e, t, n, r) {
+		this.normalizeLinearCombination(t), this.normalizeLinearCombination(n), this.normalizeLinearCombination(r);
+		let i = this.getLinearCombinationType(t), a = this.getLinearCombinationType(n);
+		if (i === _i || a === _i) return this.processR1csAdditionConstraint(e, r);
+		if (i === vi) {
+			/* c8 ignore start */
+			let i = this.joinLinearCombinations(n, r, t[0]);
+			return this.processR1csAdditionConstraint(e, i);
+		}
+		if (a === vi) {
+			let i = this.joinLinearCombinations(t, r, n[0]);
+			return this.processR1csAdditionConstraint(e, i);
+		}
+		return this.processR1csMultiplicationConstraint(e, t, n, r);
+	}
+	getLinearCombinationType(e) {
+		let t = this.Fr.zero, n = 0, r = Object.keys(e);
+		for (let i = 0; i < r.length; i++)
+ /* c8 ignore start */
+		e[r[i]] == 0n ? delete e[r[i]] : r[i] == 0 ? t = this.Fr.add(t, e[r[i]]) : n++;
+		return n > 0 ? yi : 
+		/* c8 ignore next */
+		this.Fr.isZero(t) ? _i : vi;
+	}
+	normalizeLinearCombination(e) {
+		let t = Object.keys(e);
+		for (let n = 0; n < t.length; n++)
+ /* c8 ignore next */
+		this.Fr.isZero(e[t[n]]) && delete e[t[n]];
+		return e;
+	}
+	joinLinearCombinations(e, t, n) {
+		let r = {};
+		for (let t in e) r[t] = r[t] === void 0 ? this.Fr.mul(n, e[t]) : this.Fr.add(r[t], this.Fr.mul(n, e[t]));
+		for (let e in t) {
+			let n = this.Fr.neg(t[e]);
+			r[e] = r[e] === void 0 ? n : this.Fr.add(r[e], n);
+		}
+		return this.normalizeLinearCombination(r);
+	}
+	reduceCoefs(e, t, n, r, i) {
+		let a = {
+			k: this.Fr.zero,
+			signals: [],
+			coefs: []
+		}, o = [];
+		for (let e in r) e == 0 ? a.k = this.Fr.add(a.k, r[e]) : r[e] != 0n && o.push([Number(e), r[e]]);
+		for (; o.length > i;) {
+			let r = o.shift(), i = o.shift(), a = e.nVars++, s = this.fnGetAdditionConstraint(r[0], i[0], a, this.Fr.neg(r[1]), this.Fr.neg(i[1]), this.Fr.zero, this.Fr.one, this.Fr.zero);
+			t.push(s), n.push([
+				r[0],
+				i[0],
+				r[1],
+				i[1]
+			]), o.push([a, this.Fr.one]);
+		}
+		for (let e = 0; e < o.length; e++) a.signals[e] = o[e][0], a.coefs[e] = o[e][1];
+		/* c8 ignore start */
+		for (; a.coefs.length < i;) a.signals.push(0), a.coefs.push(this.Fr.zero);
+		/* c8 ignore stop */
+		return a;
+	}
+	processR1csAdditionConstraint(e, t) {
+		let n = [], r = [], i = this.reduceCoefs(e, n, r, t, 3), a = this.fnGetAdditionConstraint(i.signals[0], i.signals[1], i.signals[2], i.coefs[0], i.coefs[1], this.Fr.zero, i.coefs[2], i.k);
+		return n.push(a), [n, r];
+	}
+	processR1csMultiplicationConstraint(e, t, n, r) {
+		let i = [], a = [], o = this.reduceCoefs(e, i, a, t, 1), s = this.reduceCoefs(e, i, a, n, 1), c = this.reduceCoefs(e, i, a, r, 1), l = this.fnGetMultiplicationConstraint(o.signals[0], s.signals[0], c.signals[0], this.Fr.mul(o.coefs[0], s.k), this.Fr.mul(o.k, s.coefs[0]), this.Fr.mul(o.coefs[0], s.coefs[0]), this.Fr.neg(c.coefs[0]), this.Fr.sub(this.Fr.mul(o.k, s.k), c.k));
+		return i.push(l), [i, a];
+	}
+}, xi = class {
+	constructor(e, t, n) {
+		this.n = e, this.polynomials = Array(e).fill(void 0), this.curve = t, this.Fr = t.Fr, this.G1 = t.G1, this.logger = n;
+	}
+	addPolynomial(e, t) {
+		if (e > this.n - 1) throw Error("CPolynomial:addPolynomial, cannot add a polynomial to a position greater than n-1");
+		this.polynomials[e] = t;
+	}
+	degree() {
+		let e = this.polynomials.map((e, t) => e === void 0 ? 0 : e.degree() * this.n + t);
+		return Math.max(...e);
+	}
+	getPolynomial() {
+		let e = this.polynomials.map((e) => e === void 0 ? 0 : e.degree()), t = this.degree(), n = 2 ** (we(t - 1) + 1), r = this.Fr.n8, i = new Y(new s(n * r), this.curve, this.logger);
+		for (let n = 0; n < t; n++) {
+			let t = n * r, a = t * this.n;
+			for (let o = 0; o < this.n; o++) this.polynomials[o] !== void 0 && n <= e[o] && i.coef.set(this.polynomials[o].coef.slice(t, t + r), a + o * r);
+		}
+		return i;
+	}
+	async multiExponentiation(e, t) {
+		let n = this.getPolynomial(), r = n.coef.byteLength / this.Fr.n8, i = e.slice(0, r * this.G1.F.n8 * 2), a = await this.Fr.batchFromMontgomery(n.coef), o = await this.G1.multiExpAffine(i, a, this.logger, t);
+		return o = this.G1.toAffine(o), o;
+	}
 };
-
-const R1CS_FILE_CUSTOM_GATES_LIST_SECTION = 4;
-const R1CS_FILE_CUSTOM_GATES_USES_SECTION = 5;
-
-async function readR1csHeader(fd,sections,singleThread) {
-    let options;
-    if (typeof singleThread === "object") {
-        options = singleThread;
-    } else if (typeof singleThread === "undefined") {
-        options= {
-            singleThread: false,
-        };
-    } else {
-        options = {
-            singleThread: singleThread,
-        };
-    }
-
-    const res = {};
-    await startReadUniqueSection(fd, sections, 1);
-    // Read Header
-    res.n8 = await fd.readULE32();
-    res.prime = await readBigInt(fd, res.n8);
-
-    if (options.F) {
-        if (options.F.p != res.prime) throw new Error("Different Prime");
-        res.F = options.F;
-    } else if (options.getFieldFromPrime) {
-        res.F = await options.getFieldFromPrime(res.prime, options.singleThread);
-    } else if (options.getCurveFromPrime) {
-        res.curve = await options.getCurveFromPrime(res.prime, options.singleThread);
-        res.F = res.curve.Fr;
-    } else {
-        try {
-            res.curve = await getCurveFromR$1(res.prime, options.singleThread);
-            res.F = res.curve.Fr;
-        } catch {
-            res.F = new F1Field(res.prime);
-        }
-    }
-
-    res.nVars = await fd.readULE32();
-    res.nOutputs = await fd.readULE32();
-    res.nPubInputs = await fd.readULE32();
-    res.nPrvInputs = await fd.readULE32();
-    res.nLabels = await fd.readULE64();
-    res.nConstraints = await fd.readULE32();
-    res.useCustomGates = typeof sections[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== "undefined" && sections[R1CS_FILE_CUSTOM_GATES_LIST_SECTION] !== null
-        && typeof sections[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== "undefined" && sections[R1CS_FILE_CUSTOM_GATES_USES_SECTION] !== null;
-
-    await endReadSection(fd);
-
-    return res;
+//#endregion
+//#region src/fflonk_setup.js
+async function Si(i, c, l, d) {
+	let f, p, m, g, _;
+	try {
+		if (d && d.info("FFLONK SETUP STARTED"), globalThis.gc && globalThis.gc(), d && d.info("> Reading PTau file"), {fd: f, sections: p} = await r(c, "ptau", 1, 1 << 22, 1 << 24), !p[12]) throw Error("Powers of Tau is not well prepared. Section 12 missing.");
+		d && d.info("> Getting curve from PTau settings");
+		let { curve: v } = await _n(f, p);
+		d && d.info("> Reading r1cs file"), {fd: m, sections: g} = await r(i, "r1cs", 1, 1 << 22, 1 << 24);
+		let y = await h(m, g, {
+			loadConstraints: !1,
+			loadCustomGates: !0
+		});
+		if (y.prime !== v.r) throw Error("r1cs curve does not match powers of tau ceremony curve");
+		let b = v.Fr, x = v.Fr.n8, S = v.G1.F.n8 * 2, C = v.G2.F.n8 * 2, w = {}, T = {}, E, D = {
+			nVars: y.nVars,
+			nPublic: y.nOutputs + y.nPubInputs
+		}, O = new J(), k = new J();
+		if (d && d.info("> Processing FFlonk constraints"), await I(v.Fr, y, d), globalThis.gc && globalThis.gc(), D.cirPower = Math.max(3, we(O.length + 2 - 1) + 1), D.domainSize = 2 ** D.cirPower, p[2][0].size < (D.domainSize * 9 + 18) * S) throw Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
+		/* c8 ignore start */
+		if (p[3][0].size < C) throw Error("Powers of Tau is not well prepared. Section 3 too small.");
+		d && (d.info("----------------------------"), d.info("  FFLONK SETUP SETTINGS"), d.info(`  Curve:         ${v.name}`), d.info(`  Circuit power: ${D.cirPower}`), d.info(`  Domain size:   ${D.domainSize}`), d.info(`  Vars:          ${D.nVars}`), d.info(`  Public vars:   ${D.nPublic}`), d.info(`  Constraints:   ${O.length}`), d.info(`  Additions:     ${k.length}`), d.info("----------------------------")), d && d.info("> computing k1 and k2");
+		let [A, j] = oe();
+		d && d.info("> computing w3");
+		let M = se();
+		d && d.info("> computing w4");
+		let N = ce();
+		d && d.info("> computing w8");
+		let P = le();
+		d && d.info("> computing wr");
+		let F = ue(D.cirPower, v.Fr);
+		return await L(), await m.close(), await f.close(), d && d.info("FFLONK SETUP FINISHED"), 0;
+		async function I(t, n, r) {
+			for (let e = 0; e < D.nPublic; e++) O.push(mi(e + 1, t));
+			let i = new bi(t, mi, hi, gi, r), a = await e.readSection(m, g, 2), o = 0;
+			for (let e = 0; e < n.nConstraints; e++) {
+				/* c8 ignore start */
+				r && e !== 0 && e % 5e5 == 0 && r.info(`    processing r1cs constraints ${e}/${n.nConstraints}`);
+				/* c8 ignore stop */
+				let [t, a] = i.processR1csConstraint(D, ...s());
+				O.push(...t), k.push(...a);
+			}
+			function s() {
+				let e = [];
+				return e[0] = c(), e[1] = c(), e[2] = c(), e;
+			}
+			function c() {
+				let e = {}, t = a.slice(o, o + 4);
+				o += 4;
+				let r = new DataView(t.buffer).getUint32(0, !0), i = a.slice(o, o + (4 + n.n8) * r);
+				o += (4 + n.n8) * r;
+				let s = new DataView(i.buffer);
+				for (let t = 0; t < r; t++) {
+					let r = s.getUint32(t * (4 + n.n8), !0);
+					e[r] = n.F.fromRprLE(i, t * (4 + n.n8) + 4);
+				}
+				return e;
+			}
+			return 0;
+		}
+		async function L() {
+			d && d.info("> Writing the zkey file"), _ = await t(l, "zkey", 1, 17, 1 << 22, 1 << 24), d && d.info("··· Writing Section 1. Zkey Header"), await R(_), d && d.info("··· Writing Section 3. Additions"), await z(_), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 4. A Map"), await B(_, 4, 0, "A map"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 5. B Map"), await B(_, 5, 1, "B map"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 6. C Map"), await B(_, 6, 2, "C map"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 7. QL"), await V(_, 7, 3, "QL"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 8. QR"), await V(_, 8, 4, "QR"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 9. QM"), await V(_, 9, 5, "QM"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 10. QO"), await V(_, 10, 6, "QO"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 11. QC"), await V(_, 11, 7, "QC"), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Sections 12,13,14. Sigma1, Sigma2 & Sigma 3"), await ee(_), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 15. Lagrange Polynomials"), await te(_), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 16. Powers of Tau"), await ne(_), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 17. C0"), await re(_), globalThis.gc && globalThis.gc(), d && d.info("··· Writing Section 2. FFlonk Header"), await ie(_), globalThis.gc && globalThis.gc(), d && d.info("> Writing the zkey file finished"), await _.close();
+		}
+		async function R(e) {
+			await a(e, 1), await e.writeULE32(10), await n(e);
+		}
+		async function z(e) {
+			await a(e, 3);
+			let t = new Uint8Array(8 + 2 * x), r = new DataView(t.buffer);
+			for (let n = 0; n < k.length; n++) {
+				/* c8 ignore start */
+				d && n !== 0 && n % 5e5 == 0 && d.info(`      writing Additions: ${n}/${k.length}`);
+				/* c8 ignore stop */
+				let i = k[n];
+				r.setUint32(0, i[0], !0), r.setUint32(4, i[1], !0), t.set(i[2], 8), t.set(i[3], 8 + x), await e.write(t);
+			}
+			await n(e);
+		}
+		async function B(e, t, r, i) {
+			await a(e, t);
+			for (let t = 0; t < O.length; t++)
+ /* c8 ignore stop */
+			d && t !== 0 && t % 5e5 == 0 && d.info(`      writing witness ${i}: ${t}/${O.length}`), await e.writeULE32(O[t][r]);
+			await n(e);
+		}
+		async function V(e, t, r, i) {
+			let o = new s(D.domainSize * x);
+			for (let e = 0; e < O.length; e++)
+ /* c8 ignore start */
+			o.set(O[e][r], e * x), d && e !== 0 && e % 5e5 == 0 && d.info(`      writing ${i}: ${e}/${O.length}`);
+			w[i] = await Y.fromEvaluations(o, v, d), T[i] = await X.fromPolynomial(w[i], 4, v, d), await a(e, t), await e.write(w[i].coef), await e.write(T[i].eval), await n(e);
+		}
+		async function ee(e) {
+			let t = new s(x * D.domainSize * 3), r = new J(D.nVars), i = new J(D.nVars), o = b.one;
+			for (let e = 0; e < D.domainSize; e++)
+ /* c8 ignore start */
+			e < O.length ? (c(O[e][0], e), c(O[e][1], D.domainSize + e), c(O[e][2], D.domainSize * 2 + e)) : e < D.domainSize - 2 ? (c(0, e), c(0, D.domainSize + e), c(0, D.domainSize * 2 + e)) : (t.set(o, e * x), t.set(b.mul(o, A), (D.domainSize + e) * x), t.set(b.mul(o, j), (D.domainSize * 2 + e) * x)), o = b.mul(o, b.w[D.cirPower]), d && e !== 0 && e % 5e5 == 0 && d.info(`      writing sigma phase1: ${e}/${O.length}`);
+			for (let e = 0; e < D.nVars; e++)
+ /* c8 ignore start */
+			i[e] === void 0 ? 
+			/* c8 ignore start */
+			console.log("Variable not used") : t.set(r[e], i[e] * x), d && e !== 0 && e % 5e5 == 0 && d.info(`      writing sigma phase2: ${e}/${D.nVars}`);
+			globalThis.gc && globalThis.gc();
+			for (let r = 0; r < 3; r++) {
+				let i = r === 0 ? 12 : r === 1 ? 13 : 14, o = "S" + (r + 1);
+				w[o] = await Y.fromEvaluations(t.slice(D.domainSize * x * r, D.domainSize * x * (r + 1)), v, d), T[o] = await X.fromPolynomial(w[o], 4, v, d), await a(e, i), await e.write(w[o].coef), await e.write(T[o].eval), await n(e), globalThis.gc && globalThis.gc();
+			}
+			return 0;
+			function c(e, n) {
+				r[e] === void 0 ? i[e] = n : t.set(r[e], n * x);
+				let a;
+				a = n < D.domainSize ? o : n < 2 * D.domainSize ? b.mul(o, A) : b.mul(o, j), r[e] = a;
+			}
+		}
+		async function te(e) {
+			await a(e, 15);
+			let t = Math.max(D.nPublic, 1);
+			for (let n = 0; n < t; n++) {
+				let t = new s(D.domainSize * x);
+				t.set(b.one, n * x), await ae(e, t);
+			}
+			await n(e);
+		}
+		async function ne(e) {
+			await a(e, 16), E = new s((D.domainSize * 9 + 18) * S), await f.readToBuffer(E, 0, (D.domainSize * 9 + 18) * S, p[2][0].p), await e.write(E), await n(e);
+		}
+		async function re(e) {
+			let t = new xi(8, v, d);
+			/* c8 ignore start */
+			if (t.addPolynomial(0, w.QL), t.addPolynomial(1, w.QR), t.addPolynomial(2, w.QO), t.addPolynomial(3, w.QM), t.addPolynomial(4, w.QC), t.addPolynomial(5, w.S1), t.addPolynomial(6, w.S2), t.addPolynomial(7, w.S3), w.C0 = t.getPolynomial(), w.C0.degree() >= 8 * D.domainSize) throw Error("C0 Polynomial is not well calculated");
+			await a(e, 17), await e.write(w.C0.coef), await n(e);
+		}
+		async function ie(e) {
+			await a(e, 2);
+			let t = v.q, r = (Math.floor((u.bitLength(t) - 1) / 64) + 1) * 8;
+			await e.writeULE32(r), await o(e, t, r);
+			let i = v.r, s = (Math.floor((u.bitLength(i) - 1) / 64) + 1) * 8;
+			await e.writeULE32(s), await o(e, i, s), await e.writeULE32(D.nVars), await e.writeULE32(D.nPublic), await e.writeULE32(D.domainSize), await e.writeULE32(k.length), await e.writeULE32(O.length), await e.write(A), await e.write(j), await e.write(M), await e.write(N), await e.write(P), await e.write(F);
+			let c;
+			c = await f.read(C, p[3][0].p + C), await e.write(c);
+			let l = await w.C0.multiExponentiation(E, "C0");
+			await e.write(l), await n(e);
+		}
+		async function ae(e, t) {
+			let [n, r] = await Y.to4T(t, D.domainSize, [], b);
+			return await e.write(n), await e.write(r), [n, r];
+		}
+		function oe() {
+			let e = b.two;
+			/* c8 ignore start */
+			for (; n(e, [], D.cirPower);) b.add(e, b.one);
+			/* c8 ignore stop */
+			let t = b.add(e, b.one);
+			/* c8 ignore start */
+			for (; n(t, [e], D.cirPower);) b.add(t, b.one);
+			/* c8 ignore stop */
+			return [e, t];
+			function n(e, t, n) {
+				let r = 2 ** n, i = b.one;
+				for (let a = 0; a < r; a++) {
+					/* c8 ignore start */
+					if (b.eq(e, i)) return !0;
+					/* c8 ignore stop */
+					for (let n = 0; n < t.length; n++)
+ /* c8 ignore start */
+					if (b.eq(e, b.mul(t[n], i))) return !0;
+					i = b.mul(i, b.w[n]);
+				}
+				return !1;
+			}
+		}
+		function se() {
+			let e = b.e(31624), t = u.div(3648040478639879203707734290876212514758060733402672390616367364429301415936n, u.e(3));
+			return b.exp(e, t);
+		}
+		function ce() {
+			return b.w[2];
+		}
+		function le() {
+			return b.w[3];
+		}
+		function ue(e, t) {
+			let n = t.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
+			return t.exp(n, 2 ** (28 - e));
+		}
+	} finally {
+		for (let e of [
+			f,
+			m,
+			_
+		]) try {
+			e && await e.close();
+		} catch {}
+	}
 }
-
-async function readConstraints(fd,sections, r1cs, logger, loggerCtx) {
-    let options;
-    if (typeof logger === "object") {
-        options = logger;
-    } else if (typeof logger === "undefined") {
-        options= {};
-    } else {
-        options = {
-            logger: logger,
-            loggerCtx: loggerCtx,
-        };
-    }
-
-    const bR1cs = await readSection(fd, sections, 2);
-    let bR1csPos = 0;
-    let constraints;
-    if (r1cs.nConstraints>1<<20) {
-        constraints = new BigArray$1();
-    } else {
-        constraints = [];
-    }
-    for (let i=0; i<r1cs.nConstraints; i++) {
-        if ((options.logger)&&(i%100000 == 0)) options.logger.info(`${options.loggerCtx}: Loading constraints: ${i}/${r1cs.nConstraints}`);
-        const c = readConstraint();
-        constraints.push(c);
-    }
-    return constraints;
-
-
-    function readConstraint() {
-        const c = [];
-        c[0] = readLC();
-        c[1] = readLC();
-        c[2] = readLC();
-        return c;
-    }
-
-    function readLC() {
-        const lc= {};
-
-        const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos+4);
-        bR1csPos += 4;
-        const buffUL32V = new DataView(buffUL32.buffer);
-        const nIdx = buffUL32V.getUint32(0, true);
-
-        const buff = bR1cs.slice(bR1csPos, bR1csPos + (4+r1cs.n8)*nIdx );
-        bR1csPos += (4+r1cs.n8)*nIdx;
-        const buffV = new DataView(buff.buffer);
-        for (let i=0; i<nIdx; i++) {
-            const idx = buffV.getUint32(i*(4+r1cs.n8), true);
-            const val = r1cs.F.fromRprLE(buff, i*(4+r1cs.n8)+4);
-            lc[idx] = val;
-        }
-        return lc;
-    }
+//#endregion
+//#region src/fflonk_prove.js
+var { stringifyBigInts: Ci } = p;
+async function wi(t, n, r, i) {
+	let a, o, c, l;
+	try {
+		r && r.info("FFLONK PROVER STARTED"), r && r.info("> Reading witness file"), {fd: a, sections: o} = await e.readBinFile(n, "wtns", 2, 1 << 25, 1 << 23);
+		let d = await rt(a, o);
+		r && r.info("> Reading zkey file"), {fd: c, sections: l} = await e.readBinFile(t, "zkey", 2, 1 << 25, 1 << 23);
+		let f = await Ue(c, l, void 0, i);
+		if (f.protocolId !== 10) throw Error("zkey file is not fflonk");
+		if (!u.eq(f.r, d.q)) throw Error("Curve of the witness does not match the curve of the proving key");
+		if (d.nWitness !== f.nVars - f.nAdditions) throw Error(`Invalid witness length. Circuit: ${f.nVars}, witness: ${d.nWitness}, ${f.nAdditions}`);
+		let p = f.curve, m = p.Fr, h = p.Fr.n8, g = p.G1.F.n8 * 2, _ = f.domainSize * h;
+		r && (r.info("----------------------------"), r.info("  FFLONK PROVE SETTINGS"), r.info(`  Curve:         ${p.name}`), r.info(`  Circuit power: ${f.power}`), r.info(`  Domain size:   ${f.domainSize}`), r.info(`  Vars:          ${f.nVars}`), r.info(`  Public vars:   ${f.nPublic}`), r.info(`  Constraints:   ${f.nConstraints}`), r.info(`  Additions:     ${f.nAdditions}`), r.info("----------------------------")), r && r.info("> Reading witness file data");
+		let v = await e.readSection(a, o, 2);
+		await a.close(), v.set(m.zero, 0);
+		let y = new s(f.nAdditions * h), b = {}, x = {}, S = {}, C = {}, w = {}, T = {}, E = new Sr(p, r);
+		r && r.info("> Reading Section 3. Additions"), await A(), r && r.info("> Reading Sections 12,13,14. Sigma1, Sigma2 & Sigma 3"), r && r.info("··· Reading Sigma polynomials "), x.Sigma1 = new Y(new s(_), p, r), x.Sigma2 = new Y(new s(_), p, r), x.Sigma3 = new Y(new s(_), p, r), await c.readToBuffer(x.Sigma1.coef, 0, _, l[12][0].p), await c.readToBuffer(x.Sigma2.coef, 0, _, l[13][0].p), await c.readToBuffer(x.Sigma3.coef, 0, _, l[14][0].p), r && r.info("··· Reading Sigma evaluations"), S.Sigma1 = new X(new s(_ * 4), p, r), S.Sigma2 = new X(new s(_ * 4), p, r), S.Sigma3 = new X(new s(_ * 4), p, r), await c.readToBuffer(S.Sigma1.eval, 0, _ * 4, l[12][0].p + _), await c.readToBuffer(S.Sigma2.eval, 0, _ * 4, l[13][0].p + _), await c.readToBuffer(S.Sigma3.eval, 0, _ * 4, l[14][0].p + _), r && r.info("> Reading Section 16. Powers of Tau");
+		let D = new s(f.domainSize * 16 * g);
+		await c.readToBuffer(D, 0, (f.domainSize * 9 + 18) * g, l[16][0].p), globalThis.gc && globalThis.gc(), r && r.info(""), r && r.info("> ROUND 1"), await N(), delete x.T0, delete S.QL, delete S.QR, delete S.QM, delete S.QO, delete S.QC, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 2"), await P(), delete b.A, delete b.B, delete b.C, delete S.A, delete S.B, delete S.C, delete S.Sigma1, delete S.Sigma2, delete S.Sigma3, delete S.lagrange1, delete S.Z, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 3"), await F(), delete x.A, delete x.B, delete x.C, delete x.Z, delete x.T1, delete x.T2, delete x.Sigma1, delete x.Sigma2, delete x.Sigma3, delete x.QL, delete x.QR, delete x.QM, delete x.QC, delete x.QO, globalThis.gc && globalThis.gc(), r && r.info("> ROUND 4"), await I(), globalThis.gc && globalThis.gc(), r && r.info("> ROUND 5"), await L(), delete x.C0, delete x.C1, delete x.C2, delete x.R1, delete x.R2, delete x.F, delete x.L, delete x.ZT, delete x.ZTS2, await c.close(), globalThis.gc && globalThis.gc(), E.addEvaluation("inv", R());
+		let O = E.toObjectProof();
+		O.protocol = "fflonk", O.curve = p.name;
+		let k = [];
+		for (let e = 1; e <= f.nPublic; e++) {
+			let t = e * h, n = v.slice(t, t + h);
+			k.push(u.fromRprLE(n));
+		}
+		return r && r.info("FFLONK PROVER FINISHED"), {
+			proof: Ci(O),
+			publicSignals: Ci(k)
+		};
+		async function A() {
+			r && r.info("··· Computing additions");
+			let t = await e.readSection(c, l, 3), n = 8 + h * 2;
+			for (let e = 0; e < f.nAdditions; e++) {
+				/* c8 ignore start */
+				r && e !== 0 && e % 1e5 == 0 && r.info(`    addition ${e}/${f.nAdditions}`);
+				/* c8 ignore stop */
+				let i = e * n, a = j(t, i);
+				i += 4;
+				let o = j(t, i);
+				i += 4;
+				let s = t.slice(i, i + h);
+				i += h;
+				let c = t.slice(i, i + h), l = M(a), u = M(o), d = m.add(m.mul(s, l), m.mul(c, u));
+				y.set(d, h * e);
+			}
+		}
+		function j(e, t) {
+			let n = e.slice(t, t + 4);
+			return new DataView(n.buffer, n.byteOffset, n.byteLength).getUint32(0, !0);
+		}
+		function M(e) {
+			let t = f.nVars - f.nAdditions;
+			if (e < t) return v.slice(e * h, e * h + h);
+			if (e < f.nVars) {
+				let n = (e - t) * h;
+				return y.slice(n, n + h);
+			}
+			/* c8 ignore start */
+			/* c8 ignore stop */
+			return m.zero;
+		}
+		async function N() {
+			w.b = [];
+			for (let e = 1; e <= 9; e++) w.b[e] = m.random();
+			r && r.info("> Computing A, B, C wire polynomials"), await n(), r && r.info("> Computing T0 polynomial"), await i(), r && r.info("> Computing C1 polynomial"), await a(), r && r.info("> Computing C1 multi exponentiation");
+			let t = await x.C1.multiExponentiation(D, "C1");
+			return E.addPolynomial("C1", t), 0;
+			async function n() {
+				r && r.info("··· Reading data from zkey file"), b.A = new s(_), b.B = new s(_), b.C = new s(_);
+				let t = await e.readSection(c, l, 4), n = await e.readSection(c, l, 5), i = await e.readSection(c, l, 6);
+				for (let e = 0; e < f.nConstraints; e++) {
+					let r = e * h, a = e * 4, o = j(t, a);
+					b.A.set(M(o), r);
+					let s = j(n, a);
+					b.B.set(M(s), r);
+					let c = j(i, a);
+					b.C.set(M(c), r);
+				}
+				/* c8 ignore start */
+				if (b.A.set(w.b[1], _ - 64), b.A.set(w.b[2], _ - 32), b.B.set(w.b[3], _ - 64), b.B.set(w.b[4], _ - 32), b.C.set(w.b[5], _ - 64), b.C.set(w.b[6], _ - 32), b.A = await m.batchToMontgomery(b.A), b.B = await m.batchToMontgomery(b.B), b.C = await m.batchToMontgomery(b.C), r && r.info("··· Computing A ifft"), x.A = await Y.fromEvaluations(b.A, p, r), r && r.info("··· Computing B ifft"), x.B = await Y.fromEvaluations(b.B, p, r), r && r.info("··· Computing C ifft"), x.C = await Y.fromEvaluations(b.C, p, r), r && r.info("··· Computing A fft"), S.A = await X.fromPolynomial(x.A, 4, p, r), r && r.info("··· Computing B fft"), S.B = await X.fromPolynomial(x.B, 4, p, r), r && r.info("··· Computing C fft"), S.C = await X.fromPolynomial(x.C, 4, p, r), x.A.degree() >= f.domainSize) throw Error("A Polynomial is not well calculated");
+				/* c8 ignore stop */
+				/* c8 ignore start */
+				if (x.B.degree() >= f.domainSize) throw Error("B Polynomial is not well calculated");
+				/* c8 ignore stop */
+				/* c8 ignore start */
+				if (x.C.degree() >= f.domainSize) throw Error("C Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+			async function i() {
+				r && r.info("··· Reading sections 7, 8, 9, 10, 11. Q selectors"), S.QL = new X(new s(_ * 4), p, r), S.QR = new X(new s(_ * 4), p, r), S.QM = new X(new s(_ * 4), p, r), S.QO = new X(new s(_ * 4), p, r), S.QC = new X(new s(_ * 4), p, r), await c.readToBuffer(S.QL.eval, 0, _ * 4, l[7][0].p + _), await c.readToBuffer(S.QR.eval, 0, _ * 4, l[8][0].p + _), await c.readToBuffer(S.QM.eval, 0, _ * 4, l[9][0].p + _), await c.readToBuffer(S.QO.eval, 0, _ * 4, l[10][0].p + _), await c.readToBuffer(S.QC.eval, 0, _ * 4, l[11][0].p + _);
+				let t = await e.readSection(c, l, 15);
+				S.lagrange1 = new X(t, p, r), b.T0 = new s(_ * 4), r && r.info("··· Computing T0 evaluations");
+				for (let e = 0; e < f.domainSize * 4; e++) {
+					/* c8 ignore start */
+					r && e !== 0 && e % 1e5 == 0 && r.info(`      T0 evaluation ${e}/${f.domainSize * 4}`);
+					/* c8 ignore stop */
+					let t = S.A.getEvaluation(e), n = S.B.getEvaluation(e), i = S.C.getEvaluation(e), a = S.QL.getEvaluation(e), o = S.QR.getEvaluation(e), s = S.QM.getEvaluation(e), c = S.QO.getEvaluation(e), l = S.QC.getEvaluation(e), u = m.zero;
+					for (let t = 0; t < f.nPublic; t++) {
+						let n = t * 5 * f.domainSize + f.domainSize + e, r = S.lagrange1.getEvaluation(n), i = b.A.slice(t * h, (t + 1) * h);
+						u = m.sub(u, m.mul(r, i));
+					}
+					let d = m.mul(t, a), p = m.mul(n, o), g = m.mul(m.mul(t, n), s), _ = m.mul(i, c), v = m.add(d, m.add(p, m.add(g, m.add(_, m.add(l, u)))));
+					b.T0.set(v, e * h);
+				}
+				/* c8 ignore start */
+				if (r && r.info("buffer T0: " + b.T0.byteLength / h), r && r.info("··· Computing T0 ifft"), x.T0 = await Y.fromEvaluations(b.T0, p, r), r && r.info("T0 length: " + x.T0.length()), r && r.info("T0 degree: " + x.T0.degree()), r && r.info("··· Computing T0 / ZH"), x.T0.divByZerofier(f.domainSize, m.one), x.T0.degree() >= 2 * f.domainSize - 2) throw Error(`T0 Polynomial is not well calculated (degree is ${x.T0.degree()} and must be less than ${2 * f.domainSize + 2}`);
+				/* c8 ignore stop */
+				delete b.T0;
+			}
+			async function a() {
+				let e = new xi(4, p, r);
+				/* c8 ignore start */
+				if (e.addPolynomial(0, x.A), e.addPolynomial(1, x.B), e.addPolynomial(2, x.C), e.addPolynomial(3, x.T0), x.C1 = e.getPolynomial(), x.C1.degree() >= 8 * f.domainSize - 8) throw Error("C1 Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+		}
+		async function P() {
+			r && r.info("> Computing challenges beta and gamma");
+			let e = new Hr(p);
+			e.addPolCommitment(f.C0);
+			for (let t = 0; t < f.nPublic; t++) e.addScalar(b.A.slice(t * h, t * h + h));
+			e.addPolCommitment(E.getPolynomial("C1")), w.beta = e.getChallenge(), r && r.info("··· challenges.beta: " + m.toString(w.beta)), e.reset(), e.addScalar(w.beta), w.gamma = e.getChallenge(), r && r.info("··· challenges.gamma: " + m.toString(w.gamma)), r && r.info("> Computing Z polynomial"), await n(), r && r.info("> Computing T1 polynomial"), await i(), r && r.info("> Computing T2 polynomial"), await a(), r && r.info("> Computing C2 polynomial"), await o(), r && r.info("> Computing C2 multi exponentiation");
+			let t = await x.C2.multiExponentiation(D, "C2");
+			return E.addPolynomial("C2", t), 0;
+			async function n() {
+				r && r.info("··· Computing Z evaluations");
+				let e = new s(_), t = new s(_);
+				e.set(m.one, 0), t.set(m.one, 0);
+				let n = m.one;
+				for (let i = 0; i < f.domainSize; i++) {
+					/* c8 ignore start */
+					r && i !== 0 && i % 1e5 == 0 && r.info(`    Z evaluation ${i}/${f.domainSize}`);
+					/* c8 ignore stop */
+					let a = i * h, o = m.mul(w.beta, n), s = b.A.slice(a, a + h);
+					s = m.add(s, o), s = m.add(s, w.gamma);
+					let c = b.B.slice(a, a + h);
+					c = m.add(c, m.mul(f.k1, o)), c = m.add(c, w.gamma);
+					let l = b.C.slice(a, a + h);
+					l = m.add(l, m.mul(f.k2, o)), l = m.add(l, w.gamma);
+					let u = m.mul(s, m.mul(c, l)), d = b.A.slice(a, a + h);
+					d = m.add(d, m.mul(w.beta, S.Sigma1.getEvaluation(i * 4))), d = m.add(d, w.gamma);
+					let p = b.B.slice(a, a + h);
+					p = m.add(p, m.mul(w.beta, S.Sigma2.getEvaluation(i * 4))), p = m.add(p, w.gamma);
+					let g = b.C.slice(a, a + h);
+					g = m.add(g, m.mul(w.beta, S.Sigma3.getEvaluation(i * 4))), g = m.add(g, w.gamma);
+					let _ = m.mul(d, m.mul(p, g));
+					u = m.mul(e.slice(a, a + h), u), e.set(u, (i + 1) % f.domainSize * h), _ = m.mul(t.slice(a, a + h), _), t.set(_, (i + 1) % f.domainSize * h), n = m.mul(n, m.w[f.power]);
+				}
+				t = await m.batchInverse(t);
+				for (let n = 0; n < f.domainSize; n++) {
+					let r = n * h, i = m.mul(e.slice(r, r + h), t.slice(r, r + h));
+					e.set(i, r);
+				}
+				/* c8 ignore start */
+				if (b.Z = e, !m.eq(e.slice(0, h), m.one)) throw Error("Copy constraints does not match");
+				/* c8 ignore start */
+				if (r && r.info("··· Computing Z ifft"), x.Z = await Y.fromEvaluations(b.Z, p, r), r && r.info("··· Computing Z fft"), S.Z = await X.fromPolynomial(x.Z, 4, p, r), x.Z.blindCoefficients([
+					w.b[9],
+					w.b[8],
+					w.b[7]
+				]), x.Z.degree() >= f.domainSize + 3) throw Error("Z Polynomial is not well calculated");
+				/* c8 ignore stop */
+				delete b.Z;
+			}
+			async function i() {
+				r && r.info("··· Computing T1 evaluations"), b.T1 = new s(_ * 2), b.T1z = new s(_ * 2);
+				let e = m.one;
+				for (let t = 0; t < f.domainSize * 2; t++) {
+					/* c8 ignore start */
+					r && t !== 0 && t % 1e5 == 0 && r.info(`    T1 evaluation ${t}/${f.domainSize * 4}`);
+					/* c8 ignore stop */
+					let n = m.square(e), i = S.Z.getEvaluation(t * 2), a = m.add(m.add(m.mul(w.b[7], n), m.mul(w.b[8], e)), w.b[9]), o = S.lagrange1.getEvaluation(f.domainSize + t * 2), s = m.mul(m.sub(i, m.one), o), c = m.mul(a, o);
+					b.T1.set(s, t * h), b.T1z.set(c, t * h), e = m.mul(e, m.w[f.power + 1]);
+				}
+				/* c8 ignore start */
+				if (r && r.info("··· Computing T1 ifft"), x.T1 = await Y.fromEvaluations(b.T1, p, r), x.T1.divByZerofier(f.domainSize, m.one), r && r.info("··· Computing T1z ifft"), x.T1z = await Y.fromEvaluations(b.T1z, p, r), x.T1.add(x.T1z), x.T1.degree() >= f.domainSize + 2) throw Error("T1 Polynomial is not well calculated");
+				delete b.T1, delete b.T1z, delete x.T1z;
+			}
+			async function a() {
+				r && r.info("··· Computing T2 evaluations"), b.T2 = new s(_ * 4), b.T2z = new s(_ * 4);
+				let e = m.one;
+				for (let t = 0; t < f.domainSize * 4; t++) {
+					/* c8 ignore start */
+					r && t !== 0 && t % 1e5 == 0 && r.info(`    T2 evaluation ${t}/${f.domainSize * 4}`);
+					/* c8 ignore stop */
+					let n = m.square(e), i = m.mul(e, m.w[f.power]), a = m.square(i), o = S.A.getEvaluation(t), s = S.B.getEvaluation(t), c = S.C.getEvaluation(t), l = S.Z.getEvaluation(t), u = S.Z.getEvaluation((f.domainSize * 4 + 4 + t) % (f.domainSize * 4)), d = m.add(m.add(m.mul(w.b[7], n), m.mul(w.b[8], e)), w.b[9]), p = m.add(m.add(m.mul(w.b[7], a), m.mul(w.b[8], i)), w.b[9]), g = S.Sigma1.getEvaluation(t), _ = S.Sigma2.getEvaluation(t), v = S.Sigma3.getEvaluation(t), y = m.mul(w.beta, e), x = m.add(o, y);
+					x = m.add(x, w.gamma);
+					let C = m.add(s, m.mul(y, f.k1));
+					C = m.add(C, w.gamma);
+					let T = m.add(c, m.mul(y, f.k2));
+					T = m.add(T, w.gamma);
+					let E = m.mul(m.mul(m.mul(x, C), T), l), D = m.mul(m.mul(m.mul(x, C), T), d), O = m.add(o, m.mul(w.beta, g));
+					O = m.add(O, w.gamma);
+					let k = m.add(s, m.mul(w.beta, _));
+					k = m.add(k, w.gamma);
+					let A = m.add(c, m.mul(w.beta, v));
+					A = m.add(A, w.gamma);
+					let j = m.mul(m.mul(m.mul(O, k), A), u), M = m.mul(m.mul(m.mul(O, k), A), p), N = m.sub(E, j), P = m.sub(D, M);
+					b.T2.set(N, t * h), b.T2z.set(P, t * h), e = m.mul(e, m.w[f.power + 2]);
+				}
+				/* c8 ignore start */
+				if (r && r.info("··· Computing T2 ifft"), x.T2 = await Y.fromEvaluations(b.T2, p, r), r && r.info("··· Computing T2 / ZH"), x.T2.divByZerofier(f.domainSize, m.one), r && r.info("··· Computing T2z ifft"), x.T2z = await Y.fromEvaluations(b.T2z, p, r), x.T2.add(x.T2z), x.T2.degree() >= 3 * f.domainSize) throw Error("T2 Polynomial is not well calculated");
+				delete b.T2, delete b.T2z, delete x.T2z;
+			}
+			async function o() {
+				let e = new xi(3, p, r);
+				/* c8 ignore start */
+				if (e.addPolynomial(0, x.Z), e.addPolynomial(1, x.T1), e.addPolynomial(2, x.T2), x.C2 = e.getPolynomial(), x.C2.degree() >= 9 * f.domainSize) throw Error("C2 Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+		}
+		async function F() {
+			r && r.info("> Computing challenge xi");
+			let e = new Hr(p);
+			e.addScalar(w.gamma), e.addPolCommitment(E.getPolynomial("C2")), w.xiSeed = e.getChallenge();
+			let t = m.square(w.xiSeed);
+			T.w8 = [], T.w8[0] = m.one;
+			for (let e = 1; e < 8; e++) T.w8[e] = m.mul(T.w8[e - 1], f.w8);
+			T.w4 = [], T.w4[0] = m.one;
+			for (let e = 1; e < 4; e++) T.w4[e] = m.mul(T.w4[e - 1], f.w4);
+			T.w3 = [], T.w3[0] = m.one, T.w3[1] = f.w3, T.w3[2] = m.square(f.w3), T.S0 = {}, T.S0.h0w8 = [], T.S0.h0w8[0] = m.mul(t, w.xiSeed);
+			for (let e = 1; e < 8; e++) T.S0.h0w8[e] = m.mul(T.S0.h0w8[0], T.w8[e]);
+			T.S1 = {}, T.S1.h1w4 = [], T.S1.h1w4[0] = m.square(T.S0.h0w8[0]);
+			for (let e = 1; e < 4; e++) T.S1.h1w4[e] = m.mul(T.S1.h1w4[0], T.w4[e]);
+			T.S2 = {}, T.S2.h2w3 = [], T.S2.h2w3[0] = m.mul(T.S1.h1w4[0], t), T.S2.h2w3[1] = m.mul(T.S2.h2w3[0], T.w3[1]), T.S2.h2w3[2] = m.mul(T.S2.h2w3[0], T.w3[2]), T.S2.h3w3 = [], T.S2.h3w3[0] = m.mul(T.S2.h2w3[0], f.wr), T.S2.h3w3[1] = m.mul(T.S2.h3w3[0], T.w3[1]), T.S2.h3w3[2] = m.mul(T.S2.h3w3[0], T.w3[2]), w.xi = m.mul(m.square(T.S2.h2w3[0]), T.S2.h2w3[0]), r && r.info("··· challenges.xi: " + m.toString(w.xi)), x.QL = new Y(new s(_), p, r), x.QR = new Y(new s(_), p, r), x.QM = new Y(new s(_), p, r), x.QO = new Y(new s(_), p, r), x.QC = new Y(new s(_), p, r), await c.readToBuffer(x.QL.coef, 0, _, l[7][0].p), await c.readToBuffer(x.QR.coef, 0, _, l[8][0].p), await c.readToBuffer(x.QM.coef, 0, _, l[9][0].p), await c.readToBuffer(x.QO.coef, 0, _, l[10][0].p), await c.readToBuffer(x.QC.coef, 0, _, l[11][0].p), r && r.info("··· Computing evaluations"), E.addEvaluation("ql", x.QL.evaluate(w.xi)), E.addEvaluation("qr", x.QR.evaluate(w.xi)), E.addEvaluation("qm", x.QM.evaluate(w.xi)), E.addEvaluation("qo", x.QO.evaluate(w.xi)), E.addEvaluation("qc", x.QC.evaluate(w.xi)), E.addEvaluation("s1", x.Sigma1.evaluate(w.xi)), E.addEvaluation("s2", x.Sigma2.evaluate(w.xi)), E.addEvaluation("s3", x.Sigma3.evaluate(w.xi)), E.addEvaluation("a", x.A.evaluate(w.xi)), E.addEvaluation("b", x.B.evaluate(w.xi)), E.addEvaluation("c", x.C.evaluate(w.xi)), E.addEvaluation("z", x.Z.evaluate(w.xi)), w.xiw = m.mul(w.xi, m.w[f.power]), E.addEvaluation("zw", x.Z.evaluate(w.xiw)), E.addEvaluation("t1w", x.T1.evaluate(w.xiw)), E.addEvaluation("t2w", x.T2.evaluate(w.xiw));
+		}
+		async function I() {
+			r && r.info("> Computing challenge alpha");
+			let e = new Hr(p);
+			e.addScalar(w.xiSeed), e.addScalar(E.getEvaluation("ql")), e.addScalar(E.getEvaluation("qr")), e.addScalar(E.getEvaluation("qm")), e.addScalar(E.getEvaluation("qo")), e.addScalar(E.getEvaluation("qc")), e.addScalar(E.getEvaluation("s1")), e.addScalar(E.getEvaluation("s2")), e.addScalar(E.getEvaluation("s3")), e.addScalar(E.getEvaluation("a")), e.addScalar(E.getEvaluation("b")), e.addScalar(E.getEvaluation("c")), e.addScalar(E.getEvaluation("z")), e.addScalar(E.getEvaluation("zw")), e.addScalar(E.getEvaluation("t1w")), e.addScalar(E.getEvaluation("t2w")), w.alpha = e.getChallenge(), r && r.info("··· challenges.alpha: " + m.toString(w.alpha)), r && r.info("> Reading C0 polynomial"), x.C0 = new Y(new s(_ * 8), p, r), await c.readToBuffer(x.C0.coef, 0, _ * 8, l[17][0].p), r && r.info("> Computing R0 polynomial"), n(), r && r.info("> Computing R1 polynomial"), i(), r && r.info("> Computing R2 polynomial"), a(), r && r.info("> Computing F polynomial"), await o(), r && r.info("> Computing W1 multi exponentiation");
+			let t = await x.F.multiExponentiation(D, "W1");
+			return E.addPolynomial("W1", t), 0;
+			function n() {
+				/* c8 ignore start */
+				if (x.R0 = Y.lagrangePolynomialInterpolation([
+					T.S0.h0w8[0],
+					T.S0.h0w8[1],
+					T.S0.h0w8[2],
+					T.S0.h0w8[3],
+					T.S0.h0w8[4],
+					T.S0.h0w8[5],
+					T.S0.h0w8[6],
+					T.S0.h0w8[7]
+				], [
+					x.C0.evaluate(T.S0.h0w8[0]),
+					x.C0.evaluate(T.S0.h0w8[1]),
+					x.C0.evaluate(T.S0.h0w8[2]),
+					x.C0.evaluate(T.S0.h0w8[3]),
+					x.C0.evaluate(T.S0.h0w8[4]),
+					x.C0.evaluate(T.S0.h0w8[5]),
+					x.C0.evaluate(T.S0.h0w8[6]),
+					x.C0.evaluate(T.S0.h0w8[7])
+				], p), x.R0.degree() > 7) throw Error("R0 Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+			function i() {
+				/* c8 ignore start */
+				if (x.R1 = Y.lagrangePolynomialInterpolation([
+					T.S1.h1w4[0],
+					T.S1.h1w4[1],
+					T.S1.h1w4[2],
+					T.S1.h1w4[3]
+				], [
+					x.C1.evaluate(T.S1.h1w4[0]),
+					x.C1.evaluate(T.S1.h1w4[1]),
+					x.C1.evaluate(T.S1.h1w4[2]),
+					x.C1.evaluate(T.S1.h1w4[3])
+				], p), x.R1.degree() > 3) throw Error("R1 Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+			function a() {
+				/* c8 ignore start */
+				if (x.R2 = Y.lagrangePolynomialInterpolation([
+					T.S2.h2w3[0],
+					T.S2.h2w3[1],
+					T.S2.h2w3[2],
+					T.S2.h3w3[0],
+					T.S2.h3w3[1],
+					T.S2.h3w3[2]
+				], [
+					x.C2.evaluate(T.S2.h2w3[0]),
+					x.C2.evaluate(T.S2.h2w3[1]),
+					x.C2.evaluate(T.S2.h2w3[2]),
+					x.C2.evaluate(T.S2.h3w3[0]),
+					x.C2.evaluate(T.S2.h3w3[1]),
+					x.C2.evaluate(T.S2.h3w3[2])
+				], p), x.R2.degree() > 5) throw Error("R2 Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+			async function o() {
+				r && r.info("··· Computing F polynomial"), x.F = Y.fromPolynomial(x.C0, p, r), x.F.sub(x.R0), x.F.divByZerofier(8, w.xi);
+				let e = Y.fromPolynomial(x.C1, p, r);
+				e.sub(x.R1), e.mulScalar(w.alpha), e.divByZerofier(4, w.xi);
+				let t = Y.fromPolynomial(x.C2, p, r);
+				/* c8 ignore start */
+				if (t.sub(x.R2), t.mulScalar(m.square(w.alpha)), t.divByZerofier(3, w.xi), t.divByZerofier(3, w.xiw), x.F.add(e), x.F.add(t), x.F.degree() >= 9 * f.domainSize - 6) throw Error("F Polynomial is not well calculated");
+				/* c8 ignore stop */
+			}
+		}
+		async function L() {
+			r && r.info("> Computing challenge y");
+			let e = new Hr(p);
+			e.addScalar(w.alpha), e.addPolCommitment(E.getPolynomial("W1")), w.y = e.getChallenge(), r && r.info("··· challenges.y: " + m.toString(w.y)), r && r.info("> Computing L polynomial"), await o(), r && r.info("> Computing ZTS2 polynomial"), await c();
+			let t = x.ZTS2.evaluate(w.y);
+			t = m.inv(t), x.L.mulScalar(t);
+			let n = Y.fromCoefficientsArray([m.neg(w.y), m.one], p);
+			r && r.info("> Computing W' = L / ZTS2 polynomial");
+			let i = x.L.divBy(n);
+			/* c8 ignore start */
+			if (i.degree() > 0) throw Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${i.degree()} and should be 0`);
+			/* c8 ignore stop */
+			/* c8 ignore start */
+			if (x.L.degree() >= 9 * f.domainSize - 1) throw Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
+			/* c8 ignore stop */
+			r && r.info("> Computing W' multi exponentiation");
+			let a = await x.L.multiExponentiation(D, "W2");
+			return E.addPolynomial("W2", a), 0;
+			async function o() {
+				r && r.info("··· Computing L polynomial");
+				let e = x.R0.evaluate(w.y), t = x.R1.evaluate(w.y), n = x.R2.evaluate(w.y), i = m.sub(w.y, T.S0.h0w8[0]);
+				for (let e = 1; e < 8; e++) i = m.mul(i, m.sub(w.y, T.S0.h0w8[e]));
+				let a = m.sub(w.y, T.S1.h1w4[0]);
+				for (let e = 1; e < 4; e++) a = m.mul(a, m.sub(w.y, T.S1.h1w4[e]));
+				let o = m.sub(w.y, T.S2.h2w3[0]);
+				for (let e = 1; e < 3; e++) o = m.mul(o, m.sub(w.y, T.S2.h2w3[e]));
+				for (let e = 0; e < 3; e++) o = m.mul(o, m.sub(w.y, T.S2.h3w3[e]));
+				let c = m.mul(a, o), l = m.mul(w.alpha, m.mul(i, o)), u = m.mul(m.square(w.alpha), m.mul(i, a));
+				C.denH1 = a, C.denH2 = o, x.L = Y.fromPolynomial(x.C0, p, r), x.L.subScalar(e), x.L.mulScalar(c);
+				let d = Y.fromPolynomial(x.C1, p, r);
+				d.subScalar(t), d.mulScalar(l);
+				let h = Y.fromPolynomial(x.C2, p, r);
+				h.subScalar(n), h.mulScalar(u), x.L.add(d), x.L.add(h), r && r.info("> Computing ZT polynomial"), await s();
+				let g = x.ZT.evaluate(w.y);
+				/* c8 ignore start */
+				if (x.F.mulScalar(g), x.L.sub(x.F), x.L.degree() >= 9 * f.domainSize) throw Error("L Polynomial is not well calculated");
+				/* c8 ignore stop */
+				delete b.L;
+			}
+			async function s() {
+				x.ZT = Y.zerofierPolynomial([
+					T.S0.h0w8[0],
+					T.S0.h0w8[1],
+					T.S0.h0w8[2],
+					T.S0.h0w8[3],
+					T.S0.h0w8[4],
+					T.S0.h0w8[5],
+					T.S0.h0w8[6],
+					T.S0.h0w8[7],
+					T.S1.h1w4[0],
+					T.S1.h1w4[1],
+					T.S1.h1w4[2],
+					T.S1.h1w4[3],
+					T.S2.h2w3[0],
+					T.S2.h2w3[1],
+					T.S2.h2w3[2],
+					T.S2.h3w3[0],
+					T.S2.h3w3[1],
+					T.S2.h3w3[2]
+				], p);
+			}
+			async function c() {
+				x.ZTS2 = Y.zerofierPolynomial([
+					T.S1.h1w4[0],
+					T.S1.h1w4[1],
+					T.S1.h1w4[2],
+					T.S1.h1w4[3],
+					T.S2.h2w3[0],
+					T.S2.h2w3[1],
+					T.S2.h2w3[2],
+					T.S2.h3w3[0],
+					T.S2.h3w3[1],
+					T.S2.h3w3[2]
+				], p);
+			}
+		}
+		function R() {
+			let e = w.xi;
+			for (let t = 0; t < f.power; t++) e = m.square(e);
+			C.zh = m.sub(e, m.one), i(C, T.S0.h0w8, w.y, p), a(C, T.S1.h1w4, w.y, p), o(C, T.S2.h2w3, T.S2.h3w3, w.y, w.xi, w.xiw, p);
+			let t = Math.max(1, f.nPublic), n = m.one;
+			for (let e = 0; e < t; e++) C["Li_" + (e + 1)] = m.mul(m.e(f.domainSize), m.sub(w.xi, n)), n = m.mul(n, m.w[f.power]);
+			let r = m.one;
+			for (let e of Object.values(C))
+ /* c8 ignore start */
+			if (Array.isArray(e)) for (let t of e) r = m.mul(r, t);
+			else r = m.mul(r, e);
+			return m.inv(r);
+			function i(e, t, n, r) {
+				let i = r.Fr, a = t.length, o = i.mul(i.e(a), i.exp(t[0], a - 2)), s = [];
+				for (let r = 0; r < a; r++) {
+					let s = t[(a - 1) * r % a], c = i.sub(n, t[r]);
+					e[["LiS0_" + (r + 1)]] = i.mul(i.mul(o, s), c);
+				}
+				return s;
+			}
+			function a(e, t, n, r) {
+				let i = r.Fr, a = t.length, o = i.mul(i.e(a), i.exp(t[0], a - 2)), s = [];
+				for (let r = 0; r < a; r++) {
+					let s = t[(a - 1) * r % a], c = i.sub(n, t[r]);
+					e[["LiS1_" + (r + 1)]] = i.mul(i.mul(o, s), c);
+				}
+				return s;
+			}
+			function o(e, t, n, r, i, a, o) {
+				let s = o.Fr, c = [], l = s.mul(s.e(3), t[0]), u = s.sub(i, a), d = s.mul(l, u);
+				for (let n = 0; n < 3; n++) {
+					let i = t[2 * n % 3], a = s.sub(r, t[n]);
+					e[["LiS2_" + (n + 1)]] = s.mul(d, s.mul(i, a));
+				}
+				let f = s.mul(s.e(3), n[0]), p = s.sub(a, i);
+				d = s.mul(f, p);
+				for (let t = 0; t < 3; t++) {
+					let i = n[2 * t % 3], a = s.sub(r, n[t]);
+					e[["LiS2_" + (t + 1 + 3)]] = s.mul(d, s.mul(i, a));
+				}
+				return c;
+			}
+		}
+	} finally {
+		for (let e of [a, c]) try {
+			e && await e.close();
+		} catch {}
+	}
 }
-
-async function readMap(fd, sections, r1cs, logger, loggerCtx) {
-    let options;
-    if (typeof logger === "object") {
-        options = logger;
-    } else if (typeof logger === "undefined") {
-        options= {};
-    } else {
-        options = {
-            logger: logger,
-            loggerCtx: loggerCtx,
-        };
-    }
-    const bMap = await readSection(fd, sections, 3);
-    let bMapPos = 0;
-    let map;
-
-    if (r1cs.nVars>1<<20) {
-        map = new BigArray$1();
-    } else {
-        map = [];
-    }
-    for (let i=0; i<r1cs.nVars; i++) {
-        if ((options.logger)&&(i%10000 == 0)) options.logger.info(`${options.loggerCtx}: Loading map: ${i}/${r1cs.nVars}`);
-        const idx = readULE64();
-        map.push(idx);
-    }
-
-    return map;
-
-    function readULE64() {
-        const buffULE64 = bMap.slice(bMapPos, bMapPos+8);
-        bMapPos += 8;
-        const buffULE64V = new DataView(buffULE64.buffer);
-        const LSB = buffULE64V.getUint32(0, true);
-        const MSB = buffULE64V.getUint32(4, true);
-
-        return MSB * 0x100000000 + LSB;
-    }
-
+//#endregion
+//#region src/fflonk_full_prove.js
+var { unstringifyBigInts: Ti } = p;
+async function Ei(e, t, n, r, i, a) {
+	let o = Ti(e), s = { type: "mem" };
+	return await $t(o, t, s, i), await wi(n, s, r, a);
 }
-
-async function readR1csFd(fd, sections, options) {
-    /**
-     * Options properties:
-     *  loadConstraints: <bool> true by default
-     *  loadMap:         <bool> false by default
-     *  loadCustomGates: <bool> true by default
-     */
-
-    if(typeof options !== "object") {
-        throw new Error("readR1csFd: options must be an object");
-    }
-
-    options.loadConstraints = "loadConstraints" in options ? options.loadConstraints : true;
-    options.loadMap = "loadMap" in options ? options.loadMap : false;
-    options.loadCustomGates = "loadCustomGates" in options ? options.loadCustomGates : true;
-
-    const res = await readR1csHeader(fd, sections, options);
-
-    if (options.loadConstraints) {
-        res.constraints = await readConstraints(fd, sections, res, options);
-    }
-
-    // Read Labels
-
-    if (options.loadMap) {
-        res.map = await readMap(fd, sections, res, options);
-    }
-
-    if (options.loadCustomGates) {
-        if (res.useCustomGates) {
-            res.customGates = await readCustomGatesListSection(fd, sections, res);
-            res.customGatesUses = await readCustomGatesUsesSection(fd, sections, options);
-        } else {
-            res.customGates = [];
-            res.customGatesUses = [];
-        }
-    }
-    return res;
+//#endregion
+//#region src/fflonk_verify.js
+var { unstringifyBigInts: Di } = p;
+async function Oi(e, t, n, r) {
+	r && r.info("FFLONK VERIFIER STARTED"), e = Di(e), n = Di(n);
+	let i = await E(e.curve), a = ki(i, e), o = new Sr(i, r);
+	o.fromObjectProof(n);
+	let s = Di(t);
+	if (s.length !== a.nPublic) return r && r.error("Number of public signals does not match with vk"), !1;
+	let c = i.Fr;
+	if (r && (r.info("----------------------------"), r.info("  FFLONK VERIFY SETTINGS"), r.info(`  Curve:         ${i.name}`), r.info(`  Circuit power: ${a.power}`), r.info(`  Domain size:   ${2 ** a.power}`), r.info(`  Public vars:   ${a.nPublic}`), r.info("----------------------------")), r && r.info("> Checking commitments belong to G1"), !Ai(i, o, a)) return r && r.error("Proof commitments are not valid"), !1;
+	if (r && r.info("> Checking evaluations belong to F"), !Mi(i, o)) return r && r.error("Proof evaluations are not valid."), !1;
+	if (r && r.info("> Checking public inputs belong to F"), !Ni(i, s)) return r && r.error("Public inputs are not valid."), !1;
+	r && r.info("> Computing challenges");
+	let { challenges: l, roots: u } = Pi(i, o, a, s, r);
+	r && r.info("> Computing Zero polynomial evaluation Z_H(xi)"), l.zh = c.sub(l.xiN, c.one), l.invzh = c.inv(l.zh), r && r.info("> Computing Lagrange evaluations");
+	let d = await Fi(i, l, a);
+	r && r.info("> Computing polynomial identities PI(X)");
+	let f = Ii(i, s, d);
+	r && r.info("> Computing r0(y)");
+	let p = Li(o, l, u, i, r);
+	r && r.info("> Computing r1(y)");
+	let m = Ri(o, l, u, f, i, r);
+	r && r.info("> Computing r2(y)");
+	let h = zi(o, l, u, d[1], a, i, r);
+	r && r.info("> Computing F");
+	let g = Bi(i, o, a, l, u);
+	r && r.info("> Computing E");
+	let _ = Vi(i, o, l, a, p, m, h);
+	r && r.info("> Computing J");
+	let v = Hi(i, o, l);
+	r && r.info("> Validate all evaluations with a pairing");
+	let y = await Ui(i, o, l, a, g, _, v);
+	return r && (y ? r.info("PROOF VERIFIED SUCCESSFULLY") : r.warn("Invalid Proof")), r && r.info("FFLONK VERIFIER FINISHED"), y;
 }
-
-async function readR1cs(fileName, loadConstraints, loadMap, singleThread, logger, loggerCtx) {
-    let options;
-    if (typeof loadConstraints === "object") {
-        options = loadConstraints;
-    } else if (typeof loadConstraints === "undefined") {
-        options= {
-            loadConstraints: true,
-            loadMap: false,
-            loadCustomGates: true
-        };
-    } else {
-        options = {
-            loadConstraints: loadConstraints,
-            loadMap: loadMap,
-            singleThread: singleThread,
-            logger: logger,
-            loggerCtx: loggerCtx
-        };
-    }
-
-    const {fd, sections} = await readBinFile(fileName, "r1cs", 1, 1<<25, 1<<22);
-
-    const res = await readR1csFd(fd, sections, options);
-
-    await fd.close();
-
-    return res;
+function ki(e, t) {
+	let n = t;
+	return n.k1 = e.Fr.fromObject(t.k1), n.k2 = e.Fr.fromObject(t.k2), n.w = e.Fr.fromObject(t.w), n.w3 = e.Fr.fromObject(t.w3), n.w4 = e.Fr.fromObject(t.w4), n.w8 = e.Fr.fromObject(t.w8), n.wr = e.Fr.fromObject(t.wr), n.X_2 = e.G2.fromObject(t.X_2), n.C0 = e.G1.fromObject(t.C0), n;
 }
-
-async function readCustomGatesListSection(fd, sections, res) {
-    await startReadUniqueSection(fd, sections, R1CS_FILE_CUSTOM_GATES_LIST_SECTION);
-
-    let num = await fd.readULE32();
-
-    let customGates = [];
-    for (let i = 0; i < num; i++) {
-        let customGate = {};
-        customGate.templateName = await fd.readString();
-        let numParameters = await fd.readULE32();
-
-        customGate.parameters = Array(numParameters);
-        let buff = await fd.read(res.n8 * numParameters);
-
-        for (let j = 0; j < numParameters; j++) {
-            customGate.parameters[j] = res.F.fromRprLE(buff, j * res.n8, res.n8);        }
-        customGates.push(customGate);
-    }
-    await endReadSection(fd);
-
-    return customGates;
+function Ai(e, t, n) {
+	let r = e.G1;
+	return r.isValid(t.polynomials.C1) && r.isValid(t.polynomials.C2) && r.isValid(t.polynomials.W1) && r.isValid(t.polynomials.W2) && r.isValid(n.C0);
 }
-
-async function readCustomGatesUsesSection(fd,sections, options) {
-    const bR1cs = await readSection(fd, sections, R1CS_FILE_CUSTOM_GATES_USES_SECTION);
-    const bR1cs32 = new Uint32Array(bR1cs.buffer, bR1cs.byteOffset, bR1cs.byteLength/4);
-    const nCustomGateUses = bR1cs32[0];
-    let bR1csPos = 1;
-    let customGatesUses;
-    if (nCustomGateUses>1<<20) {
-        customGatesUses = new BigArray$1();
-    } else {
-        customGatesUses = [];
-    }
-    for (let i=0; i<nCustomGateUses; i++) {
-        if ((options.logger)&&(i%100000 == 0)) options.logger.info(`${options.loggerCtx}: Loading custom gate uses: ${i}/${nCustomGateUses}`);
-        let c = {};
-        c.id = bR1cs32[bR1csPos++];
-        let numSignals = bR1cs32[bR1csPos++];
-        c.signals = [];
-        for (let j = 0; j < numSignals; j++) {
-            const LSB = bR1cs32[bR1csPos++];
-            const MSB = bR1cs32[bR1csPos++];
-            c.signals.push(MSB * 0x100000000 + LSB);
-        }
-        customGatesUses.push(c);
-    }
-    return customGatesUses;
+function ji(e, t) {
+	return u.geq(t, 0) && u.lt(t, e.r);
 }
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const bls12381r = Scalar.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16);
-const bn128r = Scalar.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-
-async function r1csInfo(r1csName, logger) {
-
-    // Only the header (section 1) is needed for these counts; loading the
-    // constraints + wire-to-label map would read the whole (potentially many-GB)
-    // file for nothing.
-    const cir = await readR1cs(r1csName, {loadConstraints: false, loadMap: false});
-
-    if (Scalar.eq(cir.prime, bn128r)) {
-        if (logger) logger.info("Curve: bn-128");
-    } else if (Scalar.eq(cir.prime, bls12381r)) {
-        if (logger) logger.info("Curve: bls12-381");
-    } else {
-        if (logger) logger.info(`Unknown Curve. Prime: ${Scalar.toString(cir.prime)}`);
-    }
-    if (logger) logger.info(`# of Wires: ${cir.nVars}`);
-    if (logger) logger.info(`# of Constraints: ${cir.nConstraints}`);
-    if (logger) logger.info(`# of Private Inputs: ${cir.nPrvInputs}`);
-    if (logger) logger.info(`# of Public Inputs: ${cir.nPubInputs}`);
-    if (logger) logger.info(`# of Labels: ${cir.nLabels}`);
-    if (logger) logger.info(`# of Outputs: ${cir.nOutputs}`);
-
-    return cir;
+function Q(e, t) {
+	return ji(e, u.fromRprLE(t));
 }
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-async function r1csExportJson(r1csFileName, logger) {
-
-    const cir = await readR1cs(r1csFileName, true, true, true, logger);
-    const Fr=cir.curve.Fr;
-    delete cir.curve;
-    delete cir.F;
-
-    return stringifyBigIntsWithField(Fr, cir);
+function Mi(e, t) {
+	return Q(e, t.evaluations.ql) && Q(e, t.evaluations.qr) && Q(e, t.evaluations.qm) && Q(e, t.evaluations.qo) && Q(e, t.evaluations.qc) && Q(e, t.evaluations.s1) && Q(e, t.evaluations.s2) && Q(e, t.evaluations.s3) && Q(e, t.evaluations.a) && Q(e, t.evaluations.b) && Q(e, t.evaluations.c) && Q(e, t.evaluations.z) && Q(e, t.evaluations.zw) && Q(e, t.evaluations.t1w) && Q(e, t.evaluations.t2w);
 }
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var r1cs = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    exportJson: r1csExportJson,
-    info: r1csInfo,
-    print: r1csPrint
+function Ni(e, t) {
+	for (let n = 0; n < t.length; n++) if (!ji(e, t[n])) return !1;
+	return !0;
+}
+function Pi(e, t, n, r, i) {
+	let a = e.Fr, o = {}, s = {}, c = new Hr(e);
+	c.addPolCommitment(n.C0);
+	for (let e = 0; e < r.length; e++) c.addScalar(a.e(r[e]));
+	c.addPolCommitment(t.polynomials.C1), o.beta = c.getChallenge(), c.reset(), c.addScalar(o.beta), o.gamma = c.getChallenge(), c.reset(), c.addScalar(o.gamma), c.addPolCommitment(t.polynomials.C2);
+	let l = c.getChallenge(), u = a.square(l), d = [];
+	d[1] = n.w8, d[2] = a.square(n.w8), d[3] = a.mul(d[2], n.w8), d[4] = a.mul(d[3], n.w8), d[5] = a.mul(d[4], n.w8), d[6] = a.mul(d[5], n.w8), d[7] = a.mul(d[6], n.w8);
+	let f = [];
+	f[1] = n.w4, f[2] = a.square(n.w4), f[3] = a.mul(f[2], n.w4);
+	let p = [];
+	p[1] = n.w3, p[2] = a.square(n.w3), s.S0 = {}, s.S0.h0w8 = [], s.S0.h0w8[0] = a.mul(u, l);
+	for (let e = 1; e < 8; e++) s.S0.h0w8[e] = a.mul(s.S0.h0w8[0], d[e]);
+	s.S1 = {}, s.S1.h1w4 = [], s.S1.h1w4[0] = a.square(s.S0.h0w8[0]);
+	for (let e = 1; e < 4; e++) s.S1.h1w4[e] = a.mul(s.S1.h1w4[0], f[e]);
+	s.S2 = {}, s.S2.h2w3 = [], s.S2.h2w3[0] = a.mul(s.S1.h1w4[0], u), s.S2.h2w3[1] = a.mul(s.S2.h2w3[0], p[1]), s.S2.h2w3[2] = a.mul(s.S2.h2w3[0], p[2]), s.S2.h3w3 = [], s.S2.h3w3[0] = a.mul(s.S2.h2w3[0], n.wr), s.S2.h3w3[1] = a.mul(s.S2.h3w3[0], p[1]), s.S2.h3w3[2] = a.mul(s.S2.h3w3[0], p[2]), o.xi = a.mul(a.square(s.S2.h2w3[0]), s.S2.h2w3[0]), o.xiw = a.mul(o.xi, a.w[n.power]), o.xiN = o.xi, n.domainSize = 1;
+	for (let e = 0; e < n.power; e++) o.xiN = a.square(o.xiN), n.domainSize *= 2;
+	return c.reset(), c.addScalar(l), c.addScalar(t.evaluations.ql), c.addScalar(t.evaluations.qr), c.addScalar(t.evaluations.qm), c.addScalar(t.evaluations.qo), c.addScalar(t.evaluations.qc), c.addScalar(t.evaluations.s1), c.addScalar(t.evaluations.s2), c.addScalar(t.evaluations.s3), c.addScalar(t.evaluations.a), c.addScalar(t.evaluations.b), c.addScalar(t.evaluations.c), c.addScalar(t.evaluations.z), c.addScalar(t.evaluations.zw), c.addScalar(t.evaluations.t1w), c.addScalar(t.evaluations.t2w), o.alpha = c.getChallenge(), c.reset(), c.addScalar(o.alpha), c.addPolCommitment(t.polynomials.W1), o.y = c.getChallenge(), i && (i.info("··· challenges.beta:  " + a.toString(o.beta)), i.info("··· challenges.gamma: " + a.toString(o.gamma)), i.info("··· challenges.xi:    " + a.toString(o.xi)), i.info("··· challenges.alpha: " + a.toString(o.alpha)), i.info("··· challenges.y:     " + a.toString(o.y))), {
+		challenges: o,
+		roots: s
+	};
+}
+async function Fi(e, t, n) {
+	let r = e.Fr, i = Math.max(1, n.nPublic), a = new s(i * r.n8), o = new s(i * r.n8), c = r.one;
+	for (let e = 0; e < i; e++) {
+		let i = e * r.n8;
+		a.set(r.mul(c, t.zh), i), o.set(r.mul(r.e(n.domainSize), r.sub(t.xi, c)), i), c = r.mul(c, n.w);
+	}
+	o = await r.batchInverse(o);
+	let l = [];
+	for (let e = 0; e < i; e++) {
+		let t = e * r.n8;
+		l[e + 1] = r.mul(a.slice(t, t + r.n8), o.slice(t, t + r.n8));
+	}
+	return l;
+}
+function Ii(e, t, n) {
+	let r = e.Fr, i = r.zero;
+	for (let e = 0; e < t.length; e++) {
+		let a = r.e(t[e]);
+		i = r.sub(i, r.mul(a, n[e + 1]));
+	}
+	return i;
+}
+function Li(e, t, n, r, i) {
+	let a = r.Fr, o = Wi(n.S0.h0w8, t.y, t.xi, r);
+	i && i.info("··· Computing r0(y)");
+	let s = a.zero;
+	for (let t = 0; t < 8; t++) {
+		let r = [];
+		r[1] = n.S0.h0w8[t];
+		for (let e = 2; e < 8; e++) r[e] = a.mul(r[e - 1], n.S0.h0w8[t]);
+		let i = a.add(e.evaluations.ql, a.mul(e.evaluations.qr, r[1]));
+		i = a.add(i, a.mul(e.evaluations.qo, r[2])), i = a.add(i, a.mul(e.evaluations.qm, r[3])), i = a.add(i, a.mul(e.evaluations.qc, r[4])), i = a.add(i, a.mul(e.evaluations.s1, r[5])), i = a.add(i, a.mul(e.evaluations.s2, r[6])), i = a.add(i, a.mul(e.evaluations.s3, r[7])), s = a.add(s, a.mul(i, o[t]));
+	}
+	return s;
+}
+function Ri(e, t, n, r, i, a) {
+	let o = i.Fr, s = Wi(n.S1.h1w4, t.y, t.xi, i);
+	a && a.info("··· Computing T0(xi)");
+	let c = o.mul(e.evaluations.ql, e.evaluations.a);
+	c = o.add(c, o.mul(e.evaluations.qr, e.evaluations.b)), c = o.add(c, o.mul(e.evaluations.qm, o.mul(e.evaluations.a, e.evaluations.b))), c = o.add(c, o.mul(e.evaluations.qo, e.evaluations.c)), c = o.add(c, e.evaluations.qc), c = o.add(c, r), c = o.mul(c, t.invzh), a && a.info("··· Computing C1(h_1ω_4^i) values");
+	let l = o.zero;
+	for (let t = 0; t < 4; t++) {
+		let r = e.evaluations.a;
+		r = o.add(r, o.mul(n.S1.h1w4[t], e.evaluations.b));
+		let i = o.square(n.S1.h1w4[t]);
+		r = o.add(r, o.mul(i, e.evaluations.c)), r = o.add(r, o.mul(o.mul(i, n.S1.h1w4[t]), c)), l = o.add(l, o.mul(r, s[t]));
+	}
+	return l;
+}
+function zi(e, t, n, r, i, a, o) {
+	let s = a.Fr, c = Gi([n.S2.h2w3, n.S2.h3w3], t.y, t.xi, t.xiw, a);
+	o && o.info("··· Computing T1(xi)");
+	let l = s.sub(e.evaluations.z, s.one);
+	l = s.mul(l, r), l = s.mul(l, t.invzh), o && o.info("··· Computing T2(xi)");
+	let u = s.mul(t.beta, t.xi), d = s.add(e.evaluations.a, s.add(u, t.gamma)), f = s.add(e.evaluations.b, s.add(s.mul(u, i.k1), t.gamma)), p = s.add(e.evaluations.c, s.add(s.mul(u, i.k2), t.gamma)), m = s.mul(d, s.mul(f, s.mul(p, e.evaluations.z))), h = s.add(e.evaluations.a, s.add(s.mul(t.beta, e.evaluations.s1), t.gamma)), g = s.add(e.evaluations.b, s.add(s.mul(t.beta, e.evaluations.s2), t.gamma)), _ = s.add(e.evaluations.c, s.add(s.mul(t.beta, e.evaluations.s3), t.gamma)), v = s.mul(h, s.mul(g, s.mul(_, e.evaluations.zw))), y = s.sub(m, v);
+	y = s.mul(y, t.invzh), o && o.info("··· Computing C2(h_2ω_3^i) values");
+	let b = s.zero;
+	for (let t = 0; t < 3; t++) {
+		let r = s.add(e.evaluations.z, s.mul(n.S2.h2w3[t], l));
+		r = s.add(r, s.mul(s.square(n.S2.h2w3[t]), y)), b = s.add(b, s.mul(r, c[t]));
+	}
+	o && o.info("··· Computing C2(h_3ω_3^i) values");
+	for (let t = 0; t < 3; t++) {
+		let r = s.add(e.evaluations.zw, s.mul(n.S2.h3w3[t], e.evaluations.t1w));
+		r = s.add(r, s.mul(s.square(n.S2.h3w3[t]), e.evaluations.t2w)), b = s.add(b, s.mul(r, c[t + 3]));
+	}
+	return b;
+}
+function Bi(e, t, n, r, i) {
+	let a = e.G1, o = e.Fr, s = o.sub(r.y, i.S0.h0w8[0]);
+	for (let e = 1; e < 8; e++) s = o.mul(s, o.sub(r.y, i.S0.h0w8[e]));
+	r.temp = s;
+	let c = o.sub(r.y, i.S1.h1w4[0]);
+	for (let e = 1; e < 4; e++) c = o.mul(c, o.sub(r.y, i.S1.h1w4[e]));
+	let l = o.sub(r.y, i.S2.h2w3[0]);
+	for (let e = 1; e < 3; e++) l = o.mul(l, o.sub(r.y, i.S2.h2w3[e]));
+	for (let e = 0; e < 3; e++) l = o.mul(l, o.sub(r.y, i.S2.h3w3[e]));
+	r.quotient1 = o.mul(r.alpha, o.div(s, c)), r.quotient2 = o.mul(o.square(r.alpha), o.div(s, l));
+	let u = a.timesFr(t.polynomials.C1, r.quotient1), d = a.timesFr(t.polynomials.C2, r.quotient2);
+	return a.add(n.C0, a.add(u, d));
+}
+function Vi(e, t, n, r, i, a, o) {
+	let s = e.G1, c = e.Fr, l = c.mul(a, n.quotient1), u = c.mul(o, n.quotient2);
+	return s.timesFr(s.one, c.add(i, c.add(l, u)));
+}
+function Hi(e, t, n) {
+	return e.G1.timesFr(t.polynomials.W1, n.temp);
+}
+async function Ui(e, t, n, r, i, a, o) {
+	let s = e.G1, c = s.timesFr(t.polynomials.W2, n.y);
+	c = s.add(s.sub(s.sub(i, a), o), c);
+	let l = e.G2.one, u = t.polynomials.W2, d = r.X_2;
+	return await e.pairingEq(s.neg(c), l, u, d);
+}
+function Wi(e, t, n, r) {
+	let i = r.Fr, a = e.length, o = i.sub(i.exp(t, a), n), s = i.mul(i.e(a), i.exp(e[0], a - 2)), c = [];
+	for (let n = 0; n < a; n++) {
+		let r = e[(a - 1) * n % a], l = i.sub(t, e[n]);
+		c[n] = i.div(o, i.mul(i.mul(s, r), l));
+	}
+	return c;
+}
+function Gi(e, t, n, r, i) {
+	let a = i.Fr, o = [], s = e[0].length, c = s * e.length, l = a.exp(t, c), u = a.mul(a.add(n, r), a.exp(t, s)), d = a.mul(n, r), f = a.add(a.sub(l, u), d), p = a.mul(a.mul(a.e(s), e[0][0]), a.sub(n, r));
+	for (let n = 0; n < s; n++) {
+		let r = e[0][(s - 1) * n % s], i = a.sub(t, e[0][n]), c = a.mul(p, a.mul(r, i));
+		o[n] = a.div(f, c);
+	}
+	p = a.mul(a.mul(a.e(s), e[1][0]), a.sub(r, n));
+	for (let n = 0; n < s; n++) {
+		let r = e[1][(s - 1) * n % s], i = a.sub(t, e[1][n]), c = a.mul(p, a.mul(r, i));
+		o[n + s] = a.div(f, c);
+	}
+	return o;
+}
+//#endregion
+//#region src/fflonk_export_calldata.js
+var { unstringifyBigInts: Ki } = p;
+function $(e) {
+	let t = e.toString(16);
+	for (; t.length < 64;) t = "0" + t;
+	return t = `0x${t}`, t;
+}
+async function qi(e, t) {
+	let n = Ki(t), r = Ki(e);
+	await E(n.curve);
+	let i = "";
+	for (let e = 0; e < r.length; e++) i !== "" && (i += ","), i += $(r[e]);
+	return `[${$(n.polynomials.C1[0])}, ${$(n.polynomials.C1[1])},${$(n.polynomials.C2[0])},${$(n.polynomials.C2[1])},${$(n.polynomials.W1[0])},${$(n.polynomials.W1[1])},${$(n.polynomials.W2[0])},${$(n.polynomials.W2[1])},${$(n.evaluations.ql)},${$(n.evaluations.qr)},${$(n.evaluations.qm)},${$(n.evaluations.qo)},${$(n.evaluations.qc)},${$(n.evaluations.s1)},${$(n.evaluations.s2)},${$(n.evaluations.s3)},${$(n.evaluations.a)},${$(n.evaluations.b)},${$(n.evaluations.c)},${$(n.evaluations.z)},${$(n.evaluations.zw)},${$(n.evaluations.t1w)},${$(n.evaluations.t2w)},${$(n.evaluations.inv)}],[${i}]`;
+}
+//#endregion
+//#region src/fflonk.js
+var Ji = /* @__PURE__ */ v({
+	exportSolidityCallData: () => qi,
+	exportSolidityVerifier: () => null,
+	fullProve: () => Ei,
+	prove: () => wi,
+	setup: () => Si,
+	verify: () => Oi
 });
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function loadSymbols(symFileName) {
-    const sym = {
-        labelIdx2Name: [ "one" ],
-        varIdx2Name: [ "one" ],
-        componentIdx2Name: []
-    };
-    const fd = await readExisting(symFileName);
-    const buff = await fd.read(fd.totalSize);
-    const symsStr = new TextDecoder("utf-8").decode(buff);
-    const lines = symsStr.split("\n");
-    for (let i=0; i<lines.length; i++) {
-        const arr = lines[i].split(",");
-        if (arr.length!=4) continue;
-        if (sym.varIdx2Name[arr[1]]) {
-            sym.varIdx2Name[arr[1]] += "|" + arr[3];
-        } else {
-            sym.varIdx2Name[arr[1]] = arr[3];
-        }
-        sym.labelIdx2Name[arr[0]] = arr[3];
-        if (!sym.componentIdx2Name[arr[2]]) {
-            sym.componentIdx2Name[arr[2]] = extractComponent(arr[3]);
-        }
-    }
-
-    await fd.close();
-
-    return sym;
-
-    function extractComponent(name) {
-        const arr = name.split(".");
-        arr.pop(); // Remove the lasr element
-        return arr.join(".");
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$7} = utils;
-
-
-async function wtnsDebug(_input, wasmFileName, wtnsFileName, symName, options, logger) {
-
-    const input = unstringifyBigInts$7(_input);
-
-    const fdWasm = await readExisting(wasmFileName);
-    const wasm = await fdWasm.read(fdWasm.totalSize);
-    await fdWasm.close();
-
-    const wcOps = {...options, sanityCheck: true};
-    let sym = await loadSymbols(symName);
-    if (options.set) {
-        if (!sym) sym = await loadSymbols(symName);
-        wcOps.logSetSignal= function(labelIdx, value) {
-            // The line below splits the arrow log into 2 strings to avoid some Secure ECMAScript issues
-            if (logger) logger.info("SET " + sym.labelIdx2Name[labelIdx] + " <" + "-- " + value.toString());
-        };
-    }
-    if (options.get) {
-        if (!sym) sym = await loadSymbols(symName);
-        wcOps.logGetSignal= function(varIdx, value) {
-            // The line below splits the arrow log into 2 strings to avoid some Secure ECMAScript issues
-            if (logger) logger.info("GET " + sym.labelIdx2Name[varIdx] + " --" + "> " + value.toString());
-        };
-    }
-    if (options.trigger) {
-        if (!sym) sym = await loadSymbols(symName);
-        wcOps.logStartComponent= function(cIdx) {
-            if (logger) logger.info("START: " + sym.componentIdx2Name[cIdx]);
-        };
-        wcOps.logFinishComponent= function(cIdx) {
-            if (logger) logger.info("FINISH: " + sym.componentIdx2Name[cIdx]);
-        };
-    }
-    wcOps.sym = sym;
-
-    const wc = await builder(wasm, wcOps);
-    const w = await wc.calculateWitness(input, true);
-
-    const fdWtns = await createBinFile(wtnsFileName, "wtns", 2, 2);
-
-    await write(fdWtns, w, wc.prime);
-
-    await fdWtns.close();
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function wtnsExportJson(wtnsFileName) {
-
-    const w = await read(wtnsFileName);
-
-    return w;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function wtnsCheck(r1csFilename, wtnsFilename, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdR1cs, sectionsR1cs, fdWtns, wtnsSections;
-    try {
-
-
-    if (logger) logger.info("WITNESS CHECKING STARTED");
-
-    // Read r1cs file
-    if (logger) logger.info("> Reading r1cs file");
-    ({
-        fd: fdR1cs,
-        sections: sectionsR1cs
-    } = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
-    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, { loadConstraints: false, loadCustomGates: false });
-
-    // Read witness file
-    if (logger) logger.info("> Reading witness file");
-    ({
-        fd: fdWtns,
-        sections: wtnsSections
-    } = await readBinFile(wtnsFilename, "wtns", 2, 1 << 22, 1 << 24));
-    const wtnsHeader = await readHeader(fdWtns, wtnsSections);
-
-    if (!Scalar.eq(r1cs.prime, wtnsHeader.q)) {
-        throw new Error("Curve of the witness does not match the curve of the proving key");
-    }
-
-    const buffWitness = await readSection(fdWtns, wtnsSections, 2);
-    await fdWtns.close();
-
-    const curve = await getCurveFromR(r1cs.prime);
-    const Fr = curve.Fr;
-    const sFr = Fr.n8;
-
-    const bR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
-
-    if (logger) {
-        logger.info("----------------------------");
-        logger.info("  WITNESS CHECK");
-        logger.info(`  Curve:          ${r1cs.curve.name}`);
-        logger.info(`  Vars (wires):   ${r1cs.nVars}`);
-        logger.info(`  Outputs:        ${r1cs.nOutputs}`);
-        logger.info(`  Public Inputs:  ${r1cs.nPubInputs}`);
-        logger.info(`  Private Inputs: ${r1cs.nPrvInputs}`);
-        logger.info(`  Labels:         ${r1cs.nLabels}`);
-        logger.info(`  Constraints:    ${r1cs.nConstraints}`);
-        logger.info(`  Custom Gates:   ${r1cs.useCustomGates}`);
-        logger.info("----------------------------");
-    }
-
-    if (logger) logger.info("> Checking witness correctness");
-
-    let bR1csPos = 0;
-    let res = true;
-    for (let i = 0; i < r1cs.nConstraints; i++) {
-        if ((logger) && (i !== 0) && (i % 500000 === 0)) {
-            logger.info(`··· processing r1cs constraints ${i}/${r1cs.nConstraints}`);
-        }
-
-        //Read the three linear combinations of the constraint where A * B - C = 0
-        const lcA = readLC();
-        const lcB = readLC();
-        const lcC = readLC();
-
-        // Evaluate the linear combinations
-        const evalA = EvaluateLinearCombination(lcA);
-        const evalB = EvaluateLinearCombination(lcB);
-        const evalC = EvaluateLinearCombination(lcC);
-
-        // Check that A * B - C == 0
-        if (!Fr.eq(Fr.sub(Fr.mul(evalA, evalB), evalC), Fr.zero)) {
-            if (logger) logger.warn("··· aborting checking process at constraint " + i);
-            res = false;
-            break;
-        }
-    }
-
-    await fdR1cs.close();
-
-    if (logger) {
-        if (res) {
-            logger.info("WITNESS IS CORRECT");
-            logger.info("WITNESS CHECKING FINISHED SUCCESSFULLY");
-        } else {
-            logger.warn("WITNESS IS NOT CORRECT");
-            logger.warn("WITNESS CHECKING FINISHED UNSUCCESSFULLY");
-        }
-    }
-
-    return res;
-
-    function EvaluateLinearCombination(lc) {
-        let res = Fr.zero;
-
-        const keys = Object.keys(lc);
-        keys.forEach((signalId) => {
-            const signalValue = getWitnessValue(signalId);
-            const signalFactor = lc[signalId];
-
-            res = Fr.add(res, Fr.mul(signalValue, signalFactor));
-        });
-
-        return res;
-    }
-
-    function readLC() {
-        const lc = {};
-
-        const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos + 4);
-        bR1csPos += 4;
-        const buffUL32V = new DataView(buffUL32.buffer);
-        const nIdx = buffUL32V.getUint32(0, true);
-
-        const buff = bR1cs.slice(bR1csPos, bR1csPos + (4 + r1cs.n8) * nIdx);
-        bR1csPos += (4 + r1cs.n8) * nIdx;
-        const buffV = new DataView(buff.buffer);
-        for (let i = 0; i < nIdx; i++) {
-            const idx = buffV.getUint32(i * (4 + r1cs.n8), true);
-            const val = r1cs.F.fromRprLE(buff, i * (4 + r1cs.n8) + 4);
-            lc[idx] = val;
-        }
-        return lc;
-    }
-
-    function getWitnessValue(signalId) {
-        return Fr.fromRprLE(buffWitness.slice(signalId * sFr, signalId * sFr + sFr));
-    }
-
-    } finally {
-        for (const openFd of [fdR1cs, fdWtns]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var wtns = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    calculate: wtnsCalculate,
-    check: wtnsCheck,
-    debug: wtnsDebug,
-    exportJson: wtnsExportJson
-});
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const SUBARRAY_SIZE = 0x40000;
-
-const BigArrayHandler = {
-    get: function(obj, prop) {
-        if (!isNaN(prop)) {
-            return obj.getElement(prop);
-        } else return obj[prop];
-    },
-    set: function(obj, prop, value) {
-        if (!isNaN(prop)) {
-            return obj.setElement(prop, value);
-        } else {
-            obj[prop] = value;
-            return true;
-        }
-    }
-};
-
-class _BigArray {
-    constructor (initSize) {
-        this.length = initSize || 0;
-        this.arr = new Array(SUBARRAY_SIZE);
-
-        for (let i=0; i<initSize; i+=SUBARRAY_SIZE) {
-            this.arr[i/SUBARRAY_SIZE] = new Array(Math.min(SUBARRAY_SIZE, initSize - i));
-        }
-        return this;
-    }
-    push () {
-        for (let i=0; i<arguments.length; i++) {
-            this.setElement (this.length, arguments[i]);
-        }
-    }
-
-    slice (f, t) {
-        const arr = new Array(t-f);
-        for (let i=f; i< t; i++) arr[i-f] = this.getElement(i);
-        return arr;
-    }
-    getElement(idx) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
-        const idx2 = idx % SUBARRAY_SIZE;
-        return this.arr[idx1] ? this.arr[idx1][idx2] : undefined;
-    }
-    setElement(idx, value) {
-        idx = parseInt(idx);
-        const idx1 = Math.floor(idx / SUBARRAY_SIZE);
-        if (!this.arr[idx1]) {
-            this.arr[idx1] = new Array(SUBARRAY_SIZE);
-        }
-        const idx2 = idx % SUBARRAY_SIZE;
-        this.arr[idx1][idx2] = value;
-        if (idx >= this.length) this.length = idx+1;
-        return true;
-    }
-    getKeys() {
-        const newA = new BigArray();
-        for (let i=0; i<this.arr.length; i++) {
-            if (this.arr[i]) {
-                for (let j=0; j<this.arr[i].length; j++) {
-                    if (typeof this.arr[i][j] !== "undefined") {
-                        newA.push(i*SUBARRAY_SIZE+j);
-                    }
-                }
-            }
-        }
-        return newA;
-    }
-}
-
-class BigArray {
-    constructor( initSize ) {
-        const obj = new _BigArray(initSize);
-        const extObj = new Proxy(obj, BigArrayHandler);
-        return extObj;
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function newZKey(r1csName, ptauName, zkeyName, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdPTau, sectionsPTau, fdR1cs, sectionsR1cs, fdZKey;
-    try {
-
-
-    const TAU_G1 = 0;
-    const TAU_G2 = 1;
-    const ALPHATAU_G1 = 2;
-    const BETATAU_G1 = 3;
-    const csHasher = blake2b.create({ dkLen: 64 });
-
-    ({fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24));
-    const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    ({fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24));
-    const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
-
-    fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
-
-    const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
-
-    if (r1cs.prime != curve.r) {
-        if (logger) logger.error("r1cs curve does not match powers of tau ceremony curve");
-        return -1;
-    }
-
-    const cirPower = log2(r1cs.nConstraints + r1cs.nPubInputs + r1cs.nOutputs +1 -1) +1;
-
-    if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${r1cs.nConstraints}*2 > 2**${power}`);
-        return -1;
-    }
-
-    if (!sectionsPTau[12]) {
-        if (logger) logger.error("Powers of tau is not prepared.");
-        return -1;
-    }
-
-    const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
-    const domainSize = 2 ** cirPower;
-
-    // Write the header
-    ///////////
-    await startWriteSection(fdZKey, 1);
-    await fdZKey.writeULE32(1); // Groth
-    await endWriteSection(fdZKey);
-
-    // Write the Groth header section
-    ///////////
-
-    await startWriteSection(fdZKey, 2);
-    const primeQ = curve.q;
-    const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
-
-    const primeR = curve.r;
-    const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
-    const Rr = Scalar.mod(Scalar.shl(1, n8r*8), primeR);
-    const R2r = curve.Fr.e(Scalar.mod(Scalar.mul(Rr,Rr), primeR));
-
-    await fdZKey.writeULE32(n8q);
-    await writeBigInt(fdZKey, primeQ, n8q);
-    await fdZKey.writeULE32(n8r);
-    await writeBigInt(fdZKey, primeR, n8r);
-    await fdZKey.writeULE32(r1cs.nVars);                         // Total number of bars
-    await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
-    await fdZKey.writeULE32(domainSize);                  // domainSize
-
-    // Scoped so the header temporaries (alpha/beta points, generator
-    // encodings) drop out of reach as soon as the section is written.
-    await (async function writeHeaderPoints() {
-        let bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
-        await fdZKey.write(bAlpha1);
-        bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
-        csHasher.update(bAlpha1);
-
-        let bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
-        await fdZKey.write(bBeta1);
-        bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
-        csHasher.update(bBeta1);
-
-        let bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
-        await fdZKey.write(bBeta2);
-        bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
-        csHasher.update(bBeta2);
-
-        const bg1 = new Uint8Array(sG1);
-        curve.G1.toRprLEM(bg1, 0, curve.G1.g);
-        const bg2 = new Uint8Array(sG2);
-        curve.G2.toRprLEM(bg2, 0, curve.G2.g);
-        const bg1U = new Uint8Array(sG1);
-        curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
-        const bg2U = new Uint8Array(sG2);
-        curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
-
-        await fdZKey.write(bg2);        // gamma2
-        await fdZKey.write(bg1);        // delta1
-        await fdZKey.write(bg2);        // delta2
-        csHasher.update(bg2U);      // gamma2
-        csHasher.update(bg1U);      // delta1
-        csHasher.update(bg2U);      // delta2
-    })();
-    await endWriteSection(fdZKey);
-
-    if (logger) logger.info("Reading r1cs");
-    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
-    await fdR1cs.close();
-
-    let A = new BigArray(r1cs.nVars);
-    let B1 = new BigArray(r1cs.nVars);
-    let B2 = new BigArray(r1cs.nVars);
-    let C = new BigArray(r1cs.nVars- nPublic -1);
-    let IC = new Array(nPublic+1);
-
-    // Per-phase ptau section usage: IC and C draw on tauG1 + alphatauG1 +
-    // betatauG1; A and B1 on tauG1 only; B2 on tauG2 only. tauG2 (the
-    // largest section, 2x G1 size) is therefore read lazily just before the
-    // B2 phase, and each buffer is dropped right after its last consumer.
-    if (logger) logger.info("Reading tauG1");
-    let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-    let sTauG2 = null;
-    if (logger) logger.info("Reading alphatauG1");
-    let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
-    if (logger) logger.info("Reading betatauG1");
-    let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
-
-    if (logger) logger.info("processConstraints");
-    await processConstraints();
-
-    if (logger) logger.info("composeAndWritePoints");
-    await composeAndWritePoints(3, "G1", IC, "IC");
-
-    IC = null;
-
-    if (logger) logger.info("writeHs");
-    await writeHs();
-
-    if (logger) logger.info("hashHPoints");
-    await hashHPoints();
-
-    if (logger) logger.info("composeAndWritePoints 8 G1 C");
-    await composeAndWritePoints(8, "G1", C, "C");
-
-    C = null;
-    // alphatauG1/betatauG1 are only referenced by the IC and C phases
-    sAlphaTauG1 = null;
-    sBetaTauG1 = null;
-
-    if (logger) logger.info("composeAndWritePoints 5 G1 A");
-    await composeAndWritePoints(5, "G1", A, "A");
-
-    A = null;
-
-    if (logger) logger.info("composeAndWritePoints 6 G1 B1");
-    await composeAndWritePoints(6, "G1", B1, "B1");
-
-    B1 = null;
-    // tauG1's last consumer is B1; B2 needs only tauG2, read here so the
-    // two largest sections are never resident at the same time
-    sTauG1 = null;
-
-    if (logger) logger.info("Reading tauG2");
-    sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
-
-    if (logger) logger.info("composeAndWritePoints 7 G2 B2");
-    await composeAndWritePoints(7, "G2", B2, "B2");
-
-    B2 = null;
-    sTauG2 = null;
-    sR1cs = null;
-
-    if (logger) logger.info("Contributions section");
-    const csHash = csHasher.digest();
-    // Contributions section
-    await startWriteSection(fdZKey, 10);
-    await fdZKey.write(csHash);
-    await fdZKey.writeULE32(0);
-    await endWriteSection(fdZKey);
-
-    if (logger) logger.info(formatHash(csHash, "Circuit hash: "));
-
-
-    await fdZKey.close();
-    await fdPTau.close();
-
-    return csHash;
-
-    async function writeHs() {
-        await startWriteSection(fdZKey, 9);
-        const buffOut = new BigBuffer(domainSize*sG1);
-        if (cirPower < curve.Fr.s) {
-            let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize*2-1)*sG1, domainSize*2*sG1);
-            for (let i=0; i< domainSize; i++) {
-                if ((logger)&&(i%10000 == 0)) logger.debug(`splitting buffer: ${i}/${domainSize}`);
-                const buff = sTauG1.slice( (i*2+1)*sG1, (i*2+1)*sG1 + sG1 );
-                buffOut.set(buff, i*sG1);
-            }
-        } else if (cirPower == curve.Fr.s) {
-            // coverage: requires a circuit whose domain equals the full 2^28 subgroup
-            /* c8 ignore start */
-            const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
-            await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, o + domainSize*sG1);
-        } else {
-            if (logger) logger.error("Circuit too big");
-            throw new Error("Circuit too big for this curve");
-            /* c8 ignore stop */
-        }
-        await fdZKey.write(buffOut);
-        await endWriteSection(fdZKey);
-    }
-
-    async function processConstraints() {
-        const buffCoeff = new Uint8Array(12 + curve.Fr.n8);
-        const buffCoeffV = new DataView(buffCoeff.buffer);
-        const bOne = new Uint8Array(curve.Fr.n8);
-        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
-
-        let r1csPos = 0;
-
-        function r1cs_readULE32() {
-            const buff = sR1cs.slice(r1csPos, r1csPos+4);
-            r1csPos += 4;
-            const buffV = new DataView(buff.buffer);
-            return buffV.getUint32(0, true);
-        }
-
-        const coefs = new BigArray();
-        for (let c=0; c<r1cs.nConstraints; c++) {
-            if ((logger)&&(c%10000 == 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
-            const nA = r1cs_readULE32();
-            for (let i=0; i<nA; i++) {
-                const s = r1cs_readULE32();
-                const coefp = r1csPos;
-                r1csPos += curve.Fr.n8;
-
-                const l1t = TAU_G1;
-                const l1 = sG1*c;
-                const l2t = BETATAU_G1;
-                const l2 = sG1*c;
-                if (typeof A[s] === "undefined") A[s] = [];
-                A[s].push([l1t, l1, coefp]);
-
-                if (s <= nPublic) {
-                    if (typeof IC[s] === "undefined") IC[s] = [];
-                    IC[s].push([l2t, l2, coefp]);
-                } else {
-                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s - nPublic -1].push([l2t, l2, coefp]);
-                }
-                coefs.push([0, c, s, coefp]);
-            }
-
-            const nB = r1cs_readULE32();
-            for (let i=0; i<nB; i++) {
-                const s = r1cs_readULE32();
-                const coefp = r1csPos;
-                r1csPos += curve.Fr.n8;
-
-                const l1t = TAU_G1;
-                const l1 = sG1*c;
-                const l2t = TAU_G2;
-                const l2 = sG2*c;
-                const l3t = ALPHATAU_G1;
-                const l3 = sG1*c;
-                if (typeof B1[s] === "undefined") B1[s] = [];
-                B1[s].push([l1t, l1, coefp]);
-                if (typeof B2[s] === "undefined") B2[s] = [];
-                B2[s].push([l2t, l2, coefp]);
-
-                if (s <= nPublic) {
-                    // coverage: defensive edge guard not reachable with valid inputs
-                    /* c8 ignore start */
-                    if (typeof IC[s] === "undefined") IC[s] = [];
-                    /* c8 ignore stop */
-                    IC[s].push([l3t, l3, coefp]);
-                } else {
-                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s- nPublic -1].push([l3t, l3, coefp]);
-                }
-
-                coefs.push([1, c, s, coefp]);
-            }
-
-            const nC = r1cs_readULE32();
-            for (let i=0; i<nC; i++) {
-                const s = r1cs_readULE32();
-                const coefp = r1csPos;
-                r1csPos += curve.Fr.n8;
-
-                const l1t = TAU_G1;
-                const l1 = sG1*c;
-                if (s <= nPublic) {
-                    if (typeof IC[s] === "undefined") IC[s] = [];
-                    IC[s].push([l1t, l1, coefp]);
-                } else {
-                    if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
-                    C[s- nPublic -1].push([l1t, l1, coefp]);
-                }
-            }
-        }
-
-        for (let s = 0; s <= nPublic ; s++) {
-            const l1t = TAU_G1;
-            const l1 = sG1*(r1cs.nConstraints + s);
-            const l2t = BETATAU_G1;
-            const l2 = sG1*(r1cs.nConstraints + s);
-            if (typeof A[s] === "undefined") A[s] = [];
-            A[s].push([l1t, l1, -1]);
-            if (typeof IC[s] === "undefined") IC[s] = [];
-            IC[s].push([l2t, l2, -1]);
-            coefs.push([0, r1cs.nConstraints + s, s, -1]);
-        }
-
-
-        await startWriteSection(fdZKey, 4);
-
-        const buffSection = new BigBuffer(coefs.length*(12+curve.Fr.n8) + 4);
-
-        const buff4 = new Uint8Array(4);
-        const buff4V = new DataView(buff4.buffer);
-        buff4V.setUint32(0, coefs.length, true);
-        buffSection.set(buff4);
-        let coefsPos = 4;
-        for (let i=0; i<coefs.length; i++) {
-            if ((logger)&&(i%100000 == 0)) logger.debug(`writing coeffs: ${i}/${coefs.length}`);
-            writeCoef(coefs[i]);
-        }
-
-        await fdZKey.write(buffSection);
-        await endWriteSection(fdZKey);
-
-        function writeCoef(c) {
-            buffCoeffV.setUint32(0, c[0], true);
-            buffCoeffV.setUint32(4, c[1], true);
-            buffCoeffV.setUint32(8, c[2], true);
-            let n;
-            if (c[3]>=0) {
-                n = curve.Fr.fromRprLE(sR1cs.slice(c[3], c[3] + curve.Fr.n8), 0);
-            } else {
-                n = curve.Fr.fromRprLE(bOne, 0);
-            }
-            const nR2 = curve.Fr.mul(n, R2r);
-            curve.Fr.toRprLE(buffCoeff, 12, nR2);
-            buffSection.set(buffCoeff, coefsPos);
-            coefsPos += buffCoeff.length;
-        }
-
-    }
-
-    async function composeAndWritePoints(idSection, groupName, arr, sectionName) {
-        const CHUNK_SIZE= 1<<15;
-        const G = curve[groupName];
-
-        hashU32(arr.length);
-        await startWriteSection(fdZKey, idSection);
-
-        let opPromises = [];
-
-        let i=0;
-        while (i<arr.length) {
-
-            let t=0;
-            while ((i<arr.length)&&(t<curve.tm.concurrency)) {
-                if (logger)  logger.debug(`Writing points start ${sectionName}: ${i}/${arr.length}`);
-                let n = 1;
-                let nP = (arr[i] ? arr[i].length : 0);
-                while ((i + n < arr.length) && (nP + (arr[i+n] ? arr[i+n].length : 0) < CHUNK_SIZE) && (n<CHUNK_SIZE)) {
-                    nP += (arr[i+n] ? arr[i+n].length : 0);
-                    n ++;
-                }
-                const subArr = arr.slice(i, i + n);
-                const _i = i;
-                opPromises.push(composeAndWritePointsThread(groupName, subArr, logger, sectionName).then( (r) => {
-                    if (logger)  logger.debug(`Writing points end ${sectionName}: ${_i}/${arr.length}`);
-                    return r;
-                }));
-                i += n;
-                t++;
-            }
-
-            const result = await Promise.all(opPromises);
-
-            for (let k=0; k<result.length; k++) {
-                await fdZKey.write(result[k][0]);
-                const buff = await G.batchLEMtoU(result[k][0]);
-                csHasher.update(buff);
-            }
-            opPromises = [];
-
-        }
-        await endWriteSection(fdZKey);
-
-    }
-
-    async function composeAndWritePointsThread(groupName, arr, logger, sectionName) {
-        const G = curve[groupName];
-        const sGin = G.F.n8*2;
-        const sGmid = G.F.n8*3;
-        const sGout = G.F.n8*2;
-        let fnExp, fnMultiExp, fnBatchToAffine, fnZero;
-        if (groupName == "G1") {
-            fnExp = "g1m_timesScalarAffine";
-            fnMultiExp = "g1m_multiexpAffine";
-            fnBatchToAffine = "g1m_batchToAffine";
-            fnZero = "g1m_zero";
-        } else if (groupName == "G2") {
-            fnExp = "g2m_timesScalarAffine";
-            fnMultiExp = "g2m_multiexpAffine";
-            fnBatchToAffine = "g2m_batchToAffine";
-            fnZero = "g2m_zero";
-        } else {
-            throw new Error("Invalid group");
-        }
-        let acc =0;
-        for (let i=0; i<arr.length; i++) acc += arr[i] ? arr[i].length : 0;
-        let bBases, bScalars;
-        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-        /* c8 ignore start */
-        if (acc> 2<<14) {
-            bBases = new BigBuffer(acc*sGin);
-            bScalars = new BigBuffer(acc*curve.Fr.n8);
-        } else {
-            bBases = new Uint8Array(acc*sGin);
-            bScalars = new Uint8Array(acc*curve.Fr.n8);
-        }
-        /* c8 ignore stop */
-        let pB =0;
-        let pS =0;
-
-        const sBuffs = [
-            sTauG1,
-            sTauG2,
-            sAlphaTauG1,
-            sBetaTauG1
-        ];
-
-        const bOne = new Uint8Array(curve.Fr.n8);
-        curve.Fr.toRprLE(bOne, 0, curve.Fr.e(1));
-
-        let offset = 0;
-        for (let i=0; i<arr.length; i++) {
-            if (!arr[i]) continue;
-            for (let j=0; j<arr[i].length; j++) {
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                if ((logger)&&(j)&&(j%10000 == 0))  logger.debug(`Configuring big array ${sectionName}: ${j}/${arr[i].length}`);
-                /* c8 ignore stop */
-                bBases.set(
-                    sBuffs[arr[i][j][0]].slice(
-                        arr[i][j][1],
-                        arr[i][j][1] + sGin
-                    ), offset*sGin
-                );
-                if (arr[i][j][2]>=0) {
-                    bScalars.set(
-                        sR1cs.slice(
-                            arr[i][j][2],
-                            arr[i][j][2] + curve.Fr.n8
-                        ),
-                        offset*curve.Fr.n8
-                    );
-                } else {
-                    bScalars.set(bOne, offset*curve.Fr.n8);
-                }
-                offset ++;
-            }
-        }
-
-        if (arr.length>1) {
-            const task = [];
-            task.push({cmd: "ALLOCSET", var: 0, buff: bBases});
-            task.push({cmd: "ALLOCSET", var: 1, buff: bScalars});
-            task.push({cmd: "ALLOC", var: 2, len: arr.length*sGmid});
-            pB = 0;
-            pS = 0;
-            let pD =0;
-            for (let i=0; i<arr.length; i++) {
-                if (!arr[i]) {
-                    task.push({cmd: "CALL", fnName: fnZero, params: [
-                        {var: 2, offset: pD}
-                    ]});
-                    pD += sGmid;
-                    continue;
-                }
-                if (arr[i].length == 1) {
-                    task.push({cmd: "CALL", fnName: fnExp, params: [
-                        {var: 0, offset: pB},
-                        {var: 1, offset: pS},
-                        {val: curve.Fr.n8},
-                        {var: 2, offset: pD}
-                    ]});
-                } else {
-                    task.push({cmd: "CALL", fnName: fnMultiExp, params: [
-                        {var: 0, offset: pB},
-                        {var: 1, offset: pS},
-                        {val: curve.Fr.n8},
-                        {val: arr[i].length},
-                        {var: 2, offset: pD}
-                    ]});
-                }
-                pB += sGin*arr[i].length;
-                pS += curve.Fr.n8*arr[i].length;
-                pD += sGmid;
-            }
-            task.push({cmd: "CALL", fnName: fnBatchToAffine, params: [
-                {var: 2},
-                {val: arr.length},
-                {var: 2},
-            ]});
-            task.push({cmd: "GET", out: 0, var: 2, len: arr.length*sGout});
-
-            const res = await curve.tm.queueAction(task);
-            return res;
-        } else {
-            let res = await G.multiExpAffine(bBases, bScalars, logger, sectionName);
-            res = [ G.toAffine(res) ];
-            return res;
-        }
-    }
-
-
-    async function hashHPoints() {
-        const CHUNK_SIZE = 1<<14;
-
-        hashU32(domainSize-1);
-
-        for (let i=0; i<domainSize-1; i+= CHUNK_SIZE) {
-            if (logger)  logger.debug(`HashingHPoints: ${i}/${domainSize}`);
-            const n = Math.min(domainSize-1, CHUNK_SIZE);
-            await hashHPointsChunk(i, n);
-        }
-    }
-
-    async function hashHPointsChunk(offset, nPoints) {
-        const buff1 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + (offset + domainSize)*sG1);
-        const buff2 = await fdPTau.read(nPoints *sG1, sectionsPTau[2][0].p + offset*sG1);
-        const concurrency= curve.tm.concurrency;
-        const nPointsPerThread = Math.floor(nPoints / concurrency);
-        const opPromises = [];
-        for (let i=0; i<concurrency; i++) {
-            let n;
-            if (i< concurrency-1) {
-                n = nPointsPerThread;
-            } else {
-                n = nPoints - i*nPointsPerThread;
-            }
-            if (n==0) continue;
-
-            const subBuff1 = buff1.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            const subBuff2 = buff2.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            opPromises.push(hashHPointsThread(subBuff1, subBuff2));
-        }
-
-
-        const result = await Promise.all(opPromises);
-
-        for (let i=0; i<result.length; i++) {
-            csHasher.update(result[i][0]);
-        }
-    }
-
-    async function hashHPointsThread(buff1, buff2) {
-        const nPoints = buff1.byteLength/sG1;
-        const sGmid = curve.G1.F.n8*3;
-        const task = [];
-        task.push({cmd: "ALLOCSET", var: 0, buff: buff1});
-        task.push({cmd: "ALLOCSET", var: 1, buff: buff2});
-        task.push({cmd: "ALLOC", var: 2, len: nPoints*sGmid});
-        for (let i=0; i<nPoints; i++) {
-            task.push({
-                cmd: "CALL",
-                fnName: "g1m_subAffine",
-                params: [
-                    {var: 0, offset: i*sG1},
-                    {var: 1, offset: i*sG1},
-                    {var: 2, offset: i*sGmid},
-                ]
-            });
-        }
-        task.push({cmd: "CALL", fnName: "g1m_batchToAffine", params: [
-            {var: 2},
-            {val: nPoints},
-            {var: 2},
-        ]});
-        task.push({cmd: "CALL", fnName: "g1m_batchLEMtoU", params: [
-            {var: 2},
-            {val: nPoints},
-            {var: 2},
-        ]});
-        task.push({cmd: "GET", out: 0, var: 2, len: nPoints*sG1});
-
-        const res = await curve.tm.queueAction(task);
-
-        return res;
-    }
-
-    function hashU32(n) {
-        const buff = new Uint8Array(4);
-        const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
-        buffV.setUint32(0, n, false);
-        csHasher.update(buff);
-    }
-
-
-    } finally {
-        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-async function phase2exportMPCParams(zkeyName, mpcparamsName, logger) {
-
-    const {fd: fdZKey, sections: sectionsZKey} = await readBinFile(zkeyName, "zkey", 2);
-    const zkey = await readHeader$1(fdZKey, sectionsZKey);
-    if (zkey.protocol != "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-    const curve = await getCurveFromQ(zkey.q);
-    const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
-
-    const mpcParams = await readMPCParams(fdZKey, curve, sectionsZKey);
-
-    const fdMPCParams = await createOverride(mpcparamsName);
-
-    /////////////////////
-    // Verification Key Section
-    /////////////////////
-    await writeG1(zkey.vk_alpha_1);
-    await writeG1(zkey.vk_beta_1);
-    await writeG2(zkey.vk_beta_2);
-    await writeG2(zkey.vk_gamma_2);
-    await writeG1(zkey.vk_delta_1);
-    await writeG2(zkey.vk_delta_2);
-
-    // IC
-    let buffBasesIC;
-    buffBasesIC = await readSection(fdZKey, sectionsZKey, 3);
-    buffBasesIC = await curve.G1.batchLEMtoU(buffBasesIC);
-
-    await writePointArray("G1", buffBasesIC);
-
-    /////////////////////
-    // h Section
-    /////////////////////
-    const buffBasesH_Lodd = await readSection(fdZKey, sectionsZKey, 9);
-
-    let buffBasesH_Tau;
-    buffBasesH_Tau = await curve.G1.fft(buffBasesH_Lodd, "affine", "jacobian", logger);
-    buffBasesH_Tau = await curve.G1.batchApplyKey(buffBasesH_Tau, curve.Fr.neg(curve.Fr.e(2)), curve.Fr.w[zkey.power+1], "jacobian", "affine", logger);
-
-    // Remove last element.  (The degree of H will be always m-2)
-    buffBasesH_Tau = buffBasesH_Tau.slice(0, buffBasesH_Tau.byteLength - sG1);
-    buffBasesH_Tau = await curve.G1.batchLEMtoU(buffBasesH_Tau);
-    await writePointArray("G1", buffBasesH_Tau);
-
-    /////////////////////
-    // L section
-    /////////////////////
-    let buffBasesC;
-    buffBasesC = await readSection(fdZKey, sectionsZKey, 8);
-    buffBasesC = await curve.G1.batchLEMtoU(buffBasesC);
-    await writePointArray("G1", buffBasesC);
-
-    /////////////////////
-    // A Section (C section)
-    /////////////////////
-    let buffBasesA;
-    buffBasesA = await readSection(fdZKey, sectionsZKey, 5);
-    buffBasesA = await curve.G1.batchLEMtoU(buffBasesA);
-    await writePointArray("G1", buffBasesA);
-
-    /////////////////////
-    // B1 Section
-    /////////////////////
-    let buffBasesB1;
-    buffBasesB1 = await readSection(fdZKey, sectionsZKey, 6);
-    buffBasesB1 = await curve.G1.batchLEMtoU(buffBasesB1);
-    await writePointArray("G1", buffBasesB1);
-
-    /////////////////////
-    // B2 Section
-    /////////////////////
-    let buffBasesB2;
-    buffBasesB2 = await readSection(fdZKey, sectionsZKey, 7);
-    buffBasesB2 = await curve.G2.batchLEMtoU(buffBasesB2);
-    await writePointArray("G2", buffBasesB2);
-
-    await fdMPCParams.write(mpcParams.csHash);
-    await writeU32(mpcParams.contributions.length);
-
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        const c = mpcParams.contributions[i];
-        await writeG1(c.deltaAfter);
-        await writeG1(c.delta.g1_s);
-        await writeG1(c.delta.g1_sx);
-        await writeG2(c.delta.g2_spx);
-        await fdMPCParams.write(c.transcript);
-    }
-
-    await fdZKey.close();
-    await fdMPCParams.close();
-
-    async function writeG1(P) {
-        const buff = new Uint8Array(sG1);
-        curve.G1.toRprUncompressed(buff, 0, P);
-        await fdMPCParams.write(buff);
-    }
-
-    async function writeG2(P) {
-        const buff = new Uint8Array(sG2);
-        curve.G2.toRprUncompressed(buff, 0, P);
-        await fdMPCParams.write(buff);
-    }
-
-    async function writePointArray(groupName, buff) {
-        let sG;
-        if (groupName == "G1") {
-            sG = sG1;
-        } else {
-            sG = sG2;
-        }
-
-        const buffSize = new Uint8Array(4);
-        const buffSizeV = new DataView(buffSize.buffer, buffSize.byteOffset, buffSize.byteLength);
-        buffSizeV.setUint32(0, buff.byteLength / sG, false);
-
-        await fdMPCParams.write(buffSize);
-        await fdMPCParams.write(buff);
-    }
-
-    async function writeU32(n) {
-        const buffSize = new Uint8Array(4);
-        const buffSizeV = new DataView(buffSize.buffer, buffSize.byteOffset, buffSize.byteLength);
-        buffSizeV.setUint32(0, n, false);
-
-        await fdMPCParams.write(buffSize);
-    }
-
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdZKeyOld, sectionsZKeyOld, fdMPCParams, fdZKeyNew;
-    try {
-
-
-    ({fd: fdZKeyOld, sections: sectionsZKeyOld} = await readBinFile(zkeyNameOld, "zkey", 2));
-    const zkeyHeader = await readHeader$1(fdZKeyOld, sectionsZKeyOld, false);
-    if (zkeyHeader.protocol != "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-    const curve = await getCurveFromQ(zkeyHeader.q);
-    const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
-
-    const oldMPCParams = await readMPCParams(fdZKeyOld, curve, sectionsZKeyOld);
-    const newMPCParams = {};
-
-    fdMPCParams = await readExisting(mpcparamsName);
-
-    fdMPCParams.pos =
-        sG1*3 + sG2*3 +                     // vKey
-        8 + sG1*zkeyHeader.nVars +              // IC + C
-        4 + sG1*(zkeyHeader.domainSize-1) +     // H
-        4 + sG1*zkeyHeader.nVars +              // A
-        4 + sG1*zkeyHeader.nVars +              // B1
-        4 + sG2*zkeyHeader.nVars;               // B2
-
-    // csHash
-    newMPCParams.csHash =  await fdMPCParams.read(64);
-
-    const nContributions = await fdMPCParams.readUBE32();
-    newMPCParams.contributions = [];
-    for (let i=0; i<nContributions; i++) {
-        const c = { delta:{} };
-        c.deltaAfter = await readG1(fdMPCParams);
-        c.delta.g1_s = await readG1(fdMPCParams);
-        c.delta.g1_sx = await readG1(fdMPCParams);
-        c.delta.g2_spx = await readG2(fdMPCParams);
-        c.transcript = await fdMPCParams.read(64);
-        if (i<oldMPCParams.contributions.length) {
-            c.type = oldMPCParams.contributions[i].type;
-            if (c.type==1) {
-                c.beaconHash = oldMPCParams.contributions[i].beaconHash;
-                c.numIterationsExp = oldMPCParams.contributions[i].numIterationsExp;
-            }
-            if (oldMPCParams.contributions[i].name) {
-                c.name = oldMPCParams.contributions[i].name;
-            }
-        }
-        newMPCParams.contributions.push(c);
-    }
-
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (!hashIsEqual(newMPCParams.csHash, oldMPCParams.csHash)) {
-        if (logger) logger.error("Hash of the original circuit does not match with the MPC one");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    if (oldMPCParams.contributions.length > newMPCParams.contributions.length) {
-        if (logger) logger.error("The impoerted file does not include new contributions");
-        return false;
-    }
-
-    for (let i=0; i<oldMPCParams.contributions.length; i++) {
-        if (!contributionIsEqual(oldMPCParams.contributions[i], newMPCParams.contributions[i])) {
-            if (logger) logger.error(`Previous contribution ${i} does not match`);
-            return false;
-        }
-    }
-
-
-    // Set the same name to all new contributions
-    if (name) {
-        for (let i=oldMPCParams.contributions.length; i<newMPCParams.contributions.length; i++) {
-            newMPCParams.contributions[i].name = name;
-        }
-    }
-
-    fdZKeyNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
-    fdMPCParams.pos = 0;
-
-    // Header
-    fdMPCParams.pos += sG1;  // ignore alpha1 (keep original)
-    fdMPCParams.pos += sG1;  // ignore beta1
-    fdMPCParams.pos += sG2;  // ignore beta2
-    fdMPCParams.pos += sG2;  // ignore gamma2
-    zkeyHeader.vk_delta_1 = await readG1(fdMPCParams);
-    zkeyHeader.vk_delta_2 = await readG2(fdMPCParams);
-    await writeHeader(fdZKeyNew, zkeyHeader);
-
-    // IC (Keep original)
-    const nIC = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nIC != zkeyHeader.nPublic +1) {
-        if (logger) logger.error("Invalid number of points in IC");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    fdMPCParams.pos += sG1*(zkeyHeader.nPublic+1);
-    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 3);
-
-    // Coeffs (Keep original)
-    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 4);
-
-    // H Section
-    const nH = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nH != zkeyHeader.domainSize-1) {
-        if (logger) logger.error("Invalid number of points in H");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    let buffH;
-    const buffTauU = await fdMPCParams.read(sG1*(zkeyHeader.domainSize-1));
-    const buffTauLEM = await curve.G1.batchUtoLEM(buffTauU);
-    buffH = new Uint8Array(zkeyHeader.domainSize*sG1);
-    buffH.set(buffTauLEM);   // Let the last one to zero.
-    curve.G1.toRprLEM(buffH, sG1*(zkeyHeader.domainSize-1), curve.G1.zeroAffine);
-    const n2Inv = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
-    const wInv = curve.Fr.inv(curve.Fr.w[zkeyHeader.power+1]);
-    buffH = await curve.G1.batchApplyKey(buffH, n2Inv, wInv, "affine", "jacobian", logger);
-    buffH = await curve.G1.ifft(buffH, "jacobian", "affine", logger);
-    await startWriteSection(fdZKeyNew, 9);
-    await fdZKeyNew.write(buffH);
-    await endWriteSection(fdZKeyNew);
-
-    // C Section (L section)
-    const nL = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
-        if (logger) logger.error("Invalid number of points in L");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    let buffL;
-    buffL = await fdMPCParams.read(sG1*(zkeyHeader.nVars-zkeyHeader.nPublic-1));
-    buffL = await curve.G1.batchUtoLEM(buffL);
-    await startWriteSection(fdZKeyNew, 8);
-    await fdZKeyNew.write(buffL);
-    await endWriteSection(fdZKeyNew);
-
-    // A Section
-    const nA = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nA != zkeyHeader.nVars) {
-        if (logger) logger.error("Invalid number of points in A");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    fdMPCParams.pos += sG1*(zkeyHeader.nVars);
-    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 5);
-
-    // B1 Section
-    const nB1 = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nB1 != zkeyHeader.nVars) {
-        if (logger) logger.error("Invalid number of points in B1");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    fdMPCParams.pos += sG1*(zkeyHeader.nVars);
-    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 6);
-
-    // B2 Section
-    const nB2 = await fdMPCParams.readUBE32();
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (nB2 != zkeyHeader.nVars) {
-        if (logger) logger.error("Invalid number of points in B2");
-        await fdZKeyNew.discard();
-        return false;
-    }
-    /* c8 ignore stop */
-    fdMPCParams.pos += sG2*(zkeyHeader.nVars);
-    await copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 7);
-
-    await writeMPCParams(fdZKeyNew, curve, newMPCParams);
-
-    await fdMPCParams.close();
-    await fdZKeyNew.close();
-    await fdZKeyOld.close();
-
-    return true;
-
-    async function readG1(fd) {
-        const buff = await fd.read(curve.G1.F.n8*2);
-        return curve.G1.fromRprUncompressed(buff, 0);
-    }
-
-    async function readG2(fd) {
-        const buff = await fd.read(curve.G2.F.n8*2);
-        return curve.G2.fromRprUncompressed(buff, 0);
-    }
-
-
-    function contributionIsEqual(c1, c2) {
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!curve.G1.eq(c1.deltaAfter   , c2.deltaAfter)) return false;
-        /* c8 ignore stop */
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!curve.G1.eq(c1.delta.g1_s   , c2.delta.g1_s)) return false;
-        /* c8 ignore stop */
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!curve.G1.eq(c1.delta.g1_sx  , c2.delta.g1_sx)) return false;
-        /* c8 ignore stop */
-        if (!curve.G2.eq(c1.delta.g2_spx , c2.delta.g2_spx)) return false;
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!hashIsEqual(c1.transcript, c2.transcript)) return false;
-        /* c8 ignore stop */
-        return true;
-    }
-
-
-
-    } finally {
-        for (const openFd of [fdZKeyOld, fdMPCParams, fdZKeyNew]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-const sameRatio = sameRatio$2;
-
-
-
-async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fd, sections, fdInit, sectionsInit, fdPTau, sectionsPTau;
-    try {
-
-
-    let sr;
-    ({fd, sections} = await readBinFile(zkeyFileName, "zkey", 2));
-    const zkey = await readHeader$1(fd, sections, false);
-    if (zkey.protocol != "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-    const curve = await getCurveFromQ(zkey.q);
-    const sG1 = curve.G1.F.n8*2;
-
-    const mpcParams = await readMPCParams(fd, curve, sections);
-
-    const accumulatedHasher = blake2b.create({ dkLen: 64 });
-    accumulatedHasher.update(mpcParams.csHash);
-    let curDelta = curve.G1.g;
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        const c = mpcParams.contributions[i];
-        const ourHasher = cloneHasher(accumulatedHasher);
-
-        hashG1(ourHasher, curve, c.delta.g1_s);
-        hashG1(ourHasher, curve, c.delta.g1_sx);
-
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (!hashIsEqual(ourHasher.digest(), c.transcript)) {
-            console.log(`INVALID(${i}): Inconsistent transcript `);
-            return false;
-        }
-        /* c8 ignore stop */
-
-        const delta_g2_sp = hashToG2(curve, c.transcript);
-
-        sr = await sameRatio(curve, c.delta.g1_s, c.delta.g1_sx, delta_g2_sp, c.delta.g2_spx);
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (sr !== true) {
-            console.log(`INVALID(${i}): public key G1 and G2 do not have the same ration `);
-            return false;
-        }
-        /* c8 ignore stop */
-
-        sr = await sameRatio(curve, curDelta, c.deltaAfter, delta_g2_sp, c.delta.g2_spx);
-        // coverage: reachable only with a hand-forged ceremony/response file
-        /* c8 ignore start */
-        if (sr !== true) {
-            console.log(`INVALID(${i}): deltaAfter does not fillow the public key `);
-            return false;
-        }
-        /* c8 ignore stop */
-
-        if (c.type == 1) {
-            const rng = await rngFromBeaconParams(c.beaconHash, c.numIterationsExp);
-            const expected_prvKey = curve.Fr.fromRng(rng);
-            const expected_g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-            const expected_g1_sx = curve.G1.toAffine(curve.G1.timesFr(expected_g1_s, expected_prvKey));
-            // coverage: reachable only with a hand-forged ceremony/response file
-            /* c8 ignore start */
-            if (curve.G1.eq(expected_g1_s, c.delta.g1_s) !== true) {
-                console.log(`INVALID(${i}): Key of the beacon does not match. g1_s `);
-                return false;
-            }
-            /* c8 ignore stop */
-            // coverage: reachable only with a hand-forged ceremony/response file
-            /* c8 ignore start */
-            if (curve.G1.eq(expected_g1_sx, c.delta.g1_sx) !== true) {
-                console.log(`INVALID(${i}): Key of the beacon does not match. g1_sx `);
-                return false;
-            }
-            /* c8 ignore stop */
-        }
-
-        hashPubKey(accumulatedHasher, curve, c);
-
-        const contributionHasher = blake2b.create({ dkLen: 64 });
-        hashPubKey(contributionHasher, curve, c);
-
-        c.contributionHash = contributionHasher.digest();
-
-        curDelta = c.deltaAfter;
-    }
-
-
-    ({fd: fdInit, sections: sectionsInit} = await readBinFile(initFileName, "zkey", 2));
-    const zkeyInit = await readHeader$1(fdInit, sectionsInit, false);
-
-    if (zkeyInit.protocol != "groth16") {
-        throw new Error("zkeyinit file is not groth16");
-    }
-
-    if (  (!Scalar.eq(zkeyInit.q, zkey.q))
-        ||(!Scalar.eq(zkeyInit.r, zkey.r))
-        ||(zkeyInit.n8q != zkey.n8q)
-        ||(zkeyInit.n8r != zkey.n8r))
-    {
-        if (logger) logger.error("INVALID:  Different curves");
-        return false;
-    }
-
-    if (  (zkeyInit.nVars != zkey.nVars)
-        ||(zkeyInit.nPublic !=  zkey.nPublic)
-        ||(zkeyInit.domainSize != zkey.domainSize))
-    {
-        if (logger) logger.error("INVALID:  Different circuit parameters");
-        return false;
-    }
-
-    if (!curve.G1.eq(zkey.vk_alpha_1, zkeyInit.vk_alpha_1)) {
-        if (logger) logger.error("INVALID:  Invalid alpha1");
-        return false;
-    }
-    if (!curve.G1.eq(zkey.vk_beta_1, zkeyInit.vk_beta_1)) {
-        if (logger) logger.error("INVALID:  Invalid beta1");
-        return false;
-    }
-    if (!curve.G2.eq(zkey.vk_beta_2, zkeyInit.vk_beta_2)) {
-        if (logger) logger.error("INVALID:  Invalid beta2");
-        return false;
-    }
-    if (!curve.G2.eq(zkey.vk_gamma_2, zkeyInit.vk_gamma_2)) {
-        if (logger) logger.error("INVALID:  Invalid gamma2");
-        return false;
-    }
-    if (!curve.G1.eq(zkey.vk_delta_1, curDelta)) {
-        if (logger) logger.error("INVALID:  Invalid delta1");
-        return false;
-    }
-    sr = await sameRatio(curve, curve.G1.g, curDelta, curve.G2.g, zkey.vk_delta_2);
-    if (sr !== true) {
-        if (logger) logger.error("INVALID:  Invalid delta2");
-        return false;
-    }
-
-    const mpcParamsInit = await readMPCParams(fdInit, curve, sectionsInit);
-    if (!hashIsEqual(mpcParams.csHash, mpcParamsInit.csHash)) {
-        if (logger) logger.error("INVALID:  Circuit does not match");
-        return false;
-    }
-
-    // Check sizes of sections
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (sections[8][0].size != sG1*(zkey.nVars-zkey.nPublic-1)) {
-        if (logger) logger.error("INVALID:  Invalid L section size");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    // coverage: reachable only with a hand-forged ceremony/response file
-    /* c8 ignore start */
-    if (sections[9][0].size != sG1*(zkey.domainSize)) {
-        if (logger) logger.error("INVALID:  Invalid H section size");
-        return false;
-    }
-    /* c8 ignore stop */
-
-    let ss;
-    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 3);
-    if (!ss) {
-        if (logger) logger.error("INVALID:  IC section is not identical");
-        return false;
-    }
-
-    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 4);
-    if (!ss) {
-        if (logger) logger.error("Coeffs section is not identical");
-        return false;
-    }
-
-    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 5);
-    if (!ss) {
-        if (logger) logger.error("A section is not identical");
-        return false;
-    }
-
-    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 6);
-    if (!ss) {
-        if (logger) logger.error("B1 section is not identical");
-        return false;
-    }
-
-    ss = await sectionIsEqual(fd, sections, fdInit, sectionsInit, 7);
-    if (!ss) {
-        if (logger) logger.error("B2 section is not identical");
-        return false;
-    }
-
-    // Check L
-    sr = await sectionHasSameRatio("G1", fdInit, sectionsInit, fd, sections, 8, zkey.vk_delta_2, zkeyInit.vk_delta_2, "L section");
-    if (sr!==true) {
-        if (logger) logger.error("L section does not match");
-        return false;
-    }
-
-    // Check H
-    sr = await sameRatioH();
-    if (sr!==true) {
-        if (logger) logger.error("H section does not match");
-        return false;
-    }
-
-    if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
-
-    await fd.close();
-    await fdInit.close();
-
-    for (let i=mpcParams.contributions.length-1; i>=0; i--) {
-        const c = mpcParams.contributions[i];
-        if (logger) logger.info("-------------------------");
-        if (logger) logger.info(formatHash(c.contributionHash, `contribution #${i+1} ${c.name ? c.name : ""}:`));
-        if (c.type == 1) {
-            if (logger) logger.info(`Beacon generator: ${byteArray2hex(c.beaconHash)}`);
-            if (logger) logger.info(`Beacon iterations Exp: ${c.numIterationsExp}`);
-        }
-    }
-    if (logger) logger.info("-------------------------");
-
-    if (logger) logger.info("ZKey Ok!");
-
-    return true;
-
-
-    async function sectionHasSameRatio(groupName, fd1, sections1, fd2, sections2, idSection, g2sp, g2spx, sectionName) {
-        const MAX_CHUNK_SIZE = 1<<20;
-        const G = curve[groupName];
-        const sG = G.F.n8*2;
-        await startReadUniqueSection(fd1, sections1, idSection);
-        await startReadUniqueSection(fd2, sections2, idSection);
-
-        let R1 = G.zero;
-        let R2 = G.zero;
-
-        const nPoints = sections1[idSection][0].size / sG;
-
-        for (let i=0; i<nPoints; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`Same ratio check ${sectionName}:  ${i}/${nPoints}`);
-            const n = Math.min(nPoints - i, MAX_CHUNK_SIZE);
-            const bases1 = await fd1.read(n*sG);
-            const bases2 = await fd2.read(n*sG);
-
-            const scalars = getRandomBytes(4*n);
-
-            const r1 = await G.multiExpAffine(bases1, scalars);
-            const r2 = await G.multiExpAffine(bases2, scalars);
-
-            R1 = G.add(R1, r1);
-            R2 = G.add(R2, r2);
-        }
-        await endReadSection(fd1);
-        await endReadSection(fd2);
-
-        // coverage: defensive edge guard not reachable with valid inputs
-        /* c8 ignore start */
-        if (nPoints == 0) return true;
-        /* c8 ignore stop */
-
-        sr = await sameRatio(curve, R1, R2, g2sp, g2spx);
-        if (sr !== true) return false;
-
-        return true;
-    }
-
-    async function sameRatioH() {
-        const MAX_CHUNK_SIZE = 1<<20;
-        const G = curve.G1;
-        const Fr = curve.Fr;
-        const sG = G.F.n8*2;
-
-        ({fd: fdPTau, sections: sectionsPTau} = await readBinFile(pTauFileName, "ptau", 1));
-
-        let buff_r = new BigBuffer(zkey.domainSize * zkey.n8r);
-
-        const seed= new Array(8);
-        for (let i=0; i<8; i++) {
-            seed[i] = readUInt32BE(getRandomBytes(4), 0);
-        }
-        const rng = new ChaCha(seed);
-        for (let i=0; i<zkey.domainSize-1; i++) {   // Note that last one is zero
-            const e = Fr.fromRng(rng);
-            Fr.toRprLE(buff_r, i*zkey.n8r, e);
-        }
-        Fr.toRprLE(buff_r, (zkey.domainSize-1)*zkey.n8r, Fr.zero);
-
-        let R1 = G.zero;
-        for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verification(tau):  ${i}/${zkey.domainSize}`);
-            const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
-
-            const buff1 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + zkey.domainSize*sG + i*sG);
-            const buff2 = await fdPTau.read(sG*n, sectionsPTau[2][0].p + i*sG);
-
-            const buffB = await batchSubtract(buff1, buff2);
-            const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
-            const r = await G.multiExpAffine(buffB, buffS);
-
-            R1 = G.add(R1, r);
-        }
-
-        // Calculate odd coefficients in transformed domain
-
-        buff_r = await Fr.batchToMontgomery(buff_r);
-        // const first = curve.Fr.neg(curve.Fr.inv(curve.Fr.e(2)));
-        // Works*2   const first = curve.Fr.neg(curve.Fr.e(2));
-
-
-        let first;
-
-        if (zkey.power < Fr.s) {
-            first = Fr.neg(Fr.e(2));
-        } else {
-            // coverage: requires a circuit whose domain equals the full 2^28 subgroup
-            /* c8 ignore start */
-            const small_m  = 2 ** Fr.s;
-            const shift_to_small_m = Fr.exp(Fr.shift, small_m);
-            first = Fr.sub( shift_to_small_m, Fr.one);
-        }
-
-        // const inc = curve.Fr.inv(curve.PFr.w[zkey.power+1]);
-        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-        /* c8 ignore start */
-        const inc = zkey.power < Fr.s ? Fr.w[zkey.power+1] : Fr.shift;
-        /* c8 ignore stop */
-        buff_r = await Fr.batchApplyKey(buff_r, first, inc);
-        buff_r = await Fr.fft(buff_r);
-        buff_r = await Fr.batchFromMontgomery(buff_r);
-
-        await startReadUniqueSection(fd, sections, 9);
-        let R2 = G.zero;
-        for (let i=0; i<zkey.domainSize; i += MAX_CHUNK_SIZE) {
-            if (logger) logger.debug(`H Verification(lagrange):  ${i}/${zkey.domainSize}`);
-            const n = Math.min(zkey.domainSize - i, MAX_CHUNK_SIZE);
-
-            const buff = await fd.read(sG*n);
-            const buffS = buff_r.slice(i*zkey.n8r, (i+n)*zkey.n8r);
-            const r = await G.multiExpAffine(buff, buffS);
-
-            R2 = G.add(R2, r);
-        }
-        await endReadSection(fd);
-
-        sr = await sameRatio(curve, R1, R2, zkey.vk_delta_2, zkeyInit.vk_delta_2);
-        if (sr !== true) return false;
-
-
-        return true;
-
-    }
-
-    async function batchSubtract(buff1, buff2) {
-        const sG = curve.G1.F.n8*2;
-        const nPoints = buff1.byteLength / sG;
-        const concurrency= curve.tm.concurrency;
-        const nPointsPerThread = Math.floor(nPoints / concurrency);
-        const opPromises = [];
-        for (let i=0; i<concurrency; i++) {
-            let n;
-            if (i< concurrency-1) {
-                n = nPointsPerThread;
-            } else {
-                n = nPoints - i*nPointsPerThread;
-            }
-            // coverage: defensive edge guard not reachable with valid inputs
-            /* c8 ignore start */
-            if (n==0) continue;
-            /* c8 ignore stop */
-
-            const subBuff1 = buff1.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            const subBuff2 = buff2.slice(i*nPointsPerThread*sG1, (i*nPointsPerThread+n)*sG1);
-            opPromises.push(batchSubtractThread(subBuff1, subBuff2));
-        }
-
-
-        const result = await Promise.all(opPromises);
-
-        const fullBuffOut = new Uint8Array(nPoints*sG);
-        let p =0;
-        for (let i=0; i<result.length; i++) {
-            fullBuffOut.set(result[i][0], p);
-            p+=result[i][0].byteLength;
-        }
-
-        return fullBuffOut;
-    }
-
-
-    async function batchSubtractThread(buff1, buff2) {
-        const sG1 = curve.G1.F.n8*2;
-        const sGmid = curve.G1.F.n8*3;
-        const nPoints = buff1.byteLength/sG1;
-        const task = [];
-        task.push({cmd: "ALLOCSET", var: 0, buff: buff1});
-        task.push({cmd: "ALLOCSET", var: 1, buff: buff2});
-        task.push({cmd: "ALLOC", var: 2, len: nPoints*sGmid});
-        for (let i=0; i<nPoints; i++) {
-            task.push({
-                cmd: "CALL",
-                fnName: "g1m_subAffine",
-                params: [
-                    {var: 0, offset: i*sG1},
-                    {var: 1, offset: i*sG1},
-                    {var: 2, offset: i*sGmid},
-                ]
-            });
-        }
-        task.push({cmd: "CALL", fnName: "g1m_batchToAffine", params: [
-            {var: 2},
-            {val: nPoints},
-            {var: 2},
-        ]});
-        task.push({cmd: "GET", out: 0, var: 2, len: nPoints*sG1});
-
-        const res = await curve.tm.queueAction(task);
-
-        return res;
-    }
-
-
-    } finally {
-        for (const openFd of [fd, fdInit, fdPTau]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function phase2verifyFromR1cs(r1csFileName, pTauFileName, zkeyFileName, logger) {
-
-    // const initFileName = "~" + zkeyFileName + ".init";
-    const initFileName = {type: "bigMem"};
-    await newZKey(r1csFileName, pTauFileName, initFileName, logger);
-
-    return await phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger);
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function phase2contribute(zkeyNameOld, zkeyNameNew, name, entropy, logger) {
-
-    const {fd: fdOld, sections: sections} = await readBinFile(zkeyNameOld, "zkey", 2);
-    const zkey = await readHeader$1(fdOld, sections);
-    if (zkey.protocol != "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-    const curve = await getCurveFromQ(zkey.q);
-
-    const mpcParams = await readMPCParams(fdOld, curve, sections);
-
-    const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
-
-
-    const rng = await getRandomRng(entropy);
-
-    const transcriptHasher = blake2b.create({ dkLen: 64 });
-    transcriptHasher.update(mpcParams.csHash);
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
-    }
-
-    const curContribution = {};
-    curContribution.delta = {};
-    curContribution.delta.prvKey = curve.Fr.fromRng(rng);
-    curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, curContribution.delta.prvKey));
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
-    curContribution.transcript = transcriptHasher.digest();
-    curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, curContribution.delta.prvKey));
-
-    zkey.vk_delta_1 = curve.G1.timesFr(zkey.vk_delta_1, curContribution.delta.prvKey);
-    zkey.vk_delta_2 = curve.G2.timesFr(zkey.vk_delta_2, curContribution.delta.prvKey);
-
-    curContribution.deltaAfter = zkey.vk_delta_1;
-
-    curContribution.type = 0;
-    if (name) curContribution.name = name;
-
-    mpcParams.contributions.push(curContribution);
-
-    await writeHeader(fdNew, zkey);
-
-    // IC
-    await copySection(fdOld, sections, fdNew, 3);
-
-    // Coeffs (Keep original)
-    await copySection(fdOld, sections, fdNew, 4);
-
-    // A Section
-    await copySection(fdOld, sections, fdNew, 5);
-
-    // B1 Section
-    await copySection(fdOld, sections, fdNew, 6);
-
-    // B2 Section
-    await copySection(fdOld, sections, fdNew, 7);
-
-    const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
-
-    await writeMPCParams(fdNew, curve, mpcParams);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    const contributionHasher = blake2b.create({ dkLen: 64 });
-    hashPubKey(contributionHasher, curve, curContribution);
-
-    const contributionHash = contributionHasher.digest();
-
-    if (logger) logger.info(formatHash(mpcParams.csHash, "Circuit Hash: "));
-    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
-
-    return contributionHash;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-async function beacon(zkeyNameOld, zkeyNameNew, name, beaconHashStr, numIterationsExp, logger) {
-    const beaconHash = hex2ByteArray(beaconHashStr);
-    if (   (beaconHash.byteLength == 0)
-        || (beaconHash.byteLength*2 !=beaconHashStr.length))
-    {
-        if (logger) logger.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)");
-        return false;
-    }
-    if (beaconHash.length>=256) {
-        if (logger) logger.error("Maximum length of beacon hash is 255 bytes");
-        return false;
-    }
-
-    numIterationsExp = parseInt(numIterationsExp);
-    if ((numIterationsExp<10)||(numIterationsExp>63)) {
-        if (logger) logger.error("Invalid numIterationsExp. (Must be between 10 and 63)");
-        return false;
-    }
-
-
-    const {fd: fdOld, sections: sections} = await readBinFile(zkeyNameOld, "zkey", 2);
-    const zkey = await readHeader$1(fdOld, sections);
-
-    if (zkey.protocol != "groth16") {
-        throw new Error("zkey file is not groth16");
-    }
-
-
-    const curve = await getCurveFromQ(zkey.q);
-
-    const mpcParams = await readMPCParams(fdOld, curve, sections);
-
-    const fdNew = await createBinFile(zkeyNameNew, "zkey", 1, 10);
-
-    const rng = await rngFromBeaconParams(beaconHash, numIterationsExp);
-
-    const transcriptHasher = blake2b.create({ dkLen: 64 });    transcriptHasher.update(mpcParams.csHash);
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        hashPubKey(transcriptHasher, curve, mpcParams.contributions[i]);
-    }
-
-    const curContribution = {};
-    curContribution.delta = {};
-    curContribution.delta.prvKey = curve.Fr.fromRng(rng);
-    curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, curContribution.delta.prvKey));
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
-    curContribution.transcript = transcriptHasher.digest();
-    curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, curContribution.delta.prvKey));
-
-    zkey.vk_delta_1 = curve.G1.timesFr(zkey.vk_delta_1, curContribution.delta.prvKey);
-    zkey.vk_delta_2 = curve.G2.timesFr(zkey.vk_delta_2, curContribution.delta.prvKey);
-
-    curContribution.deltaAfter = zkey.vk_delta_1;
-
-    curContribution.type = 1;
-    curContribution.numIterationsExp = numIterationsExp;
-    curContribution.beaconHash = beaconHash;
-
-    if (name) curContribution.name = name;
-
-    mpcParams.contributions.push(curContribution);
-
-    await writeHeader(fdNew, zkey);
-
-    // IC
-    await copySection(fdOld, sections, fdNew, 3);
-
-    // Coeffs (Keep original)
-    await copySection(fdOld, sections, fdNew, 4);
-
-    // A Section
-    await copySection(fdOld, sections, fdNew, 5);
-
-    // B1 Section
-    await copySection(fdOld, sections, fdNew, 6);
-
-    // B2 Section
-    await copySection(fdOld, sections, fdNew, 7);
-
-    const invDelta = curve.Fr.inv(curContribution.delta.prvKey);
-    await applyKeyToSection(fdOld, sections, fdNew, 8, curve, "G1", invDelta, curve.Fr.e(1), "L Section", logger);
-    await applyKeyToSection(fdOld, sections, fdNew, 9, curve, "G1", invDelta, curve.Fr.e(1), "H Section", logger);
-
-    await writeMPCParams(fdNew, curve, mpcParams);
-
-    await fdOld.close();
-    await fdNew.close();
-
-    const contributionHasher = blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
-
-    const contributionHash = contributionHasher.digest();
-
-    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
-
-    return contributionHash;
-}
-
-async function zkeyExportJson(zkeyFileName) {
-
-    const zKey = await readZKey(zkeyFileName, true);
-    delete zKey.curve;
-    delete zKey.F;
-
-    return utils.stringifyBigInts(zKey);
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
-    const rng = await getRandomRng(entropy);
-
-    const delta = curve.Fr.fromRng(rng);
-    const invDelta = curve.Fr.inv(delta);
-
-    const sG1 = curve.G1.F.n8*2;
-    const sG2 = curve.G2.F.n8*2;
-
-    const fdFrom = await readExisting(challengeFilename);
-    const fdTo = await createOverride(responseFileName);
-
-
-    await copy(sG1); // alpha1
-    await copy(sG1); // beta1
-    await copy(sG2); // beta2
-    await copy(sG2); // gamma2
-    const oldDelta1 = await readG1();
-    const delta1 = curve.G1.timesFr(oldDelta1, delta);
-    await writeG1(delta1);
-    const oldDelta2 = await readG2();
-    const delta2 = curve.G2.timesFr(oldDelta2, delta);
-    await writeG2(delta2);
-
-    // IC
-    const nIC = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nIC);
-    await copy(nIC*sG1);
-
-    // H
-    const nH = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nH);
-    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nH, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "H", logger);
-
-    // L
-    const nL = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nL);
-    await applyKeyToChallengeSection(fdFrom, fdTo, null, curve, "G1", nL, invDelta, curve.Fr.e(1), "UNCOMPRESSED", "L", logger);
-
-    // A
-    const nA = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nA);
-    await copy(nA*sG1);
-
-    // B1
-    const nB1 = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nB1);
-    await copy(nB1*sG1);
-
-    // B2
-    const nB2 = await fdFrom.readUBE32();
-    await fdTo.writeUBE32(nB2);
-    await copy(nB2*sG2);
-
-
-    //////////
-    /// Read contributions
-    //////////
-    const transcriptHasher = blake2b.create({ dkLen: 64 });
-    const mpcParams = {};
-    // csHash
-    mpcParams.csHash =  await fdFrom.read(64);
-    transcriptHasher.update(mpcParams.csHash);
-
-    const nContributions = await fdFrom.readUBE32();
-    mpcParams.contributions = [];
-    for (let i=0; i<nContributions; i++) {
-        const c = { delta:{} };
-        c.deltaAfter = await readG1();
-        c.delta.g1_s = await readG1();
-        c.delta.g1_sx = await readG1();
-        c.delta.g2_spx = await readG2();
-        c.transcript = await fdFrom.read(64);
-        mpcParams.contributions.push(c);
-        hashPubKey(transcriptHasher, curve, c);
-    }
-
-    const curContribution = {};
-    curContribution.delta = {};
-    curContribution.delta.prvKey = delta;
-    curContribution.delta.g1_s = curve.G1.toAffine(curve.G1.fromRng(rng));
-    curContribution.delta.g1_sx = curve.G1.toAffine(curve.G1.timesFr(curContribution.delta.g1_s, delta));
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_s);
-    hashG1(transcriptHasher, curve, curContribution.delta.g1_sx);
-    curContribution.transcript = transcriptHasher.digest();
-    curContribution.delta.g2_sp = hashToG2(curve, curContribution.transcript);
-    curContribution.delta.g2_spx = curve.G2.toAffine(curve.G2.timesFr(curContribution.delta.g2_sp, delta));
-    curContribution.deltaAfter = delta1;
-    curContribution.type = 0;
-    mpcParams.contributions.push(curContribution);
-
-
-    //////////
-    /// Write Contribution
-    //////////
-
-    await fdTo.write(mpcParams.csHash);
-    await fdTo.writeUBE32(mpcParams.contributions.length);
-
-    for (let i=0; i<mpcParams.contributions.length; i++) {
-        const c = mpcParams.contributions[i];
-        await writeG1(c.deltaAfter);
-        await writeG1(c.delta.g1_s);
-        await writeG1(c.delta.g1_sx);
-        await writeG2(c.delta.g2_spx);
-        await fdTo.write(c.transcript);
-    }
-
-    const contributionHasher = blake2b.create({ dkLen: 64 });    hashPubKey(contributionHasher, curve, curContribution);
-
-    const contributionHash = contributionHasher.digest();
-
-    if (logger) logger.info(formatHash(contributionHash, "Contribution Hash: "));
-
-    await fdTo.close();
-    await fdFrom.close();
-
-    return contributionHash;
-
-    async function copy(nBytes) {
-        const CHUNK_SIZE = fdFrom.pageSize*2;
-        for (let i=0; i<nBytes; i+= CHUNK_SIZE) {
-            const n = Math.min(nBytes -i, CHUNK_SIZE);
-            const buff = await fdFrom.read(n);
-            await fdTo.write(buff);
-        }
-    }
-
-    async function readG1() {
-        const buff = await fdFrom.read(curve.G1.F.n8*2);
-        return curve.G1.fromRprUncompressed(buff, 0);
-    }
-
-    async function readG2() {
-        const buff = await fdFrom.read(curve.G2.F.n8*2);
-        return curve.G2.fromRprUncompressed(buff, 0);
-    }
-
-    async function writeG1(P) {
-        const buff = new Uint8Array(sG1);
-        curve.G1.toRprUncompressed(buff, 0, P);
-        await fdTo.write(buff);
-    }
-
-    async function writeG2(P) {
-        const buff = new Uint8Array(sG2);
-        curve.G2.toRprUncompressed(buff, 0, P);
-        await fdTo.write(buff);
-    }
-
-
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const {stringifyBigInts: stringifyBigInts$3} = utils;
-
-async function zkeyExportVerificationKey(zkeyName, logger) {
-    if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
-
-    const {fd, sections} = await readBinFile(zkeyName, "zkey", 2);
-    const zkey = await readHeader$1(fd, sections);
-
-    if (logger) logger.info("> Detected protocol: " + zkey.protocol);
-
-    let res;
-    if (zkey.protocol === "groth16") {
-        res = await groth16Vk(zkey, fd, sections);
-    } else if (zkey.protocol === "plonk") {
-        res = await plonkVk(zkey);
-    } else if (zkey.protocolId && zkey.protocolId === FFLONK_PROTOCOL_ID) {
-        res = await exportFFlonkVk(zkey);
-    } else {
-        throw new Error("zkey file protocol unrecognized");
-    }
-
-    await fd.close();
-
-    if (logger) logger.info("EXPORT VERIFICATION KEY FINISHED");
-
-    return res;
-}
-
-
-async function groth16Vk(zkey, fd, sections) {
-    const curve = await getCurveFromQ(zkey.q);
-    const sG1 = curve.G1.F.n8 * 2;
-
-    const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
-
-    let vKey = {
-        protocol: zkey.protocol,
-        curve: curve.name,
-        nPublic: zkey.nPublic,
-
-        vk_alpha_1: curve.G1.toObject(zkey.vk_alpha_1),
-
-        vk_beta_2: curve.G2.toObject(zkey.vk_beta_2),
-        vk_gamma_2: curve.G2.toObject(zkey.vk_gamma_2),
-        vk_delta_2: curve.G2.toObject(zkey.vk_delta_2),
-
-        vk_alphabeta_12: curve.Gt.toObject(alphaBeta)
-    };
-
-    // Read IC Section
-    ///////////
-    await startReadUniqueSection(fd, sections, 3);
-    vKey.IC = [];
-    for (let i = 0; i <= zkey.nPublic; i++) {
-        const buff = await fd.read(sG1);
-        const P = curve.G1.toObject(buff);
-        vKey.IC.push(P);
-    }
-    await endReadSection(fd);
-
-    vKey = stringifyBigInts$3(vKey);
-
-    return vKey;
-}
-
-
-async function plonkVk(zkey) {
-    const curve = await getCurveFromQ(zkey.q);
-
-    let vKey = {
-        protocol: zkey.protocol,
-        curve: curve.name,
-        nPublic: zkey.nPublic,
-        power: zkey.power,
-
-        k1: curve.Fr.toObject(zkey.k1),
-        k2: curve.Fr.toObject(zkey.k2),
-
-        Qm: curve.G1.toObject(zkey.Qm),
-        Ql: curve.G1.toObject(zkey.Ql),
-        Qr: curve.G1.toObject(zkey.Qr),
-        Qo: curve.G1.toObject(zkey.Qo),
-        Qc: curve.G1.toObject(zkey.Qc),
-        S1: curve.G1.toObject(zkey.S1),
-        S2: curve.G1.toObject(zkey.S2),
-        S3: curve.G1.toObject(zkey.S3),
-
-        X_2: curve.G2.toObject(zkey.X_2),
-
-        w: curve.Fr.toObject(curve.Fr.w[zkey.power])
-    };
-
-    vKey = stringifyBigInts$3(vKey);
-
-    return vKey;
-}
-
-async function exportFFlonkVk(zkey, logger) {
-    const curve = await getCurveFromQ(zkey.q);
-
-    let vKey = {
-        protocol: zkey.protocol,
-        curve: curve.name,
-        nPublic: zkey.nPublic,
-        power: zkey.power,
-
-        k1: curve.Fr.toObject(zkey.k1),
-        k2: curve.Fr.toObject(zkey.k2),
-
-        w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
-        //wW: curve.Fr.toObject(curve.Fr.w[zkey.power + 1]),
-        w3: curve.Fr.toObject(zkey.w3),
-        w4: curve.Fr.toObject(zkey.w4),
-        w8: curve.Fr.toObject(zkey.w8),
-        wr: curve.Fr.toObject(zkey.wr),
-
-        X_2: curve.G2.toObject(zkey.X_2),
-
-        C0: curve.G1.toObject(zkey.C0),
-    };
-
-    return stringifyBigInts$3(vKey);
-}
-
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const {unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2} = utils;
-
-async function fflonkExportSolidityVerifier(vk, templates, logger) {
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
-
-    const curve = await getCurveFromName(vk.curve);
-
-    // Precompute w3_2, w4_2 and w4_3
-    let w3 = fromVkey(vk.w3);
-    vk.w3_2 = toVkey(curve.Fr.square(w3));
-
-    let w4 = fromVkey(vk.w4);
-    vk.w4_2 = toVkey(curve.Fr.square(w4));
-    vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
-
-    let w8 = fromVkey(vk.w8);
-    let acc = curve.Fr.one;
-
-    for (let i = 1; i < 8; i++) {
-        acc = curve.Fr.mul(acc, w8);
-        vk["w8_" + i] = toVkey(acc);
-    }
-
-    let template = templates[vk.protocol];
-
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-
-    const {default: ejs} = await Promise.resolve().then(function () { return _virtual_ejs$1; });
-    return ejs.render(template, vk);
-
-    function fromVkey(str) {
-        const val = unstringifyBigInts$6(str);
-        return curve.Fr.fromObject(val);
-    }
-
-    function toVkey(val) {
-        const str = curve.Fr.toObject(val);
-        return stringifyBigInts$2(str);
-    }
-}
-
-// Not ready yet
-// module.exports.generateVerifier_kimleeoh = generateVerifier_kimleeoh;
-
-async function exportSolidityVerifier(zKeyName, templates, logger) {
-
-    const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
-
-    if ("fflonk" === verificationKey.protocol) {
-        return fflonkExportSolidityVerifier(verificationKey, templates, logger);
-    }
-
-    let template = templates[verificationKey.protocol];
-
-    const {default: ejs} = await Promise.resolve().then(function () { return _virtual_ejs$1; });
-
-    return ejs.render(template, verificationKey);
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var zkey = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    beacon: beacon,
-    bellmanContribute: bellmanContribute,
-    contribute: phase2contribute,
-    exportBellman: phase2exportMPCParams,
-    exportJson: zkeyExportJson,
-    exportSolidityVerifier: exportSolidityVerifier,
-    exportVerificationKey: zkeyExportVerificationKey,
-    importBellman: phase2importMPCParams,
-    newZKey: newZKey,
-    verifyFromInit: phase2verifyFromInit,
-    verifyFromR1cs: phase2verifyFromR1cs
-});
-
-/*
-    Copyright 2021 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdPTau, sectionsPTau, fdR1cs, sectionsR1cs, fdZKey;
-    try {
-
-
-    if (globalThis.gc) {globalThis.gc();}
-
-    ({fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24));
-    const {curve, power} = await readPTauHeader(fdPTau, sectionsPTau);
-    ({fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24));
-
-    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
-
-    const sG1 = curve.G1.F.n8*2;
-    const G1 = curve.G1;
-    const sG2 = curve.G2.F.n8*2;
-    const Fr = curve.Fr;
-    const n8r = curve.Fr.n8;
-
-    if (logger) logger.info("Reading r1cs");
-
-    const plonkConstraints = new BigArray();
-    const plonkAdditions = new BigArray();
-    let plonkNVars = r1cs.nVars;
-
-    const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
-
-    await processConstraints(curve.Fr, r1cs, logger);
-
-    if (globalThis.gc) {globalThis.gc();}
-
-    fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
-
-
-    if (r1cs.prime != curve.r) {
-        if (logger) logger.error("r1cs curve does not match powers of tau ceremony curve");
-        return -1;
-    }
-
-    let cirPower = log2(plonkConstraints.length -1) +1;
-    // coverage: clamp for circuits smaller than any real fixture
-    /* c8 ignore start */
-    if (cirPower < 3) cirPower = 3;   // As the t polynomial is n+5 we need at least a power of 4
-    /* c8 ignore stop */
-    const domainSize = 2 ** cirPower;
-
-    if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
-    if (cirPower > power) {
-        if (logger) logger.error(`circuit too big for this power of tau ceremony. ${plonkConstraints.length} > 2**${power}`);
-        return -1;
-    }
-
-    if (!sectionsPTau[12]) {
-        if (logger) logger.error("Powers of tau is not prepared.");
-        return -1;
-    }
-
-
-    const LPoints = new BigBuffer(domainSize*sG1);
-    const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) -1)*sG1;
-    await fdPTau.readToBuffer(LPoints, 0, domainSize*sG1, o);
-
-    const [k1, k2] = getK1K2();
-
-    const vk = {};
-
-
-    await writeAdditions(3, "Additions");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeWitnessMap(4, 0, "Amap");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeWitnessMap(5, 1, "Bmap");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeWitnessMap(6, 2, "Cmap");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeQMap(7, 3, "Qm");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeQMap(8, 4, "Ql");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeQMap(9, 5, "Qr");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeQMap(10, 6, "Qo");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeQMap(11, 7, "Qc");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeSigma(12, "sigma");
-    if (globalThis.gc) {globalThis.gc();}
-    await writeLs(13, "lagrange polynomials");
-    if (globalThis.gc) {globalThis.gc();}
-
-    // Write PTau points
-    ////////////
-
-    await startWriteSection(fdZKey, 14);
-    const buffOut = new BigBuffer((domainSize+6)*sG1);
-    await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
-    await fdZKey.write(buffOut);
-    await endWriteSection(fdZKey);
-    if (globalThis.gc) {globalThis.gc();}
-
-
-    await writeHeaders();
-
-    await fdZKey.close();
-    await fdR1cs.close();
-    await fdPTau.close();
-
-    if (logger) logger.info("Setup Finished");
-
-    return ;
-
-    async function processConstraints(Fr, r1cs, logger) {
-
-        function normalize(linearComb) {
-            const ss = Object.keys(linearComb);
-            for (let i = 0; i < ss.length; i++) {
-                // coverage: constraint shape circom does not emit
-                /* c8 ignore next */
-                if (linearComb[ss[i]] == 0n) delete linearComb[ss[i]];
-            }
-        }
-
-        function join(linearComb1, k, linearComb2) {
-            const res = {};
-
-            for (let s in linearComb1) {
-                if (typeof res[s] == "undefined") {
-                    res[s] = Fr.mul(k, linearComb1[s]);
-                } else {
-                    res[s] = Fr.add(res[s], Fr.mul(k, linearComb1[s]));
-                }
-            }
-
-            for (let s in linearComb2) {
-                const val = Fr.neg(linearComb2[s]);
-                if (typeof res[s] == "undefined") {
-                    res[s] = val;
-                } else {
-                    res[s] = Fr.add(res[s], val);
-                }
-            }
-            normalize(res);
-            return res;
-        }
-
-        function reduceCoefs(linearComb, maxC) {
-            const res = {
-                k: Fr.zero,
-                s: [],
-                coefs: []
-            };
-            const cs = [];
-
-            for (let s in linearComb) {
-                if (s == 0) {
-                    res.k = Fr.add(res.k, linearComb[s]);
-                } else if (linearComb[s] != 0n) {
-                    cs.push([Number(s), linearComb[s]]);
-                }
-            }
-            while (cs.length > maxC) {
-                const c1 = cs.shift();
-                const c2 = cs.shift();
-
-                const sl = c1[0];
-                const sr = c2[0];
-                const so = plonkNVars++;
-                const qm = Fr.zero;
-                const ql = Fr.neg(c1[1]);
-                const qr = Fr.neg(c2[1]);
-                const qo = Fr.one;
-                const qc = Fr.zero;
-
-                plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
-
-                plonkAdditions.push([sl, sr, c1[1], c2[1]]);
-
-                cs.push([so, Fr.one]);
-            }
-            for (let i = 0; i < cs.length; i++) {
-                res.s[i] = cs[i][0];
-                res.coefs[i] = cs[i][1];
-            }
-            // coverage: padding loop for under-full linear combinations circom does not emit
-            /* c8 ignore start */
-            while (res.coefs.length < maxC) {
-                res.s.push(0);
-                res.coefs.push(Fr.zero);
-            }
-            /* c8 ignore stop */
-            return res;
-        }
-
-        function addConstraintSum(lc) {
-            const C = reduceCoefs(lc, 3);
-            const sl = C.s[0];
-            const sr = C.s[1];
-            const so = C.s[2];
-            const qm = Fr.zero;
-            const ql = C.coefs[0];
-            const qr = C.coefs[1];
-            const qo = C.coefs[2];
-            const qc = C.k;
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
-        }
-
-        function addConstraintMul(lcA, lcB, lcC) {
-            const A = reduceCoefs(lcA, 1);
-            const B = reduceCoefs(lcB, 1);
-            const C = reduceCoefs(lcC, 1);
-
-
-            const sl = A.s[0];
-            const sr = B.s[0];
-            const so = C.s[0];
-            const qm = Fr.mul(A.coefs[0], B.coefs[0]);
-            const ql = Fr.mul(A.coefs[0], B.k);
-            const qr = Fr.mul(A.k, B.coefs[0]);
-            const qo = Fr.neg(C.coefs[0]);
-            const qc = Fr.sub(Fr.mul(A.k, B.k), C.k);
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
-        }
-
-        function getLinearCombinationType(lc) {
-            let k = Fr.zero;
-            let n = 0;
-            const ss = Object.keys(lc);
-            for (let i = 0; i < ss.length; i++) {
-                // coverage: zero-coefficient and constant-only branches need
-                // constraint shapes circom does not emit
-                /* c8 ignore start */
-                if (lc[ss[i]] == 0n) {
-                    delete lc[ss[i]];
-                /* c8 ignore stop */
-                } else if (ss[i] == 0) {
-                    k = Fr.add(k, lc[ss[i]]);
-                } else {
-                    n++;
-                }
-            }
-            if (n > 0) return n.toString();
-            /* c8 ignore next */
-            if (k != Fr.zero) return "k";
-            return "0";
-        }
-
-        function process(lcA, lcB, lcC) {
-            const lctA = getLinearCombinationType(lcA);
-            const lctB = getLinearCombinationType(lcB);
-            if ((lctA === "0") || (lctB === "0")) {
-                normalize(lcC);
-                addConstraintSum(lcC);
-            } else if (lctA === "k") {
-                // coverage: constant-only A/B sides; circom does not emit these shapes
-                /* c8 ignore start */
-                const lcCC = join(lcB, lcA[0], lcC);
-                addConstraintSum(lcCC);
-            } else if (lctB === "k") {
-                const lcCC = join(lcA, lcB[0], lcC);
-                addConstraintSum(lcCC);
-                /* c8 ignore stop */
-            } else {
-                addConstraintMul(lcA, lcB, lcC);
-            }
-        }
-
-        for (let s = 1; s <= nPublic; s++) {
-            const sl = s;
-            const sr = 0;
-            const so = 0;
-            const qm = Fr.zero;
-            const ql = Fr.one;
-            const qr = Fr.zero;
-            const qo = Fr.zero;
-            const qc = Fr.zero;
-
-            plonkConstraints.push([sl, sr, so, qm, ql, qr, qo, qc]);
-        }
-
-        for (let c = 0; c < r1cs.constraints.length; c++) {
-            if ((logger) && (c % 10000 === 0)) logger.debug(`processing constraints: ${c}/${r1cs.nConstraints}`);
-            process(...r1cs.constraints[c]);
-        }
-    }
-
-    async function writeWitnessMap(sectionNum, posConstraint, name) {
-        await startWriteSection(fdZKey, sectionNum);
-        for (let i=0; i<plonkConstraints.length; i++) {
-            await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeQMap(sectionNum, posConstraint, name) {
-        let Q = new BigBuffer(domainSize*n8r);
-        for (let i=0; i<plonkConstraints.length; i++) {
-            Q.set(plonkConstraints[i][posConstraint], i*n8r);
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkConstraints.length}`);
-        }
-        await startWriteSection(fdZKey, sectionNum);
-        await writeP4(Q);
-        await endWriteSection(fdZKey);
-        Q = await Fr.batchFromMontgomery(Q);
-        vk[name]= await curve.G1.multiExpAffine(LPoints, Q, logger, "multiexp "+name);
-    }
-
-    async function writeP4(buff) {
-        const q = await Fr.ifft(buff);
-        const q4 = new BigBuffer(domainSize*n8r*4);
-        q4.set(q, 0);
-        const Q4 = await Fr.fft(q4);
-        await fdZKey.write(q);
-        await fdZKey.write(Q4);
-    }
-
-    async function writeAdditions(sectionNum, name) {
-        await startWriteSection(fdZKey, sectionNum);
-        const buffOut = new Uint8Array((2*4+2*n8r));
-        const buffOutV = new DataView(buffOut.buffer);
-        for (let i=0; i<plonkAdditions.length; i++) {
-            const addition=plonkAdditions[i];
-            let o=0;
-            buffOutV.setUint32(o, addition[0], true); o+=4;
-            buffOutV.setUint32(o, addition[1], true); o+=4;
-            // The value is stored in Montgomery. stored = v*R
-            // so when montgomery multiplied by the witness, it's result = v*R*w/R = v*w
-            buffOut.set(addition[2], o); o+= n8r;
-            buffOut.set(addition[3], o); o+= n8r;
-            await fdZKey.write(buffOut);
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkAdditions.length}`);
-            /* c8 ignore stop */
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeSigma(sectionNum, name) {
-        const sigma = new BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray(plonkNVars);
-        const firstPos = new BigArray(plonkNVars);
-        let w = Fr.one;
-        for (let i=0; i<domainSize;i++) {
-            if (i<plonkConstraints.length) {
-                buildSigma(plonkConstraints[i][0], i);
-                buildSigma(plonkConstraints[i][1], domainSize + i);
-                buildSigma(plonkConstraints[i][2], domainSize*2 + i);
-            } else {
-                buildSigma(0, i);
-                buildSigma(0, domainSize + i);
-                buildSigma(0, domainSize*2 + i);
-            }
-            w = Fr.mul(w, Fr.w[cirPower]);
-            if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name} phase1: ${i}/${plonkConstraints.length}`);
-        }
-        for (let s=0; s<plonkNVars; s++) {
-            if (typeof firstPos[s] !== "undefined") {
-                sigma.set(lastAparence[s], firstPos[s]*n8r);
-            } else {
-                // throw new Error("Variable not used");
-                console.log("Variable not used");
-            }
-            if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
-        }
-
-        if (globalThis.gc) {globalThis.gc();}
-        await startWriteSection(fdZKey, sectionNum);
-        let S1 = sigma.slice(0, domainSize*n8r);
-        await writeP4(S1);
-        if (globalThis.gc) {globalThis.gc();}
-        let S2 = sigma.slice(domainSize*n8r, domainSize*n8r*2);
-        await writeP4(S2);
-        if (globalThis.gc) {globalThis.gc();}
-        let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
-        await writeP4(S3);
-        if (globalThis.gc) {globalThis.gc();}
-        await endWriteSection(fdZKey);
-
-        S1 = await Fr.batchFromMontgomery(S1);
-        S2 = await Fr.batchFromMontgomery(S2);
-        S3 = await Fr.batchFromMontgomery(S3);
-
-        vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
-        if (globalThis.gc) {globalThis.gc();}
-        vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
-        if (globalThis.gc) {globalThis.gc();}
-        vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
-        if (globalThis.gc) {globalThis.gc();}
-
-        function buildSigma(s, p) {
-            if (typeof lastAparence[s] === "undefined") {
-                firstPos[s] = p;
-            } else {
-                sigma.set(lastAparence[s], p*n8r);
-            }
-            let v;
-            if (p<domainSize) {
-                v = w;
-            } else if (p<2*domainSize) {
-                v = Fr.mul(w, k1);
-            } else {
-                v = Fr.mul(w, k2);
-            }
-            lastAparence[s]=v;
-        }
-    }
-
-    async function writeLs(sectionNum, name) {
-        await startWriteSection(fdZKey, sectionNum);
-        const l=Math.max(nPublic, 1);
-        for (let i=0; i<l; i++) {
-            let buff = new BigBuffer(domainSize*n8r);
-            buff.set(Fr.one, i*n8r);
-            await writeP4(buff);
-            if (logger) logger.debug(`writing ${name} ${i}/${l}`);
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeHeaders() {
-
-        // Write the header
-        ///////////
-        await startWriteSection(fdZKey, 1);
-        await fdZKey.writeULE32(2); // Plonk
-        await endWriteSection(fdZKey);
-
-        // Write the Plonk header section
-        ///////////
-
-        await startWriteSection(fdZKey, 2);
-        const primeQ = curve.q;
-        const n8q = (Math.floor( (Scalar.bitLength(primeQ) - 1) / 64) +1)*8;
-
-        const primeR = curve.r;
-        const n8r = (Math.floor( (Scalar.bitLength(primeR) - 1) / 64) +1)*8;
-
-        await fdZKey.writeULE32(n8q);
-        await writeBigInt(fdZKey, primeQ, n8q);
-        await fdZKey.writeULE32(n8r);
-        await writeBigInt(fdZKey, primeR, n8r);
-        await fdZKey.writeULE32(plonkNVars);                         // Total number of bars
-        await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
-        await fdZKey.writeULE32(domainSize);                  // domainSize
-        await fdZKey.writeULE32(plonkAdditions.length);                  // domainSize
-        await fdZKey.writeULE32(plonkConstraints.length); 
-
-        await fdZKey.write(k1);
-        await fdZKey.write(k2);
-
-        await fdZKey.write(G1.toAffine(vk.Qm));
-        await fdZKey.write(G1.toAffine(vk.Ql));
-        await fdZKey.write(G1.toAffine(vk.Qr));
-        await fdZKey.write(G1.toAffine(vk.Qo));
-        await fdZKey.write(G1.toAffine(vk.Qc));
-
-        await fdZKey.write(G1.toAffine(vk.S1));
-        await fdZKey.write(G1.toAffine(vk.S2));
-        await fdZKey.write(G1.toAffine(vk.S3));
-
-        let bX_2;
-        bX_2 = await fdPTau.read(sG2, sectionsPTau[3][0].p + sG2);
-        await fdZKey.write(bX_2);
-
-        await endWriteSection(fdZKey);
-    }
-
-    function getK1K2() {
-        let k1 = Fr.two;
-        // coverage: search loop never iterates for the supported curves' constants
-        /* c8 ignore start */
-        while (isIncluded(k1, [], cirPower)) Fr.add(k1, Fr.one);
-        /* c8 ignore stop */
-        let k2 = Fr.add(k1, Fr.one);
-        // coverage: search loop never iterates for the supported curves' constants
-        /* c8 ignore start */
-        while (isIncluded(k2, [k1], cirPower)) Fr.add(k2, Fr.one);
-        /* c8 ignore stop */
-        return [k1, k2];
-
-
-        function isIncluded(k, kArr, pow) {
-            const domainSize= 2**pow;
-            let w = Fr.one;
-            for (let i=0; i<domainSize; i++) {
-                // coverage: search loop never iterates for the supported curves' constants
-                /* c8 ignore start */
-                if (Fr.eq(k, w)) return true;
-                /* c8 ignore stop */
-                for (let j=0; j<kArr.length; j++) {
-                    // coverage: search loop never iterates for the supported curves' constants
-                    /* c8 ignore start */
-                    if (Fr.eq(k, Fr.mul(kArr[j], w))) return true;
-                    /* c8 ignore stop */
-                }
-                w = Fr.mul(w, Fr.w[pow]);
-            }
-            return false;
-        }
-    }
-
-    } finally {
-        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-class Proof {
-    constructor(curve, logger) {
-        this.curve = curve;
-        this.logger = logger;
-
-        this.resetProof();
-    }
-
-    resetProof() {
-        this.polynomials = {};
-        this.evaluations = {};
-    }
-
-    addPolynomial(key, polynomial) {
-        if (key in this.polynomials) {
-            this.logger.warn(`proof: polynomial.${key} already exist in proof`);
-        }
-        this.polynomials[key] = polynomial;
-    }
-
-    getPolynomial(key) {
-        if (!(key in this.polynomials)) {
-            this.logger.warn(`proof: polynomial ${key} does not exist in proof`);
-        }
-        return this.polynomials[key];
-    }
-
-    addEvaluation(key, evaluation) {
-        if (key in this.evaluations) {
-            this.logger.warn(`proof: evaluations.${key} already exist in proof`);
-        }
-        this.evaluations[key] = evaluation;
-    }
-
-    getEvaluation(key) {
-        if (!(key in this.evaluations)) {
-            this.logger.warn(`proof: evaluation ${key} does not exist in proof`);
-        }
-        return this.evaluations[key];
-    }
-
-    toObjectProof(splitFields = true) {
-        let res = splitFields ? {polynomials: {}, evaluations: {}} : {};
-
-        Object.keys(this.polynomials).forEach(key => {
-            const value = this.curve.G1.toObject(this.polynomials[key]);
-            if(splitFields) {
-                res.polynomials[key] = value;
-            } else {
-                res[key] = value;
-            }
-        });
-
-        Object.keys(this.evaluations).forEach(key => {
-            const value = this.curve.Fr.toObject(this.evaluations[key]);
-            if(splitFields) {
-                res.evaluations[key] = value;
-            } else {
-                res[key] = value;
-            }
-        });
-
-        return res;
-    }
-
-    fromObjectProof(objectProof) {
-        this.resetProof();
-
-        Object.keys(objectProof.polynomials).forEach(key => {
-            this.polynomials[key] = this.curve.G1.fromObject(objectProof.polynomials[key]);
-        });
-
-        Object.keys(objectProof.evaluations).forEach(key => {
-            this.evaluations[key] = this.curve.Fr.fromObject(objectProof.evaluations[key]);
-        });
-    }
-}
-
-/**
- * SHA3 (keccak) hash function, based on a new "Sponge function" design.
- * Different from older hashes, the internal state is bigger than output size.
- *
- * Check out
- * {@link https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf | FIPS-202},
- * {@link https://keccak.team/keccak.html | Website}, and
- * {@link https://crypto.stackexchange.com/q/15727 | the differences between
- * SHA-3 and Keccak}.
- *
- * Check out `sha3-addons` module for cSHAKE, k12, and others.
- * @module
- */
-// No __PURE__ annotations in sha3 header:
-// EVERYTHING is in fact used on every export.
-// Various per round constants calculations
-const _0n = BigInt(0);
-const _1n = BigInt(1);
-const _2n = BigInt(2);
-const _7n = BigInt(7);
-const _256n = BigInt(256);
-// FIPS 202 Algorithm 5 rc(): when the outgoing bit is 1, the 8-bit LFSR xors
-// taps 0, 4, 5, and 6, which compresses to the feedback mask `0x71`.
-const _0x71n = BigInt(0x71);
-const SHA3_PI = [];
-const SHA3_ROTL = [];
-const _SHA3_IOTA = []; // no pure annotation: var is always used
-for (let round = 0, R = _1n, x = 1, y = 0; round < 24; round++) {
-    // Pi
-    [x, y] = [y, (2 * x + 3 * y) % 5];
-    SHA3_PI.push(2 * (5 * y + x));
-    // Rotational
-    SHA3_ROTL.push((((round + 1) * (round + 2)) / 2) % 64);
-    // Iota
-    let t = _0n;
-    for (let j = 0; j < 7; j++) {
-        R = ((R << _1n) ^ ((R >> _7n) * _0x71n)) % _256n;
-        if (R & _2n)
-            t ^= _1n << ((_1n << BigInt(j)) - _1n);
-    }
-    _SHA3_IOTA.push(t);
-}
-const IOTAS = split(_SHA3_IOTA, true);
-// `split(..., true)` keeps the local little-endian lane-word layout used by
-// `state32`, so these `H` / `L` tables follow the file's first-word /
-// second-word lane slots rather than `_u64.ts`'s usual high/low naming.
-const SHA3_IOTA_H = IOTAS[0];
-const SHA3_IOTA_L = IOTAS[1];
-// Left rotation (without 0, 32, 64)
-const rotlH = (h, l, s) => (s > 32 ? rotlBH(h, l, s) : rotlSH(h, l, s));
-const rotlL = (h, l, s) => (s > 32 ? rotlBL(h, l, s) : rotlSL(h, l, s));
-/**
- * `keccakf1600` internal permutation, additionally allows adjusting the round count.
- * @param s - 5x5 Keccak state encoded as 25 lanes split into 50 uint32 words
- *   in this file's local little-endian lane-word order
- * @param rounds - number of rounds to execute
- * @throws If `rounds` is outside the supported `1..24` range. {@link Error}
- * @example
- * Permute a Keccak state with the default 24 rounds.
- * ```ts
- * keccakP(new Uint32Array(50));
- * ```
- */
-function keccakP(s, rounds = 24) {
-    anumber(rounds, 'rounds');
-    // This implementation precomputes only the standard Keccak-f[1600] 24-round Iota table.
-    if (rounds < 1 || rounds > 24)
-        throw new Error('"rounds" expected integer 1..24');
-    const B = new Uint32Array(5 * 2);
-    // NOTE: all indices are x2 since we store state as u32 instead of u64 (bigints to slow in js)
-    for (let round = 24 - rounds; round < 24; round++) {
-        // Theta θ
-        for (let x = 0; x < 10; x++)
-            B[x] = s[x] ^ s[x + 10] ^ s[x + 20] ^ s[x + 30] ^ s[x + 40];
-        for (let x = 0; x < 10; x += 2) {
-            const idx1 = (x + 8) % 10;
-            const idx0 = (x + 2) % 10;
-            const B0 = B[idx0];
-            const B1 = B[idx0 + 1];
-            const Th = rotlH(B0, B1, 1) ^ B[idx1];
-            const Tl = rotlL(B0, B1, 1) ^ B[idx1 + 1];
-            for (let y = 0; y < 50; y += 10) {
-                s[x + y] ^= Th;
-                s[x + y + 1] ^= Tl;
-            }
-        }
-        // Rho (ρ) and Pi (π)
-        let curH = s[2];
-        let curL = s[3];
-        for (let t = 0; t < 24; t++) {
-            const shift = SHA3_ROTL[t];
-            const Th = rotlH(curH, curL, shift);
-            const Tl = rotlL(curH, curL, shift);
-            const PI = SHA3_PI[t];
-            curH = s[PI];
-            curL = s[PI + 1];
-            s[PI] = Th;
-            s[PI + 1] = Tl;
-        }
-        // Chi (χ)
-        // Same as:
-        // for (let x = 0; x < 10; x++) B[x] = s[y + x];
-        // for (let x = 0; x < 10; x++) s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
-        for (let y = 0; y < 50; y += 10) {
-            const b0 = s[y], b1 = s[y + 1], b2 = s[y + 2], b3 = s[y + 3];
-            s[y] ^= ~s[y + 2] & s[y + 4];
-            s[y + 1] ^= ~s[y + 3] & s[y + 5];
-            s[y + 2] ^= ~s[y + 4] & s[y + 6];
-            s[y + 3] ^= ~s[y + 5] & s[y + 7];
-            s[y + 4] ^= ~s[y + 6] & s[y + 8];
-            s[y + 5] ^= ~s[y + 7] & s[y + 9];
-            s[y + 6] ^= ~s[y + 8] & b0;
-            s[y + 7] ^= ~s[y + 9] & b1;
-            s[y + 8] ^= ~b0 & b2;
-            s[y + 9] ^= ~b1 & b3;
-        }
-        // Iota (ι)
-        s[0] ^= SHA3_IOTA_H[round];
-        s[1] ^= SHA3_IOTA_L[round];
-    }
-    clean(B);
-}
-/**
- * Keccak sponge function.
- * @param blockLen - absorb/squeeze rate in bytes
- * @param suffix - domain separation suffix byte
- * @param outputLen - default digest length in bytes. This base sponge only
- *   requires a non-negative integer; wrappers that need positive output
- *   lengths must enforce that themselves.
- * @param enableXOF - whether XOF output is allowed
- * @param rounds - number of Keccak-f rounds
- * @example
- * Build a sponge state, absorb bytes, then finalize a digest.
- * ```ts
- * const hash = new Keccak(136, 0x06, 32);
- * hash.update(new Uint8Array([1, 2, 3]));
- * hash.digest();
- * ```
- */
-class Keccak {
-    state;
-    pos = 0;
-    posOut = 0;
-    finished = false;
-    state32;
-    destroyed = false;
-    blockLen;
-    suffix;
-    outputLen;
-    canXOF;
-    enableXOF = false;
-    rounds;
-    // NOTE: we accept arguments in bytes instead of bits here.
-    constructor(blockLen, suffix, outputLen, enableXOF = false, rounds = 24) {
-        this.blockLen = blockLen;
-        this.suffix = suffix;
-        this.outputLen = outputLen;
-        this.enableXOF = enableXOF;
-        this.canXOF = enableXOF;
-        this.rounds = rounds;
-        // Can be passed from user as dkLen
-        anumber(outputLen, 'outputLen');
-        // 1600 = 5x5 matrix of 64bit.  1600 bits === 200 bytes
-        // 0 < blockLen < 200
-        if (!(0 < blockLen && blockLen < 200))
-            throw new Error('only keccak-f1600 function is supported');
-        this.state = new Uint8Array(200);
-        this.state32 = u32(this.state);
-    }
-    clone() {
-        return this._cloneInto();
-    }
-    keccak() {
-        swap32IfBE(this.state32);
-        keccakP(this.state32, this.rounds);
-        swap32IfBE(this.state32);
-        this.posOut = 0;
-        this.pos = 0;
-    }
-    update(data) {
-        aexists(this);
-        abytes(data);
-        const { blockLen, state } = this;
-        const len = data.length;
-        for (let pos = 0; pos < len;) {
-            const take = Math.min(blockLen - this.pos, len - pos);
-            for (let i = 0; i < take; i++)
-                state[this.pos++] ^= data[pos++];
-            if (this.pos === blockLen)
-                this.keccak();
-        }
-        return this;
-    }
-    finish() {
-        if (this.finished)
-            return;
-        this.finished = true;
-        const { state, suffix, pos, blockLen } = this;
-        // FIPS 202 appends the SHA3/SHAKE domain-separation suffix before pad10*1.
-        // These byte values already include the first padding bit, while the
-        // final `0x80` below supplies the closing `1` bit in the last rate byte.
-        state[pos] ^= suffix;
-        // If that combined suffix lands in the last rate byte and already sets
-        // bit 7, absorb it first so the final pad10*1 bit can be xored into a
-        // fresh block.
-        if ((suffix & 0x80) !== 0 && pos === blockLen - 1)
-            this.keccak();
-        state[blockLen - 1] ^= 0x80;
-        this.keccak();
-    }
-    writeInto(out) {
-        aexists(this, false);
-        abytes(out);
-        this.finish();
-        const bufferOut = this.state;
-        const { blockLen } = this;
-        for (let pos = 0, len = out.length; pos < len;) {
-            if (this.posOut >= blockLen)
-                this.keccak();
-            const take = Math.min(blockLen - this.posOut, len - pos);
-            out.set(bufferOut.subarray(this.posOut, this.posOut + take), pos);
-            this.posOut += take;
-            pos += take;
-        }
-        return out;
-    }
-    xofInto(out) {
-        // Plain SHA3/Keccak usage with XOF is probably a mistake, but this base
-        // class is also reused by SHAKE/cSHAKE/KMAC/TupleHash/ParallelHash/
-        // TurboSHAKE/KangarooTwelve wrappers that intentionally enable XOF.
-        if (!this.enableXOF)
-            throw new Error('XOF is not possible for this instance');
-        return this.writeInto(out);
-    }
-    xof(bytes) {
-        anumber(bytes);
-        return this.xofInto(new Uint8Array(bytes));
-    }
-    digestInto(out) {
-        aoutput(out, this);
-        if (this.finished)
-            throw new Error('digest() was already called');
-        // `aoutput(...)` allows oversized buffers; digestInto() must fill only the advertised digest.
-        this.writeInto(out.subarray(0, this.outputLen));
-        this.destroy();
-    }
-    digest() {
-        const out = new Uint8Array(this.outputLen);
-        this.digestInto(out);
-        return out;
-    }
-    destroy() {
-        this.destroyed = true;
-        clean(this.state);
-    }
-    _cloneInto(to) {
-        const { blockLen, suffix, outputLen, rounds, enableXOF } = this;
-        to ||= new Keccak(blockLen, suffix, outputLen, enableXOF, rounds);
-        // Reused destinations can come from a different rate/capacity variant, so clone must rewrite
-        // the sponge geometry as well as the state words.
-        to.blockLen = blockLen;
-        to.state32.set(this.state32);
-        to.pos = this.pos;
-        to.posOut = this.posOut;
-        to.finished = this.finished;
-        to.rounds = rounds;
-        // Suffix can change in cSHAKE
-        to.suffix = suffix;
-        to.outputLen = outputLen;
-        to.enableXOF = enableXOF;
-        // Clones must preserve the public capability bit too; `_KMAC` reuses this path and deep clone
-        // tests compare instance fields directly, so leaving `canXOF` behind makes the clone lie.
-        to.canXOF = this.canXOF;
-        to.destroyed = this.destroyed;
-        return to;
-    }
-}
-const genKeccak = (suffix, blockLen, outputLen, info = {}) => createHasher(() => new Keccak(blockLen, suffix, outputLen), info);
-/**
- * Keccak-256 hash function. Different from SHA3-256.
- * @param msg - message bytes to hash
- * @returns Digest bytes.
- * @example
- * Hash a message with Keccak-256.
- * ```ts
- * keccak_256(new Uint8Array([97, 98, 99]));
- * ```
- */
-const keccak_256 = /* @__PURE__ */ genKeccak(0x01, 136, 32);
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const POLYNOMIAL = 0;
-const SCALAR = 1;
-
-class Keccak256Transcript {
-    constructor(curve) {
-        this.G1 = curve.G1;
-        this.Fr = curve.Fr;
-
-        this.reset();
-    }
-
-    reset() {
-        this.data = [];
-    }
-
-    addPolCommitment(polynomialCommitment) {
-        this.data.push({type: POLYNOMIAL, data: polynomialCommitment});
-    }
-
-    addScalar(scalar) {
-        this.data.push({type: SCALAR, data: scalar});
-    }
-
-    getChallenge() {
-        if(0 === this.data.length) {
-            throw new Error("Keccak256Transcript: No data to generate a transcript");
-        }
-
-        let nPolynomials = 0;
-        let nScalars = 0;
-
-        this.data.forEach(element => POLYNOMIAL === element.type ? nPolynomials++ : nScalars++);
-
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8 * 2);
-        let offset = 0;
-
-        for (let i = 0; i < this.data.length; i++) {
-            if (POLYNOMIAL === this.data[i].type) {
-                this.G1.toRprUncompressed(buffer, offset, this.data[i].data);
-                offset += this.G1.F.n8 * 2;
-            } else {
-                this.Fr.toRprBE(buffer, offset, this.data[i].data);
-                offset += this.Fr.n8;
-            }
-        }
-
-        const value = Scalar.fromRprBE(keccak_256(buffer));
-        return this.Fr.e(value);
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-class MulZ {
-    static getZ1(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.e(-1), Fr.w[2]),
-            Fr.e(-2),
-            Fr.sub(Fr.e(-1), Fr.w[2]),
-        ];
-    }
-
-    static getZ2(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-            Fr.e(4),
-            Fr.sub(Fr.zero, Fr.mul(Fr.e(-2), Fr.w[2])),
-        ];
-    }
-
-    static getZ3(Fr) {
-        return [
-            Fr.zero,
-            Fr.add(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-            Fr.e(-8),
-            Fr.sub(Fr.e(2), Fr.mul(Fr.e(2), Fr.w[2])),
-        ];
-
-    }
-
-    static mul2(a, b, ap, bp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        r = a_b;
-
-        let a0 = Fr.add(a_bp, ap_b);
-
-        let a1 = ap_bp;
-
-        rz = a0;
-        if (p) {
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-        }
-
-        return [r, rz];
-    }
-
-    static mul3(a, b, c, ap, bp, cp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        const Z2 = this.getZ2(Fr);
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        r = Fr.mul(a_b, c);
-
-        let a0 = Fr.mul(ap_b, c);
-        a0 = Fr.add(a0, Fr.mul(a_bp, c));
-        a0 = Fr.add(a0, Fr.mul(a_b, cp));
-
-        let a1 = Fr.mul(ap_bp, c);
-        a1 = Fr.add(a1, Fr.mul(a_bp, cp));
-        a1 = Fr.add(a1, Fr.mul(ap_b, cp));
-
-        rz = a0;
-        if (p) {
-            const a2 = Fr.mul(ap_bp, cp);
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-            rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-        }
-
-        return [r, rz];
-    }
-
-    static mul4(a, b, c, d, ap, bp, cp, dp, p, Fr) {
-        const Z1 = this.getZ1(Fr);
-        const Z2 = this.getZ2(Fr);
-        const Z3 = this.getZ3(Fr);
-
-        let r, rz;
-
-        const a_b = Fr.mul(a, b);
-        const a_bp = Fr.mul(a, bp);
-        const ap_b = Fr.mul(ap, b);
-        const ap_bp = Fr.mul(ap, bp);
-
-        const c_d = Fr.mul(c, d);
-        const c_dp = Fr.mul(c, dp);
-        const cp_d = Fr.mul(cp, d);
-        const cp_dp = Fr.mul(cp, dp);
-
-        r = Fr.mul(a_b, c_d);
-
-        let a0 = Fr.mul(ap_b, c_d);
-        a0 = Fr.add(a0, Fr.mul(a_bp, c_d));
-        a0 = Fr.add(a0, Fr.mul(a_b, cp_d));
-        a0 = Fr.add(a0, Fr.mul(a_b, c_dp));
-
-        let a1 = Fr.mul(ap_bp, c_d);
-        a1 = Fr.add(a1, Fr.mul(ap_b, cp_d));
-        a1 = Fr.add(a1, Fr.mul(ap_b, c_dp));
-        a1 = Fr.add(a1, Fr.mul(a_bp, cp_d));
-        a1 = Fr.add(a1, Fr.mul(a_bp, c_dp));
-        a1 = Fr.add(a1, Fr.mul(a_b, cp_dp));
-
-        let a2 = Fr.mul(a_bp, cp_dp);
-        a2 = Fr.add(a2, Fr.mul(ap_b, cp_dp));
-        a2 = Fr.add(a2, Fr.mul(ap_bp, c_dp));
-        a2 = Fr.add(a2, Fr.mul(ap_bp, cp_d));
-
-        let a3 = Fr.mul(ap_bp, cp_dp);
-
-        rz = a0;
-        if (p) {
-            rz = Fr.add(rz, Fr.mul(Z1[p], a1));
-            rz = Fr.add(rz, Fr.mul(Z2[p], a2));
-            rz = Fr.add(rz, Fr.mul(Z3[p], a3));
-        }
-
-        return [r, rz];
-    }
-}
-
-const ZKEY_PL_ADDITIONS_SECTION = 3;
-const ZKEY_PL_A_MAP_SECTION = 4;
-const ZKEY_PL_B_MAP_SECTION = 5;
-const ZKEY_PL_C_MAP_SECTION = 6;
-const ZKEY_PL_QM_SECTION = 7;
-const ZKEY_PL_QL_SECTION = 8;
-const ZKEY_PL_QR_SECTION = 9;
-const ZKEY_PL_QO_SECTION = 10;
-const ZKEY_PL_QC_SECTION = 11;
-const ZKEY_PL_SIGMA_SECTION = 12;
-const ZKEY_PL_LAGRANGE_SECTION = 13;
-const ZKEY_PL_PTAU_SECTION = 14;
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-class Polynomial {
-    constructor(coefficients, curve, logger) {
-        this.coef = coefficients;
-        this.curve = curve;
-        this.Fr = curve.Fr;
-        this.G1 = curve.G1;
-        this.logger = logger;
-    }
-
-    static async fromEvaluations(buffer, curve, logger) {
-        let coefficients = await curve.Fr.ifft(buffer);
-
-        return new Polynomial(coefficients, curve, logger);
-    }
-
-    static fromCoefficientsArray(array, curve, logger) {
-        const Fr = curve.Fr;
-        let buff = array.length > 2 << 14 ?
-            new BigBuffer(array.length * Fr.n8) : new Uint8Array(array.length * Fr.n8);
-        for (let i = 0; i < array.length; i++) buff.set(array[i], i * Fr.n8);
-
-        return new Polynomial(buff, curve, logger);
-    }
-
-    static fromPolynomial(polynomial, curve, logger) {
-        let length = polynomial.length();
-        let Fr = curve.Fr;
-
-        let buff = length > 2 << 14 ?
-            new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
-        buff.set(polynomial.coef.slice(), 0);
-
-        return new Polynomial(buff, curve, logger);
-    }
-
-    isEqual(polynomial) {
-        const degree = this.degree();
-        if (degree !== polynomial.degree()) return false;
-
-        for (let i = 0; i < degree + 1; i++) {
-            if (!this.Fr.eq(this.getCoef(i), polynomial.getCoef(i))) return false;
-        }
-
-        return true;
-    }
-
-    blindCoefficients(blindingFactors) {
-        blindingFactors = blindingFactors || [];
-
-        const blindedCoefficients = (this.length() + blindingFactors.length) > 2 << 14 ?
-            new BigBuffer((this.length() + blindingFactors.length) * this.Fr.n8) :
-            new Uint8Array((this.length() + blindingFactors.length) * this.Fr.n8);
-
-        blindedCoefficients.set(this.coef, 0);
-        for (let i = 0; i < blindingFactors.length; i++) {
-            blindedCoefficients.set(
-                this.Fr.add(
-                    blindedCoefficients.slice((this.length() + i) * this.Fr.n8, (this.length() + i + 1) * this.Fr.n8),
-                    blindingFactors[i]
-                ),
-                (this.length() + i) * this.Fr.n8
-            );
-            blindedCoefficients.set(
-                this.Fr.sub(
-                    blindedCoefficients.slice(i * this.Fr.n8, (i + 1) * this.Fr.n8),
-                    blindingFactors[i]
-                ),
-                i * this.Fr.n8
-            );
-        }
-        this.coef = blindedCoefficients;
-    }
-
-    getCoef(index) {
-        const i_n8 = index * this.Fr.n8;
-
-        if (i_n8 + this.Fr.n8 > this.coef.byteLength) return this.Fr.zero;
-
-        return this.coef.slice(i_n8, i_n8 + this.Fr.n8);
-    }
-
-    setCoef(index, value) {
-        if (index > (this.length() - 1)) {
-            throw new Error("Coef index is not available");
-        }
-
-        this.coef.set(value, index * this.Fr.n8);
-    }
-
-    static async to4T(buffer, domainSize, blindingFactors, Fr) {
-        blindingFactors = blindingFactors || [];
-        let a = await Fr.ifft(buffer);
-
-        const a4 = (domainSize * 4) > 2 << 14 ?
-            new BigBuffer(domainSize * 4 * Fr.n8) : new Uint8Array(domainSize * 4 * Fr.n8);
-        a4.set(a, 0);
-
-        const A4 = await Fr.fft(a4);
-
-        if (blindingFactors.length === 0) {
-            return [a, A4];
-        }
-
-        const a1 = domainSize + blindingFactors.length > 2 << 14 ?
-            new BigBuffer((domainSize + blindingFactors.length) * Fr.n8) :
-            new Uint8Array((domainSize + blindingFactors.length) * Fr.n8);
-
-        a1.set(a, 0);
-        for (let i = 0; i < blindingFactors.length; i++) {
-            a1.set(
-                Fr.add(
-                    a1.slice((domainSize + i) * Fr.n8, (domainSize + i + 1) * Fr.n8),
-                    blindingFactors[i]
-                ),
-                (domainSize + i) * Fr.n8
-            );
-            a1.set(
-                Fr.sub(
-                    a1.slice(i * Fr.n8, (i + 1) * Fr.n8),
-                    blindingFactors[i]
-                ),
-                i * Fr.n8
-            );
-        }
-
-        return [a1, A4];
-    }
-
-    length() {
-        let length = this.coef.byteLength / this.Fr.n8;
-        if (length !== Math.floor(this.coef.byteLength / this.Fr.n8)) {
-            throw new Error("Polynomial coefficients buffer has incorrect size");
-        }
-        if (0 === length) {
-            if (this.logger) {
-                this.logger.warn("Polynomial has length zero");
-            }
-        }
-        return length;
-    }
-
-    degree() {
-        for (let i = this.length() - 1; i > 0; i--) {
-            const i_n8 = i * this.Fr.n8;
-            if (!this.Fr.eq(this.Fr.zero, this.coef.slice(i_n8, i_n8 + this.Fr.n8))) {
-                return i;
-            }
-        }
-
-        return 0;
-    }
-
-    evaluate(point) {
-        let res = this.Fr.zero;
-
-        for (let i = this.degree() + 1; i > 0; i--) {
-            let i_n8 = i * this.Fr.n8;
-            const currentCoefficient = this.coef.slice(i_n8 - this.Fr.n8, i_n8);
-            res = this.Fr.add(currentCoefficient, this.Fr.mul(res, point));
-        }
-
-        return res;
-    }
-
-    fastEvaluate(point) {
-        const Fr = this.Fr;
-        let nThreads = 3;
-
-        let nCoefs = this.degree() + 1;
-        let coefsThread = parseInt(nCoefs / nThreads);
-        let residualCoefs = nCoefs - coefsThread * nThreads;
-
-        let res = [];
-        let xN = [];
-
-        xN[0] = Fr.one;
-
-        for (let i = 0; i < nThreads; i++) {
-            res[i] = Fr.zero;
-
-            let nCoefs = i === (nThreads - 1) ? coefsThread + residualCoefs : coefsThread;
-            for (let j = nCoefs; j > 0; j--) {
-                res[i] = Fr.add(this.getCoef((i * coefsThread) + j - 1), Fr.mul(res[i], point));
-
-                if (i === 0) xN[0] = Fr.mul(xN[0], point);
-            }
-        }
-
-        for (let i = 1; i < nThreads; i++) {
-            res[0] = Fr.add(res[0], Fr.mul(xN[i - 1], res[i]));
-            xN[i] = Fr.mul(xN[i - 1], xN[0]);
-        }
-
-        return res[0];
-    }
-
-    add(polynomial, blindingValue) {
-        let other = false;
-
-        if (polynomial.length() > this.length()) {
-            other = true;
-        }
-
-        const thisLength = this.length();
-        const polyLength = polynomial.length();
-        for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
-            const i_n8 = i * this.Fr.n8;
-
-            const a = i < thisLength ? this.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i < polyLength ? polynomial.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-
-            if (blindingValue !== undefined) {
-                b = this.Fr.mul(b, blindingValue);
-            }
-            if (other) {
-                polynomial.coef.set(this.Fr.add(a, b), i_n8);
-            } else {
-                this.coef.set(this.Fr.add(a, b), i_n8);
-            }
-        }
-        if (other) {
-            delete this.coef;
-            this.coef = polynomial.coef;
-        }
-    }
-
-    sub(polynomial, blindingValue) {
-        let other = false;
-
-        if (polynomial.length() > this.length()) {
-            other = true;
-        }
-
-        const thisLength = this.length();
-        const polyLength = polynomial.length();
-        for (let i = 0; i < Math.max(thisLength, polyLength); i++) {
-            const i_n8 = i * this.Fr.n8;
-
-            const a = i < thisLength ? this.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-            let b = i < polyLength ? polynomial.coef.slice(i_n8, i_n8 + this.Fr.n8) : this.Fr.zero;
-
-            if (blindingValue !== undefined) {
-                b = this.Fr.mul(b, blindingValue);
-            }
-            if (other) {
-                polynomial.coef.set(this.Fr.sub(a, b), i_n8);
-            } else {
-                this.coef.set(this.Fr.sub(a, b), i_n8);
-            }
-        }
-        if (other) {
-            delete this.coef;
-            this.coef = polynomial.coef;
-        }
-    }
-
-    mulScalar(value) {
-        for (let i = 0; i < this.length(); i++) {
-            const i_n8 = i * this.Fr.n8;
-
-            this.coef.set(this.Fr.mul(this.coef.slice(i_n8, i_n8 + this.Fr.n8), value), i_n8);
-        }
-    }
-
-    addScalar(value) {
-        // coverage: defensive edge guard not reachable with valid inputs
-        /* c8 ignore start */
-        const currentValue = 0 === this.length() ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
-        /* c8 ignore stop */
-        this.coef.set(this.Fr.add(currentValue, value), 0);
-    }
-
-    subScalar(value) {
-        // coverage: defensive edge guard not reachable with valid inputs
-        /* c8 ignore start */
-        const currentValue = 0 === this.length() ? this.Fr.zero : this.coef.slice(0, this.Fr.n8);
-        /* c8 ignore stop */
-        this.coef.set(this.Fr.sub(currentValue, value), 0);
-    }
-
-    // Multiply current polynomial by the polynomial (X - value)
-    byXSubValue(value) {
-        const Fr = this.Fr;
-        const resize = !Fr.eq(Fr.zero, this.getCoef(this.length() - 1));
-
-        const length = resize ? this.length() + 1 : this.length();
-        const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
-        let pol = new Polynomial(buff, this.curve, this.logger);
-
-        // Step 0: Set current coefficients to the new buffer shifted one position
-        pol.coef.set(this.coef.slice(0, (length - 1) * Fr.n8), 32);
-
-        // Step 1: multiply each coefficient by (-value)
-        this.mulScalar(Fr.neg(value));
-
-        // Step 2: Add current polynomial to destination polynomial
-        pol.add(this);
-
-        // Swap buffers
-        this.coef = pol.coef;
-    }
-
-    // Multiply current polynomial by the polynomial (X^n + value)
-    byXNSubValue(n, value) {
-        const Fr = this.Fr;
-        const resize = !(this.length() - n - 1 >= this.degree());
-
-        const length = resize ? this.length() + n : this.length();
-        const buff = length > 2 << 14 ? new BigBuffer(length * Fr.n8) : new Uint8Array(length * Fr.n8);
-        let pol = new Polynomial(buff, this.curve, this.logger);
-
-        // Step 0: Set current coefficients to the new buffer shifted one position
-        pol.coef.set(this.coef.slice(0, (this.degree() + 1) * 32, ), n * 32);
-
-        // Step 1: multiply each coefficient by (- value)
-        this.mulScalar(value);
-
-        // Step 2: Add current polynomial to destination polynomial
-        pol.add(this);
-
-        // Swap buffers
-        this.coef = pol.coef;
-    }
-
-    // Euclidean division
-    divBy(polynomial) {
-        const Fr = this.Fr;
-        const degreeA = this.degree();
-        const degreeB = polynomial.degree();
-
-        let polR = new Polynomial(this.coef, this.curve, this.logger);
-
-        this.coef = this.length() > 2 << 14 ?
-            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
-
-        for (let i = degreeA - degreeB; i >= 0; i--) {
-            this.setCoef(i, Fr.div(polR.getCoef(i + degreeB), polynomial.getCoef(degreeB)));
-            for (let j = 0; j <= degreeB; j++) {
-                polR.setCoef(i + j, Fr.sub(polR.getCoef(i + j), Fr.mul(this.getCoef(i), polynomial.getCoef(j))));
-            }
-        }
-
-        return polR;
-    }
-
-    // Division by a Polynomial of the form (x^m - beta)
-    divByMonic(m, beta) {
-        const Fr = this.Fr;
-
-        let d = this.degree();
-
-        let buffer = this.length() > 2 << 14 ?
-            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
-        let quotient = new Polynomial(buffer, this.curve, this.logger);
-
-        let bArr = [];
-
-        // Add the m leading coefficients of this to quotient
-        for (let i = 0; i < m; i++) {
-            quotient.setCoef((d - i) - m, this.getCoef(d - i));
-            bArr[i] = this.getCoef(d - i);
-        }
-
-        let nThreads = m;
-        for (let k = 0; k < nThreads; k++) {
-            for (let i = d - 2 * m - k; i >= 0; i = i - nThreads) {
-                // coverage: defensive edge guard not reachable with valid inputs
-                /* c8 ignore start */
-                if (i < 0) break;
-                /* c8 ignore stop */
-                let idx = k;
-                bArr[idx] = Fr.add(this.getCoef(i + m), Fr.mul(bArr[idx], beta));
-
-                quotient.setCoef(i, bArr[idx]);
-            }
-        }
-
-        this.coef = quotient.coef;
-    }
-
-    divByVanishing(n, beta) {
-        if (this.degree() < n) {
-            throw new Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
-        }
-
-        const Fr = this.Fr;
-
-        let polR = new Polynomial(this.coef, this.curve, this.logger);
-
-        this.coef = this.length() > 2 << 14 ?
-            new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8);
-
-        for (let i = this.length() - 1; i >= n; i--) {
-            let leadingCoef = polR.getCoef(i);
-            if (Fr.eq(Fr.zero, leadingCoef)) continue;
-
-            polR.setCoef(i, Fr.zero);
-            polR.setCoef(i - n, Fr.add(polR.getCoef(i - n), Fr.mul(beta, leadingCoef)));
-            this.setCoef(i - n, Fr.add(this.getCoef(i - n), leadingCoef));
-        }
-
-        return polR;
-    }
-
-    fastDivByVanishing(data) {
-        const Fr = this.Fr;
-
-        for (let i = 0; i < data.length; i++) {
-
-            let m = data[i][0];
-            let beta = data[i][1];
-
-            if (this.degree() < m) {
-                throw new Error("divByVanishing polynomial divisor must be of degree lower than the dividend polynomial");
-            }
-
-            let nThreads = 5;
-            let nElements = this.length() - m;
-            let nElementsBucket = Math.floor(nElements / nThreads / m);
-            let nElementsChunk = nElementsBucket * m;
-            let nElementsLast = nElements - nThreads * nElementsChunk;
-
-            //In C++ implementation this buffer will be allocated only once outside the loop
-            let polTmp = new Polynomial(this.length() > 2 << 14 ?
-                new BigBuffer(this.length() * Fr.n8) : new Uint8Array(this.length() * Fr.n8), this.curve, this.logger);
-
-            let ptr = this.coef;
-            this.coef = polTmp.coef;
-            polTmp.coef = ptr;
-
-            // STEP 1: Setejar els m valors del següent bucket al chunk actual, PARALEL·LITZAR
-            for (let k = 0; k < nThreads; k++) {
-                let idx0 = (k + 1) * nElementsChunk + nElementsLast;
-                for (let i = 0; i < m; i++) {
-                    this.setCoef(idx0 + i - m, polTmp.getCoef(idx0 + i));
-                }
-
-                for (let i = 0; i < nElementsChunk - m; i++) {
-                    let offset = idx0 - i - 1;
-                    let val = Fr.add(polTmp.getCoef(offset), Fr.mul(beta, this.getCoef(offset)));
-                    this.setCoef(offset - m, val);
-                }
-            }
-
-            //STEP 2: Setejar els valors del elements last NO PARAL·LELITZAR
-            let idx0 = nElementsLast;
-            let pending = nElementsLast;
-            for (let i = 0; i < m && pending; i++) {
-                this.setCoef(idx0 - i - 1, polTmp.getCoef(idx0 + m - i - 1));
-                pending--;
-            }
-
-            for (let i = 0; i < pending; i++) {
-                let offset = idx0 - i - 1;
-                let val = Fr.add(polTmp.getCoef(offset), Fr.mul(beta, this.getCoef(offset)));
-                this.setCoef(offset - m, val);
-            }
-
-            //Step 3: calcular acumulats NO  PARALEL·LITZAR
-
-            let acc = [];
-            let betaPow = Fr.one;
-            for (let i = 0; i < nElementsBucket; i++) {
-                betaPow = Fr.mul(betaPow, beta);
-            }
-            let currentBeta = Fr.one;
-
-            for (let k = nThreads; k > 0; k--) {
-                let idThread = k - 1;
-                let idx0 = idThread * nElementsChunk + nElementsLast;
-                acc[idThread] = [];
-
-                for (let i = 0; i < m; i++) {
-                    acc[idThread][i] = this.getCoef(idx0 + i);
-
-                    if (k !== nThreads) {
-                        acc[idThread][i] = Fr.add(acc[idThread][i], Fr.mul(betaPow, acc[idThread + 1][i]));
-                    }
-                }
-                currentBeta = Fr.mul(currentBeta, betaPow);
-            }
-
-            //STEP 4 recalcular  PARALEL·LITZAR
-            for (let k = 0; k < nThreads; k++) {
-
-                let idx0 = k * nElementsChunk + nElementsLast;
-                let currentBeta = beta; //Quan hopassem a C++ i ho paralelitzem aquesta variable ha de ser privada
-                let currentM = m - 1;
-
-                let limit = k === 0 ? nElementsLast : nElementsChunk;
-                for (let i = 0; i < limit; i++) {
-                    let offset = idx0 - i - 1;
-                    let val = Fr.add(this.getCoef(offset), Fr.mul(currentBeta, acc[k][currentM]));
-
-                    this.setCoef(offset, val);
-
-                    // To avoid modular operations in each loop...
-                    if (currentM === 0) {
-                        currentM = m - 1;
-                        currentBeta = Fr.mul(currentBeta, beta);
-                    } else {
-                        currentM--;
-                    }
-                }
-            }
-        }
-    }
-
-
-    // Divide polynomial by X - value
-    divByXSubValue(value) {
-        const coefs = this.length() > 2 << 14 ?
-            new BigBuffer(this.length() * this.Fr.n8) : new Uint8Array(this.length() * this.Fr.n8);
-
-        coefs.set(this.Fr.zero, (this.length() - 1) * this.Fr.n8);
-        coefs.set(this.coef.slice((this.length() - 1) * this.Fr.n8, this.length() * this.Fr.n8), (this.length() - 2) * this.Fr.n8);
-        for (let i = this.length() - 3; i >= 0; i--) {
-            let i_n8 = i * this.Fr.n8;
-            coefs.set(
-                this.Fr.add(
-                    this.coef.slice(i_n8 + this.Fr.n8, i_n8 + 2 * this.Fr.n8),
-                    this.Fr.mul(value, coefs.slice(i_n8 + this.Fr.n8, i_n8 + 2 * this.Fr.n8))
-                ),
-                i * this.Fr.n8
-            );
-        }
-        if (!this.Fr.eq(
-            this.coef.slice(0, this.Fr.n8),
-            this.Fr.mul(this.Fr.neg(value), coefs.slice(0, this.Fr.n8))
-        )) {
-            throw new Error("Polynomial does not divide");
-        }
-
-        this.coef = coefs;
-    }
-
-    divZh(domainSize, extensions = 4) {
-        for (let i = 0; i < domainSize; i++) {
-            const i_n8 = i * this.Fr.n8;
-            this.coef.set(this.Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8)), i_n8);
-        }
-
-        const upperBound = this.coef.byteLength / this.Fr.n8;
-        for (let i = domainSize; i < upperBound; i++) {
-            const i_n8 = i * this.Fr.n8;
-
-            const a = this.Fr.sub(
-                this.coef.slice((i - domainSize) * this.Fr.n8, (i - domainSize) * this.Fr.n8 + this.Fr.n8),
-                this.coef.slice(i_n8, i_n8 + this.Fr.n8)
-            );
-            this.coef.set(a, i_n8);
-            if (i > (domainSize * (extensions-1) - extensions)) {
-                // coverage: defensive edge guard not reachable with valid inputs
-                /* c8 ignore start */
-                if (!this.Fr.isZero(a)) {
-                    throw new Error("Polynomial is not divisible");
-                }
-                /* c8 ignore stop */
-            }
-        }
-
-        return this;
-    }
-
-    divByZerofier(n, beta) {
-        let Fr = this.Fr;
-        const invBeta = Fr.inv(beta);
-        const invBetaNeg = Fr.neg(invBeta);
-
-        let isOne = Fr.eq(Fr.one, invBetaNeg);
-        let isNegOne = Fr.eq(Fr.negone, invBetaNeg);
-
-        if (!isOne) {
-            for (let i = 0; i < n; i++) {
-                const i_n8 = i * this.Fr.n8;
-                let element;
-
-                // If invBetaNeg === -1 we'll save a multiplication changing it by a neg function call
-                if (isNegOne) {
-                    element = Fr.neg(this.coef.slice(i_n8, i_n8 + this.Fr.n8));
-                } else {
-                    element = Fr.mul(invBetaNeg, this.coef.slice(i_n8, i_n8 + this.Fr.n8));
-                }
-
-                this.coef.set(element, i_n8);
-            }
-        }
-
-        isOne = Fr.eq(Fr.one, invBeta);
-        isNegOne = Fr.eq(Fr.negone, invBeta);
-
-        for (let i = n; i < this.length(); i++) {
-            const i_n8 = i * this.Fr.n8;
-            const i_prev_n8 = (i - n) * this.Fr.n8;
-
-            let element = this.Fr.sub(
-                this.coef.slice(i_prev_n8, i_prev_n8 + this.Fr.n8),
-                this.coef.slice(i_n8, i_n8 + this.Fr.n8)
-            );
-
-            // If invBeta === 1 we'll not do anything
-            if(!isOne) {
-                // If invBeta === -1 we'll save a multiplication changing it by a neg function call
-                if(isNegOne) {
-                    element = Fr.neg(element);
-                } else {
-                    element = Fr.mul(invBeta, element);
-                }
-            }
-
-            this.coef.set(element, i_n8);
-
-            // Check if polynomial is divisible by checking if n high coefficients are zero
-            if (i > this.length() - n - 1) {
-                if (!this.Fr.isZero(element)) {
-                    throw new Error("Polynomial is not divisible");
-                }
-            }
-        }
-
-        return this;
-    }
-
-    // function divideByVanishing(f, n, p) {
-    //     // polynomial division f(X) / (X^n - 1) with remainder
-    //     // very cheap, 0 multiplications
-    //     // strategy:
-    //     // start with q(X) = 0, r(X) = f(X)
-    //     // then start changing q, r while preserving the identity:
-    //     // f(X) = q(X) * (X^n - 1) + r(X)
-    //     // in every step, move highest-degree term of r into the product
-    //     // => r eventually has degree < n and we're done
-    //     let q = Array(f.length).fill(0n);
-    //     let r = [...f];
-    //     for (let i = f.length - 1; i >= n; i--) {
-    //         let leadingCoeff = r[i];
-    //         if (leadingCoeff === 0n) continue;
-    //         r[i] = 0n;
-    //         r[i - n] = mod(r[i - n] + leadingCoeff, p);
-    //         q[i - n] = mod(q[i - n] + leadingCoeff, p);
-    //     }
-    //     return [q, r];
-    // }
-
-    byX() {
-        const coefs = (this.length() + 1) > 2 << 14 ?
-            new BigBuffer(this.coef.byteLength + this.Fr.n8) : new Uint8Array(this.coef.byteLength + this.Fr.n8);
-        coefs.set(this.Fr.zero, 0);
-        coefs.set(this.coef, this.Fr.n8);
-
-        this.coef = coefs;
-    }
-
-    // Compute a new polynomial f(x^n) from f(x)
-    // f(x)   = a_0 + a_1·x + a_2·x^2 + ... + a_j·x^j
-    // f(x^n) = a_0 + a_1·x^n + a_2·x^2n + ... + a_j·x^jn
-    static
-    async expX(polynomial, n, truncate = false) {
-        const Fr = polynomial.Fr;
-
-        if (n < 1) {
-            // n == 0 not allowed because it has no sense, but if it's necessary we have to return
-            // a zero degree polynomial with a constant coefficient equals to the sum of all the original coefficients
-            throw new Error("Compute a new polynomial to a zero or negative number is not allowed");
-        } else if (1 === n) {
-            // f(x^1) = f(x): the coefficients are unchanged, so return a copy.
-            return Polynomial.fromPolynomial(polynomial, polynomial.curve, polynomial.logger);
-        }
-
-        // length is the length of non-constant coefficients
-        // if truncate === true, the highest zero coefficients (if exist) will be removed
-        const length = truncate ? polynomial.degree() : (polynomial.length() - 1);
-        const bufferDst = (length * n + 1) > 2 << 14 ?
-            new BigBuffer((length * n + 1) * Fr.n8) : new Uint8Array((length * n + 1) * Fr.n8);
-
-        // Copy constant coefficient as is because is not related to x
-        bufferDst.set(polynomial.getCoef(0), 0);
-
-        for (let i = 1; i <= length; i++) {
-            const i_sFr = i * Fr.n8;
-
-            const coef = polynomial.getCoef(i);
-            bufferDst.set(coef, i_sFr * n);
-        }
-
-        return new Polynomial(bufferDst, polynomial.curve, polynomial.logger);
-    }
-
-    split(numPols, degPols, blindingFactors) {
-        if (numPols < 1) {
-            throw new Error(`Polynomials can't be split in ${numPols} parts`);
-        } else if (1 === numPols) {
-            return [this];
-        }
-
-        //blinding factors can be void or must have a length of numPols - 1
-        if (0 !== blindingFactors.length && blindingFactors.length < numPols - 1) {
-            throw new Error(`Blinding factors length must be ${numPols - 1}`);
-        }
-
-        const chunkByteLength = (degPols + 1) * this.Fr.n8;
-        let res = [];
-
-        // Check polynomial can be split in numChunks parts of chunkSize bytes...
-        const numRealPols = Math.ceil((this.degree() + 1) * this.Fr.n8 / chunkByteLength);
-        if (numRealPols < numPols) {
-            //throw new Error(`Polynomial is short to be split in ${numPols} parts of ${degPols} coefficients each.`);
-            for (let i = numRealPols; i < numPols; i++) {
-                res[i] = new Polynomial(new Uint8Array(this.Fr.n8), this.curve, this.logger);
-            }
-        }
-
-        numPols = Math.min(numPols, numRealPols);
-        for (let i = 0; i < numPols; i++) {
-            const isLast = (numPols - 1) === i;
-            const byteLength = isLast ? this.coef.byteLength - ((numPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-
-            // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-            /* c8 ignore start */
-            let buff = (byteLength / this.Fr.n8) > 2 << 14 ? new BigBuffer(byteLength) : new Uint8Array(byteLength);
-            /* c8 ignore stop */
-            res[i] = new Polynomial(buff, this.curve, this.logger);
-
-            const fr = i * chunkByteLength;
-            const to = isLast ? this.coef.byteLength : (i + 1) * chunkByteLength;
-            res[i].coef.set(this.coef.slice(fr, to), 0);
-
-            // Add a blinding factor as higher degree
-            if (!isLast) {
-                res[i].coef.set(blindingFactors[i], chunkByteLength);
-            }
-
-            // Sub blinding factor to the lowest degree
-            if (0 !== i) {
-                const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-                res[i].coef.set(lowestDegree, 0);
-            }
-
-            if (isLast) {
-                res[i].truncate();
-            }
-        }
-
-        return res;
-
-        // // compute t_low(X)
-        // let polTLow = new BigBuffer((chunkSize + 1) * n8r);
-        // polTLow.set(t.slice(0, zkey.domainSize * n8r), 0);
-        // // Add blinding scalar b_10 as a new coefficient n
-        // polTLow.set(ch.b[10], zkey.domainSize * n8r);
-        //
-        // // compute t_mid(X)
-        // let polTMid = new BigBuffer((zkey.domainSize + 1) * n8r);
-        // polTMid.set(t.slice(zkey.domainSize * n8r, zkey.domainSize * 2 * n8r), 0);
-        // // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
-        // const lowestMid = Fr.sub(polTMid.slice(0, n8r), ch.b[10]);
-        // polTMid.set(lowestMid, 0);
-        // // Add blinding scalar b_11 as a new coefficient n
-        // polTMid.set(ch.b[11], zkey.domainSize * n8r);
-        //
-        // // compute t_high(X)
-        // let polTHigh = new BigBuffer((zkey.domainSize + 6) * n8r);
-        // polTHigh.set(t.slice(zkey.domainSize * 2 * n8r, (zkey.domainSize * 3 + 6) * n8r), 0);
-        // //Subtract blinding scalar b_11 to the lowest coefficient of t_high
-        // const lowestHigh = Fr.sub(polTHigh.slice(0, n8r), ch.b[11]);
-        // polTHigh.set(lowestHigh, 0);
-        //
-        // proof.T1 = await expTau(polTLow, "multiexp T1");
-        // proof.T2 = await expTau(polTMid, "multiexp T2");
-        // proof.T3 = await expTau(polTHigh, "multiexp T3");
-    }
-
-    // split2(degPols, blindingFactors) {
-    //     let currentDegree = this.degree();
-    //     const numFilledPols = Math.ceil((currentDegree + 1) / (degPols + 1));
-    //
-    //     //blinding factors can be void or must have a length of numPols - 1
-    //     if (0 !== blindingFactors.length && blindingFactors.length < numFilledPols - 1) {
-    //         throw new Error(`Blinding factors length must be ${numFilledPols - 1}`);
-    //     }
-    //
-    //     const chunkByteLength = (degPols + 1) * this.Fr.n8;
-    //
-    //     // Check polynomial can be split in numChunks parts of chunkSize bytes...
-    //     if (this.coef.byteLength / chunkByteLength <= numFilledPols - 1) {
-    //         throw new Error(`Polynomial is short to be split in ${numFilledPols} parts of ${degPols} coefficients each.`);
-    //     }
-    //
-    //     let res = [];
-    //     for (let i = 0; i < numFilledPols; i++) {
-    //         const isLast = (numFilledPols - 1) === i;
-    //         const byteLength = isLast ? (currentDegree + 1) * this.Fr.n8 - ((numFilledPols - 1) * chunkByteLength) : chunkByteLength + this.Fr.n8;
-    //
-    //         res[i] = new Polynomial(new BigBuffer(byteLength), this.Fr, this.logger);
-    //         const fr = i * chunkByteLength;
-    //         const to = isLast ? (currentDegree + 1) * this.Fr.n8 : (i + 1) * chunkByteLength;
-    //         res[i].coef.set(this.coef.slice(fr, to), 0);
-    //
-    //         // Add a blinding factor as higher degree
-    //         if (!isLast) {
-    //             res[i].coef.set(blindingFactors[i], chunkByteLength);
-    //         }
-    //
-    //         // Sub blinding factor to the lowest degree
-    //         if (0 !== i) {
-    //             const lowestDegree = this.Fr.sub(res[i].coef.slice(0, this.Fr.n8), blindingFactors[i - 1]);
-    //             res[i].coef.set(lowestDegree, 0);
-    //         }
-    //     }
-    //
-    //     return res;
-    // }
-
-    // merge(pols, overlap = true) {
-    //     let length = 0;
-    //     for (let i = 0; i < pols.length; i++) {
-    //         length += pols[i].length();
-    //     }
-    //
-    //     if (overlap) {
-    //         length -= pols.length - 1;
-    //     }
-    //
-    //     let res = new Polynomial(new BigBuffer(length * this.Fr.n8));
-    //     for (let i = 0; i < pols.length; i++) {
-    //         const byteLength = pols[i].coef.byteLength;
-    //         if (0 === i) {
-    //             res.coef.set(pols[i].coef, 0);
-    //         } else {
-    //
-    //         }
-    //     }
-    //
-    //     return res;
-    // }
-
-    truncate() {
-        const deg = this.degree();
-        if (deg + 1 < this.coef.byteLength / this.Fr.n8) {
-            // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-            /* c8 ignore start */
-            const newCoefs = (deg + 1) > 2 << 14 ?
-            /* c8 ignore stop */
-                new BigBuffer((deg + 1) * this.Fr.n8) : new Uint8Array((deg + 1) * this.Fr.n8);
-
-            newCoefs.set(this.coef.slice(0, (deg + 1) * this.Fr.n8), 0);
-            this.coef = newCoefs;
-        }
-    }
-
-    static lagrangePolynomialInterpolation(xArr, yArr, curve) {
-        const Fr = curve.Fr;
-        let polynomial = computeLagrangePolynomial(0);
-        for (let i = 1; i < xArr.length; i++) {
-            polynomial.add(computeLagrangePolynomial(i));
-        }
-
-        return polynomial;
-
-        function computeLagrangePolynomial(i) {
-            let polynomial;
-
-            for (let j = 0; j < xArr.length; j++) {
-                if (j === i) continue;
-
-                if (polynomial === undefined) {
-                    // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-                    /* c8 ignore start */
-                    let buff = (xArr.length) > 2 << 14 ?
-                    /* c8 ignore stop */
-                        new BigBuffer((xArr.length) * Fr.n8) : new Uint8Array((xArr.length) * Fr.n8);
-                    polynomial = new Polynomial(buff, curve);
-                    polynomial.setCoef(0, Fr.neg(xArr[j]));
-                    polynomial.setCoef(1, Fr.one);
-                } else {
-                    polynomial.byXSubValue(xArr[j]);
-                }
-            }
-
-            let denominator = polynomial.evaluate(xArr[i]);
-            denominator = Fr.inv(denominator);
-            const mulFactor = Fr.mul(yArr[i], denominator);
-
-            polynomial.mulScalar(mulFactor);
-
-            return polynomial;
-        }
-    }
-
-    static zerofierPolynomial(xArr, curve) {
-        const Fr = curve.Fr;
-        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-        /* c8 ignore start */
-        let buff = (xArr.length + 1) > 2 << 14 ?
-        /* c8 ignore stop */
-            new BigBuffer((xArr.length + 1) * Fr.n8) : new Uint8Array((xArr.length + 1) * Fr.n8);
-        let polynomial = new Polynomial(buff, curve);
-
-        // Build a zerofier polynomial with the following form:
-        // zerofier(X) = (X-xArr[0])(X-xArr[1])...(X-xArr[n])
-        polynomial.setCoef(0, Fr.neg(xArr[0]));
-        polynomial.setCoef(1, Fr.one);
-
-        for (let i = 1; i < xArr.length; i++) {
-            polynomial.byXSubValue(xArr[i]);
-        }
-
-        return polynomial;
-    }
-
-    print() {
-        const Fr = this.Fr;
-        let res = "";
-        for (let i = this.degree(); i >= 0; i--) {
-            const coef = this.getCoef(i);
-            if (!Fr.eq(Fr.zero, coef)) {
-                if (Fr.isNegative(coef)) {
-                    res += " - ";
-                } else if (i !== this.degree()) {
-                    res += " + ";
-                }
-                res += Fr.toString(coef);
-                if (i > 0) {
-                    res += i > 1 ? "x^" + i : "x";
-                }
-            }
-        }
-        console.log(res);
-    }
-
-    async multiExponentiation(PTau, name) {
-        const n = this.coef.byteLength / this.Fr.n8;
-        const PTauN = PTau.slice(0, n * this.G1.F.n8 * 2);
-        const bm = await this.Fr.batchFromMontgomery(this.coef);
-        let res = await this.G1.multiExpAffine(PTauN, bm, this.logger, name);
-        res = this.G1.toAffine(res);
-        return res;
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-class Evaluations {
-    constructor(evaluations, curve, logger) {
-        this.eval = evaluations;
-        this.curve = curve;
-        this.Fr = curve.Fr;
-        this.logger = logger;
-    }
-
-    static async fromPolynomial(polynomial, extension, curve, logger) {
-        const coefficientsN = new BigBuffer(polynomial.length() * extension * curve.Fr.n8);
-        coefficientsN.set(polynomial.coef, 0);
-
-        const evaluations = await curve.Fr.fft(coefficientsN);
-
-        return new Evaluations(evaluations, curve, logger);
-    }
-
-    getEvaluation(index) {
-        const i_n8 = index * this.Fr.n8;
-
-        if (i_n8 + this.Fr.n8 > this.eval.byteLength) {
-            throw new Error("Evaluations.getEvaluation() out of bounds");
-        }
-
-        return this.eval.slice(i_n8, i_n8 + this.Fr.n8);
-    }
-
-    length() {
-        let length = this.eval.byteLength / this.Fr.n8;
-        if (length !== Math.floor(this.eval.byteLength / this.Fr.n8)) {
-            throw new Error("Polynomial evaluations buffer has incorrect size");
-        }
-        if (0 === length) {
-            this.logger.warn("Polynomial has length zero");
-        }
-        return length;
-    }
-}
-
-/*
-    Copyright 2021 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {stringifyBigInts: stringifyBigInts$1} = utils;
-    
-async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdWtns, sectionsWtns, fdZKey, zkeySections;
-    try {
-
-    ({fd: fdWtns, sections: sectionsWtns} = await readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23));
-
-    // Read witness file
-    if (logger) logger.debug("> Reading witness file");
-    const wtns = await readHeader(fdWtns, sectionsWtns);
-
-    // Read zkey file
-    if (logger) logger.debug("> Reading zkey file");
-    ({fd: fdZKey, sections: zkeySections} = await readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23));
-
-    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
-    if (zkey.protocol != "plonk") {
-        throw new Error("zkey file is not plonk");
-    }
-
-    if (!Scalar.eq(zkey.r,  wtns.q)) {
-        throw new Error("Curve of the witness does not match the curve of the proving key");
-    }
-
-    if (wtns.nWitness != zkey.nVars -zkey.nAdditions) {
-        throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}, ${zkey.nAdditions}`);
-    }
-
-    const curve = zkey.curve;
-
-    const Fr = curve.Fr;
-    const n8r = curve.Fr.n8;
-    const sDomain = zkey.domainSize * n8r;
-
-    if (logger) {
-        logger.debug("----------------------------");
-        logger.debug("  PLONK PROVE SETTINGS");
-        logger.debug(`  Curve:         ${curve.name}`);
-        logger.debug(`  Circuit power: ${zkey.power}`);
-        logger.debug(`  Domain size:   ${zkey.domainSize}`);
-        logger.debug(`  Vars:          ${zkey.nVars}`);
-        logger.debug(`  Public vars:   ${zkey.nPublic}`);
-        logger.debug(`  Constraints:   ${zkey.nConstraints}`);
-        logger.debug(`  Additions:     ${zkey.nAdditions}`);
-        logger.debug("----------------------------");
-    }
-
-    //Read witness data
-    if (logger) logger.debug("> Reading witness file data");
-    const buffWitness = await readSection(fdWtns, sectionsWtns, 2);
-
-    // First element in plonk is not used and can be any value. (But always the same).
-    // We set it to zero to go faster in the exponentiations.
-    buffWitness.set(Fr.zero, 0);
-    const buffInternalWitness = new BigBuffer(n8r*zkey.nAdditions);
-
-    let buffers = {};
-    let polynomials = {};
-    let evaluations = {};
-
-    let challenges = {};
-    let proof = new Proof(curve, logger);
-    const transcript = new Keccak256Transcript(curve);
-
-    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_ADDITIONS_SECTION}. Additions`);
-    await calculateAdditions();
-
-    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_SIGMA_SECTION}. Sigma1, Sigma2 & Sigma 3`);
-    if (logger) logger.debug("··· Reading Sigma polynomials ");
-    polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-    await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p);
-    await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 5 * sDomain);
-    await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 10 * sDomain);
-
-    if (logger) logger.debug("··· Reading Sigma evaluations");
-    evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-
-    await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 6 * sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_SIGMA_SECTION][0].p + 11 * sDomain);
-
-    if (logger) logger.debug(`> Reading Section ${ZKEY_PL_PTAU_SECTION}. Powers of Tau`);
-    const PTau = await readSection(fdZKey, zkeySections, ZKEY_PL_PTAU_SECTION);
-
-    let publicSignals = [];
-
-    for (let i=1; i<= zkey.nPublic; i++) {
-        const pub = buffWitness.slice(i*Fr.n8, i*Fr.n8+Fr.n8);
-        publicSignals.push(Scalar.fromRprLE(pub));
-    }
-
-    if (logger) logger.debug("");
-    if (logger) logger.debug("> ROUND 1");
-    await round1();
-
-    if (logger) logger.debug("> ROUND 2");
-    await round2();
-
-    if (logger) logger.debug("> ROUND 3");
-    await round3();
-
-    if (logger) logger.debug("> ROUND 4");
-    await round4();
-
-    if (logger) logger.debug("> ROUND 5");
-    await round5();
-
-    ///////////////////////
-    // Final adjustments //
-    ///////////////////////
-
-    await fdZKey.close();
-    await fdWtns.close();
-
-    // Prepare proof
-    let _proof = proof.toObjectProof(false);
-    _proof.protocol = "plonk";
-    _proof.curve = curve.name;
-    
-    if (logger) logger.debug("PLONK PROVER FINISHED");
-
-    return {
-        proof: stringifyBigInts$1(_proof),
-        publicSignals: stringifyBigInts$1(publicSignals)
-    };
-
-    async function calculateAdditions() {
-        if (logger) logger.debug("··· Computing additions");
-        const additionsBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_ADDITIONS_SECTION);
-
-        // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
-        // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
-        const sSum = 8 + n8r * 2;
-
-        for (let i = 0; i < zkey.nAdditions; i++) {
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.debug(`    addition ${i}/${zkey.nAdditions}`);
-            /* c8 ignore stop */
-
-            // Read addition values
-            let offset = i * sSum;
-            const signalId1 = readUInt32(additionsBuff, offset);
-            offset += 4;
-            const signalId2 = readUInt32(additionsBuff, offset);
-            offset += 4;
-            const factor1 = additionsBuff.slice(offset, offset + n8r);
-            offset += n8r;
-            const factor2 = additionsBuff.slice(offset, offset + n8r);
-
-            // Get witness value
-            const witness1 = getWitness(signalId1);
-            const witness2 = getWitness(signalId2);
-
-            //Calculate final result
-            const result = Fr.add(Fr.mul(factor1, witness1), Fr.mul(factor2, witness2));
-
-            buffInternalWitness.set(result, n8r * i);
-        }
-    }
-
-    function readUInt32(b, o) {
-        const buff = b.slice(o, o+4);
-        const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
-        return buffV.getUint32(0, true);
-    }
-
-    function getWitness(idx) {
-        if (idx < zkey.nVars-zkey.nAdditions) {
-            return buffWitness.slice(idx*n8r, idx*n8r+n8r);
-        } else if (idx < zkey.nVars) {
-            // coverage: witness indices in the additions/overflow region are not
-            // produced by the tested circuits
-            /* c8 ignore start */
-            return buffInternalWitness.slice((idx - (zkey.nVars-zkey.nAdditions))*n8r, (idx-(zkey.nVars-zkey.nAdditions))*n8r + n8r);
-        } else {
-            return curve.Fr.zero;
-            /* c8 ignore stop */
-        }
-    }
-
-    async function round1() {
-        // STEP 1.1 - Generate random blinding scalars (b1, ..., b11) ∈ F
-        challenges.b = [];
-        for (let i=1; i<=11; i++) {
-            challenges.b[i] = curve.Fr.random();
-        }
-
-        // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
-        if (logger) logger.debug("> Computing A, B, C wire polynomials");
-        await computeWirePolynomials();
-
-        // STEP 1.3 - Compute [a]_1, [b]_1, [c]_1
-        if (logger) logger.debug("> Computing A, B, C MSM");
-        let commitA = await polynomials.A.multiExponentiation(PTau, "A");
-        let commitB = await polynomials.B.multiExponentiation(PTau, "B");
-        let commitC = await polynomials.C.multiExponentiation(PTau, "C");
-
-        // First output of the prover is ([A]_1, [B]_1, [C]_1)
-        proof.addPolynomial("A", commitA);
-        proof.addPolynomial("B", commitB);
-        proof.addPolynomial("C", commitC);
-
-        return 0;
-    }
-
-    async function computeWirePolynomials() {
-        if (logger) logger.debug("··· Reading data from zkey file");
-
-        // Build A, B and C evaluations buffer from zkey and witness files
-        buffers.A = new BigBuffer(sDomain);
-        buffers.B = new BigBuffer(sDomain);
-        buffers.C = new BigBuffer(sDomain);
-
-        // Read zkey file to the buffers
-        const aMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_A_MAP_SECTION);
-        const bMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_B_MAP_SECTION);
-        const cMapBuff = await readSection(fdZKey, zkeySections, ZKEY_PL_C_MAP_SECTION);
-
-        // Compute all witness from signal ids and set them to A,B & C buffers
-        for (let i = 0; i < zkey.nConstraints; i++) {
-            const i_sFr = i * n8r;
-            const offset = i * 4;
-
-            // Compute A value from a signal id
-            const signalIdA = readUInt32(aMapBuff, offset);
-            buffers.A.set(getWitness(signalIdA), i_sFr);
-
-            // Compute B value from a signal id
-            const signalIdB = readUInt32(bMapBuff, offset);
-            buffers.B.set(getWitness(signalIdB), i_sFr);
-
-            // Compute C value from a signal id
-            const signalIdC = readUInt32(cMapBuff, offset);
-            buffers.C.set(getWitness(signalIdC), i_sFr);
-        }
-
-        buffers.A = await Fr.batchToMontgomery(buffers.A);
-        buffers.B = await Fr.batchToMontgomery(buffers.B);
-        buffers.C = await Fr.batchToMontgomery(buffers.C);
-
-        // Compute the coefficients of the wire polynomials a(X), b(X) and c(X) from A,B & C buffers
-        if (logger) logger.debug("··· Computing A ifft");
-        polynomials.A = await Polynomial.fromEvaluations(buffers.A, curve, logger);
-        if (logger) logger.debug("··· Computing B ifft");
-        polynomials.B = await Polynomial.fromEvaluations(buffers.B, curve, logger);
-        if (logger) logger.debug("··· Computing C ifft");
-        polynomials.C = await Polynomial.fromEvaluations(buffers.C, curve, logger);
-
-        // Compute extended evaluations of a(X), b(X) and c(X) polynomials
-        if (logger) logger.debug("··· Computing A fft");
-        evaluations.A = await Evaluations.fromPolynomial(polynomials.A, 4, curve, logger);
-        if (logger) logger.debug("··· Computing B fft");
-        evaluations.B = await Evaluations.fromPolynomial(polynomials.B, 4, curve, logger);
-        if (logger) logger.debug("··· Computing C fft");
-        evaluations.C = await Evaluations.fromPolynomial(polynomials.C, 4, curve, logger);
-
-        // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-        polynomials.A.blindCoefficients([challenges.b[2], challenges.b[1]]);
-        polynomials.B.blindCoefficients([challenges.b[4], challenges.b[3]]);
-        polynomials.C.blindCoefficients([challenges.b[6], challenges.b[5]]);
-
-        // Check degrees
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.A.degree() >= zkey.domainSize + 2) {
-            throw new Error("A Polynomial is not well calculated");
-        }
-        /* c8 ignore stop */
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.B.degree() >= zkey.domainSize + 2) {
-            throw new Error("B Polynomial is not well calculated");
-        }
-        /* c8 ignore stop */
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.C.degree() >= zkey.domainSize + 2) {
-            throw new Error("C Polynomial is not well calculated");
-        }        
-        /* c8 ignore stop */
-    }
-
-    async function round2() {
-        // STEP 2.1 - Compute permutation challenge beta and gamma ∈ F
-        // Compute permutation challenge beta
-        if (logger) logger.debug("> Computing challenges beta and gamma");
-        transcript.reset();
-
-        transcript.addPolCommitment(zkey.Qm);
-        transcript.addPolCommitment(zkey.Ql);
-        transcript.addPolCommitment(zkey.Qr);
-        transcript.addPolCommitment(zkey.Qo);
-        transcript.addPolCommitment(zkey.Qc);
-        transcript.addPolCommitment(zkey.S1);
-        transcript.addPolCommitment(zkey.S2);
-        transcript.addPolCommitment(zkey.S3);
-
-        // Add A to the transcript
-        for (let i = 0; i < zkey.nPublic; i++) {
-            transcript.addScalar(buffers.A.slice(i * n8r, i * n8r + n8r));
-        }
-
-        // Add A, B, C to the transcript
-        transcript.addPolCommitment(proof.getPolynomial("A"));
-        transcript.addPolCommitment(proof.getPolynomial("B"));
-        transcript.addPolCommitment(proof.getPolynomial("C"));
-
-        challenges.beta = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.beta: " + Fr.toString(challenges.beta, 16));
-
-        // Compute permutation challenge gamma
-        transcript.reset();
-        transcript.addScalar(challenges.beta);
-        challenges.gamma = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.gamma: " + Fr.toString(challenges.gamma, 16));
-    
-        // STEP 2.2 - Compute permutation polynomial z(X)
-        if (logger) logger.debug("> Computing Z polynomial");
-        await computeZ();
-
-        // STEP 2.3 - Compute permutation [z]_1
-        if (logger) logger.debug("> Computing Z MSM");
-        let commitZ = await polynomials.Z.multiExponentiation(PTau, "Z");
-
-        // Second output of the prover is ([Z]_1)
-        proof.addPolynomial("Z", commitZ);
-    }
-
-    async function computeZ() {
-        if (logger) logger.debug("··· Computing Z evaluations");
-
-        let numArr = new BigBuffer(sDomain);
-        let denArr = new BigBuffer(sDomain);
-
-        // Set the first values to 1
-        numArr.set(Fr.one, 0);
-        denArr.set(Fr.one, 0);
-
-        // Set initial omega
-        let w = Fr.one;
-        for (let i = 0; i < zkey.domainSize; i++) {
-            const i_n8r = i * n8r;
-            
-            const a = buffers.A.slice(i_n8r, i_n8r + n8r);
-            const b = buffers.B.slice(i_n8r, i_n8r + n8r);
-            const c = buffers.C.slice(i_n8r, i_n8r + n8r);
-
-            // Z(X) := numArr / denArr
-            // numArr := (a + beta·ω + gamma)(b + beta·ω·k1 + gamma)(c + beta·ω·k2 + gamma)
-            const betaw = Fr.mul(challenges.beta, w);
-
-            let n1 = Fr.add(a, betaw);
-            n1 = Fr.add(n1, challenges.gamma);
-
-            let n2 = Fr.add(b, Fr.mul(zkey.k1, betaw));
-            n2 = Fr.add(n2, challenges.gamma);
-
-            let n3 = Fr.add(c, Fr.mul(zkey.k2, betaw));
-            n3 = Fr.add(n3, challenges.gamma);
-
-            let num = Fr.mul(n1, Fr.mul(n2, n3));
-
-            // denArr := (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)
-            let d1 = Fr.add(a, Fr.mul(evaluations.Sigma1.getEvaluation(i * 4), challenges.beta));
-            d1 = Fr.add(d1, challenges.gamma);
-
-            let d2 = Fr.add(b, Fr.mul(evaluations.Sigma2.getEvaluation(i * 4), challenges.beta));
-            d2 = Fr.add(d2, challenges.gamma);
-
-            let d3 = Fr.add(c, Fr.mul(evaluations.Sigma3.getEvaluation(i * 4), challenges.beta));
-            d3 = Fr.add(d3, challenges.gamma);
-
-            let den = Fr.mul(d1, Fr.mul(d2, d3));
-
-            // Multiply current num value with the previous one saved in numArr
-            num = Fr.mul(numArr.slice(i_n8r, i_n8r + n8r), num);
-            numArr.set(num, ((i + 1) % zkey.domainSize) * n8r);
-
-            // Multiply current den value with the previous one saved in denArr
-            den = Fr.mul(denArr.slice(i_n8r, i_n8r + n8r), den);
-            denArr.set(den, ((i + 1) % zkey.domainSize) * n8r);
-
-            w = Fr.mul(w, Fr.w[zkey.power]);
-        }
-
-        // Compute the inverse of denArr to compute in the next command the
-        // division numArr/denArr by multiplying num · 1/denArr
-        denArr = await Fr.batchInverse(denArr);
-
-        // TODO: Do it in assembly and in parallel
-        // Multiply numArr · denArr where denArr was inverted in the previous command
-        for (let i = 0; i < zkey.domainSize; i++) {
-            const i_sFr = i * n8r;
-
-            const z = Fr.mul(numArr.slice(i_sFr, i_sFr + n8r), denArr.slice(i_sFr, i_sFr + n8r));
-            numArr.set(z, i_sFr);
-        }
-
-        // From now on the values saved on numArr will be Z(X) buffer
-        buffers.Z = numArr;
-
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (!Fr.eq(numArr.slice(0, n8r), Fr.one)) {
-            throw new Error("Copy constraints does not match");
-        }
-        /* c8 ignore stop */
-
-        // Compute polynomial coefficients z(X) from buffers.Z
-        if (logger) logger.debug("··· Computing Z ifft");
-        polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, curve, logger);
-
-        // Compute extended evaluations of z(X) polynomial
-        if (logger) logger.debug("··· Computing Z fft");
-        evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, 4, curve, logger);
-
-        // Blind z(X) polynomial coefficients with blinding scalars b
-        polynomials.Z.blindCoefficients([challenges.b[9], challenges.b[8], challenges.b[7]]);
-
-        // Check degree
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.Z.degree() >= zkey.domainSize + 3) {
-            throw new Error("Z Polynomial is not well calculated");
-        }
-        /* c8 ignore stop */
-
-        delete buffers.Z;
-    }
-
-    async function round3() {
-        if (logger) logger.debug("> Computing challenge alpha");
-
-        // STEP 3.1 - Compute evaluation challenge alpha ∈ F
-        transcript.reset();
-        transcript.addScalar(challenges.beta);
-        transcript.addScalar(challenges.gamma);
-        transcript.addPolCommitment(proof.getPolynomial("Z"));
-
-        challenges.alpha = transcript.getChallenge();
-        challenges.alpha2 = Fr.square(challenges.alpha);
-        if (logger) logger.debug("··· challenges.alpha: " + Fr.toString(challenges.alpha, 16));
-
-        // Compute quotient polynomial T(X)
-        if (logger) logger.debug("> Computing T polynomial");
-        await computeT();
-
-        // Compute [T1]_1, [T2]_1, [T3]_1
-        if (logger) logger.debug("> Computing T MSM");
-        let commitT1 = await polynomials.T1.multiExponentiation(PTau, "T1");
-        let commitT2 = await polynomials.T2.multiExponentiation(PTau, "T2");
-        let commitT3 = await polynomials.T3.multiExponentiation(PTau, "T3");
-
-        // Third output of the prover is ([T1]_1, [T2]_1, [T3]_1)
-        proof.addPolynomial("T1", commitT1);
-        proof.addPolynomial("T2", commitT2);
-        proof.addPolynomial("T3", commitT3);        
-    }
-
-    async function computeT() {
-        if (logger)
-            logger.debug(`··· Reading sections ${ZKEY_PL_QL_SECTION}, ${ZKEY_PL_QR_SECTION}` +
-                `, ${ZKEY_PL_QM_SECTION}, ${ZKEY_PL_QO_SECTION}, ${ZKEY_PL_QC_SECTION}. Q selectors`);
-        // Reserve memory for Q's evaluations
-        evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QM = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QO = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-        evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-
-        // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QL_SECTION][0].p + sDomain);
-        await fdZKey.readToBuffer(evaluations.QR.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QR_SECTION][0].p + sDomain);
-        await fdZKey.readToBuffer(evaluations.QM.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QM_SECTION][0].p + sDomain);
-        await fdZKey.readToBuffer(evaluations.QO.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QO_SECTION][0].p + sDomain);
-        await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[ZKEY_PL_QC_SECTION][0].p + sDomain);
-
-        // Read Lagrange polynomials & evaluations from zkey file
-        evaluations.Lagrange = new Evaluations(new BigBuffer(sDomain * 4 * zkey.nPublic), curve, logger);
-
-        for (let i = 0; i < zkey.nPublic; i++) {
-            await fdZKey.readToBuffer(evaluations.Lagrange.eval, i * sDomain * 4, sDomain * 4, zkeySections[ZKEY_PL_LAGRANGE_SECTION][0].p + i * 5 * sDomain + sDomain);
-        }
-
-        buffers.T = new BigBuffer(sDomain * 4);
-        buffers.Tz = new BigBuffer(sDomain * 4);
-
-        if (logger) logger.debug("··· Computing T evaluations");
-
-        let w = Fr.one;
-        for (let i = 0; i < zkey.domainSize * 4; i++) {
-            if (logger && (0 !== i) && (i % 100000 === 0))
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                logger.debug(`      T evaluation ${i}/${zkey.domainSize * 4}`);
-                /* c8 ignore stop */
-
-            const a = evaluations.A.getEvaluation(i);
-            const b = evaluations.B.getEvaluation(i);
-            const c = evaluations.C.getEvaluation(i);
-            const z = evaluations.Z.getEvaluation(i);
-            const zw = evaluations.Z.getEvaluation((zkey.domainSize * 4 + 4 + i) % (zkey.domainSize * 4));
-
-            const qm = evaluations.QM.getEvaluation(i);
-            const ql = evaluations.QL.getEvaluation(i);
-            const qr = evaluations.QR.getEvaluation(i);
-            const qo = evaluations.QO.getEvaluation(i);
-            const qc = evaluations.QC.getEvaluation(i);
-            const s1 = evaluations.Sigma1.getEvaluation(i);
-            const s2 = evaluations.Sigma2.getEvaluation(i);
-            const s3 = evaluations.Sigma3.getEvaluation(i);
-
-            const ap = Fr.add(challenges.b[2], Fr.mul(challenges.b[1], w));
-            const bp = Fr.add(challenges.b[4], Fr.mul(challenges.b[3], w));
-            const cp = Fr.add(challenges.b[6], Fr.mul(challenges.b[5], w));
-
-            const w2 = Fr.square(w);
-            const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], w2), Fr.mul(challenges.b[8], w)), challenges.b[9]);
-            const wW = Fr.mul(w, Fr.w[zkey.power]);
-            const wW2 = Fr.square(wW);
-            const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], wW2), Fr.mul(challenges.b[8], wW)), challenges.b[9]);
-
-            let pi = Fr.zero;
-            for (let j = 0; j < zkey.nPublic; j++) {
-                const offset = (j * 4 * zkey.domainSize) + i;
-
-                const lPol = evaluations.Lagrange.getEvaluation(offset);
-                const aVal = buffers.A.slice(j * n8r, (j + 1) * n8r);
-
-                pi = Fr.sub(pi, Fr.mul(lPol, aVal));
-            }
-
-            // e1 := a(X)b(X)qM(X) + a(X)qL(X) + b(X)qR(X) + c(X)qO(X) + PI(X) + qC(X)
-            let [e1, e1z] = MulZ.mul2(a, b, ap, bp, i % 4, Fr);
-            e1 = Fr.mul(e1, qm);
-            e1z = Fr.mul(e1z, qm);
-
-            e1 = Fr.add(e1, Fr.mul(a, ql));
-            e1z = Fr.add(e1z, Fr.mul(ap, ql));
-
-            e1 = Fr.add(e1, Fr.mul(b, qr));
-            e1z = Fr.add(e1z, Fr.mul(bp, qr));
-
-            e1 = Fr.add(e1, Fr.mul(c, qo));
-            e1z = Fr.add(e1z, Fr.mul(cp, qo));
-
-            e1 = Fr.add(e1, pi);
-            e1 = Fr.add(e1, qc);
-
-            // e2 := α[(a(X) + βX + γ)(b(X) + βk1X + γ)(c(X) + βk2X + γ)z(X)]
-            const betaw = Fr.mul(challenges.beta, w);
-            let e2a = a;
-            e2a = Fr.add(e2a, betaw);
-            e2a = Fr.add(e2a, challenges.gamma);
-
-            let e2b = b;
-            e2b = Fr.add(e2b, Fr.mul(betaw, zkey.k1));
-            e2b = Fr.add(e2b, challenges.gamma);
-
-            let e2c = c;
-            e2c = Fr.add(e2c, Fr.mul(betaw, zkey.k2));
-            e2c = Fr.add(e2c, challenges.gamma);
-
-            let e2d = z;
-
-            let [e2, e2z] = MulZ.mul4(e2a, e2b, e2c, e2d, ap, bp, cp, zp, i % 4, Fr);
-            e2 = Fr.mul(e2, challenges.alpha);
-            e2z = Fr.mul(e2z, challenges.alpha);
-
-            // e3 := α[(a(X) + βSσ1(X) + γ)(b(X) + βSσ2(X) + γ)(c(X) + βSσ3(X) + γ)z(Xω)]
-            let e3a = a;
-            e3a = Fr.add(e3a, Fr.mul(challenges.beta, s1));
-            e3a = Fr.add(e3a, challenges.gamma);
-
-            let e3b = b;
-            e3b = Fr.add(e3b, Fr.mul(challenges.beta, s2));
-            e3b = Fr.add(e3b, challenges.gamma);
-
-            let e3c = c;
-            e3c = Fr.add(e3c, Fr.mul(challenges.beta, s3));
-            e3c = Fr.add(e3c, challenges.gamma);
-
-            let e3d = zw;
-            let [e3, e3z] = MulZ.mul4(e3a, e3b, e3c, e3d, ap, bp, cp, zWp, i % 4, Fr);
-
-            e3 = Fr.mul(e3, challenges.alpha);
-            e3z = Fr.mul(e3z, challenges.alpha);
-
-            // e4 := α^2(z(X)−1)L1(X)
-            let e4 = Fr.sub(z, Fr.one);
-            e4 = Fr.mul(e4, evaluations.Lagrange.getEvaluation(i));
-            e4 = Fr.mul(e4, challenges.alpha2);
-
-            let e4z = Fr.mul(zp, evaluations.Lagrange.getEvaluation(i));
-            e4z = Fr.mul(e4z, challenges.alpha2);
-
-
-            let t = Fr.add(Fr.sub(Fr.add(e1, e2), e3), e4);
-            let tz = Fr.add(Fr.sub(Fr.add(e1z, e2z), e3z), e4z);
-
-            buffers.T.set(t, i * n8r);
-            buffers.Tz.set(tz, i * n8r);
-
-            w = Fr.mul(w, Fr.w[zkey.power + 2]);
-        }
-
-        // Compute the coefficients of the polynomial T0(X) from buffers.T0
-        if (logger)
-            logger.debug("··· Computing T ifft");
-        polynomials.T = await Polynomial.fromEvaluations(buffers.T, curve, logger);
-
-        // Divide the polynomial T0 by Z_H(X)
-        if (logger)
-            logger.debug("··· Computing T / ZH");
-        polynomials.T.divZh(zkey.domainSize, 4);
-
-        // Compute the coefficients of the polynomial Tz(X) from buffers.Tz
-        if (logger)
-            logger.debug("··· Computing Tz ifft");
-        polynomials.Tz = await Polynomial.fromEvaluations(buffers.Tz, curve, logger);
-
-        // Add the polynomial T1z to T1 to get the final polynomial T1
-        polynomials.T.add(polynomials.Tz);
-
-        // Check degree
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.T.degree() >= zkey.domainSize * 3 + 6) {
-            throw new Error("T Polynomial is not well calculated");
-        }
-        /* c8 ignore stop */
-
-        // t(x) has degree 3n + 5, we are going to split t(x) into three smaller polynomials:
-        // T1' and T2'  with a degree < n and T3' with a degree n+5
-        // such that t(x) = T1'(X) + X^n T2'(X) + X^{2n} T3'(X)
-        // To randomize the parts we use blinding scalars b_10 and b_11 in a way that doesn't change t(X):
-        // T1(X) = T1'(X) + b_10 X^n
-        // T2(X) = T2'(X) - b_10 + b_11 X^n
-        // T3(X) = T3'(X) - b_11
-        // such that
-        // t(X) = T1(X) + X^n T2(X) + X^2n T3(X)
-        if (logger) logger.debug("··· Computing T1, T2, T3 polynomials");
-        polynomials.T1 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
-        polynomials.T2 = new Polynomial(new BigBuffer((zkey.domainSize + 1) * n8r), curve, logger);
-        polynomials.T3 = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
-
-        polynomials.T1.coef.set(polynomials.T.coef.slice(0, sDomain), 0);
-        polynomials.T2.coef.set(polynomials.T.coef.slice(sDomain, sDomain * 2), 0);
-        polynomials.T3.coef.set(polynomials.T.coef.slice(sDomain * 2, sDomain * 3 + 6 * n8r), 0);
-
-        // Add blinding scalar b_10 as a new coefficient n
-        polynomials.T1.setCoef(zkey.domainSize, challenges.b[10]);
-
-        // compute t_mid(X)
-        // Subtract blinding scalar b_10 to the lowest coefficient of t_mid
-        const lowestMid = Fr.sub(polynomials.T2.getCoef(0), challenges.b[10]);
-        polynomials.T2.setCoef(0, lowestMid);
-        polynomials.T2.setCoef(zkey.domainSize, challenges.b[11]);
-
-        // compute t_high(X)
-        //Subtract blinding scalar b_11 to the lowest coefficient of t_high
-        const lowestHigh = Fr.sub(polynomials.T3.getCoef(0), challenges.b[11]);
-        polynomials.T3.setCoef(0, lowestHigh);
-    }
-
-    async function round4() {
-        if (logger) logger.debug("> Computing challenge xi");
-
-        // STEP 4.1 - Compute evaluation challenge xi ∈ F
-        transcript.reset();
-        transcript.addScalar(challenges.alpha);
-        transcript.addPolCommitment(proof.getPolynomial("T1"));
-        transcript.addPolCommitment(proof.getPolynomial("T2"));
-        transcript.addPolCommitment(proof.getPolynomial("T3"));
-
-        challenges.xi = transcript.getChallenge();
-        challenges.xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        
-        if (logger) logger.debug("··· challenges.xi: " + Fr.toString(challenges.xi, 16));  
-
-        // Fourth output of the prover is ( a(xi), b(xi), c(xi), s1(xi), s2(xi), z(xiw) )
-        proof.addEvaluation("eval_a", polynomials.A.evaluate(challenges.xi));
-        proof.addEvaluation("eval_b", polynomials.B.evaluate(challenges.xi));
-        proof.addEvaluation("eval_c", polynomials.C.evaluate(challenges.xi));
-        proof.addEvaluation("eval_s1", polynomials.Sigma1.evaluate(challenges.xi));
-        proof.addEvaluation("eval_s2", polynomials.Sigma2.evaluate(challenges.xi));
-        proof.addEvaluation("eval_zw", polynomials.Z.evaluate(challenges.xiw));
-    }
-
-    async function round5() {
-        if (logger) logger.debug("> Computing challenge v");
-        
-        // STEP 5.1 - Compute evaluation challenge v ∈ F
-        transcript.reset();
-        transcript.addScalar(challenges.xi);
-        transcript.addScalar(proof.getEvaluation("eval_a"));
-        transcript.addScalar(proof.getEvaluation("eval_b"));
-        transcript.addScalar(proof.getEvaluation("eval_c"));
-        transcript.addScalar(proof.getEvaluation("eval_s1"));
-        transcript.addScalar(proof.getEvaluation("eval_s2"));
-        transcript.addScalar(proof.getEvaluation("eval_zw"));
-
-        challenges.v = [];
-        challenges.v[1] = transcript.getChallenge();
-        if (logger) logger.debug("··· challenges.v: " + Fr.toString(challenges.v[1], 16));
-
-        for (let i = 2; i < 6; i++) {
-            challenges.v[i] = Fr.mul(challenges.v[i - 1], challenges.v[1]);
-        }
-
-        // STEP 5.2 Compute linearisation polynomial r(X)
-        if (logger) logger.debug("> Computing linearisation polynomial R(X)");
-        await computeR();
-
-        //STEP 5.3 Compute opening proof polynomial Wxi(X)
-        if (logger) logger.debug("> Computing opening proof polynomial Wxi(X) polynomial");
-        computeWxi();
-
-        //STEP 5.4 Compute opening proof polynomial Wxiw(X)
-        if (logger) logger.debug("> Computing opening proof polynomial Wxiw(X) polynomial");
-        computeWxiw();
-
-        if (logger) logger.debug("> Computing Wxi, Wxiw MSM");
-        let commitWxi = await polynomials.Wxi.multiExponentiation(PTau, "Wxi");
-        let commitWxiw = await polynomials.Wxiw.multiExponentiation(PTau, "Wxiw");
-
-        // Fifth output of the prover is ([Wxi]_1, [Wxiw]_1)
-        proof.addPolynomial("Wxi", commitWxi);
-        proof.addPolynomial("Wxiw", commitWxiw);
-    }
-
-    async function computeR() {
-        const Fr = curve.Fr;
-    
-        // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-        // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_PL_QL_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_PL_QR_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_PL_QM_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_PL_QO_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_PL_QC_SECTION][0].p);   
-        
-        challenges.xin = challenges.xi;
-        for (let i = 0; i < zkey.power; i++) {
-            challenges.xin = Fr.square(challenges.xin);
-        }
-
-        challenges.zh = Fr.sub(challenges.xin, Fr.one);
-
-        const L = [];
-
-        const n = Fr.e(zkey.domainSize);
-        let w = Fr.one;
-        for (let i = 1; i <= Math.max(1, zkey.nPublic); i++) {
-            L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
-            w = Fr.mul(w, Fr.w[zkey.power]);
-        }
-
-        const eval_l1 = Fr.div(
-            Fr.sub(challenges.xin, Fr.one),
-            Fr.mul(n, Fr.sub(challenges.xi, Fr.one))
-        );
-
-        if (logger) {
-            logger.debug("Lagrange Evaluations: ");
-            for (let i=1; i<L.length; i++) {
-                logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));    
-            }
-        }
-
-        let eval_pi = Fr.zero;
-        for (let i=0; i<publicSignals.length; i++) {
-            const w = Fr.e(publicSignals[i]);
-            eval_pi = Fr.sub(eval_pi, Fr.mul(w, L[i+1]));
-        }
-
-        if (logger) logger.debug("PI: " + Fr.toString(eval_pi, 16));
-
-        // Compute constant parts of R(X)
-        const coef_ab = Fr.mul(proof.evaluations.eval_a, proof.evaluations.eval_b);
-
-        let e2a = proof.evaluations.eval_a;
-        const betaxi = Fr.mul(challenges.beta, challenges.xi);
-        e2a = Fr.add(e2a, betaxi);
-        e2a = Fr.add(e2a, challenges.gamma);
-
-        let e2b = proof.evaluations.eval_b;
-        e2b = Fr.add(e2b, Fr.mul(betaxi, zkey.k1));
-        e2b = Fr.add(e2b, challenges.gamma);
-
-        let e2c = proof.evaluations.eval_c;
-        e2c = Fr.add(e2c, Fr.mul(betaxi, zkey.k2));
-        e2c = Fr.add(e2c, challenges.gamma);
-
-        const e2 = Fr.mul(Fr.mul(Fr.mul(e2a, e2b), e2c), challenges.alpha);
-
-        let e3a = proof.evaluations.eval_a;
-        e3a = Fr.add(e3a, Fr.mul(challenges.beta, proof.evaluations.eval_s1));
-        e3a = Fr.add(e3a, challenges.gamma);
-
-        let e3b = proof.evaluations.eval_b;
-        e3b = Fr.add(e3b, Fr.mul(challenges.beta, proof.evaluations.eval_s2));
-        e3b = Fr.add(e3b, challenges.gamma);
-
-        let e3 = Fr.mul(e3a, e3b);
-        e3 = Fr.mul(e3, proof.evaluations.eval_zw);
-        e3 = Fr.mul(e3, challenges.alpha);
-
-        const e4 = Fr.mul(eval_l1, challenges.alpha2);
-
-        polynomials.R = new Polynomial(new BigBuffer((zkey.domainSize + 6) * n8r), curve, logger);
-
-        polynomials.R.add(polynomials.QM, coef_ab);
-        polynomials.R.add(polynomials.QL, proof.evaluations.eval_a);
-        polynomials.R.add(polynomials.QR, proof.evaluations.eval_b);
-        polynomials.R.add(polynomials.QO, proof.evaluations.eval_c);
-        polynomials.R.add(polynomials.QC);
-        polynomials.R.add(polynomials.Z, e2);
-        polynomials.R.sub(polynomials.Sigma3, Fr.mul(e3, challenges.beta));
-        polynomials.R.add(polynomials.Z, e4);
-
-        let tmp = Polynomial.fromPolynomial(polynomials.T3, curve, logger);
-        tmp.mulScalar(Fr.square(challenges.xin));
-        tmp.add(polynomials.T2, challenges.xin);
-        tmp.add(polynomials.T1);
-        tmp.mulScalar(challenges.zh);
-
-        polynomials.R.sub(tmp);
-
-        let r0 = Fr.sub(eval_pi, Fr.mul(e3, Fr.add(proof.evaluations.eval_c, challenges.gamma)));
-        r0 = Fr.sub(r0, e4);
-
-        if (logger) logger.debug("r0: " + Fr.toString(r0, 16));
-
-        polynomials.R.addScalar(r0);
-    }
-
-    function computeWxi() {
-        polynomials.Wxi = new Polynomial(new BigBuffer(sDomain + 6 * n8r), curve, logger);
-
-        polynomials.Wxi.add(polynomials.R);
-        polynomials.Wxi.add(polynomials.A, challenges.v[1]);
-        polynomials.Wxi.add(polynomials.B, challenges.v[2]);
-        polynomials.Wxi.add(polynomials.C, challenges.v[3]);
-        polynomials.Wxi.add(polynomials.Sigma1, challenges.v[4]);
-        polynomials.Wxi.add(polynomials.Sigma2, challenges.v[5]);
-
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[1], proof.evaluations.eval_a));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[2], proof.evaluations.eval_b));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[3], proof.evaluations.eval_c));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[4], proof.evaluations.eval_s1));
-        polynomials.Wxi.subScalar(Fr.mul(challenges.v[5], proof.evaluations.eval_s2));
-
-        polynomials.Wxi.divByZerofier(1, challenges.xi);
-    }
-
-    async function computeWxiw() {
-        polynomials.Wxiw = Polynomial.fromPolynomial(polynomials.Z, curve, logger);
-        polynomials.Wxiw.subScalar(proof.evaluations.eval_zw);
-
-        polynomials.Wxiw.divByZerofier(1, challenges.xiw);
-    }
-
-    } finally {
-        for (const openFd of [fdWtns, fdZKey]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$5} = utils;
-
-async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$5(_input);
-
-    const wtns= {
-        type: "mem"
-    };
-    await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
-    return await plonk16Prove(zkeyFileName, wtns, logger, proverOptions);
-}
-
-/*
-    Copyright 2021 0kims association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const { unstringifyBigInts: unstringifyBigInts$4 } = utils;
-
-async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
-    let vk_verifier = unstringifyBigInts$4(_vk_verifier);
-    _proof = unstringifyBigInts$4(_proof);
-    let publicSignals = unstringifyBigInts$4(_publicSignals);
-
-    const curve = await getCurveFromName(vk_verifier.curve);
-
-    const Fr = curve.Fr;
-    const G1 = curve.G1;
-
-    if (logger) logger.info("PLONK VERIFIER STARTED");
-
-    let proof = fromObjectProof(curve,_proof);
-    vk_verifier = fromObjectVk$1(curve, vk_verifier);
-
-    if (!isWellConstructed(curve, proof)) {
-        if (logger) logger.error("Proof commitments are not valid.");
-        return false;
-    }
-
-    if (publicSignals.length != vk_verifier.nPublic) {
-        if (logger) logger.error("Invalid number of public inputs");
-        return false;
-    }
-
-    if (!evaluationsAreValid$1(curve, proof)) {
-        if (logger) logger.error("Proof evaluations are not valid");
-        return false;
-    }
-
-    if (!publicInputsAreValid$1(curve, publicSignals)) {
-        if (logger) logger.error("Public inputs are not valid.");
-        return false;
-    }
-
-    const challenges = calculatechallenges(curve, proof, publicSignals, vk_verifier);
-    if (logger) {
-        logger.debug("beta: " + Fr.toString(challenges.beta, 16));    
-        logger.debug("gamma: " + Fr.toString(challenges.gamma, 16));    
-        logger.debug("alpha: " + Fr.toString(challenges.alpha, 16));    
-        logger.debug("xi: " + Fr.toString(challenges.xi, 16));
-        for(let i=1;i<6;i++) {
-            if (logger) logger.debug("v: " + Fr.toString(challenges.v[i], 16));
-        }
-        logger.debug("u: " + Fr.toString(challenges.u, 16));    
-    }
-    const L = calculateLagrangeEvaluations(curve, challenges, vk_verifier);
-    if (logger) {
-        for (let i=1; i<L.length; i++) {
-            logger.debug(`L${i}(xi)=` + Fr.toString(L[i], 16));
-        }
-    }
-    
-    if (publicSignals.length != vk_verifier.nPublic) {
-        if (logger) logger.error("Number of public signals does not match with vk");
-        return false;
-    }
-
-    const pi = calculatePI$1(curve, publicSignals, L);
-    if (logger) {
-        logger.debug("PI(xi): " + Fr.toString(pi, 16));
-    }
-    
-    const r0 = calculateR0(curve, proof, challenges, pi, L[1]);
-    if (logger) {
-        logger.debug("r0: " + Fr.toString(r0, 16));
-    }
-
-    const D = calculateD(curve, proof, challenges, vk_verifier, L[1]);
-    if (logger) {
-        logger.debug("D: " + G1.toString(G1.toAffine(D), 16));
-    }
-
-    const F = calculateF(curve, proof, challenges, vk_verifier, D);
-    if (logger) {
-        logger.debug("F: " + G1.toString(G1.toAffine(F), 16));
-    }
-
-    const E = calculateE(curve, proof, challenges, r0);
-    if (logger) {
-        logger.debug("E: " + G1.toString(G1.toAffine(E), 16));
-    }
-
-    const res = await isValidPairing$1(curve, proof, challenges, vk_verifier, E, F);
-
-    if (logger) {
-        if (res) {
-            logger.info("OK!");
-        } else {
-            logger.warn("Invalid Proof");
-        }
-    }
-
-    return res;
-}
-
-
-function fromObjectProof(curve, proof) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-    const res = {};
-    res.A = G1.fromObject(proof.A);
-    res.B = G1.fromObject(proof.B);
-    res.C = G1.fromObject(proof.C);
-    res.Z = G1.fromObject(proof.Z);
-    res.T1 = G1.fromObject(proof.T1);
-    res.T2 = G1.fromObject(proof.T2);
-    res.T3 = G1.fromObject(proof.T3);
-    res.eval_a = Fr.fromObject(proof.eval_a);
-    res.eval_b = Fr.fromObject(proof.eval_b);
-    res.eval_c = Fr.fromObject(proof.eval_c);
-    res.eval_zw = Fr.fromObject(proof.eval_zw);
-    res.eval_s1 = Fr.fromObject(proof.eval_s1);
-    res.eval_s2 = Fr.fromObject(proof.eval_s2);
-    res.Wxi = G1.fromObject(proof.Wxi);
-    res.Wxiw = G1.fromObject(proof.Wxiw);
-    return res;
-}
-
-function fromObjectVk$1(curve, vk) {
-    const G1 = curve.G1;
-    const G2 = curve.G2;
-    const Fr = curve.Fr;
-    const res = vk;
-    res.Qm = G1.fromObject(vk.Qm);
-    res.Ql = G1.fromObject(vk.Ql);
-    res.Qr = G1.fromObject(vk.Qr);
-    res.Qo = G1.fromObject(vk.Qo);
-    res.Qc = G1.fromObject(vk.Qc);
-    res.S1 = G1.fromObject(vk.S1);
-    res.S2 = G1.fromObject(vk.S2);
-    res.S3 = G1.fromObject(vk.S3);
-    res.k1 = Fr.fromObject(vk.k1);
-    res.k2 = Fr.fromObject(vk.k2);
-    res.X_2 = G2.fromObject(vk.X_2);
-
-    return res;
-}
-
-function isWellConstructed(curve, proof) {
-    const G1 = curve.G1;
-    if (!G1.isValid(proof.A)) return false;
-    if (!G1.isValid(proof.B)) return false;
-    if (!G1.isValid(proof.C)) return false;
-    if (!G1.isValid(proof.Z)) return false;
-    if (!G1.isValid(proof.T1)) return false;
-    if (!G1.isValid(proof.T2)) return false;
-    if (!G1.isValid(proof.T3)) return false;
-    if (!G1.isValid(proof.Wxi)) return false;
-    if (!G1.isValid(proof.Wxiw)) return false;
-    return true;
-}
-
-function checkValueBelongToField$1(curve, value) {
-    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
-}
-
-function checkEvaluationIsValid$1(curve, evaluation) {
-    return checkValueBelongToField$1(curve, Scalar.fromRprLE(evaluation));
-}
-
-function evaluationsAreValid$1(curve, proof) {
-    return checkEvaluationIsValid$1(curve, proof.eval_a)
-        && checkEvaluationIsValid$1(curve, proof.eval_b)
-        && checkEvaluationIsValid$1(curve, proof.eval_c)
-        && checkEvaluationIsValid$1(curve, proof.eval_s1)
-        && checkEvaluationIsValid$1(curve, proof.eval_s2)
-        && checkEvaluationIsValid$1(curve, proof.eval_zw);
-}
-
-function publicInputsAreValid$1(curve, publicInputs) {
-    for(let i = 0; i < publicInputs.length; i++) {
-        if(!checkValueBelongToField$1(curve, publicInputs[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function calculatechallenges(curve, proof, publicSignals, vk) {
-    const Fr = curve.Fr;
-    const res = {};
-    const transcript = new Keccak256Transcript(curve);
-
-    // Challenge round 2: beta and gamma
-    transcript.addPolCommitment(vk.Qm);
-    transcript.addPolCommitment(vk.Ql);
-    transcript.addPolCommitment(vk.Qr);
-    transcript.addPolCommitment(vk.Qo);
-    transcript.addPolCommitment(vk.Qc);
-    transcript.addPolCommitment(vk.S1);
-    transcript.addPolCommitment(vk.S2);
-    transcript.addPolCommitment(vk.S3);
-
-    for (let i = 0; i < publicSignals.length; i++) {
-        transcript.addScalar(Fr.e(publicSignals[i]));
-    }
-
-    transcript.addPolCommitment(proof.A);
-    transcript.addPolCommitment(proof.B);
-    transcript.addPolCommitment(proof.C);
-
-    res.beta = transcript.getChallenge();
-
-    transcript.reset();
-    transcript.addScalar(res.beta);
-    res.gamma = transcript.getChallenge();
-
-    // Challenge round 3: alpha
-    transcript.reset();
-    transcript.addScalar(res.beta);
-    transcript.addScalar(res.gamma);
-    transcript.addPolCommitment(proof.Z);
-    res.alpha = transcript.getChallenge();
-
-    // Challenge round 4: xi
-    transcript.reset();
-    transcript.addScalar(res.alpha);
-    transcript.addPolCommitment(proof.T1);
-    transcript.addPolCommitment(proof.T2);
-    transcript.addPolCommitment(proof.T3);
-    res.xi = transcript.getChallenge();
-    
-    // Challenge round 5: v
-    transcript.reset();
-    transcript.addScalar(res.xi);
-    transcript.addScalar(proof.eval_a);
-    transcript.addScalar(proof.eval_b);
-    transcript.addScalar(proof.eval_c);
-    transcript.addScalar(proof.eval_s1);
-    transcript.addScalar(proof.eval_s2);
-    transcript.addScalar(proof.eval_zw);
-    res.v = [];
-    res.v[1] = transcript.getChallenge();
-
-    for (let i=2; i<6; i++ ) res.v[i] = Fr.mul(res.v[i-1], res.v[1]);
-
-    // Challenge: u
-    transcript.reset();
-    transcript.addPolCommitment(proof.Wxi);
-    transcript.addPolCommitment(proof.Wxiw);
-    res.u = transcript.getChallenge();
-
-    return res;
-}
-
-function calculateLagrangeEvaluations(curve, challenges, vk) {
-    const Fr = curve.Fr;
-
-    let xin = challenges.xi;
-    let domainSize = 1;
-    for (let i=0; i<vk.power; i++) {
-        xin = Fr.square(xin);
-        domainSize *= 2;
-    }
-    challenges.xin = xin;
-
-    challenges.zh = Fr.sub(xin, Fr.one);
-
-    const L = [];
-
-    const n = Fr.e(domainSize);
-    let w = Fr.one;
-    for (let i=1; i<=Math.max(1, vk.nPublic); i++) {
-        L[i] = Fr.div(Fr.mul(w, challenges.zh), Fr.mul(n, Fr.sub(challenges.xi, w)));
-        w = Fr.mul(w, Fr.w[vk.power]);
-    }
-
-    return L;
-}
-
-function calculatePI$1(curve, publicSignals, L) {
-    const Fr = curve.Fr;
-
-    let pi = Fr.zero;
-    for (let i=0; i<publicSignals.length; i++) {        
-        const w = Fr.e(publicSignals[i]);
-        pi = Fr.sub(pi, Fr.mul(w, L[i+1]));
-    }
-    return pi;
-}
-
-function calculateR0(curve, proof, challenges, pi, l1) {
-    const Fr = curve.Fr;
-
-    const e1 = pi;
-
-    const e2 = Fr.mul(l1, Fr.square(challenges.alpha));
-
-    let e3a = Fr.add(proof.eval_a, Fr.mul(challenges.beta, proof.eval_s1));
-    e3a = Fr.add(e3a, challenges.gamma);
-
-    let e3b = Fr.add(proof.eval_b, Fr.mul(challenges.beta, proof.eval_s2));
-    e3b = Fr.add(e3b, challenges.gamma);
-
-    let e3c = Fr.add(proof.eval_c, challenges.gamma);
-
-    let e3 = Fr.mul(Fr.mul(e3a, e3b), e3c);
-    e3 = Fr.mul(e3, proof.eval_zw);
-    e3 = Fr.mul(e3, challenges.alpha);
-
-    const r0 = Fr.sub(Fr.sub(e1, e2), e3);
-
-    return r0;
-}
-
-function calculateD(curve, proof, challenges, vk, l1) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-    
-    let d1 = G1.timesFr(vk.Qm, Fr.mul(proof.eval_a, proof.eval_b));
-    d1 = G1.add(d1, G1.timesFr(vk.Ql, proof.eval_a));
-    d1 = G1.add(d1, G1.timesFr(vk.Qr, proof.eval_b));
-    d1 = G1.add(d1, G1.timesFr(vk.Qo, proof.eval_c));
-    d1 = G1.add(d1, vk.Qc);
-
-    const betaxi = Fr.mul(challenges.beta, challenges.xi);
-
-    const d2a1 = Fr.add(Fr.add(proof.eval_a, betaxi), challenges.gamma);
-    const d2a2 = Fr.add(Fr.add(proof.eval_b, Fr.mul(betaxi, vk.k1)), challenges.gamma);
-    const d2a3 = Fr.add(Fr.add(proof.eval_c, Fr.mul(betaxi, vk.k2)), challenges.gamma);
-
-    const d2a = Fr.mul(Fr.mul(Fr.mul(d2a1, d2a2), d2a3), challenges.alpha);
-
-    const d2b = Fr.mul(l1, Fr.square(challenges.alpha));
-
-    const d2 = G1.timesFr(proof.Z, Fr.add(Fr.add(d2a, d2b), challenges.u));
-
-    const d3a = Fr.add(Fr.add(proof.eval_a, Fr.mul(challenges.beta, proof.eval_s1)), challenges.gamma);
-    const d3b = Fr.add(Fr.add(proof.eval_b, Fr.mul(challenges.beta, proof.eval_s2)), challenges.gamma);
-    const d3c = Fr.mul(Fr.mul(challenges.alpha, challenges.beta), proof.eval_zw);
-
-    const d3 = G1.timesFr(vk.S3, Fr.mul(Fr.mul(d3a, d3b), d3c));
-    
-    const d4low = proof.T1;
-    const d4mid = G1.timesFr(proof.T2, challenges.xin);
-    const d4high = G1.timesFr(proof.T3, Fr.square(challenges.xin));
-    let d4 = G1.add(d4low, G1.add(d4mid, d4high));
-    d4 = G1.timesFr(d4, challenges.zh);
-
-    const d = G1.sub(G1.sub(G1.add(d1, d2), d3), d4);
-
-    return d;
-}
-
-function calculateF(curve, proof, challenges, vk, D) {
-    const G1 = curve.G1;
-
-    let res = G1.add(D, G1.timesFr(proof.A, challenges.v[1]));
-    res = G1.add(res, G1.timesFr(proof.B, challenges.v[2]));
-    res = G1.add(res, G1.timesFr(proof.C, challenges.v[3]));
-    res = G1.add(res, G1.timesFr(vk.S1, challenges.v[4]));
-    res = G1.add(res, G1.timesFr(vk.S2, challenges.v[5]));
-
-    return res;
-}
-
-function calculateE(curve, proof, challenges, r0) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-
-    let e = Fr.add(Fr.neg(r0), Fr.mul(challenges.v[1], proof.eval_a));
-    e = Fr.add(e, Fr.mul(challenges.v[2], proof.eval_b));
-    e = Fr.add(e, Fr.mul(challenges.v[3], proof.eval_c));
-    e = Fr.add(e, Fr.mul(challenges.v[4], proof.eval_s1));
-    e = Fr.add(e, Fr.mul(challenges.v[5], proof.eval_s2));
-    e = Fr.add(e, Fr.mul(challenges.u, proof.eval_zw));
-
-    const res = G1.timesFr(G1.one, e);
-
-    return res;
-}
-
-async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-
-    let A1 = proof.Wxi;
-    A1 = G1.add(A1, G1.timesFr(proof.Wxiw, challenges.u));
-
-    let B1 = G1.timesFr(proof.Wxi, challenges.xi);
-    const s = Fr.mul(Fr.mul(challenges.u, challenges.xi), Fr.w[vk.power]);
-    B1 = G1.add(B1, G1.timesFr(proof.Wxiw, s));
-    B1 = G1.add(B1, F);
-    B1 = G1.sub(B1, E);
-
-    const res = await curve.pairingEq(
-        G1.neg(A1) , vk.X_2,
-        B1 , curve.G2.one
-    );
-
-    return res;
-}
-
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const { unstringifyBigInts: unstringifyBigInts$3} = utils;
-
-function p256$1(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0"+nstr;
-    nstr = `"0x${nstr}"`;
-    return nstr;
-}
-
-async function plonkExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts$3(_proof);
-    const pub = unstringifyBigInts$3(_pub);
-
-    await getCurveFromName(proof.curve);
-
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256$1(pub[i]);
-    }
-
-    return `[${p256$1(proof.A[0])}, ${p256$1(proof.A[1])},` +
-    `${p256$1(proof.B[0])},${p256$1(proof.B[1])},` +
-    `${p256$1(proof.C[0])},${p256$1(proof.C[1])},` +
-    `${p256$1(proof.Z[0])},${p256$1(proof.Z[1])},` +
-    `${p256$1(proof.T1[0])},${p256$1(proof.T1[1])},` +
-    `${p256$1(proof.T2[0])},${p256$1(proof.T2[1])},` +
-    `${p256$1(proof.T3[0])},${p256$1(proof.T3[1])},` +
-    `${p256$1(proof.Wxi[0])},${p256$1(proof.Wxi[1])},` +
-    `${p256$1(proof.Wxiw[0])},${p256$1(proof.Wxiw[1])},` +
-    `${p256$1(proof.eval_a)},` + 
-    `${p256$1(proof.eval_b)},` + 
-    `${p256$1(proof.eval_c)},` + 
-    `${p256$1(proof.eval_s1)},` + 
-    `${p256$1(proof.eval_s2)},` + 
-    `${p256$1(proof.eval_zw)}]` + 
-    `[${inputs}]`;
-}
-
-/*
-    Copyright 2018 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var plonk = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    exportSolidityCallData: plonkExportSolidityCallData,
-    fullProve: plonkFullProve,
-    prove: plonk16Prove,
-    setup: plonkSetup,
-    verify: plonkVerify
-});
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-// We export to zkey the signals and values of the a, b, c, ql, qr, qm, qo and qc
-
-// a, b and c are signals id (32-bit integers)
-// ql, qr, qm, qo and qc are field values
-
-function getFFlonkConstantConstraint(signal1, Fr) {
-    return [signal1, 0, 0, Fr.one, Fr.zero, Fr.zero, Fr.zero, Fr.zero];
-}
-
-function getFFlonkAdditionConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc) {
-    return [signal1, signal2, signalOut, ql, qr, qm, qo, qc];
-}
-
-function getFFlonkMultiplicationConstraint(signal1, signal2, signalOut, ql, qr, qm, qo, qc, Fr) {
-    return [signal1, signal2, signalOut, ql, qr, qm, qo, qc];
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const LINEAR_COMBINATION_NULLABLE = 0;
-const LINEAR_COMBINATION_CONSTANT = 1;
-const LINEAR_COMBINATION_VARIABLE = 2;
-
-class r1csConstraintProcessor {
-    constructor(Fr, fnGetConstantConstraint, fnGetAdditionConstraint, fnGetMultiplicationConstraint, logger) {
-        this.Fr = Fr;
-        this.logger = logger;
-        this.fnGetAdditionConstraint = fnGetAdditionConstraint;
-        this.fnGetMultiplicationConstraint = fnGetMultiplicationConstraint;
-    }
-
-    processR1csConstraint(settings, lcA, lcB, lcC) {
-        this.normalizeLinearCombination(lcA);
-        this.normalizeLinearCombination(lcB);
-        this.normalizeLinearCombination(lcC);
-
-        const lctA = this.getLinearCombinationType(lcA);
-        const lctB = this.getLinearCombinationType(lcB);
-
-        if ((lctA === LINEAR_COMBINATION_NULLABLE) || (lctB === LINEAR_COMBINATION_NULLABLE)) {
-            return this.processR1csAdditionConstraint(settings, lcC);
-        } else if (lctA === LINEAR_COMBINATION_CONSTANT) {
-            // coverage: constant-only A/B sides; circom does not emit these shapes
-            /* c8 ignore start */
-            const lcCC = this.joinLinearCombinations(lcB, lcC, lcA[0]);
-            return this.processR1csAdditionConstraint(settings, lcCC);
-        } else if (lctB === LINEAR_COMBINATION_CONSTANT) {
-            const lcCC = this.joinLinearCombinations(lcA, lcC, lcB[0]);
-            return this.processR1csAdditionConstraint(settings, lcCC);
-            /* c8 ignore stop */
-        } else {
-            return this.processR1csMultiplicationConstraint(settings, lcA, lcB, lcC);
-        }
-    }
-
-    getLinearCombinationType(linCom) {
-        // let k = this.Fr.zero;
-        //
-        // const signalIds = Object.keys(linCom);
-        // for (let i = 0; i < signalIds.length; i++) {
-        //     if (signalIds[i] === "0") {
-        //         k = this.Fr.add(k, linCom[signalIds[i]]);
-        //     } else {
-        //         return LINEAR_COMBINATION_VARIABLE;
-        //     }
-        // }
-        //
-        // if (!this.Fr.eq(k, this.Fr.zero)) return LINEAR_COMBINATION_CONSTANT;
-        //
-        // return LINEAR_COMBINATION_NULLABLE;
-
-        let k = this.Fr.zero;
-        let n = 0;
-        const ss = Object.keys(linCom);
-        for (let i = 0; i < ss.length; i++) {
-            // coverage: zero-coefficient entries; circom does not emit these shapes
-            /* c8 ignore start */
-            if (linCom[ss[i]] == 0n) {
-                delete linCom[ss[i]];
-            /* c8 ignore stop */
-            } else if (ss[i] == 0) {
-                k = this.Fr.add(k, linCom[ss[i]]);
-            } else {
-                n++;
-            }
-        }
-        if (n > 0) return LINEAR_COMBINATION_VARIABLE;
-        /* c8 ignore next */
-        if (!this.Fr.isZero(k)) return LINEAR_COMBINATION_CONSTANT;
-        return LINEAR_COMBINATION_NULLABLE;
-    }
-
-    normalizeLinearCombination(linCom) {
-        const signalIds = Object.keys(linCom);
-        for (let i = 0; i < signalIds.length; i++) {
-            /* c8 ignore next */
-            if (this.Fr.isZero(linCom[signalIds[i]])) delete linCom[signalIds[i]];
-        }
-
-        return linCom;
-    }
-
-    joinLinearCombinations(linCom1, linCom2, k) {
-        const res = {};
-
-        for (let s in linCom1) {
-            if (typeof res[s] == "undefined") {
-                res[s] = this.Fr.mul(k, linCom1[s]);
-            } else {
-                res[s] = this.Fr.add(res[s], this.Fr.mul(k, linCom1[s]));
-            }
-        }
-
-        for (let s in linCom2) {
-            const val = this.Fr.neg(linCom2[s]);
-            if (typeof res[s] == "undefined") {
-                res[s] = val;
-            } else {
-                res[s] = this.Fr.add(res[s], val);
-            }
-        }
-
-        return this.normalizeLinearCombination(res);
-    }
-
-    reduceCoefs(settings, constraintsArr, additionsArr, linCom, maxC) {
-        const res = {
-            k: this.Fr.zero,
-            signals: [],
-            coefs: []
-        };
-        const cs = [];
-
-        for (let signalId in linCom) {
-            if (signalId == 0) {
-                res.k = this.Fr.add(res.k, linCom[signalId]);
-            } else if (linCom[signalId] != 0n) {
-                cs.push([Number(signalId), linCom[signalId]]);
-            }
-        }
-
-        while (cs.length > maxC) {
-            const c1 = cs.shift();
-            const c2 = cs.shift();
-            const so = settings.nVars++;
-
-            const constraints = this.fnGetAdditionConstraint(
-                c1[0], c2[0], so,
-                this.Fr.neg(c1[1]), this.Fr.neg(c2[1]), this.Fr.zero, this.Fr.one, this.Fr.zero);
-
-            constraintsArr.push(constraints);
-            additionsArr.push([c1[0], c2[0], c1[1], c2[1]]);
-
-            cs.push([so, this.Fr.one]);
-        }
-
-        for (let i = 0; i < cs.length; i++) {
-            res.signals[i] = cs[i][0];
-            res.coefs[i] = cs[i][1];
-        }
-
-        // coverage: padding loop for under-full linear combinations
-            /* c8 ignore start */
-            while (res.coefs.length < maxC) {
-            res.signals.push(0);
-            res.coefs.push(this.Fr.zero);
-        }
-            /* c8 ignore stop */
-
-        return res;
-    }
-
-    processR1csAdditionConstraint(settings, linCom) {
-        const constraintsArr = [];
-        const additionsArr = [];
-
-        const C = this.reduceCoefs(settings, constraintsArr, additionsArr, linCom, 3);
-
-        const constraints = this.fnGetAdditionConstraint(
-            C.signals[0], C.signals[1], C.signals[2],
-            C.coefs[0], C.coefs[1], this.Fr.zero, C.coefs[2], C.k);
-
-        constraintsArr.push(constraints);
-
-        return [constraintsArr, additionsArr];
-    }
-
-    processR1csMultiplicationConstraint(settings, lcA, lcB, lcC) {
-        const constraintsArr = [];
-        const additionsArr = [];
-
-        const A = this.reduceCoefs(settings, constraintsArr, additionsArr, lcA, 1);
-        const B = this.reduceCoefs(settings, constraintsArr, additionsArr, lcB, 1);
-        const C = this.reduceCoefs(settings, constraintsArr, additionsArr, lcC, 1);
-
-        const constraints = this.fnGetMultiplicationConstraint(
-            A.signals[0], B.signals[0], C.signals[0],
-            this.Fr.mul(A.coefs[0], B.k),
-            this.Fr.mul(A.k, B.coefs[0]),
-            this.Fr.mul(A.coefs[0], B.coefs[0]),
-            this.Fr.neg(C.coefs[0]),
-            this.Fr.sub(this.Fr.mul(A.k, B.k), C.k));
-
-        constraintsArr.push(constraints);
-
-        return [constraintsArr, additionsArr];
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-class CPolynomial {
-    constructor(n, curve, logger) {
-        this.n = n;
-        this.polynomials = Array(n).fill(undefined);
-        this.curve = curve;
-        this.Fr = curve.Fr;
-        this.G1 = curve.G1;
-        this.logger = logger;
-    }
-
-    addPolynomial(position, polynomial) {
-        if (position > this.n - 1) {
-            throw new Error("CPolynomial:addPolynomial, cannot add a polynomial to a position greater than n-1");
-        }
-
-        this.polynomials[position] = polynomial;
-    }
-
-    degree() {
-        let degrees = this.polynomials.map(
-            (polynomial, index) => polynomial === undefined ? 0 : polynomial.degree() * this.n + index);
-        return Math.max(...degrees);
-    }
-
-    getPolynomial() {
-        let degrees = this.polynomials.map(polynomial => polynomial === undefined ? 0 : polynomial.degree());
-        const maxDegree = this.degree();
-        const lengthBuffer = 2 ** (log2(maxDegree - 1) + 1);
-        const sFr = this.Fr.n8;
-
-        let polynomial = new Polynomial(new BigBuffer(lengthBuffer * sFr), this.curve, this.logger);
-
-        for (let i = 0; i < maxDegree; i++) {
-            const i_n8 = i * sFr;
-            const i_sFr = i_n8 * this.n;
-
-            for (let j = 0; j < this.n; j++) {
-                if (this.polynomials[j] !== undefined) {
-                    if (i <= degrees[j]) polynomial.coef.set(this.polynomials[j].coef.slice(i_n8, i_n8 + sFr), i_sFr + j * sFr);
-                }
-            }
-        }
-
-        return polynomial;
-    }
-
-    async multiExponentiation(PTau, name) {
-        let polynomial = this.getPolynomial();
-        const n = polynomial.coef.byteLength / this.Fr.n8;
-        const PTauN = PTau.slice(0, n * this.G1.F.n8 * 2);
-        const bm = await this.Fr.batchFromMontgomery(polynomial.coef);
-        let res = await this.G1.multiExpAffine(PTauN, bm, this.logger, name);
-        res = this.G1.toAffine(res);
-        return res;
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-
-async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdPTau, pTauSections, fdR1cs, sectionsR1cs, fdZKey;
-    try {
-
-    if (logger) logger.info("FFLONK SETUP STARTED");
-
-    if (globalThis.gc) globalThis.gc();
-
-    // Read PTau file
-    if (logger) logger.info("> Reading PTau file");
-    ({fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24));
-    if (!pTauSections[12]) {
-        throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
-    }
-
-    // Get curve defined in PTau
-    if (logger) logger.info("> Getting curve from PTau settings");
-    const {curve} = await readPTauHeader(fdPTau, pTauSections);
-
-    // Read r1cs file
-    if (logger) logger.info("> Reading r1cs file");
-    ({fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24));
-    const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
-
-    // Potential error checks
-    if (r1cs.prime !== curve.r) {
-        throw new Error("r1cs curve does not match powers of tau ceremony curve");
-    }
-
-    // Initializations
-    const Fr = curve.Fr;
-
-    const sFr = curve.Fr.n8;
-    const sG1 = curve.G1.F.n8 * 2;
-    const sG2 = curve.G2.F.n8 * 2;
-
-    let polynomials = {};
-    let evaluations = {};
-    let PTau;
-
-    let settings = {
-        nVars: r1cs.nVars,
-        nPublic: r1cs.nOutputs + r1cs.nPubInputs
-    };
-
-    const plonkConstraints = new BigArray();
-    let plonkAdditions = new BigArray();
-
-    // Process constraints inside r1cs
-    if (logger) logger.info("> Processing FFlonk constraints");
-    await computeFFConstraints(curve.Fr, r1cs, logger);
-    if (globalThis.gc) globalThis.gc();
-
-    // As the t polynomial is n+5 we need at least a power of 4
-    //TODO check!!!!
-    // NOTE : plonkConstraints + 2 = #constraints + blinding coefficients for each wire polynomial
-    settings.cirPower = Math.max(FF_T_POL_DEG_MIN, log2((plonkConstraints.length + 2) - 1) + 1);
-    settings.domainSize = 2 ** settings.cirPower;
-
-    if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
-        throw new Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
-    }
-    // coverage: defensive guard against malformed files that binfileutils rejects earlier
-    /* c8 ignore start */
-    if (pTauSections[3][0].size < sG2) {
-        throw new Error("Powers of Tau is not well prepared. Section 3 too small.");
-    }
-    /* c8 ignore stop */
-
-    if (logger) {
-        logger.info("----------------------------");
-        logger.info("  FFLONK SETUP SETTINGS");
-        logger.info(`  Curve:         ${curve.name}`);
-        logger.info(`  Circuit power: ${settings.cirPower}`);
-        logger.info(`  Domain size:   ${settings.domainSize}`);
-        logger.info(`  Vars:          ${settings.nVars}`);
-        logger.info(`  Public vars:   ${settings.nPublic}`);
-        logger.info(`  Constraints:   ${plonkConstraints.length}`);
-        logger.info(`  Additions:     ${plonkAdditions.length}`);
-        logger.info("----------------------------");
-    }
-
-    // Compute k1 and k2 to be used in the permutation checks
-    if (logger) logger.info("> computing k1 and k2");
-    const [k1, k2] = computeK1K2();
-
-    // Compute omega 3 (w3) and omega 4 (w4) to be used in the prover and the verifier
-    // w3^3 = 1 and  w4^4 = 1
-    if (logger) logger.info("> computing w3");
-    const w3 = computeW3();
-    if (logger) logger.info("> computing w4");
-    const w4 = computeW4();
-    if (logger) logger.info("> computing w8");
-    const w8 = computeW8();
-    if (logger) logger.info("> computing wr");
-    const wr = getOmegaCubicRoot(settings.cirPower, curve.Fr);
-
-    // Write output zkey file
-    await writeZkeyFile();
-
-    await fdR1cs.close();
-    await fdPTau.close();
-
-    if (logger) logger.info("FFLONK SETUP FINISHED");
-
-    return 0;
-
-    async function computeFFConstraints(Fr, r1cs, logger) {
-        // Add public inputs and outputs
-        for (let i = 0; i < settings.nPublic; i++) {
-            plonkConstraints.push(getFFlonkConstantConstraint(i + 1, Fr));
-        }
-
-        // Add all constraints from r1cs file
-        const r1csProcessor = new r1csConstraintProcessor(Fr, getFFlonkConstantConstraint, getFFlonkAdditionConstraint, getFFlonkMultiplicationConstraint, logger);
-
-        const bR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
-        let bR1csPos = 0;
-        for (let i = 0; i < r1cs.nConstraints; i++) {
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger) && (i !== 0) && (i % 500000 === 0)) {
-                logger.info(`    processing r1cs constraints ${i}/${r1cs.nConstraints}`);
-            }
-            /* c8 ignore stop */
-            const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...readConstraint());
-
-            plonkConstraints.push(...constraints);
-            plonkAdditions.push(...additions);
-        }
-
-        function readConstraint() {
-            const c = [];
-            c[0] = readLC();
-            c[1] = readLC();
-            c[2] = readLC();
-            return c;
-        }
-
-        function readLC() {
-            const lc = {};
-
-            const buffUL32 = bR1cs.slice(bR1csPos, bR1csPos + 4);
-            bR1csPos += 4;
-            const buffUL32V = new DataView(buffUL32.buffer);
-            const nIdx = buffUL32V.getUint32(0, true);
-
-            const buff = bR1cs.slice(bR1csPos, bR1csPos + (4 + r1cs.n8) * nIdx);
-            bR1csPos += (4 + r1cs.n8) * nIdx;
-            const buffV = new DataView(buff.buffer);
-            for (let i = 0; i < nIdx; i++) {
-                const idx = buffV.getUint32(i * (4 + r1cs.n8), true);
-                const val = r1cs.F.fromRprLE(buff, i * (4 + r1cs.n8) + 4);
-                lc[idx] = val;
-            }
-            return lc;
-        }
-
-        return 0;
-    }
-
-    async function writeZkeyFile() {
-        if (logger) logger.info("> Writing the zkey file");
-        fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
-
-        if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
-        await writeZkeyHeader(fdZKey);
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
-        await writeAdditions(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
-        await writeWitnessMap(fdZKey, ZKEY_FF_A_MAP_SECTION, 0, "A map");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_B_MAP_SECTION}. B Map`);
-        await writeWitnessMap(fdZKey, ZKEY_FF_B_MAP_SECTION, 1, "B map");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_C_MAP_SECTION}. C Map`);
-        await writeWitnessMap(fdZKey, ZKEY_FF_C_MAP_SECTION, 2, "C map");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QL_SECTION}. QL`);
-        await writeQMap(fdZKey, ZKEY_FF_QL_SECTION, 3, "QL");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QR_SECTION}. QR`);
-        await writeQMap(fdZKey, ZKEY_FF_QR_SECTION, 4, "QR");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QM_SECTION}. QM`);
-        await writeQMap(fdZKey, ZKEY_FF_QM_SECTION, 5, "QM");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QO_SECTION}. QO`);
-        await writeQMap(fdZKey, ZKEY_FF_QO_SECTION, 6, "QO");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_QC_SECTION}. QC`);
-        await writeQMap(fdZKey, ZKEY_FF_QC_SECTION, 7, "QC");
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
-        await writeSigma(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
-        await writeLagrangePolynomials(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
-        await writePtau(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_C0_SECTION}. C0`);
-        await writeC0(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info(`··· Writing Section ${ZKEY_FF_HEADER_SECTION}. FFlonk Header`);
-        await writeFFlonkHeader(fdZKey);
-        if (globalThis.gc) globalThis.gc();
-
-        if (logger) logger.info("> Writing the zkey file finished");
-
-        await fdZKey.close();
-    }
-
-    async function writeZkeyHeader(fdZKey) {
-        await startWriteSection(fdZKey, HEADER_ZKEY_SECTION);
-        await fdZKey.writeULE32(FFLONK_PROTOCOL_ID);
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeAdditions(fdZKey) {
-        await startWriteSection(fdZKey, ZKEY_FF_ADDITIONS_SECTION);
-
-        // Written values are 2 * 32 bit integers (2 * 4 bytes) + 2 field size values ( 2 * sFr bytes)
-        const buffOut = new Uint8Array(8 + 2 * sFr);
-        const buffOutV = new DataView(buffOut.buffer);
-
-        for (let i = 0; i < plonkAdditions.length; i++) {
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`      writing Additions: ${i}/${plonkAdditions.length}`);
-            /* c8 ignore stop */
-
-            const addition = plonkAdditions[i];
-
-            buffOutV.setUint32(0, addition[0], true);
-            buffOutV.setUint32(4, addition[1], true);
-            buffOut.set(addition[2], 8);
-            buffOut.set(addition[3], 8 + sFr);
-
-            await fdZKey.write(buffOut);
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeWitnessMap(fdZKey, sectionNum, posConstraint, name) {
-        await startWriteSection(fdZKey, sectionNum);
-        for (let i = 0; i < plonkConstraints.length; i++) {
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if (logger && (i !== 0) && (i % 500000 === 0)) {
-                logger.info(`      writing witness ${name}: ${i}/${plonkConstraints.length}`);
-            }
-            /* c8 ignore stop */
-
-            await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeQMap(fdZKey, sectionNum, posConstraint, name) {
-        // Compute Q from q evaluations
-        let Q = new BigBuffer(settings.domainSize * sFr);
-
-        for (let i = 0; i < plonkConstraints.length; i++) {
-            Q.set(plonkConstraints[i][posConstraint], i * sFr);
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger) && (i !== 0) && (i % 500000 === 0)) {
-                logger.info(`      writing ${name}: ${i}/${plonkConstraints.length}`);
-            }
-            /* c8 ignore stop */
-        }
-
-        polynomials[name] = await Polynomial.fromEvaluations(Q, curve, logger);
-        evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
-
-        // Write Q coefficients and evaluations
-        await startWriteSection(fdZKey, sectionNum);
-        await fdZKey.write(polynomials[name].coef);
-        await fdZKey.write(evaluations[name].eval);
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeSigma(fdZKey) {
-        // Compute sigma
-        const sigma = new BigBuffer(sFr * settings.domainSize * 3);
-        const lastSeen = new BigArray(settings.nVars);
-        const firstPos = new BigArray(settings.nVars);
-
-        let w = Fr.one;
-        for (let i = 0; i < settings.domainSize; i++) {
-            if (i < plonkConstraints.length) {
-                buildSigma(plonkConstraints[i][0], i);
-                buildSigma(plonkConstraints[i][1], settings.domainSize + i);
-                buildSigma(plonkConstraints[i][2], settings.domainSize * 2 + i);
-            } else if (i < settings.domainSize - 2) {
-                buildSigma(0, i);
-                buildSigma(0, settings.domainSize + i);
-                buildSigma(0, settings.domainSize * 2 + i);
-            } else {
-                sigma.set(w, i * sFr);
-                sigma.set(Fr.mul(w, k1), (settings.domainSize + i) * sFr);
-                sigma.set(Fr.mul(w, k2), (settings.domainSize * 2 + i) * sFr);
-            }
-
-            w = Fr.mul(w, Fr.w[settings.cirPower]);
-
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger) && (i !== 0) && (i % 500000 === 0)) {
-                logger.info(`      writing sigma phase1: ${i}/${plonkConstraints.length}`);
-            }
-            /* c8 ignore stop */
-        }
-
-        for (let i = 0; i < settings.nVars; i++) {
-            if (typeof firstPos[i] !== "undefined") {
-                sigma.set(lastSeen[i], firstPos[i] * sFr);
-            } else {
-                // coverage: defensive path for a variable no constraint references
-                /* c8 ignore start */
-                // throw new Error("Variable not used");
-                console.log("Variable not used");
-                /* c8 ignore stop */
-            }
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`      writing sigma phase2: ${i}/${settings.nVars}`);
-            /* c8 ignore stop */
-        }
-
-        if (globalThis.gc) globalThis.gc();
-
-        // Write sigma coefficients and evaluations
-        for (let i = 0; i < 3; i++) {
-            const sectionId = 0 === i ? ZKEY_FF_SIGMA1_SECTION : 1 === i ? ZKEY_FF_SIGMA2_SECTION : ZKEY_FF_SIGMA3_SECTION;
-
-            let name = "S" + (i + 1);
-            polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
-            evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
-            await startWriteSection(fdZKey, sectionId);
-            await fdZKey.write(polynomials[name].coef);
-            await fdZKey.write(evaluations[name].eval);
-            await endWriteSection(fdZKey);
-
-            if (globalThis.gc) globalThis.gc();
-        }
-
-        return 0;
-
-        function buildSigma(signalId, idx) {
-            if (typeof lastSeen[signalId] === "undefined") {
-                firstPos[signalId] = idx;
-            } else {
-                sigma.set(lastSeen[signalId], idx * sFr);
-            }
-            let v;
-            if (idx < settings.domainSize) {
-                v = w;
-            } else if (idx < 2 * settings.domainSize) {
-                v = Fr.mul(w, k1);
-            } else {
-                v = Fr.mul(w, k2);
-            }
-
-            lastSeen[signalId] = v;
-        }
-    }
-
-    async function writeLagrangePolynomials(fdZKey) {
-        await startWriteSection(fdZKey, ZKEY_FF_LAGRANGE_SECTION);
-
-        const l = Math.max(settings.nPublic, 1);
-        for (let i = 0; i < l; i++) {
-            let buff = new BigBuffer(settings.domainSize * sFr);
-            buff.set(Fr.one, i * sFr);
-
-            await writeP4(fdZKey, buff);
-        }
-        await endWriteSection(fdZKey);
-    }
-
-    async function writePtau(fdZKey) {
-        await startWriteSection(fdZKey, ZKEY_FF_PTAU_SECTION);
-
-        // domainSize * 9 + 18 = maximum SRS length needed, specifically to commit C2
-        PTau = new BigBuffer((settings.domainSize * 9 + 18) * sG1);
-        await fdPTau.readToBuffer(PTau, 0, (settings.domainSize * 9 + 18) * sG1, pTauSections[2][0].p);
-
-        await fdZKey.write(PTau);
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeC0(fdZKey) {
-        // C0(X) := QL(X^8) + X · QR(X^8) + X^2 · QO(X^8) + X^3 · QM(X^8) + X^4 · QC(X^8)
-        //            + X^5 · SIGMA1(X^8) + X^6 · SIGMA2(X^8) + X^7 · SIGMA3(X^8)
-        let C0 = new CPolynomial(8, curve, logger);
-        C0.addPolynomial(0, polynomials.QL);
-        C0.addPolynomial(1, polynomials.QR);
-        C0.addPolynomial(2, polynomials.QO);
-        C0.addPolynomial(3, polynomials.QM);
-        C0.addPolynomial(4, polynomials.QC);
-        C0.addPolynomial(5, polynomials.S1);
-        C0.addPolynomial(6, polynomials.S2);
-        C0.addPolynomial(7, polynomials.S3);
-
-        polynomials.C0 = C0.getPolynomial();
-
-        // Check degree
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.C0.degree() >= 8 * settings.domainSize) {
-            throw new Error("C0 Polynomial is not well calculated");
-        }
-        /* c8 ignore stop */
-
-        await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
-        await fdZKey.write(polynomials.C0.coef);
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeFFlonkHeader(fdZKey) {
-        await startWriteSection(fdZKey, ZKEY_FF_HEADER_SECTION);
-
-        const primeQ = curve.q;
-        const n8q = (Math.floor((Scalar.bitLength(primeQ) - 1) / 64) + 1) * 8;
-        await fdZKey.writeULE32(n8q);
-        await writeBigInt(fdZKey, primeQ, n8q);
-
-        const primeR = curve.r;
-        const n8r = (Math.floor((Scalar.bitLength(primeR) - 1) / 64) + 1) * 8;
-        await fdZKey.writeULE32(n8r);
-        await writeBigInt(fdZKey, primeR, n8r);
-
-        // Total number of r1cs vars
-        await fdZKey.writeULE32(settings.nVars);
-        // Total number of r1cs public vars = outputs + public inputs
-        await fdZKey.writeULE32(settings.nPublic);
-        await fdZKey.writeULE32(settings.domainSize);
-        await fdZKey.writeULE32(plonkAdditions.length);
-        await fdZKey.writeULE32(plonkConstraints.length);
-
-        await fdZKey.write(k1);
-        await fdZKey.write(k2);
-
-        await fdZKey.write(w3);
-        await fdZKey.write(w4);
-        await fdZKey.write(w8);
-        await fdZKey.write(wr);
-
-        let bX_2;
-        bX_2 = await fdPTau.read(sG2, pTauSections[3][0].p + sG2);
-        await fdZKey.write(bX_2);
-
-        let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
-        await fdZKey.write(commitC0);
-
-        await endWriteSection(fdZKey);
-    }
-
-    async function writeP4(fdZKey, buff) {
-        const [coefficients, evaluations4] = await Polynomial.to4T(buff, settings.domainSize, [], Fr);
-        await fdZKey.write(coefficients);
-        await fdZKey.write(evaluations4);
-
-        return [coefficients, evaluations4];
-    }
-
-    function computeK1K2() {
-        let k1 = Fr.two;
-        // coverage: search loop never iterates for the supported curves' constants
-        /* c8 ignore start */
-        while (isIncluded(k1, [], settings.cirPower)) Fr.add(k1, Fr.one);
-        /* c8 ignore stop */
-        let k2 = Fr.add(k1, Fr.one);
-        // coverage: search loop never iterates for the supported curves' constants
-        /* c8 ignore start */
-        while (isIncluded(k2, [k1], settings.cirPower)) Fr.add(k2, Fr.one);
-        /* c8 ignore stop */
-        return [k1, k2];
-
-        function isIncluded(k, kArr, pow) {
-            const domainSize = 2 ** pow;
-            let w = Fr.one;
-            for (let i = 0; i < domainSize; i++) {
-                // coverage: search loop never iterates for the supported curves' constants
-                /* c8 ignore start */
-                if (Fr.eq(k, w)) return true;
-                /* c8 ignore stop */
-                for (let j = 0; j < kArr.length; j++) {
-                    // coverage: search loop never iterates for the supported curves' constants
-                    /* c8 ignore start */
-                    if (Fr.eq(k, Fr.mul(kArr[j], w))) return true;
-                    /* c8 ignore stop */
-                }
-                w = Fr.mul(w, Fr.w[pow]);
-            }
-            return false;
-        }
-    }
-
-    function computeW3() {
-        let generator = Fr.e(31624);
-
-        // Exponent is order(r - 1) / 3
-        let orderRsub1 = 3648040478639879203707734290876212514758060733402672390616367364429301415936n;
-        let exponent = Scalar.div(orderRsub1, Scalar.e(3));
-
-        return Fr.exp(generator, exponent);
-    }
-
-    function computeW4() {
-        return Fr.w[2];
-    }
-
-    function computeW8() {
-        return Fr.w[3];
-    }
-
-    function getOmegaCubicRoot(power, Fr) {
-        // Hardcorded 3th-root of Fr.w[28]
-        const firstRoot = Fr.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
-
-        return Fr.exp(firstRoot, 2 ** (28 - power));
-    }
-
-    } finally {
-        for (const openFd of [fdPTau, fdR1cs, fdZKey]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const { stringifyBigInts } = utils;
-
-
-async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
-    // fd lifecycle: every file this function opens is tracked below and
-    // closed in the finally, so no early error return or throw can leak an
-    // fd. Success-path closes stay where they are; the finally re-close is
-    // absorbed harmlessly.
-    let fdWtns, wtnsSections, fdZKey, zkeySections;
-    try {
-
-    if (logger) logger.info("FFLONK PROVER STARTED");
-
-    // Read witness file
-    if (logger) logger.info("> Reading witness file");
-    ({
-        fd: fdWtns,
-        sections: wtnsSections
-    } = await readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23));
-    const wtns = await readHeader(fdWtns, wtnsSections);
-
-    //Read zkey file
-    if (logger) logger.info("> Reading zkey file");
-    ({
-        fd: fdZKey,
-        sections: zkeySections
-    } = await readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23));
-
-    const zkey = await readHeader$1(fdZKey, zkeySections, undefined, options);
-
-    if (zkey.protocolId !== FFLONK_PROTOCOL_ID) {
-        throw new Error("zkey file is not fflonk");
-    }
-
-    if (!Scalar.eq(zkey.r, wtns.q)) {
-        throw new Error("Curve of the witness does not match the curve of the proving key");
-    }
-
-    if (wtns.nWitness !== zkey.nVars - zkey.nAdditions) {
-        throw new Error(`Invalid witness length. Circuit: ${zkey.nVars}, witness: ${wtns.nWitness}, ${zkey.nAdditions}`);
-    }
-
-    const curve = zkey.curve;
-
-    const Fr = curve.Fr;
-
-    const sFr = curve.Fr.n8;
-    const sG1 = curve.G1.F.n8 * 2;
-    const sDomain = zkey.domainSize * sFr;
-
-    if (logger) {
-        logger.info("----------------------------");
-        logger.info("  FFLONK PROVE SETTINGS");
-        logger.info(`  Curve:         ${curve.name}`);
-        logger.info(`  Circuit power: ${zkey.power}`);
-        logger.info(`  Domain size:   ${zkey.domainSize}`);
-        logger.info(`  Vars:          ${zkey.nVars}`);
-        logger.info(`  Public vars:   ${zkey.nPublic}`);
-        logger.info(`  Constraints:   ${zkey.nConstraints}`);
-        logger.info(`  Additions:     ${zkey.nAdditions}`);
-        logger.info("----------------------------");
-    }
-
-    //Read witness data
-    if (logger) logger.info("> Reading witness file data");
-    const buffWitness = await readSection(fdWtns, wtnsSections, 2);
-    await fdWtns.close();
-
-    // First element in plonk is not used and can be any value. (But always the same).
-    // We set it to zero to go faster in the exponentiations.
-    buffWitness.set(Fr.zero, 0);
-    const buffInternalWitness = new BigBuffer(zkey.nAdditions * sFr);
-
-    let buffers = {};
-    let polynomials = {};
-    let evaluations = {};
-
-    // To divide prime fields the Extended Euclidean Algorithm for computing modular inverses is needed.
-    // NOTE: This is the equivalent of compute 1/denominator and then multiply it by the numerator.
-    // The Extended Euclidean Algorithm is expensive in terms of computation.
-    // For the special case where we need to do many modular inverses, there's a simple mathematical trick
-    // that allows us to compute many inverses, called Montgomery batch inversion.
-    // More info: https://vitalik.ca/general/2018/07/21/starks_part_3.html
-    // Montgomery batch inversion reduces the n inverse computations to a single one
-    // To save this (single) inverse computation on-chain, will compute it in proving time and send it to the verifier.
-    // The verifier will have to check:
-    // 1) the denominator is correct multiplying by himself non-inverted -> a * 1/a == 1
-    // 2) compute the rest of the denominators using the Montgomery batch inversion
-    // The inversions are:
-    //   · denominator needed in step 8 and 9 of the verifier to multiply by 1/Z_H(xi)
-    //   · denominator needed in step 10 and 11 of the verifier
-    //   · denominator needed in the verifier when computing L_i^{S1}(X) and L_i^{S2}(X)
-    //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
-    let toInverse = {};
-
-    let challenges = {};
-    let roots = {};
-
-    let proof = new Proof(curve, logger);
-
-    if (logger) logger.info(`> Reading Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
-    await calculateAdditions();
-
-    if (logger) logger.info(`> Reading Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
-    if (logger) logger.info("··· Reading Sigma polynomials ");
-    polynomials.Sigma1 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma2 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-    polynomials.Sigma3 = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-    await fdZKey.readToBuffer(polynomials.Sigma1.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p);
-    await fdZKey.readToBuffer(polynomials.Sigma2.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p);
-    await fdZKey.readToBuffer(polynomials.Sigma3.coef, 0, sDomain, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p);
-
-    if (logger) logger.info("··· Reading Sigma evaluations");
-    evaluations.Sigma1 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma2 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-    evaluations.Sigma3 = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-
-    await fdZKey.readToBuffer(evaluations.Sigma1.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA1_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma2.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA2_SECTION][0].p + sDomain);
-    await fdZKey.readToBuffer(evaluations.Sigma3.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_SIGMA3_SECTION][0].p + sDomain);
-
-    if (logger) logger.info(`> Reading Section ${ZKEY_FF_PTAU_SECTION}. Powers of Tau`);
-    const PTau = new BigBuffer(zkey.domainSize * 16 * sG1);
-    // domainSize * 9 + 18 = SRS length in the zkey saved in setup process.
-    // it corresponds to the maximum SRS length needed, specifically to commit C2
-    // notice that the reserved buffers size is zkey.domainSize * 16 * sG1 because a power of two buffer size is needed
-    // the remaining buffer not filled from SRS are set to 0
-    await fdZKey.readToBuffer(PTau, 0, (zkey.domainSize * 9 + 18) * sG1, zkeySections[ZKEY_FF_PTAU_SECTION][0].p);
-
-    // START FFLONK PROVER PROTOCOL
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 1. Compute C1(X) polynomial
-    if (logger) logger.info("");
-    if (logger) logger.info("> ROUND 1");
-    await round1();
-
-    delete polynomials.T0;
-    delete evaluations.QL;
-    delete evaluations.QR;
-    delete evaluations.QM;
-    delete evaluations.QO;
-    delete evaluations.QC;
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 2. Compute C2(X) polynomial
-    if (logger) logger.info("> ROUND 2");
-    await round2();
-
-    delete buffers.A;
-    delete buffers.B;
-    delete buffers.C;
-    delete evaluations.A;
-    delete evaluations.B;
-    delete evaluations.C;
-    delete evaluations.Sigma1;
-    delete evaluations.Sigma2;
-    delete evaluations.Sigma3;
-    delete evaluations.lagrange1;
-    delete evaluations.Z;
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 3. Compute opening evaluations
-    if (logger) logger.info("> ROUND 3");
-    await round3();
-
-    delete polynomials.A;
-    delete polynomials.B;
-    delete polynomials.C;
-    delete polynomials.Z;
-    delete polynomials.T1;
-    delete polynomials.T2;
-    delete polynomials.Sigma1;
-    delete polynomials.Sigma2;
-    delete polynomials.Sigma3;
-    delete polynomials.QL;
-    delete polynomials.QR;
-    delete polynomials.QM;
-    delete polynomials.QC;
-    delete polynomials.QO;
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 4. Compute W(X) polynomial
-    if (logger) logger.info("> ROUND 4");
-    await round4();
-    if (globalThis.gc) globalThis.gc();
-
-    // ROUND 5. Compute W'(X) polynomial
-    if (logger) logger.info("> ROUND 5");
-    await round5();
-
-    delete polynomials.C0;
-    delete polynomials.C1;
-    delete polynomials.C2;
-    delete polynomials.R1;
-    delete polynomials.R2;
-    delete polynomials.F;
-    delete polynomials.L;
-    delete polynomials.ZT;
-    delete polynomials.ZTS2;
-    await fdZKey.close();
-    if (globalThis.gc) globalThis.gc();
-
-    proof.addEvaluation("inv", getMontgomeryBatchedInverse());
-
-    // Prepare proof
-    let _proof = proof.toObjectProof();
-    _proof.protocol = "fflonk";
-    _proof.curve = curve.name;
-
-    // Prepare public inputs
-    let publicSignals = [];
-
-    for (let i = 1; i <= zkey.nPublic; i++) {
-        const i_sFr = i * sFr;
-
-        const pub = buffWitness.slice(i_sFr, i_sFr + sFr);
-        publicSignals.push(Scalar.fromRprLE(pub));
-    }
-
-    if (logger) logger.info("FFLONK PROVER FINISHED");
-
-    return {
-        proof: stringifyBigInts(_proof),
-        publicSignals: stringifyBigInts(publicSignals)
-    };
-
-    async function calculateAdditions() {
-        if (logger) logger.info("··· Computing additions");
-        const additionsBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_ADDITIONS_SECTION);
-
-        // sizes: wireId_x = 4 bytes (32 bits), factor_x = field size bits
-        // Addition form: wireId_a wireId_b factor_a factor_b (size is 4 + 4 + sFr + sFr)
-        const sSum = 8 + sFr * 2;
-
-        for (let i = 0; i < zkey.nAdditions; i++) {
-            // coverage: progress logging fires only for circuits beyond test-fixture size
-            /* c8 ignore start */
-            if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    addition ${i}/${zkey.nAdditions}`);
-            /* c8 ignore stop */
-
-            // Read addition values
-            let offset = i * sSum;
-            const signalId1 = readUInt32(additionsBuff, offset);
-            offset += 4;
-            const signalId2 = readUInt32(additionsBuff, offset);
-            offset += 4;
-            const factor1 = additionsBuff.slice(offset, offset + sFr);
-            offset += sFr;
-            const factor2 = additionsBuff.slice(offset, offset + sFr);
-
-            // Get witness value
-            const witness1 = getWitness(signalId1);
-            const witness2 = getWitness(signalId2);
-
-            //Calculate final result
-            const result = Fr.add(Fr.mul(factor1, witness1), Fr.mul(factor2, witness2));
-
-            buffInternalWitness.set(result, sFr * i);
-        }
-    }
-
-    function readUInt32(b, o) {
-        const buff = b.slice(o, o + 4);
-        const buffV = new DataView(buff.buffer, buff.byteOffset, buff.byteLength);
-        return buffV.getUint32(0, true);
-    }
-
-    function getWitness(idx) {
-        let diff = zkey.nVars - zkey.nAdditions;
-        if (idx < diff) {
-            return buffWitness.slice(idx * sFr, idx * sFr + sFr);
-        } else if (idx < zkey.nVars) {
-            const offset = (idx - diff) * sFr;
-            return buffInternalWitness.slice(offset, offset + sFr);
-        }
-// coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-/* c8 ignore start */
-
-/* c8 ignore stop */
-        return Fr.zero;
-    }
-
-    async function round1() {
-        // STEP 1.1 - Generate random blinding scalars (b_1, ..., b9) ∈ F
-        challenges.b = [];
-        for (let i = 1; i <= 9; i++) {
-            challenges.b[i] = Fr.random();
-        }
-
-        // STEP 1.2 - Compute wire polynomials a(X), b(X) and c(X)
-        if (logger) logger.info("> Computing A, B, C wire polynomials");
-        await computeWirePolynomials();
-
-        // STEP 1.3 - Compute the quotient polynomial T0(X)
-        if (logger) logger.info("> Computing T0 polynomial");
-        await computeT0();
-
-        // STEP 1.4 - Compute the FFT-style combination polynomial C1(X)
-        if (logger) logger.info("> Computing C1 polynomial");
-        await computeC1();
-
-        // The first output of the prover is ([C1]_1)
-        if (logger) logger.info("> Computing C1 multi exponentiation");
-        let commitC1 = await polynomials.C1.multiExponentiation(PTau, "C1");
-        proof.addPolynomial("C1", commitC1);
-
-        return 0;
-
-        async function computeWirePolynomials() {
-            if (logger) logger.info("··· Reading data from zkey file");
-            // Build A, B and C evaluations buffer from zkey and witness files
-            buffers.A = new BigBuffer(sDomain);
-            buffers.B = new BigBuffer(sDomain);
-            buffers.C = new BigBuffer(sDomain);
-
-            // Read zkey sections and fill the buffers
-            const aMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
-            const bMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
-            const cMapBuff = await readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
-
-            // Compute all witness from signal ids and set them to A,B & C buffers
-            for (let i = 0; i < zkey.nConstraints; i++) {
-                const i_sFr = i * sFr;
-                const offset = i * 4;
-
-                // Compute A value from a signal id
-                const signalIdA = readUInt32(aMapBuff, offset);
-                buffers.A.set(getWitness(signalIdA), i_sFr);
-
-                // Compute B value from a signal id
-                const signalIdB = readUInt32(bMapBuff, offset);
-                buffers.B.set(getWitness(signalIdB), i_sFr);
-
-                // Compute C value from a signal id
-                const signalIdC = readUInt32(cMapBuff, offset);
-                buffers.C.set(getWitness(signalIdC), i_sFr);
-            }
-
-            // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
-            buffers.A.set(challenges.b[1], sDomain - 64);
-            buffers.A.set(challenges.b[2], sDomain - 32);
-            buffers.B.set(challenges.b[3], sDomain - 64);
-            buffers.B.set(challenges.b[4], sDomain - 32);
-            buffers.C.set(challenges.b[5], sDomain - 64);
-            buffers.C.set(challenges.b[6], sDomain - 32);
-
-            buffers.A = await Fr.batchToMontgomery(buffers.A);
-            buffers.B = await Fr.batchToMontgomery(buffers.B);
-            buffers.C = await Fr.batchToMontgomery(buffers.C);
-
-            // Compute the coefficients of the wire polynomials a(X), b(X) and c(X) from A,B & C buffers
-            if (logger) logger.info("··· Computing A ifft");
-            polynomials.A = await Polynomial.fromEvaluations(buffers.A, curve, logger);
-            if (logger) logger.info("··· Computing B ifft");
-            polynomials.B = await Polynomial.fromEvaluations(buffers.B, curve, logger);
-            if (logger) logger.info("··· Computing C ifft");
-            polynomials.C = await Polynomial.fromEvaluations(buffers.C, curve, logger);
-
-            // Compute extended evaluations of a(X), b(X) and c(X) polynomials
-            if (logger) logger.info("··· Computing A fft");
-            evaluations.A = await Evaluations.fromPolynomial(polynomials.A, 4, curve, logger);
-            if (logger) logger.info("··· Computing B fft");
-            evaluations.B = await Evaluations.fromPolynomial(polynomials.B, 4, curve, logger);
-            if (logger) logger.info("··· Computing C fft");
-            evaluations.C = await Evaluations.fromPolynomial(polynomials.C, 4, curve, logger);
-
-            // Check degrees
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.A.degree() >= zkey.domainSize) {
-                throw new Error("A Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.B.degree() >= zkey.domainSize) {
-                throw new Error("B Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.C.degree() >= zkey.domainSize) {
-                throw new Error("C Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-
-        async function computeT0() {
-            if (logger) logger.info(`··· Reading sections ${ZKEY_FF_QL_SECTION}, ${ZKEY_FF_QR_SECTION}` +
-                `, ${ZKEY_FF_QM_SECTION}, ${ZKEY_FF_QO_SECTION}, ${ZKEY_FF_QC_SECTION}. Q selectors`);
-            // Reserve memory for Q's evaluations
-            evaluations.QL = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QR = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QM = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QO = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-            evaluations.QC = new Evaluations(new BigBuffer(sDomain * 4), curve, logger);
-
-            // Read Q's evaluations from zkey file
-            await fdZKey.readToBuffer(evaluations.QL.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QL_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QR.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QR_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QM.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QM_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QO.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QO_SECTION][0].p + sDomain);
-            await fdZKey.readToBuffer(evaluations.QC.eval, 0, sDomain * 4, zkeySections[ZKEY_FF_QC_SECTION][0].p + sDomain);
-
-            // Read Lagrange polynomials & evaluations from zkey file
-            const lagrangePolynomials = await readSection(fdZKey, zkeySections, ZKEY_FF_LAGRANGE_SECTION);
-            evaluations.lagrange1 = new Evaluations(lagrangePolynomials, curve, logger);
-
-            // Reserve memory for buffers T0
-            buffers.T0 = new BigBuffer(sDomain * 4);
-
-            if (logger) logger.info("··· Computing T0 evaluations");
-            for (let i = 0; i < zkey.domainSize * 4; i++) {
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`      T0 evaluation ${i}/${zkey.domainSize * 4}`);
-                /* c8 ignore stop */
-
-                // Get related evaluations to compute current T0 evaluation
-                const a = evaluations.A.getEvaluation(i);
-                const b = evaluations.B.getEvaluation(i);
-                const c = evaluations.C.getEvaluation(i);
-
-                const ql = evaluations.QL.getEvaluation(i);
-                const qr = evaluations.QR.getEvaluation(i);
-                const qm = evaluations.QM.getEvaluation(i);
-                const qo = evaluations.QO.getEvaluation(i);
-                const qc = evaluations.QC.getEvaluation(i);
-
-                // Compute current public input
-                let pi = Fr.zero;
-                for (let j = 0; j < zkey.nPublic; j++) {
-                    const offset = (j * 5 * zkey.domainSize) + zkey.domainSize + i;
-
-                    const lPol = evaluations.lagrange1.getEvaluation(offset);
-                    const aVal = buffers.A.slice(j * sFr, (j + 1) * sFr);
-
-                    pi = Fr.sub(pi, Fr.mul(lPol, aVal));
-                }
-
-                //T0(X) = [q_L(X)·a(X) + q_R(X)·b(X) + q_M(X)·a(X)·b(X) + q_O(X)·c(X) + q_C(X) + PI(X)] · 1/Z_H(X)
-                // Compute first T0(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                // expression 1 -> q_L(X)·a(X)
-                const e1 = Fr.mul(a, ql);
-
-                // expression 2 -> q_R(X)·b(X)
-                const e2 = Fr.mul(b, qr);
-
-                // expression 3 -> q_M(X)·a(X)·b(X)
-                const e3 = Fr.mul(Fr.mul(a, b), qm);
-
-                // expression 4 -> q_O(X)·c(X)
-                const e4 = Fr.mul(c, qo);
-
-                // t0 = expressions 1 + expression 2 + expression 3 + expression 4 + qc + pi
-                const t0 = Fr.add(e1, Fr.add(e2, Fr.add(e3, Fr.add(e4, Fr.add(qc, pi)))));
-
-                buffers.T0.set(t0, i * sFr);
-            }
-
-            if (logger) logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
-
-            // Compute the coefficients of the polynomial T0(X) from buffers.T0
-            if (logger) logger.info("··· Computing T0 ifft");
-            polynomials.T0 = await Polynomial.fromEvaluations(buffers.T0, curve, logger);
-
-            if (logger) logger.info("T0 length: " + polynomials.T0.length());
-            if (logger) logger.info("T0 degree: " + polynomials.T0.degree());
-
-            // Divide the polynomial T0 by Z_H(X)
-            if (logger) logger.info("··· Computing T0 / ZH");
-            polynomials.T0.divByZerofier(zkey.domainSize, Fr.one);
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.T0.degree() >= 2 * zkey.domainSize - 2) {
-                throw new Error(`T0 Polynomial is not well calculated (degree is ${polynomials.T0.degree()} and must be less than ${2 * zkey.domainSize + 2}`);
-            }
-            /* c8 ignore stop */
-
-            delete buffers.T0;
-        }
-
-        async function computeC1() {
-            let C1 = new CPolynomial(4, curve, logger);
-            C1.addPolynomial(0, polynomials.A);
-            C1.addPolynomial(1, polynomials.B);
-            C1.addPolynomial(2, polynomials.C);
-            C1.addPolynomial(3, polynomials.T0);
-
-            polynomials.C1 = C1.getPolynomial();
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.C1.degree() >= 8 * zkey.domainSize - 8) {
-                throw new Error("C1 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-    }
-
-    async function round2() {
-        // STEP 2.1 - Compute permutation challenge beta and gamma ∈ F
-        // Compute permutation challenge beta
-        if (logger) logger.info("> Computing challenges beta and gamma");
-        const transcript = new Keccak256Transcript(curve);
-
-        // Add C0 to the transcript
-        transcript.addPolCommitment(zkey.C0);
-
-        // Add A to the transcript
-        for (let i = 0; i < zkey.nPublic; i++) {
-            transcript.addScalar(buffers.A.slice(i * sFr, i * sFr + sFr));
-        }
-
-        // Add C1 to the transcript
-        transcript.addPolCommitment(proof.getPolynomial("C1"));
-
-        challenges.beta = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.beta: " + Fr.toString(challenges.beta));
-
-        // Compute permutation challenge gamma
-        transcript.reset();
-        transcript.addScalar(challenges.beta);
-        challenges.gamma = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.gamma: " + Fr.toString(challenges.gamma));
-
-        // STEP 2.2 - Compute permutation polynomial z(X)
-        if (logger) logger.info("> Computing Z polynomial");
-        await computeZ();
-
-        // STEP 2.3 - Compute quotient polynomial T1(X) and T2(X)
-        if (logger) logger.info("> Computing T1 polynomial");
-        await computeT1();
-        if (logger) logger.info("> Computing T2 polynomial");
-        await computeT2();
-
-        // STEP 2.4 - Compute the FFT-style combination polynomial C2(X)
-        if (logger) logger.info("> Computing C2 polynomial");
-        await computeC2();
-
-        // The second output of the prover is ([C2]_1)
-        if (logger) logger.info("> Computing C2 multi exponentiation");
-        let commitC2 = await polynomials.C2.multiExponentiation(PTau, "C2");
-        proof.addPolynomial("C2", commitC2);
-
-        return 0;
-
-        async function computeZ() {
-            if (logger) logger.info("··· Computing Z evaluations");
-
-            let numArr = new BigBuffer(sDomain);
-            let denArr = new BigBuffer(sDomain);
-
-            // Set the first values to 1
-            numArr.set(Fr.one, 0);
-            denArr.set(Fr.one, 0);
-
-            // Set initial omega
-            let w = Fr.one;
-            for (let i = 0; i < zkey.domainSize; i++) {
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    Z evaluation ${i}/${zkey.domainSize}`);
-                /* c8 ignore stop */
-                const i_sFr = i * sFr;
-
-                // Z(X) := numArr / denArr
-                // numArr := (a + beta·ω + gamma)(b + beta·ω·k1 + gamma)(c + beta·ω·k2 + gamma)
-                const betaw = Fr.mul(challenges.beta, w);
-
-                let num1 = buffers.A.slice(i_sFr, i_sFr + sFr);
-                num1 = Fr.add(num1, betaw);
-                num1 = Fr.add(num1, challenges.gamma);
-
-                let num2 = buffers.B.slice(i_sFr, i_sFr + sFr);
-                num2 = Fr.add(num2, Fr.mul(zkey.k1, betaw));
-                num2 = Fr.add(num2, challenges.gamma);
-
-                let num3 = buffers.C.slice(i_sFr, i_sFr + sFr);
-                num3 = Fr.add(num3, Fr.mul(zkey.k2, betaw));
-                num3 = Fr.add(num3, challenges.gamma);
-
-                let num = Fr.mul(num1, Fr.mul(num2, num3));
-
-                // denArr := (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)
-                let den1 = buffers.A.slice(i_sFr, i_sFr + sFr);
-                den1 = Fr.add(den1, Fr.mul(challenges.beta, evaluations.Sigma1.getEvaluation(i * 4)));
-                den1 = Fr.add(den1, challenges.gamma);
-
-                let den2 = buffers.B.slice(i_sFr, i_sFr + sFr);
-                den2 = Fr.add(den2, Fr.mul(challenges.beta, evaluations.Sigma2.getEvaluation(i * 4)));
-                den2 = Fr.add(den2, challenges.gamma);
-
-                let den3 = buffers.C.slice(i_sFr, i_sFr + sFr);
-                den3 = Fr.add(den3, Fr.mul(challenges.beta, evaluations.Sigma3.getEvaluation(i * 4)));
-                den3 = Fr.add(den3, challenges.gamma);
-
-                let den = Fr.mul(den1, Fr.mul(den2, den3));
-
-                // Multiply current num value with the previous one saved in numArr
-                num = Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), num);
-                numArr.set(num, ((i + 1) % zkey.domainSize) * sFr);
-
-                // Multiply current den value with the previous one saved in denArr
-                den = Fr.mul(denArr.slice(i_sFr, i_sFr + sFr), den);
-                denArr.set(den, ((i + 1) % zkey.domainSize) * sFr);
-
-                // Next omega
-                w = Fr.mul(w, Fr.w[zkey.power]);
-            }
-            // Compute the inverse of denArr to compute in the next command the
-            // division numArr/denArr by multiplying num · 1/denArr
-            denArr = await Fr.batchInverse(denArr);
-
-            // TODO: Do it in assembly and in parallel
-            // Multiply numArr · denArr where denArr was inverted in the previous command
-            for (let i = 0; i < zkey.domainSize; i++) {
-                const i_sFr = i * sFr;
-
-                const z = Fr.mul(numArr.slice(i_sFr, i_sFr + sFr), denArr.slice(i_sFr, i_sFr + sFr));
-                numArr.set(z, i_sFr);
-            }
-            // From now on the values saved on numArr will be Z(X) buffer
-            buffers.Z = numArr;
-
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (!Fr.eq(numArr.slice(0, sFr), Fr.one)) {
-                throw new Error("Copy constraints does not match");
-            }
-            /* c8 ignore stop */
-
-            // Compute polynomial coefficients z(X) from buffers.Z
-            if (logger) logger.info("··· Computing Z ifft");
-            polynomials.Z = await Polynomial.fromEvaluations(buffers.Z, curve, logger);
-
-            // Compute extended evaluations of z(X) polynomial
-            if (logger) logger.info("··· Computing Z fft");
-            evaluations.Z = await Evaluations.fromPolynomial(polynomials.Z, 4, curve, logger);
-
-            // Blind z(X) polynomial coefficients with blinding scalars b
-            polynomials.Z.blindCoefficients([challenges.b[9], challenges.b[8], challenges.b[7]]);
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.Z.degree() >= zkey.domainSize + 3) {
-                throw new Error("Z Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-
-            delete buffers.Z;
-        }
-
-        async function computeT1() {
-            if (logger) logger.info("··· Computing T1 evaluations");
-
-            buffers.T1 = new BigBuffer(sDomain * 2);
-            buffers.T1z = new BigBuffer(sDomain * 2);
-
-            // Set initial omega
-            let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 2; i++) {
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    T1 evaluation ${i}/${zkey.domainSize * 4}`);
-                /* c8 ignore stop */
-
-                const omega2 = Fr.square(omega);
-
-                const z = evaluations.Z.getEvaluation(i * 2);
-                const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
-
-                // T1(X) := (z(X) - 1) · L_1(X)
-                // Compute first T1(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-                const lagrange1 = evaluations.lagrange1.getEvaluation(zkey.domainSize + i * 2);
-                let t1 = Fr.mul(Fr.sub(z, Fr.one), lagrange1);
-                let t1z = Fr.mul(zp, lagrange1);
-
-                buffers.T1.set(t1, i * sFr);
-                buffers.T1z.set(t1z, i * sFr);
-
-                // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 1]);
-            }
-
-            // Compute the coefficients of the polynomial T1(X) from buffers.T1
-            if (logger) logger.info("··· Computing T1 ifft");
-            polynomials.T1 = await Polynomial.fromEvaluations(buffers.T1, curve, logger);
-
-            // Divide the polynomial T1 by Z_H(X)
-            polynomials.T1.divByZerofier(zkey.domainSize, Fr.one);
-
-            // Compute the coefficients of the polynomial T1z(X) from buffers.T1z
-            if (logger) logger.info("··· Computing T1z ifft");
-            polynomials.T1z = await Polynomial.fromEvaluations(buffers.T1z, curve, logger);
-
-            // Add the polynomial T1z to T1 to get the final polynomial T1
-            polynomials.T1.add(polynomials.T1z);
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.T1.degree() >= zkey.domainSize + 2) {
-                throw new Error("T1 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-
-            delete buffers.T1;
-            delete buffers.T1z;
-            delete polynomials.T1z;
-        }
-
-        async function computeT2() {
-            if (logger) logger.info("··· Computing T2 evaluations");
-
-            buffers.T2 = new BigBuffer(sDomain * 4);
-            buffers.T2z = new BigBuffer(sDomain * 4);
-
-            // Set initial omega
-            let omega = Fr.one;
-            for (let i = 0; i < zkey.domainSize * 4; i++) {
-                // coverage: progress logging fires only for circuits beyond test-fixture size
-                /* c8 ignore start */
-                if (logger && (0 !== i) && (i % 100000 === 0)) logger.info(`    T2 evaluation ${i}/${zkey.domainSize * 4}`);
-                /* c8 ignore stop */
-
-                const omega2 = Fr.square(omega);
-                const omegaW = Fr.mul(omega, Fr.w[zkey.power]);
-                const omegaW2 = Fr.square(omegaW);
-
-                const a = evaluations.A.getEvaluation(i);
-                const b = evaluations.B.getEvaluation(i);
-                const c = evaluations.C.getEvaluation(i);
-                const z = evaluations.Z.getEvaluation(i);
-                const zW = evaluations.Z.getEvaluation((zkey.domainSize * 4 + 4 + i) % (zkey.domainSize * 4));
-
-                const zp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omega2), Fr.mul(challenges.b[8], omega)), challenges.b[9]);
-                const zWp = Fr.add(Fr.add(Fr.mul(challenges.b[7], omegaW2), Fr.mul(challenges.b[8], omegaW)), challenges.b[9]);
-
-                const sigma1 = evaluations.Sigma1.getEvaluation(i);
-                const sigma2 = evaluations.Sigma2.getEvaluation(i);
-                const sigma3 = evaluations.Sigma3.getEvaluation(i);
-
-                // T2(X) := [ (a(X) + beta·X + gamma)(b(X) + beta·k1·X + gamma)(c(X) + beta·k2·X + gamma)z(X)
-                //           -(a(X) + beta·sigma1(X) + gamma)(b(X) + beta·sigma2(X) + gamma)(c(X) + beta·sigma3(X) + gamma)z(Xω)] · 1/Z_H(X)
-                // Compute first T2(X)·Z_H(X), so divide later the resulting polynomial by Z_H(X)
-
-                // expression 1 -> (a(X) + beta·X + gamma)(b(X) + beta·k1·X + gamma)(c(X) + beta·k2·X + gamma)z(X)
-                const betaX = Fr.mul(challenges.beta, omega);
-
-                let e11 = Fr.add(a, betaX);
-                e11 = Fr.add(e11, challenges.gamma);
-
-                let e12 = Fr.add(b, Fr.mul(betaX, zkey.k1));
-                e12 = Fr.add(e12, challenges.gamma);
-
-                let e13 = Fr.add(c, Fr.mul(betaX, zkey.k2));
-                e13 = Fr.add(e13, challenges.gamma);
-
-                let e1 = Fr.mul(Fr.mul(Fr.mul(e11, e12), e13), z);
-                let e1z = Fr.mul(Fr.mul(Fr.mul(e11, e12), e13), zp);
-                // const [e1, e1z] = MulZ.mul4(e11, e12, e13, z, ap, bp, cp, zp, i % 4, Fr);
-
-                // expression 2 -> (a(X) + beta·sigma1(X) + gamma)(b(X) + beta·sigma2(X) + gamma)(c(X) + beta·sigma3(X) + gamma)z(Xω)
-                let e21 = Fr.add(a, Fr.mul(challenges.beta, sigma1));
-                e21 = Fr.add(e21, challenges.gamma);
-
-                let e22 = Fr.add(b, Fr.mul(challenges.beta, sigma2));
-                e22 = Fr.add(e22, challenges.gamma);
-
-                let e23 = Fr.add(c, Fr.mul(challenges.beta, sigma3));
-                e23 = Fr.add(e23, challenges.gamma);
-
-                let e2 = Fr.mul(Fr.mul(Fr.mul(e21, e22), e23), zW);
-                let e2z = Fr.mul(Fr.mul(Fr.mul(e21, e22), e23), zWp);
-                // const [e2, e2z] = MulZ.mul4(e21, e22, e23, zW, ap, bp, cp, zWp, i % 4, Fr);
-
-                let t2 = Fr.sub(e1, e2);
-                let t2z = Fr.sub(e1z, e2z);
-
-                buffers.T2.set(t2, i * sFr);
-                buffers.T2z.set(t2z, i * sFr);
-
-                // Compute next omega
-                omega = Fr.mul(omega, Fr.w[zkey.power + 2]);
-            }
-
-            // Compute the coefficients of the polynomial T2(X) from buffers.T2
-            if (logger) logger.info("··· Computing T2 ifft");
-            polynomials.T2 = await Polynomial.fromEvaluations(buffers.T2, curve, logger);
-
-            // Divide the polynomial T2 by Z_H(X)
-            if (logger) logger.info("··· Computing T2 / ZH");
-            polynomials.T2.divByZerofier(zkey.domainSize, Fr.one);
-
-            // Compute the coefficients of the polynomial T2z(X) from buffers.T2z
-            if (logger) logger.info("··· Computing T2z ifft");
-            polynomials.T2z = await Polynomial.fromEvaluations(buffers.T2z, curve, logger);
-
-            // Add the polynomial T2z to T2 to get the final polynomial T2
-            polynomials.T2.add(polynomials.T2z);
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.T2.degree() >= 3 * zkey.domainSize) {
-                throw new Error("T2 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-
-            delete buffers.T2;
-            delete buffers.T2z;
-            delete polynomials.T2z;
-        }
-
-        async function computeC2() {
-            let C2 = new CPolynomial(3, curve, logger);
-            C2.addPolynomial(0, polynomials.Z);
-            C2.addPolynomial(1, polynomials.T1);
-            C2.addPolynomial(2, polynomials.T2);
-
-            polynomials.C2 = C2.getPolynomial();
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.C2.degree() >= 9 * zkey.domainSize) {
-                throw new Error("C2 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-    }
-
-    async function round3() {
-        if (logger) logger.info("> Computing challenge xi");
-        // STEP 3.1 - Compute evaluation challenge xi ∈ S
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.gamma);
-        transcript.addPolCommitment(proof.getPolynomial("C2"));
-
-        // Obtain a xi_seeder from the transcript
-        // To force h1^4 = xi, h2^3 = xi and h_3^2 = xiω
-        // we compute xi = xi_seeder^12, h1 = xi_seeder^3, h2 = xi_seeder^4 and h3 = xi_seeder^6
-        challenges.xiSeed = transcript.getChallenge();
-        const xiSeed2 = Fr.square(challenges.xiSeed);
-
-        // Compute omega8, omega4 and omega3
-        roots.w8 = [];
-        roots.w8[0] = Fr.one;
-        for (let i = 1; i < 8; i++) {
-            roots.w8[i] = Fr.mul(roots.w8[i - 1], zkey.w8);
-        }
-
-        roots.w4 = [];
-        roots.w4[0] = Fr.one;
-        for (let i = 1; i < 4; i++) {
-            roots.w4[i] = Fr.mul(roots.w4[i - 1], zkey.w4);
-        }
-
-        roots.w3 = [];
-        roots.w3[0] = Fr.one;
-        roots.w3[1] = zkey.w3;
-        roots.w3[2] = Fr.square(zkey.w3);
-
-        // Compute h0 = xiSeeder^3
-        roots.S0 = {};
-        roots.S0.h0w8 = [];
-        roots.S0.h0w8[0] = Fr.mul(xiSeed2, challenges.xiSeed);
-        for (let i = 1; i < 8; i++) {
-            roots.S0.h0w8[i] = Fr.mul(roots.S0.h0w8[0], roots.w8[i]);
-        }
-
-        // Compute h1 = xi_seeder^6
-        roots.S1 = {};
-        roots.S1.h1w4 = [];
-        roots.S1.h1w4[0] = Fr.square(roots.S0.h0w8[0]);
-        for (let i = 1; i < 4; i++) {
-            roots.S1.h1w4[i] = Fr.mul(roots.S1.h1w4[0], roots.w4[i]);
-        }
-
-        // Compute h2 = xi_seeder^8
-        roots.S2 = {};
-        roots.S2.h2w3 = [];
-        roots.S2.h2w3[0] = Fr.mul(roots.S1.h1w4[0], xiSeed2);
-        roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], roots.w3[1]);
-        roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], roots.w3[2]);
-
-        roots.S2.h3w3 = [];
-        // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
-        // So, h3 = xi_seeder^8 ω^{1/3}
-        roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], zkey.wr);
-        roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], roots.w3[1]);
-        roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], roots.w3[2]);
-
-        // Compute xi = xi_seeder^24
-        challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
-
-        if (logger) logger.info("··· challenges.xi: " + Fr.toString(challenges.xi));
-
-        // Reserve memory for Q's polynomials
-        polynomials.QL = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QR = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QM = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QO = new Polynomial(new BigBuffer(sDomain), curve, logger);
-        polynomials.QC = new Polynomial(new BigBuffer(sDomain), curve, logger);
-
-        // Read Q's evaluations from zkey file
-        await fdZKey.readToBuffer(polynomials.QL.coef, 0, sDomain, zkeySections[ZKEY_FF_QL_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QR.coef, 0, sDomain, zkeySections[ZKEY_FF_QR_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QM.coef, 0, sDomain, zkeySections[ZKEY_FF_QM_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QO.coef, 0, sDomain, zkeySections[ZKEY_FF_QO_SECTION][0].p);
-        await fdZKey.readToBuffer(polynomials.QC.coef, 0, sDomain, zkeySections[ZKEY_FF_QC_SECTION][0].p);
-
-        // STEP 3.2 - Compute opening evaluations and add them to the proof (third output of the prover)
-        if (logger) logger.info("··· Computing evaluations");
-        proof.addEvaluation("ql", polynomials.QL.evaluate(challenges.xi));
-        proof.addEvaluation("qr", polynomials.QR.evaluate(challenges.xi));
-        proof.addEvaluation("qm", polynomials.QM.evaluate(challenges.xi));
-        proof.addEvaluation("qo", polynomials.QO.evaluate(challenges.xi));
-        proof.addEvaluation("qc", polynomials.QC.evaluate(challenges.xi));
-        proof.addEvaluation("s1", polynomials.Sigma1.evaluate(challenges.xi));
-        proof.addEvaluation("s2", polynomials.Sigma2.evaluate(challenges.xi));
-        proof.addEvaluation("s3", polynomials.Sigma3.evaluate(challenges.xi));
-        proof.addEvaluation("a", polynomials.A.evaluate(challenges.xi));
-        proof.addEvaluation("b", polynomials.B.evaluate(challenges.xi));
-        proof.addEvaluation("c", polynomials.C.evaluate(challenges.xi));
-        proof.addEvaluation("z", polynomials.Z.evaluate(challenges.xi));
-
-        challenges.xiw = Fr.mul(challenges.xi, Fr.w[zkey.power]);
-        proof.addEvaluation("zw", polynomials.Z.evaluate(challenges.xiw));
-        proof.addEvaluation("t1w", polynomials.T1.evaluate(challenges.xiw));
-        proof.addEvaluation("t2w", polynomials.T2.evaluate(challenges.xiw));
-    }
-
-    async function round4() {
-        if (logger) logger.info("> Computing challenge alpha");
-        // STEP 4.1 - Compute challenge alpha ∈ F
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.xiSeed);
-        transcript.addScalar(proof.getEvaluation("ql"));
-        transcript.addScalar(proof.getEvaluation("qr"));
-        transcript.addScalar(proof.getEvaluation("qm"));
-        transcript.addScalar(proof.getEvaluation("qo"));
-        transcript.addScalar(proof.getEvaluation("qc"));
-        transcript.addScalar(proof.getEvaluation("s1"));
-        transcript.addScalar(proof.getEvaluation("s2"));
-        transcript.addScalar(proof.getEvaluation("s3"));
-        transcript.addScalar(proof.getEvaluation("a"));
-        transcript.addScalar(proof.getEvaluation("b"));
-        transcript.addScalar(proof.getEvaluation("c"));
-        transcript.addScalar(proof.getEvaluation("z"));
-        transcript.addScalar(proof.getEvaluation("zw"));
-        transcript.addScalar(proof.getEvaluation("t1w"));
-        transcript.addScalar(proof.getEvaluation("t2w"));
-        challenges.alpha = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.alpha: " + Fr.toString(challenges.alpha));
-
-        // STEP 4.2 - Compute F(X)
-        if (logger) logger.info("> Reading C0 polynomial");
-        polynomials.C0 = new Polynomial(new BigBuffer(sDomain * 8), curve, logger);
-        await fdZKey.readToBuffer(polynomials.C0.coef, 0, sDomain * 8, zkeySections[ZKEY_FF_C0_SECTION][0].p);
-
-        if (logger) logger.info("> Computing R0 polynomial");
-        computeR0();
-        if (logger) logger.info("> Computing R1 polynomial");
-        computeR1();
-        if (logger) logger.info("> Computing R2 polynomial");
-        computeR2();
-
-        if (logger) logger.info("> Computing F polynomial");
-        await computeF();
-
-        // The fourth output of the prover is ([W1]_1), where W1:=(f/Z_t)(x)
-        if (logger) logger.info("> Computing W1 multi exponentiation");
-        let commitW1 = await polynomials.F.multiExponentiation(PTau, "W1");
-        proof.addPolynomial("W1", commitW1);
-
-        return 0;
-
-        function computeR0() {
-            // COMPUTE R0
-            // Compute the coefficients of R0(X) from 8 evaluations using lagrange interpolation. R0(X) ∈ F_{<8}[X]
-            // We decide to use Lagrange interpolations because the R0 degree is very small (deg(R0)===7),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R0 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
-                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7]],
-                [polynomials.C0.evaluate(roots.S0.h0w8[0]), polynomials.C0.evaluate(roots.S0.h0w8[1]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[2]), polynomials.C0.evaluate(roots.S0.h0w8[3]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[4]), polynomials.C0.evaluate(roots.S0.h0w8[5]),
-                    polynomials.C0.evaluate(roots.S0.h0w8[6]), polynomials.C0.evaluate(roots.S0.h0w8[7])], curve);
-
-            // Check the degree of r0(X) < 8
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.R0.degree() > 7) {
-                throw new Error("R0 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-
-        function computeR1() {
-            // COMPUTE R1
-            // Compute the coefficients of R1(X) from 4 evaluations using lagrange interpolation. R1(X) ∈ F_{<4}[X]
-            // We decide to use Lagrange interpolations because the R1 degree is very small (deg(R1)===3),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R1 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3]],
-                [polynomials.C1.evaluate(roots.S1.h1w4[0]), polynomials.C1.evaluate(roots.S1.h1w4[1]),
-                    polynomials.C1.evaluate(roots.S1.h1w4[2]), polynomials.C1.evaluate(roots.S1.h1w4[3])], curve);
-
-            // Check the degree of r1(X) < 4
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.R1.degree() > 3) {
-                throw new Error("R1 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-
-        function computeR2() {
-            // COMPUTE R2
-            // Compute the coefficients of r2(X) from 6 evaluations using lagrange interpolation. r2(X) ∈ F_{<6}[X]
-            // We decide to use Lagrange interpolations because the R2.degree is very small (deg(R2)===5),
-            // and we were not able to compute it using current ifft implementation because the omega are different
-            polynomials.R2 = Polynomial.lagrangePolynomialInterpolation(
-                [roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]],
-                [polynomials.C2.evaluate(roots.S2.h2w3[0]), polynomials.C2.evaluate(roots.S2.h2w3[1]),
-                    polynomials.C2.evaluate(roots.S2.h2w3[2]), polynomials.C2.evaluate(roots.S2.h3w3[0]),
-                    polynomials.C2.evaluate(roots.S2.h3w3[1]), polynomials.C2.evaluate(roots.S2.h3w3[2])], curve);
-
-            // Check the degree of r2(X) < 6
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.R2.degree() > 5) {
-                throw new Error("R2 Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-
-        async function computeF() {
-            if (logger) logger.info("··· Computing F polynomial");
-
-            // COMPUTE F(X)
-            polynomials.F = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
-            polynomials.F.sub(polynomials.R0);
-            polynomials.F.divByZerofier(8, challenges.xi);
-
-            let f2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
-            f2.sub(polynomials.R1);
-            f2.mulScalar(challenges.alpha);
-            f2.divByZerofier(4, challenges.xi);
-
-            let f3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
-            f3.sub(polynomials.R2);
-            f3.mulScalar(Fr.square(challenges.alpha));
-            f3.divByZerofier(3, challenges.xi);
-            f3.divByZerofier(3, challenges.xiw);
-
-            polynomials.F.add(f2);
-            polynomials.F.add(f3);
-
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.F.degree() >= 9 * zkey.domainSize - 6) {
-                throw new Error("F Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-        }
-    }
-
-    async function round5() {
-        if (logger) logger.info("> Computing challenge y");
-
-        // STEP 5.1 - Compute random evaluation point y ∈ F
-        const transcript = new Keccak256Transcript(curve);
-        transcript.addScalar(challenges.alpha);
-        transcript.addPolCommitment(proof.getPolynomial("W1"));
-
-        challenges.y = transcript.getChallenge();
-        if (logger) logger.info("··· challenges.y: " + Fr.toString(challenges.y));
-
-        // STEP 5.2 - Compute L(X)
-        if (logger) logger.info("> Computing L polynomial");
-        await computeL();
-
-        if (logger) logger.info("> Computing ZTS2 polynomial");
-        await computeZTS2();
-
-        let ZTS2Y = polynomials.ZTS2.evaluate(challenges.y);
-        ZTS2Y = Fr.inv(ZTS2Y);
-        polynomials.L.mulScalar(ZTS2Y);
-
-        const polDividend = Polynomial.fromCoefficientsArray([Fr.neg(challenges.y), Fr.one], curve);
-        if (logger) logger.info("> Computing W' = L / ZTS2 polynomial");
-        const polRemainder = polynomials.L.divBy(polDividend);
-
-        //Check polReminder degree is equal to zero
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polRemainder.degree() > 0) {
-            throw new Error(`Degree of L(X)/(ZTS2(y)(X-y)) remainder is ${polRemainder.degree()} and should be 0`);
-        }
-        /* c8 ignore stop */
-
-        // coverage: internal consistency check on self-computed data; unreachable via the public API
-        /* c8 ignore start */
-        if (polynomials.L.degree() >= 9 * zkey.domainSize - 1) {
-            throw new Error("Degree of L(X)/(ZTS2(y)(X-y)) is not correct");
-        }
-        /* c8 ignore stop */
-
-        // The fifth output of the prover is ([W2]_1), where W2:=(f/Z_t)(x)
-        if (logger) logger.info("> Computing W' multi exponentiation");
-        let commitW2 = await polynomials.L.multiExponentiation(PTau, "W2");
-        proof.addPolynomial("W2", commitW2);
-
-        return 0;
-
-        async function computeL() {
-            if (logger) logger.info("··· Computing L polynomial");
-
-            const evalR0Y = polynomials.R0.evaluate(challenges.y);
-            const evalR1Y = polynomials.R1.evaluate(challenges.y);
-            const evalR2Y = polynomials.R2.evaluate(challenges.y);
-
-            let mulL0 = Fr.sub(challenges.y, roots.S0.h0w8[0]);
-            for (let i = 1; i < 8; i++) {
-                mulL0 = Fr.mul(mulL0, Fr.sub(challenges.y, roots.S0.h0w8[i]));
-            }
-
-            let mulL1 = Fr.sub(challenges.y, roots.S1.h1w4[0]);
-            for (let i = 1; i < 4; i++) {
-                mulL1 = Fr.mul(mulL1, Fr.sub(challenges.y, roots.S1.h1w4[i]));
-            }
-
-            let mulL2 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
-            for (let i = 1; i < 3; i++) {
-                mulL2 = Fr.mul(mulL2, Fr.sub(challenges.y, roots.S2.h2w3[i]));
-            }
-            for (let i = 0; i < 3; i++) {
-                mulL2 = Fr.mul(mulL2, Fr.sub(challenges.y, roots.S2.h3w3[i]));
-            }
-
-            let preL0 = Fr.mul(mulL1, mulL2);
-            let preL1 = Fr.mul(challenges.alpha, Fr.mul(mulL0, mulL2));
-            let preL2 = Fr.mul(Fr.square(challenges.alpha), Fr.mul(mulL0, mulL1));
-
-            toInverse["denH1"] = mulL1;
-            toInverse["denH2"] = mulL2;
-
-            // COMPUTE L(X)
-            polynomials.L = Polynomial.fromPolynomial(polynomials.C0, curve, logger);
-            polynomials.L.subScalar(evalR0Y);
-            polynomials.L.mulScalar(preL0);
-
-            let l2 = Polynomial.fromPolynomial(polynomials.C1, curve, logger);
-            l2.subScalar(evalR1Y);
-            l2.mulScalar(preL1);
-
-            let l3 = Polynomial.fromPolynomial(polynomials.C2, curve, logger);
-            l3.subScalar(evalR2Y);
-            l3.mulScalar(preL2);
-
-            polynomials.L.add(l2);
-            polynomials.L.add(l3);
-
-            if (logger) logger.info("> Computing ZT polynomial");
-            await computeZT();
-
-            const evalZTY = polynomials.ZT.evaluate(challenges.y);
-            polynomials.F.mulScalar(evalZTY);
-            polynomials.L.sub(polynomials.F);
-
-            // Check degree
-            // coverage: internal consistency check on self-computed data; unreachable via the public API
-            /* c8 ignore start */
-            if (polynomials.L.degree() >= 9 * zkey.domainSize) {
-                throw new Error("L Polynomial is not well calculated");
-            }
-            /* c8 ignore stop */
-
-            delete buffers.L;
-        }
-
-        async function computeZT() {
-            polynomials.ZT = Polynomial.zerofierPolynomial(
-                [
-                    roots.S0.h0w8[0], roots.S0.h0w8[1], roots.S0.h0w8[2], roots.S0.h0w8[3],
-                    roots.S0.h0w8[4], roots.S0.h0w8[5], roots.S0.h0w8[6], roots.S0.h0w8[7],
-                    roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
-                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
-        }
-
-        async function computeZTS2() {
-            polynomials.ZTS2 = Polynomial.zerofierPolynomial(
-                [roots.S1.h1w4[0], roots.S1.h1w4[1], roots.S1.h1w4[2], roots.S1.h1w4[3],
-                    roots.S2.h2w3[0], roots.S2.h2w3[1], roots.S2.h2w3[2],
-                    roots.S2.h3w3[0], roots.S2.h3w3[1], roots.S2.h3w3[2]], curve);
-        }
-    }
-
-    function getMontgomeryBatchedInverse() {
-        //   · denominator needed in step 8 and 9 of the verifier to multiply by 1/Z_H(xi)
-        let xiN = challenges.xi;
-        for (let i = 0; i < zkey.power; i++) {
-            xiN = Fr.square(xiN);
-        }
-        toInverse["zh"] = Fr.sub(xiN, Fr.one);
-
-        //   · denominator needed in step 10 and 11 of the verifier
-        //     toInverse.denH1 & toInverse.denH2  -> Computed in round5, computeL()
-
-        //   · denominator needed in the verifier when computing L_i^{S0}(X), L_i^{S1}(X) and L_i^{S2}(X)
-        computeLiS0(toInverse, roots.S0.h0w8, challenges.y, curve);
-
-        computeLiS1(toInverse, roots.S1.h1w4, challenges.y, curve);
-
-        computeLiS2(toInverse, roots.S2.h2w3, roots.S2.h3w3, challenges.y, challenges.xi, challenges.xiw, curve);
-
-        //   · L_i i=1 to num public inputs, needed in step 6 and 7 of the verifier to compute L_1(xi) and PI(xi)
-        const size = Math.max(1, zkey.nPublic);
-
-        let w = Fr.one;
-        for (let i = 0; i < size; i++) {
-            toInverse["Li_" + (i + 1)] = Fr.mul(Fr.e(zkey.domainSize), Fr.sub(challenges.xi, w));
-            w = Fr.mul(w, Fr.w[zkey.power]);
-        }
-
-        let mulAccumulator = Fr.one;
-        for (const element of Object.values(toInverse)) {
-            // coverage: defensive edge guard not reachable with valid inputs
-            /* c8 ignore start */
-            if(Array.isArray(element)) {
-                for (const subElement of element) {
-                    mulAccumulator = Fr.mul(mulAccumulator, subElement);
-                }
-            } else {
-                mulAccumulator = Fr.mul(mulAccumulator, element);
-            }
-            /* c8 ignore stop */
-        }
-        return Fr.inv(mulAccumulator);
-
-        
-        function computeLiS0(toInverse, roots, x, curve) {
-            const Fr = curve.Fr;
-            const len = roots.length;
-        
-            const den1 = Fr.mul(Fr.e(len), Fr.exp(roots[0], len - 2));
-        
-            const Li = [];
-            for (let i = 0; i < len; i++) {
-                const den2 = roots[((len - 1) * i) % len];
-                const den3 = Fr.sub(x, roots[i]);
-        
-                toInverse[["LiS0_" + (i + 1)]] = Fr.mul(Fr.mul(den1, den2), den3);
-            }
-        
-            return Li;
-        }
-
-        function computeLiS1(toInverse, roots, x, curve) {
-            const Fr = curve.Fr;
-            const len = roots.length;
-        
-            const den1 = Fr.mul(Fr.e(len), Fr.exp(roots[0], len - 2));
-        
-            const Li = [];
-            for (let i = 0; i < len; i++) {
-                const den2 = roots[((len - 1) * i) % len];
-                const den3 = Fr.sub(x, roots[i]);
-        
-                toInverse[["LiS1_" + (i + 1)]] = Fr.mul(Fr.mul(den1, den2), den3);
-
-            }
-        
-            return Li;
-        }
-
-        function computeLiS2(toInverse, S2, S2p, value, xi, xiw, curve) {
-            const Fr = curve.Fr;
-        
-            const Li = [];
-        
-            const _3h2 = Fr.mul(Fr.e(3), S2[0]);
-            const xisubxiw = Fr.sub(xi, xiw);
-            let den1 = Fr.mul(_3h2, xisubxiw);
-            for (let i = 0; i < 3; i++) {
-                const den2 = S2[2 * i % 3];
-                const den3 = Fr.sub(value, S2[i]);
-        
-                toInverse[["LiS2_" + (i + 1)]] = Fr.mul(den1,Fr.mul(den2, den3));
-                
-            }
-        
-            const _3h3 = Fr.mul(Fr.e(3), S2p[0]);
-            const xiwsubxi = Fr.sub(xiw, xi);
-            den1 = Fr.mul(_3h3, xiwsubxi);
-            for (let i = 0; i < 3; i++) {
-                const den2 = S2p[2 * i % 3];
-                const den3 = Fr.sub(value, S2p[i]);
-        
-                toInverse[["LiS2_" + (i + 1 + 3)]] = Fr.mul(den1,Fr.mul(den2, den3));    
-            }
-        
-            return Li;
-        }
-    }
-
-    } finally {
-        for (const openFd of [fdWtns, fdZKey]) {
-            // close() is idempotent (fastfile >= 6278879); the catch keeps a
-            // failing final flush from masking the original error on the
-            // throw path -- the success-path close already reported it
-            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
-        }
-    }
-}
-
-/*
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-const {unstringifyBigInts: unstringifyBigInts$2} = utils;
-
-async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
-    const input = unstringifyBigInts$2(_input);
-
-    const wtns= {type: "mem"};
-
-    // Compute the witness
-    await wtnsCalculate(input, wasmFilename, wtns, wtnsCalcOptions);
-
-    // Compute the proof
-    return await fflonkProve(zkeyFilename, wtns, logger, proverOptions);
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const { unstringifyBigInts: unstringifyBigInts$1 } = utils;
-
-async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
-    if (logger) logger.info("FFLONK VERIFIER STARTED");
-
-    _vk_verifier = unstringifyBigInts$1(_vk_verifier);
-    _proof = unstringifyBigInts$1(_proof);
-
-    const curve = await getCurveFromName(_vk_verifier.curve);
-
-    const vk = fromObjectVk(curve, _vk_verifier);
-
-    // TODO ??? Compute wr^3 and check if it matches with w
-
-    const proof = new Proof(curve, logger);
-    proof.fromObjectProof(_proof);
-
-    const publicSignals = unstringifyBigInts$1(_publicSignals);
-
-    if (publicSignals.length !== vk.nPublic) {
-        if (logger) logger.error("Number of public signals does not match with vk");
-        return false;
-    }
-
-    const Fr = curve.Fr;
-
-    if (logger) {
-        logger.info("----------------------------");
-        logger.info("  FFLONK VERIFY SETTINGS");
-        logger.info(`  Curve:         ${curve.name}`);
-        logger.info(`  Circuit power: ${vk.power}`);
-        logger.info(`  Domain size:   ${2 ** vk.power}`);
-        logger.info(`  Public vars:   ${vk.nPublic}`);
-        logger.info("----------------------------");
-    }
-
-    // STEP 1 - Validate that all polynomial commitments ∈ G_1
-    if (logger) logger.info("> Checking commitments belong to G1");
-    if (!commitmentsBelongToG1(curve, proof, vk)) {
-        if (logger) logger.error("Proof commitments are not valid");
-        return false;
-    }
-
-    // STEP 2 - Validate that all evaluations ∈ F
-    if (logger) logger.info("> Checking evaluations belong to F");
-    if (!evaluationsAreValid(curve, proof)) {
-        if (logger) logger.error("Proof evaluations are not valid.");
-        return false;
-    }
-
-    // STEP 3 - Validate that w_i ∈ F for i ∈ [l]
-    if (logger) logger.info("> Checking public inputs belong to F");
-    if (!publicInputsAreValid(curve, publicSignals)) {
-        if (logger) logger.error("Public inputs are not valid.");
-        return false;
-    }
-
-    // STEP 4 - Compute the challenges: beta, gamma, xi, alpha and y ∈ F
-    // as in prover description, from the common preprocessed inputs, public inputs and elements of π_SNARK
-    if (logger) logger.info("> Computing challenges");
-    const { challenges, roots } = computeChallenges(curve, proof, vk, publicSignals, logger);
-
-    // STEP 5 - Compute the zero polynomial evaluation Z_H(xi) = xi^n - 1
-    if (logger) logger.info("> Computing Zero polynomial evaluation Z_H(xi)");
-    challenges.zh = Fr.sub(challenges.xiN, Fr.one);
-    challenges.invzh = Fr.inv(challenges.zh);
-
-    // STEP 6 - Compute the lagrange polynomial evaluation L_1(xi)
-    if (logger) logger.info("> Computing Lagrange evaluations");
-    const lagrangeEvals = await computeLagrangeEvaluations(curve, challenges, vk);
-
-    // STEP 7 - Compute public input evaluation PI(xi)
-    if (logger) logger.info("> Computing polynomial identities PI(X)");
-    const pi = calculatePI(curve, publicSignals, lagrangeEvals);
-
-    // STEP 8 - Compute polynomial r0 ∈ F_{<4}[X]
-    if (logger) logger.info("> Computing r0(y)");
-    const r0 = computeR0(proof, challenges, roots, curve, logger);
-
-    // STEP 9 - Compute polynomial r1 ∈ F_{<4}[X]
-    if (logger) logger.info("> Computing r1(y)");
-    const r1 = computeR1(proof, challenges, roots, pi, curve, logger);
-
-    // STEP 9 - Compute polynomial r2 ∈ F_{<6}[X]
-    if (logger) logger.info("> Computing r2(y)");
-    const r2 = computeR2(proof, challenges, roots, lagrangeEvals[1], vk, curve, logger);
-
-    if (logger) logger.info("> Computing F");
-    const F = computeF(curve, proof, vk, challenges, roots);
-
-    if (logger) logger.info("> Computing E");
-    const E = computeE(curve, proof, challenges, vk, r0, r1, r2);
-
-    if (logger) logger.info("> Computing J");
-    const J = computeJ(curve, proof, challenges);
-
-    if (logger) logger.info("> Validate all evaluations with a pairing");
-    const res = await isValidPairing(curve, proof, challenges, vk, F, E, J);
-
-    if (logger) {
-        if (res) {
-            logger.info("PROOF VERIFIED SUCCESSFULLY");
-        } else {
-            logger.warn("Invalid Proof");
-        }
-    }
-
-    if (logger) logger.info("FFLONK VERIFIER FINISHED");
-
-    return res;
-
-}
-
-function fromObjectVk(curve, vk) {
-    const res = vk;
-    res.k1 = curve.Fr.fromObject(vk.k1);
-    res.k2 = curve.Fr.fromObject(vk.k2);
-    res.w = curve.Fr.fromObject(vk.w);
-    // res.wW = curve.Fr.fromObject(vk.wW);
-    res.w3 = curve.Fr.fromObject(vk.w3);
-    res.w4 = curve.Fr.fromObject(vk.w4);
-    res.w8 = curve.Fr.fromObject(vk.w8);
-    res.wr = curve.Fr.fromObject(vk.wr);
-    res.X_2 = curve.G2.fromObject(vk.X_2);
-    res.C0 = curve.G1.fromObject(vk.C0);
-    return res;
-}
-
-function commitmentsBelongToG1(curve, proof, vk) {
-    const G1 = curve.G1;
-    return G1.isValid(proof.polynomials.C1)
-        && G1.isValid(proof.polynomials.C2)
-        && G1.isValid(proof.polynomials.W1)
-        && G1.isValid(proof.polynomials.W2)
-        && G1.isValid(vk.C0);
-}
-
-function checkValueBelongToField(curve, value) {
-    return Scalar.geq(value, 0) && Scalar.lt(value, curve.r);
-}
-
-function checkEvaluationIsValid(curve, evaluation) {
-    return checkValueBelongToField(curve, Scalar.fromRprLE(evaluation));
-}
-
-function evaluationsAreValid(curve, proof) {
-    return checkEvaluationIsValid(curve, proof.evaluations.ql)
-        && checkEvaluationIsValid(curve, proof.evaluations.qr)
-        && checkEvaluationIsValid(curve, proof.evaluations.qm)
-        && checkEvaluationIsValid(curve, proof.evaluations.qo)
-        && checkEvaluationIsValid(curve, proof.evaluations.qc)
-        && checkEvaluationIsValid(curve, proof.evaluations.s1)
-        && checkEvaluationIsValid(curve, proof.evaluations.s2)
-        && checkEvaluationIsValid(curve, proof.evaluations.s3)
-        && checkEvaluationIsValid(curve, proof.evaluations.a)
-        && checkEvaluationIsValid(curve, proof.evaluations.b)
-        && checkEvaluationIsValid(curve, proof.evaluations.c)
-        && checkEvaluationIsValid(curve, proof.evaluations.z)
-        && checkEvaluationIsValid(curve, proof.evaluations.zw)
-        && checkEvaluationIsValid(curve, proof.evaluations.t1w)
-        && checkEvaluationIsValid(curve, proof.evaluations.t2w);
-}
-
-function publicInputsAreValid(curve, publicInputs) {
-    for(let i = 0; i < publicInputs.length; i++) {
-        if(!checkValueBelongToField(curve, publicInputs[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function computeChallenges(curve, proof, vk, publicSignals, logger) {
-    const Fr = curve.Fr;
-
-    const challenges = {};
-    const roots = {};
-    const transcript = new Keccak256Transcript(curve);
-
-    // Add C0 to the transcript
-    transcript.addPolCommitment(vk.C0);
-
-    for (let i = 0; i < publicSignals.length; i++) {
-        transcript.addScalar(Fr.e(publicSignals[i]));
-    }
-
-    transcript.addPolCommitment(proof.polynomials.C1);
-    challenges.beta = transcript.getChallenge();
-    transcript.reset();
-
-    transcript.addScalar(challenges.beta);
-    challenges.gamma = transcript.getChallenge();
-
-    transcript.reset();
-    transcript.addScalar(challenges.gamma);
-    transcript.addPolCommitment(proof.polynomials.C2);
-    const xiSeed = transcript.getChallenge();
-    const xiSeed2 = Fr.square(xiSeed);
-
-    let w8 = [];
-    w8[1] = vk.w8;
-    w8[2] = Fr.square(vk.w8);
-    w8[3] = Fr.mul(w8[2], vk.w8);
-    w8[4] = Fr.mul(w8[3], vk.w8);
-    w8[5] = Fr.mul(w8[4], vk.w8);
-    w8[6] = Fr.mul(w8[5], vk.w8);
-    w8[7] = Fr.mul(w8[6], vk.w8);
-    let w4 = [];
-    w4[1] = vk.w4;
-    w4[2] = Fr.square(vk.w4);
-    w4[3] = Fr.mul(w4[2], vk.w4);
-    let w3 = [];
-    w3[1] = vk.w3;
-    w3[2] = Fr.square(vk.w3);
-
-    // const w4_2 = Fr.square(vk.w4);
-    // const w4_3 = Fr.mul(w4_2, vk.w4);
-    // const w3_2 = Fr.square(vk.w3);
-
-    // Compute h0 = xiSeeder^3
-    roots.S0 = {};
-    roots.S0.h0w8 = [];
-    roots.S0.h0w8[0] = Fr.mul(xiSeed2, xiSeed);
-    for (let i = 1; i < 8; i++) {
-        roots.S0.h0w8[i] = Fr.mul(roots.S0.h0w8[0], w8[i]);
-    }
-
-    // Compute h1 = xi_seeder^6
-    roots.S1 = {};
-    roots.S1.h1w4 = [];
-    roots.S1.h1w4[0] = Fr.square(roots.S0.h0w8[0]);
-    for (let i = 1; i < 4; i++) {
-        roots.S1.h1w4[i] = Fr.mul(roots.S1.h1w4[0], w4[i]);
-    }
-
-    // Compute h2 = xi_seeder^8
-    roots.S2 = {};
-    roots.S2.h2w3 = [];
-    roots.S2.h2w3[0] = Fr.mul(roots.S1.h1w4[0], xiSeed2);
-    roots.S2.h2w3[1] = Fr.mul(roots.S2.h2w3[0], w3[1]);
-    roots.S2.h2w3[2] = Fr.mul(roots.S2.h2w3[0], w3[2]);
-
-    roots.S2.h3w3 = [];
-    // Multiply h3 by third-root-omega to obtain h_3^3 = xiω
-    // So, h3 = xi_seeder^8 ω^{1/3}
-    roots.S2.h3w3[0] = Fr.mul(roots.S2.h2w3[0], vk.wr);
-    roots.S2.h3w3[1] = Fr.mul(roots.S2.h3w3[0], w3[1]);
-    roots.S2.h3w3[2] = Fr.mul(roots.S2.h3w3[0], w3[2]);
-
-    // Compute xi = xi_seeder^12
-    challenges.xi = Fr.mul(Fr.square(roots.S2.h2w3[0]), roots.S2.h2w3[0]);
-    challenges.xiw = Fr.mul(challenges.xi, Fr.w[vk.power]);
-
-    challenges.xiN = challenges.xi;
-    vk.domainSize = 1;
-    for (let i = 0; i < vk.power; i++) {
-        challenges.xiN = Fr.square(challenges.xiN);
-        vk.domainSize *= 2;
-    }
-
-    transcript.reset();
-    transcript.addScalar(xiSeed);
-    transcript.addScalar(proof.evaluations.ql);
-    transcript.addScalar(proof.evaluations.qr);
-    transcript.addScalar(proof.evaluations.qm);
-    transcript.addScalar(proof.evaluations.qo);
-    transcript.addScalar(proof.evaluations.qc);
-    transcript.addScalar(proof.evaluations.s1);
-    transcript.addScalar(proof.evaluations.s2);
-    transcript.addScalar(proof.evaluations.s3);
-    transcript.addScalar(proof.evaluations.a);
-    transcript.addScalar(proof.evaluations.b);
-    transcript.addScalar(proof.evaluations.c);
-    transcript.addScalar(proof.evaluations.z);
-    transcript.addScalar(proof.evaluations.zw);
-    transcript.addScalar(proof.evaluations.t1w);
-    transcript.addScalar(proof.evaluations.t2w);
-    challenges.alpha = transcript.getChallenge();
-
-    transcript.reset();
-    transcript.addScalar(challenges.alpha);
-    transcript.addPolCommitment(proof.polynomials.W1);
-    challenges.y = transcript.getChallenge();
-
-    if (logger) {
-        logger.info("··· challenges.beta:  " + Fr.toString(challenges.beta));
-        logger.info("··· challenges.gamma: " + Fr.toString(challenges.gamma));
-        logger.info("··· challenges.xi:    " + Fr.toString(challenges.xi));
-        logger.info("··· challenges.alpha: " + Fr.toString(challenges.alpha));
-        logger.info("··· challenges.y:     " + Fr.toString(challenges.y));
-    }
-
-    return { challenges: challenges, roots: roots };
-}
-
-async function computeLagrangeEvaluations(curve, challenges, vk) {
-    const Fr = curve.Fr;
-
-    const size = Math.max(1, vk.nPublic);
-    const numArr = new BigBuffer(size * Fr.n8);
-    let denArr = new BigBuffer(size * Fr.n8);
-
-    let w = Fr.one;
-    for (let i = 0; i < size; i++) {
-        const i_sFr = i * Fr.n8;
-        numArr.set(Fr.mul(w, challenges.zh), i_sFr);
-        denArr.set(Fr.mul(Fr.e(vk.domainSize), Fr.sub(challenges.xi, w)), i_sFr);
-        w = Fr.mul(w, vk.w);
-    }
-
-    denArr = await Fr.batchInverse(denArr);
-
-    let L = [];
-    for (let i = 0; i < size; i++) {
-        const i_sFr = i * Fr.n8;
-        L[i + 1] = Fr.mul(numArr.slice(i_sFr, i_sFr + Fr.n8), denArr.slice(i_sFr, i_sFr + Fr.n8));
-    }
-    return L;
-}
-
-function calculatePI(curve, publicSignals, lagrangeEvals) {
-    const Fr = curve.Fr;
-
-    let pi = Fr.zero;
-    for (let i = 0; i < publicSignals.length; i++) {
-        const w = Fr.e(publicSignals[i]);
-        pi = Fr.sub(pi, Fr.mul(w, lagrangeEvals[i + 1]));
-    }
-    return pi;
-}
-
-function computeR0(proof, challenges, roots, curve, logger) {
-    const Fr = curve.Fr;
-
-    const Li = computeLagrangeLiSi(roots.S0.h0w8, challenges.y, challenges.xi, curve);
-
-    // r0(y) = ∑_1^8 C_0(h_0 ω_8^{i-1}) L_i(y). To this end we need to compute
-
-    // Compute the 8 C0 values
-    if (logger) logger.info("··· Computing r0(y)");
-
-    let res = Fr.zero;
-    for (let i = 0; i < 8; i++) {
-        let coefValues = [];
-        coefValues[1] = roots.S0.h0w8[i];
-        for (let j = 2; j < 8; j++) {
-            coefValues[j] = Fr.mul(coefValues[j - 1], roots.S0.h0w8[i]);
-        }
-
-        let c0 = Fr.add(proof.evaluations.ql, Fr.mul(proof.evaluations.qr, coefValues[1]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.qo, coefValues[2]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.qm, coefValues[3]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.qc, coefValues[4]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.s1, coefValues[5]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.s2, coefValues[6]));
-        c0 = Fr.add(c0, Fr.mul(proof.evaluations.s3, coefValues[7]));
-
-        res = Fr.add(res, Fr.mul(c0, Li[i]));
-    }
-
-    return res;
-}
-
-function computeR1(proof, challenges, roots, pi, curve, logger) {
-    const Fr = curve.Fr;
-
-    const Li = computeLagrangeLiSi(roots.S1.h1w4, challenges.y, challenges.xi, curve);
-
-    // r1(y) = ∑_1^4 C_1(h_1 ω_4^{i-1}) L_i(y). To this end we need to compute
-    // Z1 = {C1(h_1}, C1(h_1 ω_4), C1(h_1 ω_4^2), C1(h_1 ω_4^3)}
-    // where C_1(h_1 ω_4^{i-1}) = eval.a + h_1 ω_4^i eval.b + (h_1 ω_4^i)^2 eval.c + (h_1 ω_4^i)^3 T0(xi),
-    // where T0(xi) = [ qL·a + qR·b + qM·a·b + qO·c + qC + PI(xi) ] / Z_H(xi)
-
-    // Compute T0(xi)
-    if (logger) logger.info("··· Computing T0(xi)");
-    let t0 = Fr.mul(proof.evaluations.ql, proof.evaluations.a);
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qr, proof.evaluations.b));
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qm, Fr.mul(proof.evaluations.a, proof.evaluations.b)));
-    t0 = Fr.add(t0, Fr.mul(proof.evaluations.qo, proof.evaluations.c));
-    t0 = Fr.add(t0, proof.evaluations.qc);
-    t0 = Fr.add(t0, pi);
-    t0 = Fr.mul(t0, challenges.invzh);
-
-    // Compute the 4 C1 values
-    if (logger) logger.info("··· Computing C1(h_1ω_4^i) values");
-
-    let res = Fr.zero;
-    for (let i = 0; i < 4; i++) {
-        let c1 = proof.evaluations.a;
-        c1 = Fr.add(c1, Fr.mul(roots.S1.h1w4[i], proof.evaluations.b));
-        const h1w4Squared = Fr.square(roots.S1.h1w4[i]);
-        c1 = Fr.add(c1, Fr.mul(h1w4Squared, proof.evaluations.c));
-        c1 = Fr.add(c1, Fr.mul(Fr.mul(h1w4Squared, roots.S1.h1w4[i]), t0));
-
-        res = Fr.add(res, Fr.mul(c1, Li[i]));
-    }
-
-    return res;
-}
-
-function computeR2(proof, challenges, roots, lagrange1, vk, curve, logger) {
-    const Fr = curve.Fr;
-
-    const LiS2 = computeLagrangeLiS2([roots.S2.h2w3, roots.S2.h3w3], challenges.y, challenges.xi, challenges.xiw, curve);
-
-    // r2(y) = ∑_1^3 C_2(h_2 ω_3^{i-1}) L_i(y) + ∑_1^3 C_2(h_3 ω_3^{i-1}) L_{i+3}(y). To this end we need to compute
-    // Z2 = {[C2(h_2}, C2(h_2 ω_3), C2(h_2 ω_3^2)], [C2(h_3}, C2(h_3 ω_3), C2(h_3 ω_3^2)]}
-    // where C_2(h_2 ω_3^{i-1}) = eval.z + h_2 ω_2^i T1(xi) + (h_2 ω_3^i)^2 T2(xi),
-    // where C_2(h_3 ω_3^{i-1}) = eval.z + h_3 ω_2^i T1(xi) + (h_3 ω_3^i)^2 T2(xi),
-    // where T1(xi) = [ L_1(xi)(z-1)] / Z_H(xi)
-    // and T2(xi) = [  (a + beta·xi + gamma)(b + beta·xi·k1 + gamma)(c + beta·xi·k2 + gamma)z
-    //               - (a + beta·sigma1 + gamma)(b + beta·sigma2 + gamma)(c + beta·sigma3 + gamma)zω  ] / Z_H(xi)
-
-    // Compute T1(xi)
-    if (logger) logger.info("··· Computing T1(xi)");
-    let t1 = Fr.sub(proof.evaluations.z, Fr.one);
-    t1 = Fr.mul(t1, lagrange1);
-    t1 = Fr.mul(t1, challenges.invzh);
-
-    // Compute T2(xi)
-    if (logger) logger.info("··· Computing T2(xi)");
-    const betaxi = Fr.mul(challenges.beta, challenges.xi);
-    const t211 = Fr.add(proof.evaluations.a, Fr.add(betaxi, challenges.gamma));
-    const t212 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(betaxi, vk.k1), challenges.gamma));
-    const t213 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(betaxi, vk.k2), challenges.gamma));
-    const t21 = Fr.mul(t211, Fr.mul(t212, Fr.mul(t213, proof.evaluations.z)));
-
-    const t221 = Fr.add(proof.evaluations.a, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s1), challenges.gamma));
-    const t222 = Fr.add(proof.evaluations.b, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s2), challenges.gamma));
-    const t223 = Fr.add(proof.evaluations.c, Fr.add(Fr.mul(challenges.beta, proof.evaluations.s3), challenges.gamma));
-    const t22 = Fr.mul(t221, Fr.mul(t222, Fr.mul(t223, proof.evaluations.zw)));
-
-    let t2 = Fr.sub(t21, t22);
-    t2 = Fr.mul(t2, challenges.invzh);
-
-    // Compute the 6 C2 values
-    if (logger) logger.info("··· Computing C2(h_2ω_3^i) values");
-    let res = Fr.zero;
-    for (let i = 0; i < 3; i++) {
-        let c2 = Fr.add(proof.evaluations.z, Fr.mul(roots.S2.h2w3[i], t1));
-        c2 = Fr.add(c2, Fr.mul(Fr.square(roots.S2.h2w3[i]), t2));
-
-        res = Fr.add(res, Fr.mul(c2, LiS2[i]));
-    }
-
-    if (logger) logger.info("··· Computing C2(h_3ω_3^i) values");
-    for (let i = 0; i < 3; i++) {
-        let c2 = Fr.add(proof.evaluations.zw, Fr.mul(roots.S2.h3w3[i], proof.evaluations.t1w));
-        c2 = Fr.add(c2, Fr.mul(Fr.square(roots.S2.h3w3[i]), proof.evaluations.t2w));
-
-        res = Fr.add(res, Fr.mul(c2, LiS2[i + 3]));
-    }
-
-    return res;
-}
-
-function computeF(curve, proof, vk, challenges, roots) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-
-    let mulH0 = Fr.sub(challenges.y, roots.S0.h0w8[0]);
-    for (let i = 1; i < 8; i++) {
-        mulH0 = Fr.mul(mulH0, Fr.sub(challenges.y, roots.S0.h0w8[i]));
-    }
-
-    challenges.temp = mulH0;
-
-    let mulH1 = Fr.sub(challenges.y, roots.S1.h1w4[0]);
-    for (let i = 1; i < 4; i++) {
-        mulH1 = Fr.mul(mulH1, Fr.sub(challenges.y, roots.S1.h1w4[i]));
-    }
-
-    let mulH2 = Fr.sub(challenges.y, roots.S2.h2w3[0]);
-    for (let i = 1; i < 3; i++) {
-        mulH2 = Fr.mul(mulH2, Fr.sub(challenges.y, roots.S2.h2w3[i]));
-    }
-    for (let i = 0; i < 3; i++) {
-        mulH2 = Fr.mul(mulH2, Fr.sub(challenges.y, roots.S2.h3w3[i]));
-    }
-
-    challenges.quotient1 = Fr.mul(challenges.alpha, Fr.div(mulH0, mulH1));
-    challenges.quotient2 = Fr.mul(Fr.square(challenges.alpha), Fr.div(mulH0, mulH2));
-
-    let F2 = G1.timesFr(proof.polynomials.C1, challenges.quotient1);
-    let F3 = G1.timesFr(proof.polynomials.C2, challenges.quotient2);
-
-    return G1.add(vk.C0, G1.add(F2, F3));
-}
-
-function computeE(curve, proof, challenges, vk, r0, r1, r2) {
-    const G1 = curve.G1;
-    const Fr = curve.Fr;
-
-    let E2 = Fr.mul(r1, challenges.quotient1);
-    let E3 = Fr.mul(r2, challenges.quotient2);
-
-    return G1.timesFr(G1.one, Fr.add(r0, Fr.add(E2, E3)));
-}
-
-function computeJ(curve, proof, challenges) {
-    const G1 = curve.G1;
-
-    return G1.timesFr(proof.polynomials.W1, challenges.temp);
-}
-
-async function isValidPairing(curve, proof, challenges, vk, F, E, J) {
-    const G1 = curve.G1;
-
-    let A1 = G1.timesFr(proof.polynomials.W2, challenges.y);
-    A1 = G1.add(G1.sub(G1.sub(F, E), J), A1);
-    const A2 = curve.G2.one;
-
-    const B1 = proof.polynomials.W2;
-    const B2 = vk.X_2;
-
-    return await curve.pairingEq(G1.neg(A1), A2, B1, B2);
-}
-
-
-function computeLagrangeLiSi(roots, x, xi, curve) {
-    const Fr = curve.Fr;
-    const len = roots.length;
-
-    const num = Fr.sub(Fr.exp(x, len), xi);
-    const den1 = Fr.mul(Fr.e(len), Fr.exp(roots[0], len - 2));
-
-    const Li = [];
-    for (let i = 0; i < len; i++) {
-        const den2 = roots[((len - 1) * i) % len];
-        const den3 = Fr.sub(x, roots[i]);
-
-        Li[i] = Fr.div(num, Fr.mul(Fr.mul(den1, den2), den3));
-    }
-
-    return Li;
-}
-
-function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
-    const Fr = curve.Fr;
-
-    const Li = [];
-
-    const len = roots[0].length;
-    const n = len * roots.length;
-
-    const num1 = Fr.exp(value, n);
-    const num2 = Fr.mul(Fr.add(xi0, xi1), Fr.exp(value, len));
-    const num3 = Fr.mul(xi0, xi1);
-    const num = Fr.add(Fr.sub(num1, num2), num3);
-
-    let den1 = Fr.mul(Fr.mul(Fr.e(len), roots[0][0]), Fr.sub(xi0, xi1));
-    for (let i = 0; i < len; i++) {
-        const den2 = roots[0][(len - 1) * i % len];
-        const den3 = Fr.sub(value, roots[0][i]);
-
-        const den = Fr.mul(den1,Fr.mul(den2, den3));
-
-        Li[i] = Fr.div(num, den);
-    }
-
-    den1 = Fr.mul(Fr.mul(Fr.e(len), roots[1][0]), Fr.sub(xi1, xi0));
-    for (let i = 0; i < len; i++) {
-        const den2 = roots[1][(len - 1) * i % len];
-        const den3 = Fr.sub(value, roots[1][i]);
-
-        const den = Fr.mul(den1,Fr.mul(den2, den3));
-
-        Li[i + len] = Fr.div(num, den);
-    }
-
-    return Li;
-}
-
-/*
-    Copyright 2021 0KIMS association.
-
-    This file is part of snarkJS.
-
-    snarkJS is a free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    snarkJS is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-    License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-
-const {unstringifyBigInts} = utils;
-
-function p256(n) {
-    let nstr = n.toString(16);
-    while (nstr.length < 64) nstr = "0" + nstr;
-    nstr = `0x${nstr}`;
-    return nstr;
-}
-
-async function fflonkExportCallData(_pub, _proof) {
-    const proof = unstringifyBigInts(_proof);
-    const pub = unstringifyBigInts(_pub);
-
-    await getCurveFromName(proof.curve);
-
-    let inputs = "";
-    for (let i = 0; i < pub.length; i++) {
-        if (inputs !== "") inputs = inputs + ",";
-        inputs = inputs + p256(pub[i]);
-    }
-
-    return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},` +
-    `${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},` +
-    `${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},` +
-    `${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},` +
-    `${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},` +
-    `${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},` +
-    `${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},` +
-    `${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},` +
-    `${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},` +
-    `${p256(proof.evaluations.inv)}],` +
-    `[${inputs}]`;
-}
-
-/*
-    Copyright 2022 iden3 association.
-
-    This file is part of snarkjs.
-
-    snarkjs is a free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your option)
-    any later version.
-
-    snarkjs is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-    more details.
-
-    You should have received a copy of the GNU General Public License along with
-    snarkjs. If not, see <https://www.gnu.org/licenses/>.
-*/
-
-var fflonk = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    exportSolidityCallData: fflonkExportCallData,
-    exportSolidityVerifier: fflonkExportSolidityVerifier,
-    fullProve: fflonkFullProve,
-    prove: fflonkProve,
-    setup: fflonkSetup,
-    verify: fflonkVerify
-});
-
-var _virtual_ejs = {};
-
-var _virtual_ejs$1 = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    default: _virtual_ejs
-});
-
-export { curves, fflonk, groth16, plonk, powersoftau as powersOfTau, r1cs, wtns, zkey as zKey };
+//#endregion
+export { y as curves, Ji as fflonk, dn as groth16, pi as plonk, Un as powersOfTau, Yn as r1cs, tr as wtns, br as zKey };

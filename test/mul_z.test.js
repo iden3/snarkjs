@@ -7,16 +7,15 @@ import assert from "assert";
 // p-th 4th root of unity (p in 1..3; the z^2, z^3... cross terms are folded
 // into rz via the precomputed Z2/Z3 tables). Verify that identity directly.
 describe("MulZ blinded-evaluation products", function () {
-    this.timeout(60000);
 
     let curve, Fr;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
         Fr = curve.Fr;
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

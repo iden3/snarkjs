@@ -12,23 +12,23 @@ const { stringifyBigInts } = utils;
 
 
 describe("Fflonk test suite", function () {
-    const publicInputsFilename = path.join("test", "fflonk", "public.json");
-    const proofFilename = path.join("test", "fflonk", "proof.json");
+    const _publicInputsFilename = path.join("test", "fflonk", "public.json");
+    const _proofFilename = path.join("test", "fflonk", "proof.json");
     const r1csFilename = path.join("test", "fflonk", "circuit.r1cs");
     const ptauFilename = path.join("test", "plonk_circuit", "powersOfTau15_final.ptau");
     const zkeyFilename = path.join("test", "fflonk", "circuit.zkey");
     const wtnsFilename = path.join("test", "fflonk", "witness.wtns");
     const vkeyFilename = path.join("test", "fflonk", "circuit_vk.json");
 
-    this.timeout(1000000000);
+
 
     let curve;
 
-    before(async () => {
+    beforeAll(async () => {
         curve = await getCurveFromName("bn128");
     });
 
-    after(async () => {
+    afterAll(async () => {
         await curve.terminate();
     });
 

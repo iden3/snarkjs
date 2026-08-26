@@ -160,12 +160,12 @@ export class r1csConstraintProcessor {
         }
 
         // coverage: padding loop for under-full linear combinations
-            /* c8 ignore start */
-            while (res.coefs.length < maxC) {
+        /* c8 ignore start */
+        while (res.coefs.length < maxC) {
             res.signals.push(0);
             res.coefs.push(this.Fr.zero);
         }
-            /* c8 ignore stop */
+        /* c8 ignore stop */
 
         return res;
     }
