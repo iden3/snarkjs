@@ -60,15 +60,15 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#f8aedac344759f3a557e61658fd5891b72aba0ef",
+    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#9ee4f2758205dd3b07382a0f6b32e5921f5f84c6",
     "@noble/hashes": "^2.2.0",
     "bfj": "^9.1.3",
     "circom_runtime": "0.1.28",
     "ejs": "^6.0.1",
-    "fastfile": "git+https://github.com/iden3/fastfile.git#748772be5a736f1fe25ffa703db0c1f41df280c4",
-    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#2c20f300b86bd45abb11e7439603b013c8f3e62d",
+    "fastfile": "git+https://github.com/iden3/fastfile.git#e74f95dff5c12fcc65604cfead7508d51c1e29e5",
+    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#a6abbfe62f9e884449a08fcb2e17e1798cb2d9cc",
     "logplease": "^1.2.15",
-    "r1csfile": "git+https://github.com/iden3/r1csfile.git#f5ae083b074ba0ead50e5d02daa7e9f408d43654"
+    "r1csfile": "git+https://github.com/iden3/r1csfile.git#0a53eb043cc1c9e43128d4ea5e1e4c00540327a1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
