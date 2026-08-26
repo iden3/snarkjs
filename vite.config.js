@@ -15,9 +15,11 @@ const nodeExternal = [
 const isNodeExternal = (id) =>
     nodeExternal.includes(id) || nodeExternal.some((e) => id.startsWith(e + "/"));
 
-// Browser ESM externalizes the sibling packages so the consumer's bundler
-// dedupes them; the self-contained IIFE bundles them instead (see below).
-const browserExternal = ["ffjavascript", "@iden3/binfileutils", "r1csfile"];
+// Match the old rollup browser ESM build: only ffjavascript stays external
+// (it is the one consumers share and remap via importmap); binfileutils,
+// r1csfile and fastfile are bundled in. The self-contained IIFE bundles
+// everything (see below).
+const browserExternal = ["ffjavascript"];
 const isBrowserExternal = (id) =>
     browserExternal.includes(id) || browserExternal.some((e) => id.startsWith(e + "/"));
 

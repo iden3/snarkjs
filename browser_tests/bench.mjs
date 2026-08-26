@@ -13,7 +13,7 @@
 // Usage:
 //   node bench.mjs <circuit.zkey> <witness.wtns> [vkey.json]
 // Env:
-//   BUNDLE=/path/to/snarkjs.js   IIFE bundle to serve (default ../build/snarkjs.js)
+//   BUNDLE=/path/to/snarkjs.js   IIFE bundle to serve (default ../build/snarkjs.min.js)
 //   PORT=1338                    HTTP port
 //
 // The zkey/wtns are fetched into browser memory ({type:"mem"}), so the peak
@@ -34,7 +34,7 @@ if (!zkeyPath || !wtnsPath) {
     console.error("usage: node bench.mjs <circuit.zkey> <witness.wtns> [vkey.json]");
     process.exit(1);
 }
-const BUNDLE = process.env.BUNDLE || join(here, "..", "build", "snarkjs.js");
+const BUNDLE = process.env.BUNDLE || join(here, "..", "build", "snarkjs.min.js");
 const PORT = parseInt(process.env.PORT || "1338", 10);
 
 const HTML = `<!doctype html><html><head><meta charset=utf8></head><body>
