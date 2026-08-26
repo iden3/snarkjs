@@ -1210,8 +1210,27 @@ async function readExisting$2(o) {
             // Drain the 1-byte probe body so the connection can be reused.
             await probe.arrayBuffer();
             const validator = strongValidator(probe);
-            const readRangeInto = function (dst, dstOffset, pos, len) {
-                return httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
+            // Degrade-to-buffering escape hatch: a 206 probe answer can come
+            // from an intermediary (browsers satisfy ranges out of their own
+            // HTTP cache of a full 200), while the origin itself ignores
+            // Range. When a later range request gets a 200 whose strong
+            // validator still matches, the file is unchanged -- buffer that
+            // full body once and serve every subsequent read from it.
+            let fullBody = null;
+            const readRangeInto = async function (dst, dstOffset, pos, len) {
+                if (!fullBody) {
+                    try {
+                        return await httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
+                    } catch (err) {
+                        if (!err || !err.degradeToFull) throw err;
+                        fullBody = err.fullBodyPromise;
+                    }
+                }
+                const data = await fullBody;
+                if (pos + len > data.byteLength) {
+                    throw new Error(url + ": read past the end of the buffered body");
+                }
+                dst.set(data.subarray(pos, pos + len), dstOffset);
             };
             const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
             return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
@@ -1262,8 +1281,18 @@ async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
     if (validator) headers["If-Range"] = validator;
     const res = await fetch(url, { headers: headers });
     if (res.status === 200) {
-        // With If-Range this is the server signalling the file changed;
-        // without it, the server stopped honoring ranges mid-session.
+        // A 200 mid-session means the origin does not honor Range (the 206
+        // probe answer may have come from a browser cache). If the strong
+        // validator still matches -- or we never had one -- the file is
+        // unchanged: hand the full body to the caller to degrade to
+        // buffered mode. Only a changed validator is a hard error.
+        const nowValidator = strongValidator(res);
+        if (!validator || (nowValidator && nowValidator === validator)) {
+            const degrade = new Error(url + ": origin ignored Range; degrading to full buffering");
+            degrade.degradeToFull = true;
+            degrade.fullBodyPromise = res.arrayBuffer().then((b) => new Uint8Array(b));
+            throw degrade;
+        }
         await abandonBody(res);
         throw new Error(url + ": file changed (or server stopped honoring Range) while reading");
     }
