@@ -2,7 +2,7 @@ import {
     getRandomBytes, sha256digest, bitReverse, log2, formatHash, hashIsEqual,
     cloneHasher, askEntropy, getRandomRng, rngFromBeaconParams,
     hex2ByteArray, byteArray2hex, readUInt32BE, stringifyBigIntsWithField,
-    sameRatio,
+    sameRatio, withPersistentCache,
 } from "../src/misc.js";
 import { getCurveFromName } from "../src/curves.js";
 import { blake2b } from "@noble/hashes/blake2.js";
@@ -286,5 +286,28 @@ describe("misc", function () {
             assert.strictEqual(s.arr[1], "99");
             assert.strictEqual(s.nested.deep, "5");
         });
+    });
+});
+
+describe("withPersistentCache source mapping", function () {
+    it("wraps absolute http(s) URL strings into http descriptors", () => {
+        const s = withPersistentCache("https://cdn.example/a.zkey", true);
+        assert.deepStrictEqual(s, { type: "http", url: "https://cdn.example/a.zkey", persistentCache: true });
+        const tuned = withPersistentCache("http://cdn.example/a.zkey", { blockSize: 1 << 20 });
+        assert.strictEqual(tuned.persistentCache.blockSize, 1 << 20);
+    });
+
+    it("adds the flag to http descriptors and leaves everything else alone", () => {
+        const src = { type: "http", url: "https://x/y.zkey", cacheSize: 4096 };
+        const s = withPersistentCache(src, true);
+        assert.strictEqual(s.persistentCache, true);
+        assert.strictEqual(s.cacheSize, 4096);
+        assert.notStrictEqual(s, src); // shallow copy, caller object untouched
+        assert.strictEqual(src.persistentCache, undefined);
+
+        const mem = { type: "mem" };
+        assert.strictEqual(withPersistentCache(mem, true), mem);
+        assert.strictEqual(withPersistentCache("local/path.zkey", true), "local/path.zkey");
+        assert.strictEqual(withPersistentCache("https://x/y.zkey", false), "https://x/y.zkey");
     });
 });
