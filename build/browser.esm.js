@@ -351,41 +351,68 @@ async function re(e, t) {
 			u = !0;
 		}
 	}
-	let p = (e) => Math.min(o, i - e * o);
+	let p = (e) => Math.min(o, i - e * o), m = /* @__PURE__ */ new Map();
+	function h(e) {
+		let t, n, r = new Promise((e, r) => {
+			t = e, n = r;
+		});
+		return r.catch(() => {}), m.set(e, r), {
+			resolve: t,
+			reject: n,
+			promise: r
+		};
+	}
 	return async function(t, n, r, i) {
 		if (i === 0) return;
-		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = a;
-		for (; u <= s;) {
-			let a = u * o, d = a + p(u), f = c.get(u);
+		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = (e, a) => {
+			let s = a * o, c = Math.max(r, s), l = Math.min(r + i, s + p(a));
+			t.set(e.subarray(c - s, l - s), n + (c - r));
+		}, g = a;
+		for (; g <= s;) {
+			let a = g * o, d = a + p(g), f = c.get(g);
 			if (f) {
-				let e = Math.max(r, a), o = Math.min(r + i, d);
-				t.set(f.subarray(e - a, o - a), n + (e - r)), u++;
+				u(f, g), g++;
+				continue;
+			}
+			let _ = m.get(g);
+			if (_) {
+				u(await _, g), g++;
 				continue;
 			}
 			if (a >= r && d <= r + i) {
-				let d = u;
-				for (; d + 1 <= s && !c.get(d + 1) && (d + 1) * o + p(d + 1) <= r + i;) d++;
-				let f = a, m = d * o + p(d);
-				await e(t, n + (f - r), f, m - f);
-				for (let e = u; e <= d; e++) {
-					let i = e * o;
-					l.push({
+				let u = g;
+				for (; u + 1 <= s && !c.get(u + 1) && !m.get(u + 1) && (u + 1) * o + p(u + 1) <= r + i;) u++;
+				let d = a, f = u * o + p(u), _ = [];
+				for (let e = g; e <= u; e++) _.push(h(e));
+				try {
+					await e(t, n + (d - r), d, f - d);
+				} catch (e) {
+					for (let t = g; t <= u; t++) _[t - g].reject(e), m.delete(t);
+					throw e;
+				}
+				for (let e = g; e <= u; e++) {
+					let i = e * o, a = t.slice(n + (i - r), n + (i - r) + p(e));
+					_[e - g].resolve(a), l.push({
 						index: e,
-						data: t.slice(n + (i - r), n + (i - r) + p(e))
+						data: a
 					});
 				}
-				u = d + 1;
+				g = u + 1;
 			} else {
-				let o = new Uint8Array(p(u));
-				await e(o, 0, a, o.length);
-				let s = Math.max(r, a), c = Math.min(r + i, d);
-				t.set(o.subarray(s - a, c - a), n + (s - r)), l.push({
-					index: u,
-					data: o
-				}), u++;
+				let t = h(g), n = new Uint8Array(p(g));
+				try {
+					await e(n, 0, a, n.length);
+				} catch (e) {
+					throw t.reject(e), m.delete(g), e;
+				}
+				t.resolve(n), u(n, g), l.push({
+					index: g,
+					data: n
+				}), g++;
 			}
 		}
 		await f(l);
+		for (let e of l) m.delete(e.index);
 	};
 }
 var ie = 65536;
@@ -2151,41 +2178,68 @@ async function Pn(e, t) {
 			u = !0;
 		}
 	}
-	let p = (e) => Math.min(o, i - e * o);
+	let p = (e) => Math.min(o, i - e * o), m = /* @__PURE__ */ new Map();
+	function h(e) {
+		let t, n, r = new Promise((e, r) => {
+			t = e, n = r;
+		});
+		return r.catch(() => {}), m.set(e, r), {
+			resolve: t,
+			reject: n,
+			promise: r
+		};
+	}
 	return async function(t, n, r, i) {
 		if (i === 0) return;
-		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = a;
-		for (; u <= s;) {
-			let a = u * o, d = a + p(u), f = c.get(u);
+		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = (e, a) => {
+			let s = a * o, c = Math.max(r, s), l = Math.min(r + i, s + p(a));
+			t.set(e.subarray(c - s, l - s), n + (c - r));
+		}, g = a;
+		for (; g <= s;) {
+			let a = g * o, d = a + p(g), f = c.get(g);
 			if (f) {
-				let e = Math.max(r, a), o = Math.min(r + i, d);
-				t.set(f.subarray(e - a, o - a), n + (e - r)), u++;
+				u(f, g), g++;
+				continue;
+			}
+			let _ = m.get(g);
+			if (_) {
+				u(await _, g), g++;
 				continue;
 			}
 			if (a >= r && d <= r + i) {
-				let d = u;
-				for (; d + 1 <= s && !c.get(d + 1) && (d + 1) * o + p(d + 1) <= r + i;) d++;
-				let f = a, m = d * o + p(d);
-				await e(t, n + (f - r), f, m - f);
-				for (let e = u; e <= d; e++) {
-					let i = e * o;
-					l.push({
+				let u = g;
+				for (; u + 1 <= s && !c.get(u + 1) && !m.get(u + 1) && (u + 1) * o + p(u + 1) <= r + i;) u++;
+				let d = a, f = u * o + p(u), _ = [];
+				for (let e = g; e <= u; e++) _.push(h(e));
+				try {
+					await e(t, n + (d - r), d, f - d);
+				} catch (e) {
+					for (let t = g; t <= u; t++) _[t - g].reject(e), m.delete(t);
+					throw e;
+				}
+				for (let e = g; e <= u; e++) {
+					let i = e * o, a = t.slice(n + (i - r), n + (i - r) + p(e));
+					_[e - g].resolve(a), l.push({
 						index: e,
-						data: t.slice(n + (i - r), n + (i - r) + p(e))
+						data: a
 					});
 				}
-				u = d + 1;
+				g = u + 1;
 			} else {
-				let o = new Uint8Array(p(u));
-				await e(o, 0, a, o.length);
-				let s = Math.max(r, a), c = Math.min(r + i, d);
-				t.set(o.subarray(s - a, c - a), n + (s - r)), l.push({
-					index: u,
-					data: o
-				}), u++;
+				let t = h(g), n = new Uint8Array(p(g));
+				try {
+					await e(n, 0, a, n.length);
+				} catch (e) {
+					throw t.reject(e), m.delete(g), e;
+				}
+				t.resolve(n), u(n, g), l.push({
+					index: g,
+					data: n
+				}), g++;
 			}
 		}
 		await f(l);
+		for (let e of l) m.delete(e.index);
 	};
 }
 var Fn = 65536;
