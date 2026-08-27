@@ -2,11 +2,12 @@ name: Check snarkjs tutorial
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
 
 jobs:
   test:
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     strategy:
       matrix:
