@@ -458,7 +458,13 @@ async function se(e) {
 		options: e.persistentCache
 	}) : null, r = { Range: "bytes=0-0" };
 	n && n.validator && (n.validator[0] === "\"" || n.validator.indexOf("W/") === 0 ? r["If-None-Match"] = n.validator : r["If-Modified-Since"] = n.validator);
-	let i = await fetch(t, { headers: r });
+	let i;
+	try {
+		i = await fetch(t, { headers: r });
+	} catch (e) {
+		if (!("If-None-Match" in r) && !("If-Modified-Since" in r)) throw e;
+		i = await fetch(t, { headers: { Range: "bytes=0-0" } });
+	}
 	if (i.status === 304) return await _e(i), await ce(t, n.validator, n.totalSize, e);
 	if (i.status === 206) {
 		let n = i.headers.get("content-range"), r = n ? /\/(\d+)\s*$/.exec(n) : null;
@@ -2355,7 +2361,13 @@ async function Kn(e) {
 		options: e.persistentCache
 	}) : null, r = { Range: "bytes=0-0" };
 	n && n.validator && (n.validator[0] === "\"" || n.validator.indexOf("W/") === 0 ? r["If-None-Match"] = n.validator : r["If-Modified-Since"] = n.validator);
-	let i = await fetch(t, { headers: r });
+	let i;
+	try {
+		i = await fetch(t, { headers: r });
+	} catch (e) {
+		if (!("If-None-Match" in r) && !("If-Modified-Since" in r)) throw e;
+		i = await fetch(t, { headers: { Range: "bytes=0-0" } });
+	}
 	if (i.status === 304) return await nr(i), await qn(t, n.validator, n.totalSize, e);
 	if (i.status === 206) {
 		let n = i.headers.get("content-range"), r = n ? /\/(\d+)\s*$/.exec(n) : null;
