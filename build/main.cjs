@@ -255,6 +255,16 @@ function stringifyBigIntsWithField(Fr, o) {
 	} else if (typeof o == "bigint" || o.eq !== void 0) return o.toString(10);
 	else return o;
 }
+function withPersistentCache(fileSource, persistentCache) {
+	if (!persistentCache) return fileSource;
+	if (typeof fileSource === "string" && /^https?:\/\//i.test(fileSource)) return {
+		type: "http",
+		url: fileSource,
+		persistentCache
+	};
+	if (fileSource && fileSource.type === "http" && !fileSource.persistentCache) return Object.assign({}, fileSource, { persistentCache });
+	return fileSource;
+}
 //#endregion
 //#region src/zkey_utils.js
 async function writeHeader(fd, zkey) {
@@ -619,7 +629,8 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 	try {
 		const openWtns = await _iden3_binfileutils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
 		fdWtns = openWtns.fd;
-		const openZKey = await _iden3_binfileutils.readBinFile(zkeyFileName, "zkey", 2, 1 << 25, 1 << 23);
+		const zkeySource = withPersistentCache(zkeyFileName, options && options.persistentCache);
+		const openZKey = await _iden3_binfileutils.readBinFile(zkeySource, "zkey", 2, 1 << 25, 1 << 23);
 		fdZKey = openZKey.fd;
 		return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
 	} finally {
@@ -1089,7 +1100,8 @@ function monitorMemoryUsage(logger, interval = 5e3) {
 var { unstringifyBigInts: unstringifyBigInts$11 } = ffjavascript.utils;
 async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
 	const input = unstringifyBigInts$11(_input);
-	const fdWasm = await fastfile.readExisting(wasmFileName);
+	const wasmSource = withPersistentCache(wasmFileName, options && options.persistentCache);
+	const fdWasm = await fastfile.readExisting(wasmSource);
 	const wasm = await fdWasm.read(fdWasm.totalSize);
 	await fdWasm.close();
 	const wc = await (0, circom_runtime.WitnessCalculatorBuilder)(wasm, options);

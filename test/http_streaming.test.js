@@ -95,6 +95,17 @@ describe("Groth16 proving from a zkey served over HTTP", function () {
         }
     });
 
+    it("options.persistentCache is a safe no-op in Node (no IndexedDB)", async () => {
+        const srv = await serve(zkey_final.data, true);
+        try {
+            const { proof, publicSignals } = await snarkjs.groth16.prove(
+                srv.url, wtns, null, { persistentCache: true });
+            assert(await snarkjs.groth16.verify(vKey, publicSignals, proof));
+        } finally {
+            await srv.close();
+        }
+    });
+
     it("falls back to full buffering when the server lacks Range support", async () => {
         const srv = await serve(zkey_final.data, false);
         try {

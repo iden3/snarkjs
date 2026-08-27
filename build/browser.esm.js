@@ -273,17 +273,132 @@ function O(e) {
 	for (let t = 0; t < e.length; t++) n.set(e[t], r), r += e[t].byteLength;
 	return new TextDecoder().decode(n);
 }
-var k = 65536;
-async function A(e) {
+var k = 1 << 21, A = 1 << 29, j = "fastfile-http-cache", M = /* @__PURE__ */ new Map();
+function N(e) {
+	if (M.has(e)) return M.get(e);
+	let t = new Promise((t, n) => {
+		let r = indexedDB.open(e, 1);
+		r.onupgradeneeded = () => {
+			let e = r.result;
+			e.createObjectStore("files"), e.createObjectStore("blocks");
+		}, r.onsuccess = () => t(r.result), r.onerror = () => n(r.error), r.onblocked = () => n(/* @__PURE__ */ Error("IndexedDB open blocked"));
+	});
+	return M.set(e, t), t.catch(() => M.delete(e)), t;
+}
+function P(e) {
+	return new Promise((t, n) => {
+		e.onsuccess = () => t(e.result), e.onerror = () => n(e.error);
+	});
+}
+function F(e) {
+	return new Promise((t, n) => {
+		e.oncomplete = () => t(), e.onerror = () => n(e.error), e.onabort = () => n(e.error || /* @__PURE__ */ Error("IndexedDB transaction aborted"));
+	});
+}
+function ee(e, t, n) {
+	return IDBKeyRange.bound([e, t], [e, n]);
+}
+async function te(e, t) {
+	let n = e.transaction(["files", "blocks"], "readwrite");
+	n.objectStore("files").delete(t), n.objectStore("blocks").delete(ee(t, 0, Infinity)), await F(n);
+}
+async function ne(e, t, n, r, i, a) {
+	let o = e.transaction(["files", "blocks"], "readwrite"), s = o.objectStore("files"), c = await P(s.get(t)), l = 0;
+	c && c.validator === n && c.totalSize === r && c.blockSize === i ? l = c.bytes : c && o.objectStore("blocks").delete(ee(t, 0, Infinity)), s.put({
+		validator: n,
+		totalSize: r,
+		blockSize: i,
+		bytes: l,
+		lastUsed: Date.now()
+	}, t), await F(o);
+	let u = e.transaction("files", "readonly"), d = u.objectStore("files"), [f, p] = await Promise.all([P(d.getAllKeys()), P(d.getAll())]);
+	await F(u);
+	let m = p.reduce((e, t) => e + t.bytes, 0);
+	if (m <= a) return;
+	let h = f.map((e, t) => ({
+		key: e,
+		meta: p[t]
+	})).filter((e) => e.key !== t).sort((e, t) => e.meta.lastUsed - t.meta.lastUsed);
+	for (let t of h) {
+		if (m <= a) break;
+		await te(e, t.key), m -= t.meta.bytes;
+	}
+}
+async function re(e, t) {
+	let { fileKey: n, validator: r, totalSize: i } = t, a = typeof t.options == "object" && t.options || {}, o = a.blockSize || k, s = a.maxBytes || A, c = a.dbName || j;
+	if (typeof indexedDB > "u" || !r) return e;
+	let l;
+	try {
+		l = await N(c), await ne(l, n, r, i, o, s);
+	} catch {
+		return e;
+	}
+	let u = !1;
+	async function d(e, t) {
+		let r = l.transaction("blocks", "readonly"), i = r.objectStore("blocks"), a = ee(n, e, t), [o, s] = await Promise.all([P(i.getAllKeys(a)), P(i.getAll(a))]);
+		await F(r);
+		let c = /* @__PURE__ */ new Map();
+		for (let e = 0; e < o.length; e++) c.set(o[e][1], s[e]);
+		return c;
+	}
+	async function f(e) {
+		if (!(u || e.length === 0)) try {
+			let t = l.transaction(["files", "blocks"], "readwrite"), r = t.objectStore("blocks"), i = t.objectStore("files");
+			for (let t of e) r.put(t.data, [n, t.index]);
+			let a = await P(i.get(n));
+			a && (a.bytes += e.reduce((e, t) => e + t.data.byteLength, 0), a.lastUsed = Date.now(), i.put(a, n)), await F(t);
+		} catch {
+			u = !0;
+		}
+	}
+	let p = (e) => Math.min(o, i - e * o);
+	return async function(t, n, r, i) {
+		if (i === 0) return;
+		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = a;
+		for (; u <= s;) {
+			let a = u * o, d = a + p(u), f = c.get(u);
+			if (f) {
+				let e = Math.max(r, a), o = Math.min(r + i, d);
+				t.set(f.subarray(e - a, o - a), n + (e - r)), u++;
+				continue;
+			}
+			if (a >= r && d <= r + i) {
+				let d = u;
+				for (; d + 1 <= s && !c.get(d + 1) && (d + 1) * o + p(d + 1) <= r + i;) d++;
+				let f = a, m = d * o + p(d);
+				await e(t, n + (f - r), f, m - f);
+				for (let e = u; e <= d; e++) {
+					let i = e * o;
+					l.push({
+						index: e,
+						data: t.slice(n + (i - r), n + (i - r) + p(e))
+					});
+				}
+				u = d + 1;
+			} else {
+				let o = new Uint8Array(p(u));
+				await e(o, 0, a, o.length);
+				let s = Math.max(r, a), c = Math.min(r + i, d);
+				t.set(o.subarray(s - a, c - a), n + (s - r)), l.push({
+					index: u,
+					data: o
+				}), u++;
+			}
+		}
+		await f(l);
+	};
+}
+var ie = 65536;
+async function ae(e) {
 	let t = e.url, n = await fetch(t, { headers: { Range: "bytes=0-0" } });
 	if (n.status === 206) {
 		let r = n.headers.get("content-range"), i = r ? /\/(\d+)\s*$/.exec(r) : null;
 		if (i) {
 			let r = parseInt(i[1]);
 			await n.arrayBuffer();
-			let a = M(n), o = null, s = async function(e, n, r, i) {
+			let a = se(n), o = null, s = async function(e, n, r, i) {
 				if (!o) try {
-					return await N(t, a, e, n, r, i);
+					return await ce(t, a, e, n, r, i);
 				} catch (e) {
 					if (!e || !e.degradeToFull) throw e;
 					o = e.fullBodyPromise;
@@ -291,10 +406,15 @@ async function A(e) {
 				let s = await o;
 				if (r + i > s.byteLength) throw Error(t + ": read past the end of the buffered body");
 				e.set(s.subarray(r, r + i), n);
-			}, c = Math.min(e.pageSize || k, k);
-			return new D(s, r, e.cacheSize, c);
+			}, c = Math.min(e.pageSize || ie, ie);
+			return e.persistentCache && (s = await re(s, {
+				fileKey: t,
+				validator: a,
+				totalSize: r,
+				options: e.persistentCache
+			})), new D(s, r, e.cacheSize, c);
 		}
-		return await n.arrayBuffer(), await j(t);
+		return await n.arrayBuffer(), await oe(t);
 	}
 	if (!n.ok && n.status !== 416) throw Error("HTTP " + n.status + " fetching " + t);
 	if (n.status === 416) {
@@ -302,14 +422,14 @@ async function A(e) {
 		return e && /\/0\s*$/.test(e) ? d({
 			type: "mem",
 			data: /* @__PURE__ */ new Uint8Array()
-		}) : await j(t);
+		}) : await oe(t);
 	}
 	return d({
 		type: "mem",
 		data: new Uint8Array(await n.arrayBuffer())
 	});
 }
-async function j(e) {
+async function oe(e) {
 	let t = await fetch(e);
 	if (!t.ok) throw Error("HTTP " + t.status + " fetching " + e);
 	return d({
@@ -317,25 +437,25 @@ async function j(e) {
 		data: new Uint8Array(await t.arrayBuffer())
 	});
 }
-function M(e) {
+function se(e) {
 	let t = e.headers.get("etag");
 	return t && t.indexOf("W/") !== 0 ? t : e.headers.get("last-modified") || null;
 }
-async function N(e, t, n, r, i, a) {
+async function ce(e, t, n, r, i, a) {
 	let o = { Range: "bytes=" + i + "-" + (i + a - 1) };
 	t && (o["If-Range"] = t);
 	let s = await fetch(e, { headers: o });
 	if (s.status === 200) {
-		let n = M(s);
+		let n = se(s);
 		if (!t || n && n === t) {
 			let t = /* @__PURE__ */ Error(e + ": origin ignored Range; degrading to full buffering");
 			throw t.degradeToFull = !0, t.fullBodyPromise = s.arrayBuffer().then((e) => new Uint8Array(e)), t;
 		}
-		throw await P(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
+		throw await le(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
 	}
-	if (s.status !== 206) throw await P(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
+	if (s.status !== 206) throw await le(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
 	let c = s.headers.get("content-range"), l = c ? /bytes\s+(\d+)-(\d+)\//.exec(c) : null;
-	if (l && parseInt(l[1]) !== i) throw await P(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
+	if (l && parseInt(l[1]) !== i) throw await le(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
 	let u = 0;
 	if (s.body && typeof s.body.getReader == "function") {
 		let t = s.body.getReader();
@@ -353,38 +473,38 @@ async function N(e, t, n, r, i, a) {
 	}
 	if (u !== a) throw Error(e + ": short range response (" + u + "/" + a + " bytes at " + i + ")");
 }
-async function P(e) {
+async function le(e) {
 	try {
 		e.body && typeof e.body.cancel == "function" ? await e.body.cancel() : await e.arrayBuffer();
 	} catch {}
 }
-var F = 1 << 20;
-function ee(e) {
+var ue = 1 << 20;
+function de(e) {
 	let t = e.blob, n = async function(e, n, r, i) {
 		let a = await t.slice(r, r + i).arrayBuffer();
 		if (a.byteLength !== i) throw Error("short blob read (" + a.byteLength + "/" + i + " bytes at " + r + ")");
 		e.set(new Uint8Array(a), n);
-	}, r = Math.min(e.pageSize || F, F);
+	}, r = Math.min(e.pageSize || ue, ue);
 	return new D(n, t.size, e.cacheSize, r);
 }
-function te() {
+function fe() {
 	throw Error("File I/O is not supported in the browser");
 }
-function ne(e) {
+function pe(e) {
 	return e instanceof Uint8Array ? {
 		type: "mem",
 		data: e
-	} : (typeof e == "string" && te(), e);
+	} : (typeof e == "string" && fe(), e);
 }
-function re(e, t, n) {
-	if (e.type === "file" && te(), e.type === "mem") return t(e);
+function me(e, t, n) {
+	if (e.type === "file" && fe(), e.type === "mem") return t(e);
 	if (e.type === "bigMem") return n(e);
 	throw Error("Invalid FastFile type: " + e.type);
 }
-function ie(e) {
-	return re(ne(e), u, v);
+function he(e) {
+	return me(pe(e), u, v);
 }
-async function ae(e, t, n) {
+async function ge(e, t, n) {
 	return e instanceof Uint8Array && (e = {
 		type: "mem",
 		data: e
@@ -398,11 +518,11 @@ async function ae(e, t, n) {
 		url: e,
 		cacheSize: t,
 		pageSize: n
-	}), e.type === "http" ? await A(e) : e.type === "blob" ? ee(e) : re(e, d, y);
+	}), e.type === "http" ? await ae(e) : e.type === "blob" ? de(e) : me(e, d, y);
 }
-var oe = 1 << 30;
+var _e = 1 << 30;
 async function I(e, t, n, r, i) {
-	let a = await ae(e, r, i), o = await a.read(4), s = "";
+	let a = await ge(e, r, i), o = await a.read(4), s = "";
 	for (let e = 0; e < 4; e++) s += String.fromCharCode(o[e]);
 	if (s != t) throw Error(e + ": Invalid File format");
 	if (await a.readULE32() > n) throw Error("Version not supported");
@@ -420,7 +540,7 @@ async function I(e, t, n, r, i) {
 	};
 }
 async function L(e, t, n, r, i, a) {
-	let o = await ie(e, i, a), s = /* @__PURE__ */ new Uint8Array(4);
+	let o = await he(e, i, a), s = /* @__PURE__ */ new Uint8Array(4);
 	for (let e = 0; e < 4; e++) s[e] = t.charCodeAt(e);
 	return await o.write(s, 0), await o.writeULE32(n), await o.writeULE32(r), o;
 }
@@ -444,11 +564,11 @@ async function V(e, t) {
 	if (!t && e.pos - e.readingSection.p != e.readingSection.size) throw Error("Invalid section size reading");
 	delete e.readingSection;
 }
-async function se(e, t, n, i) {
+async function ve(e, t, n, i) {
 	let a = new Uint8Array(n);
 	r.toRprLE(a, 0, t, n), await e.write(a, i);
 }
-async function ce(e, t, n) {
+async function ye(e, t, n) {
 	let i = await e.read(t, n);
 	return r.fromRprLE(i, 0, t);
 }
@@ -465,9 +585,9 @@ async function H(e, t, n, r, i) {
 async function U(t, n, r, i, a) {
 	if (i = i === void 0 ? 0 : i, a = a === void 0 ? n[r][0].size - i : a, i + a > n[r][0].size) throw Error("Reading out of the range of the section");
 	let o;
-	return o = a < oe ? new Uint8Array(a) : new e(a), await t.readToBuffer(o, 0, a, n[r][0].p + i), o;
+	return o = a < _e ? new Uint8Array(a) : new e(a), await t.readToBuffer(o, 0, a, n[r][0].p + i), o;
 }
-async function le(e, t, n, r, i) {
+async function be(e, t, n, r, i) {
 	let a = e.pageSize * 16;
 	if (await B(e, t, i), await B(n, r, i), t[i][0].size != r[i][0].size) return !1;
 	let o = t[i][0].size;
@@ -479,26 +599,26 @@ async function le(e, t, n, r, i) {
 }
 //#endregion
 //#region src/curves.js
-var ue = /* @__PURE__ */ l({
-	getCurveFromName: () => _e,
-	getCurveFromQ: () => ge,
-	getCurveFromR: () => he
-}), de = r.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), fe = r.e("21888242871839275222246405745257275088548364400416034343698204186575808495617"), pe = r.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16), me = r.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
-async function he(e, t) {
+var xe = /* @__PURE__ */ l({
+	getCurveFromName: () => Oe,
+	getCurveFromQ: () => De,
+	getCurveFromR: () => Ee
+}), Se = r.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), Ce = r.e("21888242871839275222246405745257275088548364400416034343698204186575808495617"), we = r.e("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab", 16), Te = r.e("21888242871839275222246405745257275088696311157297823662689037894645226208583");
+async function Ee(e, t) {
 	let n, o = t && t.singleThread;
-	if (r.eq(e, fe)) n = await a(o);
-	else if (r.eq(e, de)) n = await i(o);
+	if (r.eq(e, Ce)) n = await a(o);
+	else if (r.eq(e, Se)) n = await i(o);
 	else throw Error(`Curve not supported: ${r.toString(e)}`);
 	return n;
 }
-async function ge(e, t) {
+async function De(e, t) {
 	let n, o = t && t.singleThread;
-	if (r.eq(e, me)) n = await a(o);
-	else if (r.eq(e, pe)) n = await i(o);
+	if (r.eq(e, Te)) n = await a(o);
+	else if (r.eq(e, we)) n = await i(o);
 	else throw Error(`Curve not supported: ${r.toString(e)}`);
 	return n;
 }
-async function _e(e, t) {
+async function Oe(e, t) {
 	let n, r = t && t.singleThread, o = s(e);
 	if ([
 		"BN128",
@@ -514,10 +634,10 @@ async function _e(e, t) {
 }
 //#endregion
 //#region node_modules/@noble/hashes/utils.js
-function ve(e) {
+function ke(e) {
 	return e instanceof Uint8Array || ArrayBuffer.isView(e) && e.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in e && e.BYTES_PER_ELEMENT === 1;
 }
-function ye(e, t = "") {
+function Ae(e, t = "") {
 	if (typeof e != "number") {
 		let n = t && `"${t}" `;
 		throw TypeError(`${n}expected number, got ${typeof e}`);
@@ -527,46 +647,46 @@ function ye(e, t = "") {
 		throw RangeError(`${n}expected integer >= 0, got ${e}`);
 	}
 }
-function be(e, t, n = "") {
-	let r = ve(e), i = e?.length, a = t !== void 0;
+function je(e, t, n = "") {
+	let r = ke(e), i = e?.length, a = t !== void 0;
 	if (!r || a && i !== t) {
 		let o = n && `"${n}" `, s = a ? ` of length ${t}` : "", c = r ? `length=${i}` : `type=${typeof e}`, l = o + "expected Uint8Array" + s + ", got " + c;
 		throw r ? RangeError(l) : TypeError(l);
 	}
 	return e;
 }
-function xe(e, t = !0) {
+function Me(e, t = !0) {
 	if (e.destroyed) throw Error("Hash instance has been destroyed");
 	if (t && e.finished) throw Error("Hash#digest() has already been called");
 }
-function Se(e, t) {
-	be(e, void 0, "digestInto() output");
+function Ne(e, t) {
+	je(e, void 0, "digestInto() output");
 	let n = t.outputLen;
 	if (e.length < n) throw RangeError("\"digestInto() output\" expected to be of length >=" + n);
 }
-function Ce(e) {
+function Pe(e) {
 	return new Uint32Array(e.buffer, e.byteOffset, Math.floor(e.byteLength / 4));
 }
-function we(...e) {
+function Fe(...e) {
 	for (let t = 0; t < e.length; t++) e[t].fill(0);
 }
-var Te = new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68;
-function Ee(e) {
+var Ie = new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68;
+function Le(e) {
 	return e << 24 & 4278190080 | e << 8 & 16711680 | e >>> 8 & 65280 | e >>> 24 & 255;
 }
-var De = Te ? (e) => e : (e) => Ee(e) >>> 0;
-function Oe(e) {
-	for (let t = 0; t < e.length; t++) e[t] = Ee(e[t]);
+var Re = Ie ? (e) => e : (e) => Le(e) >>> 0;
+function ze(e) {
+	for (let t = 0; t < e.length; t++) e[t] = Le(e[t]);
 	return e;
 }
-var ke = Te ? (e) => e : Oe;
-function Ae(e, t = {}) {
+var Be = Ie ? (e) => e : ze;
+function Ve(e, t = {}) {
 	let n = (t, n) => e(n).update(t).digest(), r = e(void 0);
 	return n.outputLen = r.outputLen, n.blockLen = r.blockLen, n.canXOF = r.canXOF, n.create = (t) => e(t), Object.assign(n, t), Object.freeze(n);
 }
 //#endregion
 //#region node_modules/@noble/hashes/_blake.js
-var je = /* @__PURE__ */ Uint8Array.from([
+var He = /* @__PURE__ */ Uint8Array.from([
 	0,
 	1,
 	2,
@@ -823,33 +943,33 @@ var je = /* @__PURE__ */ Uint8Array.from([
 	14,
 	1,
 	9
-]), Me = /* @__PURE__ */ BigInt(2 ** 32 - 1), Ne = /* @__PURE__ */ BigInt(32);
-function Pe(e, t = !1) {
+]), Ue = /* @__PURE__ */ BigInt(2 ** 32 - 1), We = /* @__PURE__ */ BigInt(32);
+function Ge(e, t = !1) {
 	return t ? {
-		h: Number(e & Me),
-		l: Number(e >> Ne & Me)
+		h: Number(e & Ue),
+		l: Number(e >> We & Ue)
 	} : {
-		h: Number(e >> Ne & Me) | 0,
-		l: Number(e & Me) | 0
+		h: Number(e >> We & Ue) | 0,
+		l: Number(e & Ue) | 0
 	};
 }
-function Fe(e, t = !1) {
+function Ke(e, t = !1) {
 	let n = e.length, r = new Uint32Array(n), i = new Uint32Array(n);
 	for (let a = 0; a < n; a++) {
-		let { h: n, l: o } = Pe(e[a], t);
+		let { h: n, l: o } = Ge(e[a], t);
 		[r[a], i[a]] = [n, o];
 	}
 	return [r, i];
 }
-var Ie = (e, t, n) => e >>> n | t << 32 - n, Le = (e, t, n) => e << 32 - n | t >>> n, Re = (e, t, n) => e << 64 - n | t >>> n - 32, ze = (e, t, n) => e >>> n - 32 | t << 64 - n, Be = (e, t) => t, Ve = (e, t) => e, He = (e, t, n) => e << n | t >>> 32 - n, Ue = (e, t, n) => t << n | e >>> 32 - n, We = (e, t, n) => t << n - 32 | e >>> 64 - n, Ge = (e, t, n) => e << n - 32 | t >>> 64 - n;
-function Ke(e, t, n, r) {
+var qe = (e, t, n) => e >>> n | t << 32 - n, Je = (e, t, n) => e << 32 - n | t >>> n, Ye = (e, t, n) => e << 64 - n | t >>> n - 32, Xe = (e, t, n) => e >>> n - 32 | t << 64 - n, Ze = (e, t) => t, Qe = (e, t) => e, $e = (e, t, n) => e << n | t >>> 32 - n, et = (e, t, n) => t << n | e >>> 32 - n, tt = (e, t, n) => t << n - 32 | e >>> 64 - n, nt = (e, t, n) => e << n - 32 | t >>> 64 - n;
+function rt(e, t, n, r) {
 	let i = (t >>> 0) + (r >>> 0);
 	return {
 		h: e + n + (i / 2 ** 32 | 0) | 0,
 		l: i | 0
 	};
 }
-var qe = (e, t, n) => (e >>> 0) + (t >>> 0) + (n >>> 0), Je = (e, t, n, r) => t + n + r + (e / 2 ** 32 | 0) | 0, W = /* @__PURE__ */ Uint32Array.from([
+var it = (e, t, n) => (e >>> 0) + (t >>> 0) + (n >>> 0), at = (e, t, n, r) => t + n + r + (e / 2 ** 32 | 0) | 0, W = /* @__PURE__ */ Uint32Array.from([
 	4089235720,
 	1779033703,
 	2227873595,
@@ -867,45 +987,45 @@ var qe = (e, t, n) => (e >>> 0) + (t >>> 0) + (n >>> 0), Je = (e, t, n, r) => t 
 	327033209,
 	1541459225
 ]), G = /* @__PURE__ */ new Uint32Array(32);
-function Ye(e, t, n, r, i, a) {
-	let o = i[a], s = i[a + 1], c = G[2 * e], l = G[2 * e + 1], u = G[2 * t], d = G[2 * t + 1], f = G[2 * n], p = G[2 * n + 1], m = G[2 * r], h = G[2 * r + 1], g = qe(c, u, o);
-	l = Je(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
+function ot(e, t, n, r, i, a) {
+	let o = i[a], s = i[a + 1], c = G[2 * e], l = G[2 * e + 1], u = G[2 * t], d = G[2 * t + 1], f = G[2 * n], p = G[2 * n + 1], m = G[2 * r], h = G[2 * r + 1], g = it(c, u, o);
+	l = at(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
 		Dh: h ^ l,
 		Dl: m ^ c
 	}, {Dh: h, Dl: m} = {
-		Dh: Be(h, m),
-		Dl: Ve(h, m)
-	}, {h: p, l: f} = Ke(p, f, h, m), {Bh: d, Bl: u} = {
+		Dh: Ze(h, m),
+		Dl: Qe(h, m)
+	}, {h: p, l: f} = rt(p, f, h, m), {Bh: d, Bl: u} = {
 		Bh: d ^ p,
 		Bl: u ^ f
 	}, {Bh: d, Bl: u} = {
-		Bh: Ie(d, u, 24),
-		Bl: Le(d, u, 24)
+		Bh: qe(d, u, 24),
+		Bl: Je(d, u, 24)
 	}, G[2 * e] = c, G[2 * e + 1] = l, G[2 * t] = u, G[2 * t + 1] = d, G[2 * n] = f, G[2 * n + 1] = p, G[2 * r] = m, G[2 * r + 1] = h;
 }
-function Xe(e, t, n, r, i, a) {
-	let o = i[a], s = i[a + 1], c = G[2 * e], l = G[2 * e + 1], u = G[2 * t], d = G[2 * t + 1], f = G[2 * n], p = G[2 * n + 1], m = G[2 * r], h = G[2 * r + 1], g = qe(c, u, o);
-	l = Je(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
+function st(e, t, n, r, i, a) {
+	let o = i[a], s = i[a + 1], c = G[2 * e], l = G[2 * e + 1], u = G[2 * t], d = G[2 * t + 1], f = G[2 * n], p = G[2 * n + 1], m = G[2 * r], h = G[2 * r + 1], g = it(c, u, o);
+	l = at(g, l, d, s), c = g | 0, {Dh: h, Dl: m} = {
 		Dh: h ^ l,
 		Dl: m ^ c
 	}, {Dh: h, Dl: m} = {
-		Dh: Ie(h, m, 16),
-		Dl: Le(h, m, 16)
-	}, {h: p, l: f} = Ke(p, f, h, m), {Bh: d, Bl: u} = {
+		Dh: qe(h, m, 16),
+		Dl: Je(h, m, 16)
+	}, {h: p, l: f} = rt(p, f, h, m), {Bh: d, Bl: u} = {
 		Bh: d ^ p,
 		Bl: u ^ f
 	}, {Bh: d, Bl: u} = {
-		Bh: Re(d, u, 63),
-		Bl: ze(d, u, 63)
+		Bh: Ye(d, u, 63),
+		Bl: Xe(d, u, 63)
 	}, G[2 * e] = c, G[2 * e + 1] = l, G[2 * t] = u, G[2 * t + 1] = d, G[2 * n] = f, G[2 * n + 1] = p, G[2 * r] = m, G[2 * r + 1] = h;
 }
-function Ze(e, t = {}, n, r, i) {
-	if (ye(n), e <= 0 || e > n) throw Error("outputLen bigger than keyLen");
+function ct(e, t = {}, n, r, i) {
+	if (Ae(n), e <= 0 || e > n) throw Error("outputLen bigger than keyLen");
 	let { key: a, salt: o, personalization: s } = t;
 	if (a !== void 0 && (a.length < 1 || a.length > n)) throw Error("\"key\" expected to be undefined or of length=1.." + n);
-	o !== void 0 && be(o, r, "salt"), s !== void 0 && be(s, i, "personalization");
+	o !== void 0 && je(o, r, "salt"), s !== void 0 && je(s, i, "personalization");
 }
-var Qe = class {
+var lt = class {
 	buffer;
 	buffer32;
 	finished = !1;
@@ -916,19 +1036,19 @@ var Qe = class {
 	outputLen;
 	canXOF = !1;
 	constructor(e, t) {
-		ye(e), ye(t), this.blockLen = e, this.outputLen = t, this.buffer = new Uint8Array(e), this.buffer32 = Ce(this.buffer);
+		Ae(e), Ae(t), this.blockLen = e, this.outputLen = t, this.buffer = new Uint8Array(e), this.buffer32 = Pe(this.buffer);
 	}
 	update(e) {
-		xe(this), be(e);
+		Me(this), je(e);
 		let { blockLen: t, buffer: n, buffer32: r } = this, i = e.length, a = e.byteOffset, o = e.buffer;
 		for (let s = 0; s < i;) {
-			this.pos === t && (ke(r), this.compress(r, 0, !1), ke(r), this.pos = 0);
+			this.pos === t && (Be(r), this.compress(r, 0, !1), Be(r), this.pos = 0);
 			let c = Math.min(t - this.pos, i - s), l = a + s;
 			if (c === t && !(l % 4) && s + c < i) {
 				let e = new Uint32Array(o, l, Math.floor((i - s) / 4));
-				ke(e);
+				Be(e);
 				for (let n = 0; s + t < i; n += r.length, s += t) this.length += t, this.compress(e, n, !1);
-				ke(e);
+				Be(e);
 				continue;
 			}
 			n.set(e.subarray(s, s + c), this.pos), this.pos += c, this.length += c, s += c;
@@ -936,11 +1056,11 @@ var Qe = class {
 		return this;
 	}
 	digestInto(e) {
-		xe(this), Se(e, this);
+		Me(this), Ne(e, this);
 		let { pos: t, buffer32: n } = this;
-		if (this.finished = !0, we(this.buffer.subarray(t)), ke(n), this.compress(n, 0, !0), ke(n), e.byteOffset & 3) throw RangeError("\"digestInto() output\" expected 4-byte aligned byteOffset, got " + e.byteOffset);
-		let r = this.get(), i = Ce(e), a = Math.floor(this.outputLen / 4);
-		for (let e = 0; e < a; e++) i[e] = De(r[e]);
+		if (this.finished = !0, Fe(this.buffer.subarray(t)), Be(n), this.compress(n, 0, !0), Be(n), e.byteOffset & 3) throw RangeError("\"digestInto() output\" expected 4-byte aligned byteOffset, got " + e.byteOffset);
+		let r = this.get(), i = Pe(e), a = Math.floor(this.outputLen / 4);
+		for (let e = 0; e < a; e++) i[e] = Re(r[e]);
 		let o = this.outputLen % 4;
 		if (!o) return;
 		let s = a * 4, c = r[a];
@@ -959,7 +1079,7 @@ var Qe = class {
 	clone() {
 		return this._cloneInto();
 	}
-}, $e = class extends Qe {
+}, ut = class extends lt {
 	v0l = W[0] | 0;
 	v0h = W[1] | 0;
 	v1l = W[2] | 0;
@@ -978,17 +1098,17 @@ var Qe = class {
 	v7h = W[15] | 0;
 	constructor(e = {}) {
 		let t = e.dkLen === void 0 ? 64 : e.dkLen;
-		super(128, t), Ze(t, e, 64, 16, 16);
+		super(128, t), ct(t, e, 64, 16, 16);
 		let { key: n, personalization: r, salt: i } = e, a = 0;
-		if (n !== void 0 && (be(n, void 0, "key"), a = n.length), this.v0l ^= this.outputLen | a << 8 | 16842752, i !== void 0) {
-			be(i, void 0, "salt");
-			let e = Ce(i);
-			this.v4l ^= De(e[0]), this.v4h ^= De(e[1]), this.v5l ^= De(e[2]), this.v5h ^= De(e[3]);
+		if (n !== void 0 && (je(n, void 0, "key"), a = n.length), this.v0l ^= this.outputLen | a << 8 | 16842752, i !== void 0) {
+			je(i, void 0, "salt");
+			let e = Pe(i);
+			this.v4l ^= Re(e[0]), this.v4h ^= Re(e[1]), this.v5l ^= Re(e[2]), this.v5h ^= Re(e[3]);
 		}
 		if (r !== void 0) {
-			be(r, void 0, "personalization");
-			let e = Ce(r);
-			this.v6l ^= De(e[0]), this.v6h ^= De(e[1]), this.v7l ^= De(e[2]), this.v7h ^= De(e[3]);
+			je(r, void 0, "personalization");
+			let e = Pe(r);
+			this.v6l ^= Re(e[0]), this.v6h ^= Re(e[1]), this.v7l ^= Re(e[2]), this.v7h ^= Re(e[3]);
 		}
 		if (n !== void 0) {
 			let e = new Uint8Array(this.blockLen);
@@ -1021,23 +1141,23 @@ var Qe = class {
 	}
 	compress(e, t, n) {
 		this.get().forEach((e, t) => G[t] = e), G.set(W, 16);
-		let { h: r, l: i } = Pe(BigInt(this.length));
+		let { h: r, l: i } = Ge(BigInt(this.length));
 		G[24] = W[8] ^ i, G[25] = W[9] ^ r, n && (G[28] = ~G[28], G[29] = ~G[29]);
-		let a = 0, o = je;
-		for (let n = 0; n < 12; n++) Ye(0, 4, 8, 12, e, t + 2 * o[a++]), Xe(0, 4, 8, 12, e, t + 2 * o[a++]), Ye(1, 5, 9, 13, e, t + 2 * o[a++]), Xe(1, 5, 9, 13, e, t + 2 * o[a++]), Ye(2, 6, 10, 14, e, t + 2 * o[a++]), Xe(2, 6, 10, 14, e, t + 2 * o[a++]), Ye(3, 7, 11, 15, e, t + 2 * o[a++]), Xe(3, 7, 11, 15, e, t + 2 * o[a++]), Ye(0, 5, 10, 15, e, t + 2 * o[a++]), Xe(0, 5, 10, 15, e, t + 2 * o[a++]), Ye(1, 6, 11, 12, e, t + 2 * o[a++]), Xe(1, 6, 11, 12, e, t + 2 * o[a++]), Ye(2, 7, 8, 13, e, t + 2 * o[a++]), Xe(2, 7, 8, 13, e, t + 2 * o[a++]), Ye(3, 4, 9, 14, e, t + 2 * o[a++]), Xe(3, 4, 9, 14, e, t + 2 * o[a++]);
-		this.v0l ^= G[0] ^ G[16], this.v0h ^= G[1] ^ G[17], this.v1l ^= G[2] ^ G[18], this.v1h ^= G[3] ^ G[19], this.v2l ^= G[4] ^ G[20], this.v2h ^= G[5] ^ G[21], this.v3l ^= G[6] ^ G[22], this.v3h ^= G[7] ^ G[23], this.v4l ^= G[8] ^ G[24], this.v4h ^= G[9] ^ G[25], this.v5l ^= G[10] ^ G[26], this.v5h ^= G[11] ^ G[27], this.v6l ^= G[12] ^ G[28], this.v6h ^= G[13] ^ G[29], this.v7l ^= G[14] ^ G[30], this.v7h ^= G[15] ^ G[31], we(G);
+		let a = 0, o = He;
+		for (let n = 0; n < 12; n++) ot(0, 4, 8, 12, e, t + 2 * o[a++]), st(0, 4, 8, 12, e, t + 2 * o[a++]), ot(1, 5, 9, 13, e, t + 2 * o[a++]), st(1, 5, 9, 13, e, t + 2 * o[a++]), ot(2, 6, 10, 14, e, t + 2 * o[a++]), st(2, 6, 10, 14, e, t + 2 * o[a++]), ot(3, 7, 11, 15, e, t + 2 * o[a++]), st(3, 7, 11, 15, e, t + 2 * o[a++]), ot(0, 5, 10, 15, e, t + 2 * o[a++]), st(0, 5, 10, 15, e, t + 2 * o[a++]), ot(1, 6, 11, 12, e, t + 2 * o[a++]), st(1, 6, 11, 12, e, t + 2 * o[a++]), ot(2, 7, 8, 13, e, t + 2 * o[a++]), st(2, 7, 8, 13, e, t + 2 * o[a++]), ot(3, 4, 9, 14, e, t + 2 * o[a++]), st(3, 4, 9, 14, e, t + 2 * o[a++]);
+		this.v0l ^= G[0] ^ G[16], this.v0h ^= G[1] ^ G[17], this.v1l ^= G[2] ^ G[18], this.v1h ^= G[3] ^ G[19], this.v2l ^= G[4] ^ G[20], this.v2h ^= G[5] ^ G[21], this.v3l ^= G[6] ^ G[22], this.v3h ^= G[7] ^ G[23], this.v4l ^= G[8] ^ G[24], this.v4h ^= G[9] ^ G[25], this.v5l ^= G[10] ^ G[26], this.v5h ^= G[11] ^ G[27], this.v6l ^= G[12] ^ G[28], this.v6h ^= G[13] ^ G[29], this.v7l ^= G[14] ^ G[30], this.v7h ^= G[15] ^ G[31], Fe(G);
 	}
 	destroy() {
-		this.destroyed = !0, we(this.buffer32), this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		this.destroyed = !0, Fe(this.buffer32), this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	}
-}, K = /* @__PURE__ */ Ae((e) => new $e(e)), et = {}, tt = [];
-for (let e = 0; e < 256; e++) tt[e] = nt(e, 8);
-function nt(e, t) {
+}, K = /* @__PURE__ */ Ve((e) => new ut(e)), dt = {}, ft = [];
+for (let e = 0; e < 256; e++) ft[e] = pt(e, 8);
+function pt(e, t) {
 	let n = 0, r = e;
 	for (let e = 0; e < t; e++) n <<= 1, n |= r & 1, r >>= 1;
 	return n;
 }
-function rt(e) {
+function mt(e) {
 	return (e & 4294901760 ? (e &= 4294901760, 16) : 0) | (e & 4278255360 ? (e &= 4278255360, 8) : 0) | (e & 4042322160 ? (e &= 4042322160, 4) : 0) | (e & 3435973836 ? (e &= 3435973836, 2) : 0) | !!(e & 2863311530);
 }
 function q(e, t) {
@@ -1048,31 +1168,31 @@ function q(e, t) {
 	}
 	return t && (r = t + "\n" + r), r;
 }
-function it(e, t) {
+function ht(e, t) {
 	if (e.byteLength != t.byteLength) return !1;
 	for (var n = new Int8Array(e), r = new Int8Array(t), i = 0; i != e.byteLength; i++) if (n[i] != r[i]) return !1;
 	return !0;
 }
-function at(e) {
+function gt(e) {
 	return e.clone();
 }
-function ot(e) {
-	let t = e.subarray(0, 128), n = Ce(e.subarray(128)), r = K.create({ dkLen: 64 });
+function _t(e) {
+	let t = e.subarray(0, 128), n = Pe(e.subarray(128)), r = K.create({ dkLen: 64 });
 	r.buffer.set(t), r.v0l = n[0] | 0, r.v0h = n[1] | 0, r.v1l = n[2] | 0, r.v1h = n[3] | 0, r.v2l = n[4] | 0, r.v2h = n[5] | 0, r.v3l = n[6] | 0, r.v3h = n[7] | 0, r.v4l = n[8] | 0, r.v4h = n[9] | 0, r.v5l = n[10] | 0, r.v5h = n[11] | 0, r.v6l = n[12] | 0, r.v6h = n[13] | 0, r.v7l = n[14] | 0, r.v7h = n[15] | 0;
 	let i = 2 ** 32, a = n[16] + n[17] * i, o = n[18] + n[19] * i;
 	return r.length = a + o, r.pos = o, r;
 }
-function st(e) {
-	let t = /* @__PURE__ */ new Uint8Array(216), n = Ce(t.subarray(128));
+function vt(e) {
+	let t = /* @__PURE__ */ new Uint8Array(216), n = Pe(t.subarray(128));
 	return t.set(e.buffer), n[0] = e.v0l, n[1] = e.v0h, n[2] = e.v1l, n[3] = e.v1h, n[4] = e.v2l, n[5] = e.v2h, n[6] = e.v3l, n[7] = e.v3h, n[8] = e.v4l, n[9] = e.v4h, n[10] = e.v5l, n[11] = e.v5h, n[12] = e.v6l, n[13] = e.v6h, n[14] = e.v7l, n[15] = e.v7h, n[18] = e.pos, n[16] = e.length - e.pos, t;
 }
-async function ct(e, t, n, r, i) {
+async function yt(e, t, n, r, i) {
 	return e.G1.isZero(t) || e.G1.isZero(n) || e.G2.isZero(r) || e.G2.isZero(i) ? !1 : await e.pairingEq(t, i, e.G1.neg(n), r);
 }
-function lt() {
+function bt() {
 	if (typeof window < "u" && typeof window.prompt == "function") return window.prompt("Enter a random text. (Entropy): ", "");
 	{
-		let e = et.createInterface({
+		let e = dt.createInterface({
 			input: process.stdin,
 			output: process.stdout
 		});
@@ -1081,77 +1201,84 @@ function lt() {
 		});
 	}
 }
-function ut(e) {
+function xt(e) {
 	let t = new Uint8Array(e);
-	if (et && et.randomFillSync) et.randomFillSync(t);
+	if (dt && dt.randomFillSync) dt.randomFillSync(t);
 	else if (globalThis.crypto !== void 0 && globalThis.crypto.getRandomValues) for (let n = 0; n < e; n += 65536) globalThis.crypto.getRandomValues(t.subarray(n, Math.min(n + 65536, e)));
 	else throw Error("No secure random source available");
 	return t;
 }
-async function dt(e) {
-	if (et && et.createHash) return et.createHash("sha256").update(e).digest();
+async function St(e) {
+	if (dt && dt.createHash) return dt.createHash("sha256").update(e).digest();
 	{
 		let t = await globalThis.crypto.subtle.digest("SHA-256", e);
 		return new Uint8Array(t);
 	}
 }
-function ft(e, t) {
+function Ct(e, t) {
 	return new DataView(e.buffer).getUint32(t, !1);
 }
-async function pt(e) {
-	for (; !e;) e = await lt();
+async function wt(e) {
+	for (; !e;) e = await bt();
 	let n = K.create(64);
-	n.update(ut(64));
+	n.update(xt(64));
 	let r = new TextEncoder();
 	n.update(r.encode(e));
 	let i = n.digest(), a = [];
-	for (let e = 0; e < 8; e++) a[e] = ft(i, e * 4);
+	for (let e = 0; e < 8; e++) a[e] = Ct(i, e * 4);
 	return new t(a);
 }
-async function mt(e, n) {
+async function Tt(e, n) {
 	let r, i;
 	n < 32 ? (r = 1 << n >>> 0, i = 1) : (r = 4294967296, i = 1 << n - 32 >>> 0);
 	let a = e;
-	for (let e = 0; e < i; e++) for (let e = 0; e < r; e++) a = await dt(a);
+	for (let e = 0; e < i; e++) for (let e = 0; e < r; e++) a = await St(a);
 	let o = new DataView(a.buffer, a.byteOffset, a.byteLength), s = [];
 	for (let e = 0; e < 8; e++) s[e] = o.getUint32(e * 4, !1);
 	return new t(s);
 }
-function ht(e) {
+function Et(e) {
 	return e instanceof Uint8Array ? e : (e.slice(0, 2) == "0x" && (e = e.slice(2)), new Uint8Array(e.match(/[\da-f]{2}/gi).map(function(e) {
 		return parseInt(e, 16);
 	})));
 }
-function gt(e) {
+function Dt(e) {
 	return Array.prototype.map.call(e, function(e) {
 		return ("0" + (e & 255).toString(16)).slice(-2);
 	}).join("");
 }
-function _t(e, t) {
+function Ot(e, t) {
 	if (t instanceof Uint8Array) return e.toString(t);
-	if (Array.isArray(t)) return t.map(_t.bind(null, e));
+	if (Array.isArray(t)) return t.map(Ot.bind(null, e));
 	if (typeof t == "object") {
 		let n = {};
 		return Object.keys(t).forEach((r) => {
-			n[r] = _t(e, t[r]);
+			n[r] = Ot(e, t[r]);
 		}), n;
 	}
 	return typeof t == "bigint" || t.eq !== void 0 ? t.toString(10) : t;
 }
+function kt(e, t) {
+	return t ? typeof e == "string" && /^https?:\/\//i.test(e) ? {
+		type: "http",
+		url: e,
+		persistentCache: t
+	} : e && e.type === "http" && !e.persistentCache ? Object.assign({}, e, { persistentCache: t }) : e : e;
+}
 //#endregion
 //#region src/zkey_utils.js
-async function vt(e, t) {
+async function At(e, t) {
 	await R(e, 1), await e.writeULE32(1), await z(e);
-	let n = await ge(t.q);
+	let n = await De(t.q);
 	await R(e, 2);
 	let i = n.q, a = (Math.floor((r.bitLength(i) - 1) / 64) + 1) * 8, o = n.r, s = (Math.floor((r.bitLength(o) - 1) / 64) + 1) * 8;
-	await e.writeULE32(a), await se(e, i, a), await e.writeULE32(s), await se(e, o, s), await e.writeULE32(t.nVars), await e.writeULE32(t.nPublic), await e.writeULE32(t.domainSize), await yt(e, n, t.vk_alpha_1), await yt(e, n, t.vk_beta_1), await bt(e, n, t.vk_beta_2), await bt(e, n, t.vk_gamma_2), await yt(e, n, t.vk_delta_1), await bt(e, n, t.vk_delta_2), await z(e);
+	await e.writeULE32(a), await ve(e, i, a), await e.writeULE32(s), await ve(e, o, s), await e.writeULE32(t.nVars), await e.writeULE32(t.nPublic), await e.writeULE32(t.domainSize), await jt(e, n, t.vk_alpha_1), await jt(e, n, t.vk_beta_1), await Mt(e, n, t.vk_beta_2), await Mt(e, n, t.vk_gamma_2), await jt(e, n, t.vk_delta_1), await Mt(e, n, t.vk_delta_2), await z(e);
 }
-async function yt(e, t, n) {
+async function jt(e, t, n) {
 	let r = new Uint8Array(t.G1.F.n8 * 2);
 	t.G1.toRprLEM(r, 0, n), await e.write(r);
 }
-async function bt(e, t, n) {
+async function Mt(e, t, n) {
 	let r = new Uint8Array(t.G2.F.n8 * 2);
 	t.G2.toRprLEM(r, 0, n), await e.write(r);
 }
@@ -1159,44 +1286,44 @@ async function J(e, t, n) {
 	let r = await e.read(t.G1.F.n8 * 2), i = t.G1.fromRprLEM(r, 0);
 	return n ? t.G1.toObject(i) : i;
 }
-async function xt(e, t, n) {
+async function Nt(e, t, n) {
 	let r = await e.read(t.G2.F.n8 * 2), i = t.G2.fromRprLEM(r, 0);
 	return n ? t.G2.toObject(i) : i;
 }
-async function St(e, t, n, r) {
+async function Pt(e, t, n, r) {
 	await B(e, t, 1);
 	let i = await e.readULE32();
-	if (await V(e), i === 1) return await Ct(e, t, n, r);
-	if (i === 2) return await wt(e, t, n, r);
-	if (i === 10) return await Tt(e, t, n, r);
+	if (await V(e), i === 1) return await Ft(e, t, n, r);
+	if (i === 2) return await It(e, t, n, r);
+	if (i === 10) return await Lt(e, t, n, r);
 	throw Error("Protocol not supported: ");
 }
-async function Ct(e, t, n, r) {
+async function Ft(e, t, n, r) {
 	let i = {};
 	i.protocol = "groth16", await B(e, t, 2);
 	let a = await e.readULE32();
-	i.n8q = a, i.q = await ce(e, a);
+	i.n8q = a, i.q = await ye(e, a);
 	let o = await e.readULE32();
-	return i.n8r = o, i.r = await ce(e, o), i.curve = await ge(i.q, r), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = rt(i.domainSize), i.vk_alpha_1 = await J(e, i.curve, n), i.vk_beta_1 = await J(e, i.curve, n), i.vk_beta_2 = await xt(e, i.curve, n), i.vk_gamma_2 = await xt(e, i.curve, n), i.vk_delta_1 = await J(e, i.curve, n), i.vk_delta_2 = await xt(e, i.curve, n), await V(e), i;
+	return i.n8r = o, i.r = await ye(e, o), i.curve = await De(i.q, r), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = mt(i.domainSize), i.vk_alpha_1 = await J(e, i.curve, n), i.vk_beta_1 = await J(e, i.curve, n), i.vk_beta_2 = await Nt(e, i.curve, n), i.vk_gamma_2 = await Nt(e, i.curve, n), i.vk_delta_1 = await J(e, i.curve, n), i.vk_delta_2 = await Nt(e, i.curve, n), await V(e), i;
 }
-async function wt(e, t, n, r) {
+async function It(e, t, n, r) {
 	let i = {};
 	i.protocol = "plonk", await B(e, t, 2);
 	let a = await e.readULE32();
-	i.n8q = a, i.q = await ce(e, a);
+	i.n8q = a, i.q = await ye(e, a);
 	let o = await e.readULE32();
-	return i.n8r = o, i.r = await ce(e, o), i.curve = await ge(i.q, r), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = rt(i.domainSize), i.nAdditions = await e.readULE32(), i.nConstraints = await e.readULE32(), i.k1 = await e.read(o), i.k2 = await e.read(o), i.Qm = await J(e, i.curve, n), i.Ql = await J(e, i.curve, n), i.Qr = await J(e, i.curve, n), i.Qo = await J(e, i.curve, n), i.Qc = await J(e, i.curve, n), i.S1 = await J(e, i.curve, n), i.S2 = await J(e, i.curve, n), i.S3 = await J(e, i.curve, n), i.X_2 = await xt(e, i.curve, n), await V(e), i;
+	return i.n8r = o, i.r = await ye(e, o), i.curve = await De(i.q, r), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = mt(i.domainSize), i.nAdditions = await e.readULE32(), i.nConstraints = await e.readULE32(), i.k1 = await e.read(o), i.k2 = await e.read(o), i.Qm = await J(e, i.curve, n), i.Ql = await J(e, i.curve, n), i.Qr = await J(e, i.curve, n), i.Qo = await J(e, i.curve, n), i.Qc = await J(e, i.curve, n), i.S1 = await J(e, i.curve, n), i.S2 = await J(e, i.curve, n), i.S3 = await J(e, i.curve, n), i.X_2 = await Nt(e, i.curve, n), await V(e), i;
 }
-async function Tt(e, t, n, r) {
+async function Lt(e, t, n, r) {
 	let i = {};
 	i.protocol = "fflonk", i.protocolId = 10, await B(e, t, 2);
 	let a = await e.readULE32();
-	i.n8q = a, i.q = await ce(e, a), i.curve = await ge(i.q, r);
+	i.n8q = a, i.q = await ye(e, a), i.curve = await De(i.q, r);
 	let o = await e.readULE32();
-	return i.n8r = o, i.r = await ce(e, o), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = rt(i.domainSize), i.nAdditions = await e.readULE32(), i.nConstraints = await e.readULE32(), i.k1 = await e.read(o), i.k2 = await e.read(o), i.w3 = await e.read(o), i.w4 = await e.read(o), i.w8 = await e.read(o), i.wr = await e.read(o), i.X_2 = await xt(e, i.curve, n), i.C0 = await J(e, i.curve, n), await V(e), i;
+	return i.n8r = o, i.r = await ye(e, o), i.nVars = await e.readULE32(), i.nPublic = await e.readULE32(), i.domainSize = await e.readULE32(), i.power = mt(i.domainSize), i.nAdditions = await e.readULE32(), i.nConstraints = await e.readULE32(), i.k1 = await e.read(o), i.k2 = await e.read(o), i.w3 = await e.read(o), i.w4 = await e.read(o), i.w8 = await e.read(o), i.wr = await e.read(o), i.X_2 = await Nt(e, i.curve, n), i.C0 = await J(e, i.curve, n), await V(e), i;
 }
-async function Et(e, t) {
-	let { fd: i, sections: a } = await I(e, "zkey", 1), o = await St(i, a, t), s = new n(o.r), c = r.mod(r.shl(1, o.n8r * 8), o.r), l = s.inv(c), u = s.mul(l, l), d = await ge(o.q);
+async function Rt(e, t) {
+	let { fd: i, sections: a } = await I(e, "zkey", 1), o = await Pt(i, a, t), s = new n(o.r), c = r.mod(r.shl(1, o.n8r * 8), o.r), l = s.inv(c), u = s.mul(l, l), d = await De(o.q);
 	await B(i, a, 3), o.IC = [];
 	for (let e = 0; e <= o.nPublic; e++) {
 		let e = await J(i, d, t);
@@ -1226,7 +1353,7 @@ async function Et(e, t) {
 	}
 	await V(i), await B(i, a, 7), o.B2 = [];
 	for (let e = 0; e < o.nVars; e++) {
-		let n = await xt(i, d, t);
+		let n = await Nt(i, d, t);
 		o.B2[e] = n;
 	}
 	await V(i), await B(i, a, 8), o.C = [];
@@ -1241,13 +1368,13 @@ async function Et(e, t) {
 	}
 	return await V(i), await i.close(), o;
 	async function p() {
-		let e = await ce(i, o.n8r);
+		let e = await ye(i, o.n8r);
 		return s.mul(e, u);
 	}
 }
-async function Dt(e, t, n) {
+async function zt(e, t, n) {
 	let r = { delta: {} };
-	r.deltaAfter = await J(e, t, n), r.delta.g1_s = await J(e, t, n), r.delta.g1_sx = await J(e, t, n), r.delta.g2_spx = await xt(e, t, n), r.transcript = await e.read(64), r.type = await e.readULE32();
+	r.deltaAfter = await J(e, t, n), r.delta.g1_s = await J(e, t, n), r.delta.g1_sx = await J(e, t, n), r.delta.g2_spx = await Nt(e, t, n), r.transcript = await e.read(64), r.type = await e.readULE32();
 	let i = await e.readULE32(), a = e.pos, o = 0;
 	for (; e.pos - a < i;) {
 		let t = await e.read(1);
@@ -1264,19 +1391,19 @@ async function Dt(e, t, n) {
 	if (e.pos != a + i) throw Error("Parameters do not match");
 	return r;
 }
-async function Ot(e, t, n) {
+async function Bt(e, t, n) {
 	await B(e, n, 10);
 	let r = { contributions: [] };
 	r.csHash = await e.read(64);
 	let i = await e.readULE32();
 	for (let n = 0; n < i; n++) {
-		let n = await Dt(e, t);
+		let n = await zt(e, t);
 		r.contributions.push(n);
 	}
 	return await V(e), r;
 }
-async function kt(e, t, n) {
-	await yt(e, t, n.deltaAfter), await yt(e, t, n.delta.g1_s), await yt(e, t, n.delta.g1_sx), await bt(e, t, n.delta.g2_spx), await e.write(n.transcript), await e.writeULE32(n.type || 0);
+async function Vt(e, t, n) {
+	await jt(e, t, n.deltaAfter), await jt(e, t, n.delta.g1_s), await jt(e, t, n.delta.g1_sx), await Mt(e, t, n.delta.g2_spx), await e.write(n.transcript), await e.writeULE32(n.type || 0);
 	let r = [];
 	if (n.name) {
 		r.push(1);
@@ -1293,74 +1420,74 @@ async function kt(e, t, n) {
 		await e.writeULE32(t.byteLength), await e.write(t);
 	} else await e.writeULE32(0);
 }
-async function At(e, t, n) {
+async function Ht(e, t, n) {
 	await R(e, 10), await e.write(n.csHash), await e.writeULE32(n.contributions.length);
-	for (let r = 0; r < n.contributions.length; r++) await kt(e, t, n.contributions[r]);
+	for (let r = 0; r < n.contributions.length; r++) await Vt(e, t, n.contributions[r]);
 	await z(e);
 }
-function jt(e, t, n) {
+function Ut(e, t, n) {
 	let r = new Uint8Array(t.G1.F.n8 * 2);
 	t.G1.toRprUncompressed(r, 0, n), e.update(r);
 }
-function Mt(e, t, n) {
+function Wt(e, t, n) {
 	let r = new Uint8Array(t.G2.F.n8 * 2);
 	t.G2.toRprUncompressed(r, 0, n), e.update(r);
 }
-function Nt(e, t, n) {
-	jt(e, t, n.deltaAfter), jt(e, t, n.delta.g1_s), jt(e, t, n.delta.g1_sx), Mt(e, t, n.delta.g2_spx), e.update(n.transcript);
+function Gt(e, t, n) {
+	Ut(e, t, n.deltaAfter), Ut(e, t, n.delta.g1_s), Ut(e, t, n.delta.g1_sx), Wt(e, t, n.delta.g2_spx), e.update(n.transcript);
 }
 //#endregion
 //#region src/wtns_utils.js
-async function Pt(e, t, n) {
+async function Kt(e, t, n) {
 	await R(e, 1);
 	let i = (Math.floor((r.bitLength(n) - 1) / 64) + 1) * 8;
-	await e.writeULE32(i), await se(e, n, i), await e.writeULE32(t.length), await z(e), await R(e, 2);
-	for (let n = 0; n < t.length; n++) await se(e, t[n], i);
+	await e.writeULE32(i), await ve(e, n, i), await e.writeULE32(t.length), await z(e), await R(e, 2);
+	for (let n = 0; n < t.length; n++) await ve(e, t[n], i);
 	await z(e, 2);
 }
-async function Ft(e, t, n) {
+async function qt(e, t, n) {
 	await R(e, 1);
 	let i = (Math.floor((r.bitLength(n) - 1) / 64) + 1) * 8;
-	if (await e.writeULE32(i), await se(e, n, i), t.byteLength % i != 0) throw Error("Invalid witness length");
+	if (await e.writeULE32(i), await ve(e, n, i), t.byteLength % i != 0) throw Error("Invalid witness length");
 	await e.writeULE32(t.byteLength / i), await z(e), await R(e, 2), await e.write(t), await z(e);
 }
-async function It(e, t) {
+async function Jt(e, t) {
 	await B(e, t, 1);
-	let n = await e.readULE32(), r = await ce(e, n), i = await e.readULE32();
+	let n = await e.readULE32(), r = await ye(e, n), i = await e.readULE32();
 	return await V(e), {
 		n8: n,
 		q: r,
 		nWitness: i
 	};
 }
-async function Lt(e) {
-	let { fd: t, sections: n } = await I(e, "wtns", 2), { n8: r, nWitness: i } = await It(t, n);
+async function Yt(e) {
+	let { fd: t, sections: n } = await I(e, "wtns", 2), { n8: r, nWitness: i } = await Jt(t, n);
 	await B(t, n, 2);
 	let a = [];
 	for (let e = 0; e < i; e++) {
-		let e = await ce(t, r);
+		let e = await ye(t, r);
 		a.push(e);
 	}
 	return await V(t), await t.close(), a;
 }
 //#endregion
 //#region src/groth16_prove.js
-var { stringifyBigInts: Rt } = s;
-async function zt(e, t, n, r) {
+var { stringifyBigInts: Xt } = s;
+async function Zt(e, t, n, r) {
 	let i = null;
-	n && r && r.memoryLogging && typeof process < "u" && typeof process.memoryUsage == "function" && (i = Kt(n, Number(r.memoryLogging) > 1 ? Number(r.memoryLogging) : 1e3));
+	n && r && r.memoryLogging && typeof process < "u" && typeof process.memoryUsage == "function" && (i = an(n, Number(r.memoryLogging) > 1 ? Number(r.memoryLogging) : 1e3));
 	let a, o;
 	try {
 		let i = await I(t, "wtns", 2, 1 << 25, 1 << 23);
 		a = i.fd;
-		let s = await I(e, "zkey", 2, 1 << 25, 1 << 23);
-		return o = s.fd, await Bt(o, s.sections, a, i.sections, n, r);
+		let s = await I(kt(e, r && r.persistentCache), "zkey", 2, 1 << 25, 1 << 23);
+		return o = s.fd, await Qt(o, s.sections, a, i.sections, n, r);
 	} finally {
-		i && (clearInterval(i), Gt(n)), o && await Promise.resolve(o.close()).catch(() => {}), a && await Promise.resolve(a.close()).catch(() => {});
+		i && (clearInterval(i), rn(n)), o && await Promise.resolve(o.close()).catch(() => {}), a && await Promise.resolve(a.close()).catch(() => {});
 	}
 }
-async function Bt(e, t, n, i, a, o) {
-	let s = await It(n, i), c = await St(e, t, void 0, o);
+async function Qt(e, t, n, i, a, o) {
+	let s = await Jt(n, i), c = await Pt(e, t, void 0, o);
 	if (c.protocol !== "groth16") throw Error("zkey file is not groth16");
 	if (!r.eq(c.r, s.q)) throw Error("Curve of the witness does not match the curve of the proving key");
 	if (s.nWitness !== c.nVars) throw Error(`Invalid witness length. Circuit: ${c.nVars}, witness: ${s.nWitness}`);
@@ -1376,7 +1503,7 @@ async function Bt(e, t, n, i, a, o) {
 		gls: h
 	};
 	if (o.buildABC !== void 0 && o.buildABC !== "js" && o.buildABC !== "stream") throw Error(`groth16Prove: invalid buildABC "${o.buildABC}" (expected "js" or "stream")`);
-	let _ = rt(c.domainSize);
+	let _ = mt(c.domainSize);
 	a && a.debug("Reading Wtns");
 	let v = await U(n, i, 2), y = (n) => {
 		let r = t[n][0].p, i = t[n][0].size;
@@ -1392,10 +1519,10 @@ async function Bt(e, t, n, i, a, o) {
 		await (async function() {
 			a && a.debug("Reading Coeffs");
 			let s = await U(e, t, 4);
-			if (a && a.debug("Building ABC"), o.buildABC === "js") [n, r, i] = await Vt(l, c, v, s, a);
+			if (a && a.debug("Building ABC"), o.buildABC === "js") [n, r, i] = await $t(l, c, v, s, a);
 			else {
-				let e = Ht(l, c, s, o);
-				a && a.debug(`buildABC: stream nChunks=${e.nChunks} maxInFlight=${e.maxInFlight}`), [n, r, i] = await Ut(l, c, v, s, a, e.nChunks, e.maxInFlight);
+				let e = en(l, c, s, o);
+				a && a.debug(`buildABC: stream nChunks=${e.nChunks} maxInFlight=${e.maxInFlight}`), [n, r, i] = await tn(l, c, v, s, a, e.nChunks, e.maxInFlight);
 			}
 		})();
 		/* c8 ignore start */
@@ -1419,7 +1546,7 @@ async function Bt(e, t, n, i, a, o) {
 				let t = await u.batchApplyKey(e, u.e(1), s);
 				p = await u.fft(t, "", "", a, "FFT_C", !0);
 			})()
-		]), a && a.debug("Join ABC"), S = await Wt(l, c, d, f, p, a), a && a.debug("Join ABC finished"), d = null, f = null, p = null;
+		]), a && a.debug("Join ABC"), S = await nn(l, c, d, f, p, a), a && a.debug("Join ABC finished"), d = null, f = null, p = null;
 	})(), w = {};
 	async function T() {
 		a && a.debug("Reading A Points"), w.pi_a = await l.G1.multiExpAffineChunked(y(5), t[5][0].size, v, a, "multiexp A", g);
@@ -1453,12 +1580,12 @@ async function Bt(e, t, n, i, a, o) {
 		let t = v.slice(e * u.n8, e * u.n8 + u.n8);
 		F.push(r.fromRprLE(t));
 	}
-	return w.pi_a = d.toObject(d.toAffine(w.pi_a)), w.pi_b = f.toObject(f.toAffine(w.pi_b)), w.pi_c = d.toObject(d.toAffine(w.pi_c)), w.protocol = "groth16", w.curve = l.name, w = Rt(w), F = Rt(F), {
+	return w.pi_a = d.toObject(d.toAffine(w.pi_a)), w.pi_b = f.toObject(f.toAffine(w.pi_b)), w.pi_c = d.toObject(d.toAffine(w.pi_c)), w.protocol = "groth16", w.curve = l.name, w = Xt(w), F = Xt(F), {
 		proof: w,
 		publicSignals: F
 	};
 }
-async function Vt(t, n, r, i, a) {
+async function $t(t, n, r, i, a) {
 	let o = t.Fr.n8, s = 12 + n.n8r, c = (i.byteLength - 4) / s, l = new e(n.domainSize * o), u = new e(n.domainSize * o), d = new e(n.domainSize * o), f = [l, u];
 	for (let e = 0; e < c; e++) {
 		/* c8 ignore start */
@@ -1485,7 +1612,7 @@ async function Vt(t, n, r, i, a) {
 		d
 	];
 }
-function Ht(e, t, n, r) {
+function en(e, t, n, r) {
 	/* c8 ignore next 2 */
 	r ||= {};
 	let i = e.Fr.n8, a = e.tm.concurrency || 1, o = (n.byteLength - 4) / (12 + i), s = n.byteLength + o * i + 3 * t.domainSize * i, c = r.buildABCFloorBudget || 268435456, l = Math.max(1, Math.ceil(s / 33554432)), u = Math.ceil(s / l), d = Math.max(1, Math.min(a, Math.floor(c / u)));
@@ -1494,7 +1621,7 @@ function Ht(e, t, n, r) {
 		maxInFlight: d
 	};
 }
-async function Ut(t, n, r, i, a, o, s) {
+async function tn(t, n, r, i, a, o, s) {
 	let c = t.Fr.n8, l = 12 + n.n8r, u = n.domainSize, d;
 	/* c8 ignore start */
 	if (i instanceof e) {
@@ -1611,7 +1738,7 @@ async function Ut(t, n, r, i, a, o, s) {
 		y
 	];
 }
-async function Wt(t, n, r, i, a, o) {
+async function nn(t, n, r, i, a, o) {
 	let s = 65536, c = t.Fr.n8, l = Math.floor(r.byteLength / t.Fr.n8), u = [];
 	for (let e = 0; e < l; e += s) {
 		o && o.debug(`JoinABC: ${e}/${l}`);
@@ -1669,29 +1796,29 @@ async function Wt(t, n, r, i, a, o) {
 	for (let e = 0; e < d.length; e++) f.set(d[e][0], p), p += d[e][0].byteLength;
 	return f;
 }
-function Gt(e) {
+function rn(e) {
 	/* c8 ignore start */
 	if (!e) return;
 	/* c8 ignore stop */
 	let t = process.memoryUsage();
 	e.info("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(t.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(t.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(t.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(t.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(t.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
 }
-function Kt(e, t = 5e3) {
+function an(e, t = 5e3) {
 	return setInterval(() => {
-		Gt(e);
+		rn(e);
 	}, t);
 }
 //#endregion
 //#region node_modules/fastfile/build/browser/browser.esm.js
-function qt(e) {
-	let t = e.initialSize || 1 << 20, n = new $t();
+function on(e) {
+	let t = e.initialSize || 1 << 20, n = new fn();
 	return n.o = e, n.o.data = new Uint8Array(t), n.allocSize = t, n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
 }
-function Jt(e) {
-	let t = new $t();
+function sn(e) {
+	let t = new fn();
 	return t.o = e, t.allocSize = e.data.byteLength, t.totalSize = e.data.byteLength, t.readOnly = !0, t.pos = 0, t;
 }
-var Yt = /* @__PURE__ */ new Uint8Array(4), Xt = new DataView(Yt.buffer), Zt = /* @__PURE__ */ new Uint8Array(8), Qt = new DataView(Zt.buffer), $t = class {
+var cn = /* @__PURE__ */ new Uint8Array(4), ln = new DataView(cn.buffer), un = /* @__PURE__ */ new Uint8Array(8), dn = new DataView(un.buffer), fn = class {
 	constructor() {
 		this.pageSize = 16384;
 	}
@@ -1723,15 +1850,15 @@ var Yt = /* @__PURE__ */ new Uint8Array(4), Xt = new DataView(Yt.buffer), Zt = /
 	async discard() {}
 	async writeULE32(e, t) {
 		let n = this;
-		Xt.setUint32(0, e, !0), await n.write(Yt, t);
+		ln.setUint32(0, e, !0), await n.write(cn, t);
 	}
 	async writeUBE32(e, t) {
 		let n = this;
-		Xt.setUint32(0, e, !1), await n.write(Yt, t);
+		ln.setUint32(0, e, !1), await n.write(cn, t);
 	}
 	async writeULE64(e, t) {
 		let n = this;
-		Qt.setUint32(0, e & 4294967295, !0), Qt.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(Zt, t);
+		dn.setUint32(0, e & 4294967295, !0), dn.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(un, t);
 	}
 	async readULE32(e) {
 		let t = await this.read(4, e);
@@ -1755,19 +1882,19 @@ var Yt = /* @__PURE__ */ new Uint8Array(4), Xt = new DataView(Yt.buffer), Zt = /
 		return a ? (o = new TextDecoder().decode(r.slice(0, i)), t.pos = n + i + 1) : t.pos = n, o;
 	}
 }, Y = 1 << 22;
-function en(e) {
-	let t = e.initialSize || 0, n = new sn();
+function pn(e) {
+	let t = e.initialSize || 0, n = new yn();
 	n.o = e;
 	let r = t ? Math.floor((t - 1) / Y) + 1 : 0;
 	n.o.data = [];
 	for (let e = 0; e < r - 1; e++) n.o.data.push(new Uint8Array(Y));
 	return r && n.o.data.push(new Uint8Array(t - Y * (r - 1))), n.totalSize = 0, n.readOnly = !1, n.pos = 0, n;
 }
-function tn(e) {
-	let t = new sn();
+function mn(e) {
+	let t = new yn();
 	return t.o = e, t.totalSize = (e.data.length - 1) * Y + e.data[e.data.length - 1].byteLength, t.readOnly = !0, t.pos = 0, t;
 }
-var nn = /* @__PURE__ */ new Uint8Array(4), rn = new DataView(nn.buffer), an = /* @__PURE__ */ new Uint8Array(8), on = new DataView(an.buffer), sn = class {
+var hn = /* @__PURE__ */ new Uint8Array(4), gn = new DataView(hn.buffer), _n = /* @__PURE__ */ new Uint8Array(8), vn = new DataView(_n.buffer), yn = class {
 	constructor() {
 		this.pageSize = 16384;
 	}
@@ -1811,15 +1938,15 @@ var nn = /* @__PURE__ */ new Uint8Array(4), rn = new DataView(nn.buffer), an = /
 	async discard() {}
 	async writeULE32(e, t) {
 		let n = this;
-		rn.setUint32(0, e, !0), await n.write(nn, t);
+		gn.setUint32(0, e, !0), await n.write(hn, t);
 	}
 	async writeUBE32(e, t) {
 		let n = this;
-		rn.setUint32(0, e, !1), await n.write(nn, t);
+		gn.setUint32(0, e, !1), await n.write(hn, t);
 	}
 	async writeULE64(e, t) {
 		let n = this;
-		on.setUint32(0, e & 4294967295, !0), on.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(an, t);
+		vn.setUint32(0, e & 4294967295, !0), vn.setUint32(4, Math.floor(e / 4294967296), !0), await n.write(_n, t);
 	}
 	async readULE32(e) {
 		let t = await this.read(4, e);
@@ -1850,9 +1977,9 @@ var nn = /* @__PURE__ */ new Uint8Array(4), rn = new DataView(nn.buffer), an = /
 		}
 		return i;
 	}
-}, cn = 1 << 20, ln = 8192, un = class {
+}, bn = 1 << 20, xn = 8192, Sn = class {
 	constructor(e, t, n, r) {
-		this.readRangeInto = e, this.totalSize = t, this.pos = 0, this.pageSize = r || ln, this.maxPagesLoaded = Math.floor((n || cn) / this.pageSize) + 1, this.pages = /* @__PURE__ */ new Map(), this.readOnly = !0;
+		this.readRangeInto = e, this.totalSize = t, this.pos = 0, this.pageSize = r || xn, this.maxPagesLoaded = Math.floor((n || bn) / this.pageSize) + 1, this.pages = /* @__PURE__ */ new Map(), this.readOnly = !0;
 	}
 	_pageLen(e) {
 		let t = e * this.pageSize;
@@ -1915,10 +2042,10 @@ var nn = /* @__PURE__ */ new Uint8Array(4), rn = new DataView(nn.buffer), an = /
 		let n = e === void 0 ? t.pos : e, r = [];
 		for (; n < t.totalSize;) {
 			let e = Math.min(t.pageSize, t.totalSize - n), i = await t.read(e, n), a = i.indexOf(0);
-			if (a >= 0) return r.push(i.subarray(0, a)), t.pos = n + a + 1, dn(r);
+			if (a >= 0) return r.push(i.subarray(0, a)), t.pos = n + a + 1, Cn(r);
 			r.push(i), n += e;
 		}
-		return t.pos = n, dn(r);
+		return t.pos = n, Cn(r);
 	}
 	async write() {
 		throw Error("Writing a read only file");
@@ -1939,24 +2066,139 @@ var nn = /* @__PURE__ */ new Uint8Array(4), rn = new DataView(nn.buffer), an = /
 		await this.close();
 	}
 };
-function dn(e) {
+function Cn(e) {
 	let t = 0;
 	for (let n = 0; n < e.length; n++) t += e[n].byteLength;
 	let n = new Uint8Array(t), r = 0;
 	for (let t = 0; t < e.length; t++) n.set(e[t], r), r += e[t].byteLength;
 	return new TextDecoder().decode(n);
 }
-var fn = 65536;
-async function pn(e) {
+var wn = 1 << 21, Tn = 1 << 29, En = "fastfile-http-cache", Dn = /* @__PURE__ */ new Map();
+function On(e) {
+	if (Dn.has(e)) return Dn.get(e);
+	let t = new Promise((t, n) => {
+		let r = indexedDB.open(e, 1);
+		r.onupgradeneeded = () => {
+			let e = r.result;
+			e.createObjectStore("files"), e.createObjectStore("blocks");
+		}, r.onsuccess = () => t(r.result), r.onerror = () => n(r.error), r.onblocked = () => n(/* @__PURE__ */ Error("IndexedDB open blocked"));
+	});
+	return Dn.set(e, t), t.catch(() => Dn.delete(e)), t;
+}
+function kn(e) {
+	return new Promise((t, n) => {
+		e.onsuccess = () => t(e.result), e.onerror = () => n(e.error);
+	});
+}
+function An(e) {
+	return new Promise((t, n) => {
+		e.oncomplete = () => t(), e.onerror = () => n(e.error), e.onabort = () => n(e.error || /* @__PURE__ */ Error("IndexedDB transaction aborted"));
+	});
+}
+function jn(e, t, n) {
+	return IDBKeyRange.bound([e, t], [e, n]);
+}
+async function Mn(e, t) {
+	let n = e.transaction(["files", "blocks"], "readwrite");
+	n.objectStore("files").delete(t), n.objectStore("blocks").delete(jn(t, 0, Infinity)), await An(n);
+}
+async function Nn(e, t, n, r, i, a) {
+	let o = e.transaction(["files", "blocks"], "readwrite"), s = o.objectStore("files"), c = await kn(s.get(t)), l = 0;
+	c && c.validator === n && c.totalSize === r && c.blockSize === i ? l = c.bytes : c && o.objectStore("blocks").delete(jn(t, 0, Infinity)), s.put({
+		validator: n,
+		totalSize: r,
+		blockSize: i,
+		bytes: l,
+		lastUsed: Date.now()
+	}, t), await An(o);
+	let u = e.transaction("files", "readonly"), d = u.objectStore("files"), [f, p] = await Promise.all([kn(d.getAllKeys()), kn(d.getAll())]);
+	await An(u);
+	let m = p.reduce((e, t) => e + t.bytes, 0);
+	if (m <= a) return;
+	let h = f.map((e, t) => ({
+		key: e,
+		meta: p[t]
+	})).filter((e) => e.key !== t).sort((e, t) => e.meta.lastUsed - t.meta.lastUsed);
+	for (let t of h) {
+		if (m <= a) break;
+		await Mn(e, t.key), m -= t.meta.bytes;
+	}
+}
+async function Pn(e, t) {
+	let { fileKey: n, validator: r, totalSize: i } = t, a = typeof t.options == "object" && t.options || {}, o = a.blockSize || wn, s = a.maxBytes || Tn, c = a.dbName || En;
+	if (typeof indexedDB > "u" || !r) return e;
+	let l;
+	try {
+		l = await On(c), await Nn(l, n, r, i, o, s);
+	} catch {
+		return e;
+	}
+	let u = !1;
+	async function d(e, t) {
+		let r = l.transaction("blocks", "readonly"), i = r.objectStore("blocks"), a = jn(n, e, t), [o, s] = await Promise.all([kn(i.getAllKeys(a)), kn(i.getAll(a))]);
+		await An(r);
+		let c = /* @__PURE__ */ new Map();
+		for (let e = 0; e < o.length; e++) c.set(o[e][1], s[e]);
+		return c;
+	}
+	async function f(e) {
+		if (!(u || e.length === 0)) try {
+			let t = l.transaction(["files", "blocks"], "readwrite"), r = t.objectStore("blocks"), i = t.objectStore("files");
+			for (let t of e) r.put(t.data, [n, t.index]);
+			let a = await kn(i.get(n));
+			a && (a.bytes += e.reduce((e, t) => e + t.data.byteLength, 0), a.lastUsed = Date.now(), i.put(a, n)), await An(t);
+		} catch {
+			u = !0;
+		}
+	}
+	let p = (e) => Math.min(o, i - e * o);
+	return async function(t, n, r, i) {
+		if (i === 0) return;
+		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = a;
+		for (; u <= s;) {
+			let a = u * o, d = a + p(u), f = c.get(u);
+			if (f) {
+				let e = Math.max(r, a), o = Math.min(r + i, d);
+				t.set(f.subarray(e - a, o - a), n + (e - r)), u++;
+				continue;
+			}
+			if (a >= r && d <= r + i) {
+				let d = u;
+				for (; d + 1 <= s && !c.get(d + 1) && (d + 1) * o + p(d + 1) <= r + i;) d++;
+				let f = a, m = d * o + p(d);
+				await e(t, n + (f - r), f, m - f);
+				for (let e = u; e <= d; e++) {
+					let i = e * o;
+					l.push({
+						index: e,
+						data: t.slice(n + (i - r), n + (i - r) + p(e))
+					});
+				}
+				u = d + 1;
+			} else {
+				let o = new Uint8Array(p(u));
+				await e(o, 0, a, o.length);
+				let s = Math.max(r, a), c = Math.min(r + i, d);
+				t.set(o.subarray(s - a, c - a), n + (s - r)), l.push({
+					index: u,
+					data: o
+				}), u++;
+			}
+		}
+		await f(l);
+	};
+}
+var Fn = 65536;
+async function In(e) {
 	let t = e.url, n = await fetch(t, { headers: { Range: "bytes=0-0" } });
 	if (n.status === 206) {
 		let r = n.headers.get("content-range"), i = r ? /\/(\d+)\s*$/.exec(r) : null;
 		if (i) {
 			let r = parseInt(i[1]);
 			await n.arrayBuffer();
-			let a = hn(n), o = null, s = async function(e, n, r, i) {
+			let a = Rn(n), o = null, s = async function(e, n, r, i) {
 				if (!o) try {
-					return await gn(t, a, e, n, r, i);
+					return await zn(t, a, e, n, r, i);
 				} catch (e) {
 					if (!e || !e.degradeToFull) throw e;
 					o = e.fullBodyPromise;
@@ -1964,51 +2206,56 @@ async function pn(e) {
 				let s = await o;
 				if (r + i > s.byteLength) throw Error(t + ": read past the end of the buffered body");
 				e.set(s.subarray(r, r + i), n);
-			}, c = Math.min(e.pageSize || fn, fn);
-			return new un(s, r, e.cacheSize, c);
+			}, c = Math.min(e.pageSize || Fn, Fn);
+			return e.persistentCache && (s = await Pn(s, {
+				fileKey: t,
+				validator: a,
+				totalSize: r,
+				options: e.persistentCache
+			})), new Sn(s, r, e.cacheSize, c);
 		}
-		return await n.arrayBuffer(), await mn(t);
+		return await n.arrayBuffer(), await Ln(t);
 	}
 	if (!n.ok && n.status !== 416) throw Error("HTTP " + n.status + " fetching " + t);
 	if (n.status === 416) {
 		let e = n.headers.get("content-range");
-		return e && /\/0\s*$/.test(e) ? Jt({
+		return e && /\/0\s*$/.test(e) ? sn({
 			type: "mem",
 			data: /* @__PURE__ */ new Uint8Array()
-		}) : await mn(t);
+		}) : await Ln(t);
 	}
-	return Jt({
+	return sn({
 		type: "mem",
 		data: new Uint8Array(await n.arrayBuffer())
 	});
 }
-async function mn(e) {
+async function Ln(e) {
 	let t = await fetch(e);
 	if (!t.ok) throw Error("HTTP " + t.status + " fetching " + e);
-	return Jt({
+	return sn({
 		type: "mem",
 		data: new Uint8Array(await t.arrayBuffer())
 	});
 }
-function hn(e) {
+function Rn(e) {
 	let t = e.headers.get("etag");
 	return t && t.indexOf("W/") !== 0 ? t : e.headers.get("last-modified") || null;
 }
-async function gn(e, t, n, r, i, a) {
+async function zn(e, t, n, r, i, a) {
 	let o = { Range: "bytes=" + i + "-" + (i + a - 1) };
 	t && (o["If-Range"] = t);
 	let s = await fetch(e, { headers: o });
 	if (s.status === 200) {
-		let n = hn(s);
+		let n = Rn(s);
 		if (!t || n && n === t) {
 			let t = /* @__PURE__ */ Error(e + ": origin ignored Range; degrading to full buffering");
 			throw t.degradeToFull = !0, t.fullBodyPromise = s.arrayBuffer().then((e) => new Uint8Array(e)), t;
 		}
-		throw await _n(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
+		throw await Bn(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
 	}
-	if (s.status !== 206) throw await _n(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
+	if (s.status !== 206) throw await Bn(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
 	let c = s.headers.get("content-range"), l = c ? /bytes\s+(\d+)-(\d+)\//.exec(c) : null;
-	if (l && parseInt(l[1]) !== i) throw await _n(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
+	if (l && parseInt(l[1]) !== i) throw await Bn(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
 	let u = 0;
 	if (s.body && typeof s.body.getReader == "function") {
 		let t = s.body.getReader();
@@ -2026,38 +2273,38 @@ async function gn(e, t, n, r, i, a) {
 	}
 	if (u !== a) throw Error(e + ": short range response (" + u + "/" + a + " bytes at " + i + ")");
 }
-async function _n(e) {
+async function Bn(e) {
 	try {
 		e.body && typeof e.body.cancel == "function" ? await e.body.cancel() : await e.arrayBuffer();
 	} catch {}
 }
-var vn = 1 << 20;
-function yn(e) {
+var Vn = 1 << 20;
+function Hn(e) {
 	let t = e.blob, n = async function(e, n, r, i) {
 		let a = await t.slice(r, r + i).arrayBuffer();
 		if (a.byteLength !== i) throw Error("short blob read (" + a.byteLength + "/" + i + " bytes at " + r + ")");
 		e.set(new Uint8Array(a), n);
-	}, r = Math.min(e.pageSize || vn, vn);
-	return new un(n, t.size, e.cacheSize, r);
+	}, r = Math.min(e.pageSize || Vn, Vn);
+	return new Sn(n, t.size, e.cacheSize, r);
 }
-function bn() {
+function Un() {
 	throw Error("File I/O is not supported in the browser");
 }
-function xn(e) {
+function Wn(e) {
 	return e instanceof Uint8Array ? {
 		type: "mem",
 		data: e
-	} : (typeof e == "string" && bn(), e);
+	} : (typeof e == "string" && Un(), e);
 }
-function Sn(e, t, n) {
-	if (e.type === "file" && bn(), e.type === "mem") return t(e);
+function Gn(e, t, n) {
+	if (e.type === "file" && Un(), e.type === "mem") return t(e);
 	if (e.type === "bigMem") return n(e);
 	throw Error("Invalid FastFile type: " + e.type);
 }
-function Cn(e) {
-	return Sn(xn(e), qt, en);
+function Kn(e) {
+	return Gn(Wn(e), on, pn);
 }
-async function wn(e, t, n) {
+async function qn(e, t, n) {
 	return e instanceof Uint8Array && (e = {
 		type: "mem",
 		data: e
@@ -2071,11 +2318,11 @@ async function wn(e, t, n) {
 		url: e,
 		cacheSize: t,
 		pageSize: n
-	}), e.type === "http" ? await pn(e) : e.type === "blob" ? yn(e) : Sn(e, Jt, tn);
+	}), e.type === "http" ? await In(e) : e.type === "blob" ? Hn(e) : Gn(e, sn, mn);
 }
 //#endregion
 //#region node_modules/circom_runtime/js/utils.js
-function Tn(e) {
+function Jn(e) {
 	let t = [];
 	return n(t, e), t;
 	function n(e, t) {
@@ -2083,17 +2330,17 @@ function Tn(e) {
 		else e.push(t);
 	}
 }
-function En(e, t) {
+function Yn(e, t) {
 	let n = BigInt(e) % t;
 	return n < 0 && (n += t), n;
 }
-function Dn(e) {
+function Xn(e) {
 	let t = BigInt(2) ** BigInt(64), n = BigInt("0xCBF29CE484222325");
 	for (let r = 0; r < e.length; r++) n ^= BigInt(e[r].charCodeAt(0)), n *= BigInt(1099511628211), n %= t;
 	let r = n.toString(16), i = 16 - r.length;
 	return r = "0".repeat(i).concat(r), r;
 }
-function On(e, t) {
+function Zn(e, t) {
 	let n = [], r = BigInt(e), i = BigInt(4294967296);
 	for (; r;) n.unshift(Number(r % i)), r /= i;
 	if (t) {
@@ -2104,7 +2351,7 @@ function On(e, t) {
 }
 //#endregion
 //#region node_modules/circom_runtime/js/witness_calculator.js
-async function kn(e, t) {
+async function Qn(e, t) {
 	let n, i, a;
 	t ||= {};
 	let o = 1, s = 0, c = 0, l = !1;
@@ -2170,10 +2417,10 @@ async function kn(e, t) {
 	}
 	typeof n.exports.getVersion == "function" && (o = n.exports.getVersion()), typeof n.exports.getMinorVersion == "function" && (s = n.exports.getMinorVersion()), typeof n.exports.getPatchVersion == "function" && (c = n.exports.getPatchVersion());
 	let u = t && (t.sanityCheck || t.logGetSignal || t.logSetSignal || t.logStartComponent || t.logFinishComponent);
-	if (o === 2) i = new jn(n, u);
+	if (o === 2) i = new er(n, u);
 	else if (o === 1) {
 		if (l) throw Error("Loading code from WebAssembly instance is not supported for circom version 1");
-		i = new An(a, n, u);
+		i = new $n(a, n, u);
 	} else throw Error(`Unsupported circom version: ${o}`);
 	return i;
 	function d() {
@@ -2187,7 +2434,7 @@ async function kn(e, t) {
 		return String.fromCharCode.apply(null, n);
 	}
 }
-var An = class {
+var $n = class {
 	constructor(e, t, i) {
 		this.memory = e, this.i32 = new Uint32Array(e.buffer), this.instance = t, this.n32 = (this.instance.exports.getFrLen() >> 2) - 2;
 		let a = this.instance.exports.getPRawPrime(), o = Array(this.n32);
@@ -2201,13 +2448,13 @@ var An = class {
 		this.instance.exports.init(this.sanityCheck || t ? 1 : 0);
 		let n = this.allocInt(), r = this.allocFr();
 		Object.keys(e).forEach((t) => {
-			let i = Dn(t), a = parseInt(i.slice(0, 8), 16), o = parseInt(i.slice(8, 16), 16);
+			let i = Xn(t), a = parseInt(i.slice(0, 8), 16), o = parseInt(i.slice(8, 16), 16);
 			try {
 				this.instance.exports.getSignalOffset32(n, 0, a, o);
 			} catch {
 				throw Error(`Signal ${t} is not an input of the circuit.`);
 			}
-			let s = this.getInt(n), c = Tn(e[t]);
+			let s = this.getInt(n), c = Jn(e[t]);
 			for (let e = 0; e < c.length; e++) this.setFr(r, c[e]), this.instance.exports.setSignal(0, 0, s + e, r);
 		});
 	}
@@ -2272,7 +2519,7 @@ var An = class {
 			r >= 0 ? n.i32[(e >> 2) + 2 + t] = o[r] : n.i32[(e >> 2) + 2 + t] = 0;
 		}
 	}
-}, jn = class {
+}, er = class {
 	constructor(e, t) {
 		this.instance = e, this.version = this.instance.exports.getVersion(), this.n32 = this.instance.exports.getFieldNumLen32(), this.instance.exports.getRawPrime();
 		let n = new Uint32Array(this.n32);
@@ -2286,7 +2533,7 @@ var An = class {
 		this.instance.exports.init(this.sanityCheck || t ? 1 : 0);
 		let n = Object.keys(e), r = 0;
 		if (n.forEach((t) => {
-			let n = Dn(t), i = parseInt(n.slice(0, 8), 16), a = parseInt(n.slice(8, 16), 16), o = Tn(e[t]);
+			let n = Xn(t), i = parseInt(n.slice(0, 8), 16), a = parseInt(n.slice(8, 16), 16), o = Jn(e[t]);
 			if (typeof this.instance.exports.getInputSignalSize == "function") {
 				let e = this.instance.exports.getInputSignalSize(i, a);
 				if (e < 0) throw Error(`Signal ${t} not found\n`);
@@ -2294,7 +2541,7 @@ var An = class {
 				if (o.length > e) throw Error(`Too many values for input signal ${t}\n`);
 			}
 			for (let e = 0; e < o.length; e++) {
-				let t = On(En(o[e], this.prime), this.n32);
+				let t = Zn(Yn(o[e], this.prime), this.n32);
 				for (let e = 0; e < this.n32; e++) this.instance.exports.writeSharedRWMemory(e, t[this.n32 - 1 - e]);
 				try {
 					this.instance.exports.setInputSignal(i, a, e), r++;
@@ -2332,20 +2579,20 @@ var An = class {
 		}
 		return r;
 	}
-}, { unstringifyBigInts: Mn } = s;
-async function Nn(e, t, n, r) {
-	let i = Mn(e), a = await wn(t), o = await a.read(a.totalSize);
+}, { unstringifyBigInts: tr } = s;
+async function nr(e, t, n, r) {
+	let i = tr(e), a = await qn(kt(t, r && r.persistentCache)), o = await a.read(a.totalSize);
 	await a.close();
-	let s = await kn(o, r);
+	let s = await Qn(o, r);
 	if (s.circom_version() === 1) {
 		let e = await s.calculateBinWitness(i), t = await L(n, "wtns", 2, 2);
 		try {
-			await Ft(t, e, s.prime);
+			await qt(t, e, s.prime);
 		} finally {
 			await t.close();
 		}
 	} else {
-		let e = await s.calculateWTNSBin(i), t = await Cn(n);
+		let e = await s.calculateWTNSBin(i), t = await Kn(n);
 		try {
 			await t.write(e);
 		} finally {
@@ -2355,17 +2602,17 @@ async function Nn(e, t, n, r) {
 }
 //#endregion
 //#region src/groth16_fullprove.js
-var { unstringifyBigInts: Pn } = s;
-async function Fn(e, t, n, r, i, a) {
-	let o = Pn(e), s = { type: "mem" };
-	return await Nn(o, t, s, i), await zt(n, s, r, a);
+var { unstringifyBigInts: rr } = s;
+async function ir(e, t, n, r, i, a) {
+	let o = rr(e), s = { type: "mem" };
+	return await nr(o, t, s, i), await Zt(n, s, r, a);
 }
 //#endregion
 //#region src/groth16_verify.js
-var { unstringifyBigInts: In } = s;
-async function Ln(e, t, n, i) {
-	let a = In(e), o = In(n), s = In(t), c = await _e(a.curve), l = c.G1.fromObject(a.IC[0]), u = new Uint8Array(c.G1.F.n8 * 2 * s.length), d = new Uint8Array(c.Fr.n8 * s.length);
-	if (!Bn(c, s)) return i && i.error("Public inputs are not valid."), !1;
+var { unstringifyBigInts: ar } = s;
+async function or(e, t, n, i) {
+	let a = ar(e), o = ar(n), s = ar(t), c = await Oe(a.curve), l = c.G1.fromObject(a.IC[0]), u = new Uint8Array(c.G1.F.n8 * 2 * s.length), d = new Uint8Array(c.Fr.n8 * s.length);
+	if (!lr(c, s)) return i && i.error("Public inputs are not valid."), !1;
 	for (let e = 0; e < s.length; e++) {
 		let t = c.G1.fromObject(a.IC[e + 1]);
 		u.set(t, e * c.G1.F.n8 * 2), r.toRprLE(d, c.Fr.n8 * e, s[e], c.Fr.n8);
@@ -2373,7 +2620,7 @@ async function Ln(e, t, n, i) {
 	let f = await c.G1.multiExpAffine(u, d);
 	f = c.G1.add(f, l);
 	let p = c.G1.fromObject(o.pi_a), m = c.G2.fromObject(o.pi_b), h = c.G1.fromObject(o.pi_c);
-	if (!Rn(c, {
+	if (!sr(c, {
 		pi_a: p,
 		pi_b: m,
 		pi_c: h
@@ -2381,69 +2628,69 @@ async function Ln(e, t, n, i) {
 	let g = c.G2.fromObject(a.vk_gamma_2), _ = c.G2.fromObject(a.vk_delta_2), v = c.G1.fromObject(a.vk_alpha_1), y = c.G2.fromObject(a.vk_beta_2);
 	return await c.pairingEq(c.G1.neg(p), m, f, g, h, _, v, y) ? (i && i.info("OK!"), !0) : (i && i.error("Invalid proof"), !1);
 }
-function Rn(e, t) {
+function sr(e, t) {
 	let n = e.G1, r = e.G2;
 	return n.isValid(t.pi_a) && r.isValid(t.pi_b) && n.isValid(t.pi_c);
 }
-function zn(e, t) {
+function cr(e, t) {
 	return r.geq(t, 0) && r.lt(t, e.r);
 }
-function Bn(e, t) {
-	for (let n = 0; n < t.length; n++) if (!zn(e, t[n])) return !1;
+function lr(e, t) {
+	for (let n = 0; n < t.length; n++) if (!cr(e, t[n])) return !1;
 	return !0;
 }
 //#endregion
 //#region src/groth16_exportsoliditycalldata.js
-var { unstringifyBigInts: Vn } = s;
-function Hn(e) {
+var { unstringifyBigInts: ur } = s;
+function dr(e) {
 	let t = e.toString(16);
 	for (; t.length < 64;) t = "0" + t;
 	return t = `"0x${t}"`, t;
 }
-async function Un(e, t) {
-	let n = Vn(e), r = Vn(t), i = "";
-	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += Hn(r[e]);
+async function fr(e, t) {
+	let n = ur(e), r = ur(t), i = "";
+	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += dr(r[e]);
 	let a;
-	return a = `[${Hn(n.pi_a[0])}, ${Hn(n.pi_a[1])}],[[${Hn(n.pi_b[0][1])}, ${Hn(n.pi_b[0][0])}],[${Hn(n.pi_b[1][1])}, ${Hn(n.pi_b[1][0])}]],[${Hn(n.pi_c[0])}, ${Hn(n.pi_c[1])}],[${i}]`, a;
+	return a = `[${dr(n.pi_a[0])}, ${dr(n.pi_a[1])}],[[${dr(n.pi_b[0][1])}, ${dr(n.pi_b[0][0])}],[${dr(n.pi_b[1][1])}, ${dr(n.pi_b[1][0])}]],[${dr(n.pi_c[0])}, ${dr(n.pi_c[1])}],[${i}]`, a;
 }
 //#endregion
 //#region src/groth16.js
-var Wn = /* @__PURE__ */ l({
-	exportSolidityCallData: () => Un,
-	fullProve: () => Fn,
-	prove: () => zt,
-	verify: () => Ln
+var pr = /* @__PURE__ */ l({
+	exportSolidityCallData: () => fr,
+	fullProve: () => ir,
+	prove: () => Zt,
+	verify: () => or
 });
 //#endregion
 //#region src/keypair.js
-function Gn(e, n) {
+function mr(e, n) {
 	let r = new DataView(n.buffer, n.byteOffset, n.byteLength), i = [];
 	for (let e = 0; e < 8; e++) i[e] = r.getUint32(e * 4);
 	let a = new t(i);
 	return e.G2.fromRng(a);
 }
-function Kn(e, t, n, r, i) {
+function hr(e, t, n, r, i) {
 	let a = K.create({ dkLen: 64 }), o = new Uint8Array([t]);
 	a.update(o), a.update(n);
 	let s = e.G1.toUncompressed(r);
 	a.update(s);
 	let c = e.G1.toUncompressed(i);
-	return a.update(c), Gn(e, a.digest());
+	return a.update(c), mr(e, a.digest());
 }
-function qn(e, t, n, r, i) {
-	return e.g1_s = t.G1.toAffine(t.G1.fromRng(i)), e.g1_sx = t.G1.toAffine(t.G1.timesFr(e.g1_s, e.prvKey)), e.g2_sp = t.G2.toAffine(Kn(t, n, r, e.g1_s, e.g1_sx)), e.g2_spx = t.G2.toAffine(t.G2.timesFr(e.g2_sp, e.prvKey)), e;
+function gr(e, t, n, r, i) {
+	return e.g1_s = t.G1.toAffine(t.G1.fromRng(i)), e.g1_sx = t.G1.toAffine(t.G1.timesFr(e.g1_s, e.prvKey)), e.g2_sp = t.G2.toAffine(hr(t, n, r, e.g1_s, e.g1_sx)), e.g2_spx = t.G2.toAffine(t.G2.timesFr(e.g2_sp, e.prvKey)), e;
 }
-function Jn(e, t, n) {
+function _r(e, t, n) {
 	let r = {
 		tau: {},
 		alpha: {},
 		beta: {}
 	};
-	return r.tau.prvKey = e.Fr.fromRng(n), r.alpha.prvKey = e.Fr.fromRng(n), r.beta.prvKey = e.Fr.fromRng(n), qn(r.tau, e, 0, t, n), qn(r.alpha, e, 1, t, n), qn(r.beta, e, 2, t, n), r;
+	return r.tau.prvKey = e.Fr.fromRng(n), r.alpha.prvKey = e.Fr.fromRng(n), r.beta.prvKey = e.Fr.fromRng(n), gr(r.tau, e, 0, t, n), gr(r.alpha, e, 1, t, n), gr(r.beta, e, 2, t, n), r;
 }
 //#endregion
 //#region src/powersoftau_utils.js
-async function Yn(e, t, n, i) {
+async function vr(e, t, n, i) {
 	i ||= n, await e.writeULE32(1);
 	let a = e.pos;
 	await e.writeULE64(0), await e.writeULE32(t.F1.n64 * 8);
@@ -2452,7 +2699,7 @@ async function Yn(e, t, n, i) {
 	let s = e.pos - a - 8, c = e.pos;
 	await e.writeULE64(s, a), e.pos = c;
 }
-async function Xn(e, t) {
+async function yr(e, t) {
 	/* c8 ignore start */
 	if (!t[1]) throw Error(e.fileName + ": File has no  header");
 	/* c8 ignore stop */
@@ -2460,7 +2707,7 @@ async function Xn(e, t) {
 	if (t[1].length > 1) throw Error(e.fileName + ": File has more than one header");
 	/* c8 ignore stop */
 	e.pos = t[1][0].p;
-	let n = await e.readULE32(), i = await e.read(n), a = await ge(r.fromRprLE(i));
+	let n = await e.readULE32(), i = await e.read(n), a = await De(r.fromRprLE(i));
 	/* c8 ignore start */
 	if (a.F1.n64 * 8 != n) throw Error(e.fileName + ": Invalid size");
 	/* c8 ignore stop */
@@ -2474,10 +2721,10 @@ async function Xn(e, t) {
 		ceremonyPower: s
 	};
 }
-async function Zn(e, t, n) {
-	return Qn(await e.read(t.F1.n8 * 2 * 6 + t.F2.n8 * 2 * 3), 0, t, n);
+async function br(e, t, n) {
+	return xr(await e.read(t.F1.n8 * 2 * 6 + t.F2.n8 * 2 * 3), 0, t, n);
 }
-function Qn(e, t, n, r) {
+function xr(e, t, n, r) {
 	let i = {
 		tau: {},
 		alpha: {},
@@ -2493,7 +2740,7 @@ function Qn(e, t, n, r) {
 		return i = r ? n.G2.fromRprLEM(e, t) : n.G2.fromRprUncompressed(e, t), t += n.G2.F.n8 * 2, i;
 	}
 }
-function $n(e, t, n, r, i) {
+function Sr(e, t, n, r, i) {
 	a(r.tau.g1_s), a(r.tau.g1_sx), a(r.alpha.g1_s), a(r.alpha.g1_sx), a(r.beta.g1_s), a(r.beta.g1_sx), o(r.tau.g2_spx), o(r.alpha.g2_spx), o(r.beta.g2_spx);
 	async function a(r) {
 		i ? n.G1.toRprLEM(e, t, r) : n.G1.toRprUncompressed(e, t, r), t += n.F1.n8 * 2;
@@ -2503,16 +2750,16 @@ function $n(e, t, n, r, i) {
 	}
 	return e;
 }
-async function er(e, t, n, r) {
+async function Cr(e, t, n, r) {
 	let i = new Uint8Array(t.F1.n8 * 2 * 6 + t.F2.n8 * 2 * 3);
-	$n(i, 0, t, n, r), await e.write(i);
+	Sr(i, 0, t, n, r), await e.write(i);
 }
-async function tr(e, t) {
+async function wr(e, t) {
 	let n = {};
-	n.tauG1 = await c(), n.tauG2 = await l(), n.alphaG1 = await c(), n.betaG1 = await c(), n.betaG2 = await l(), n.key = await Zn(e, t, !0), n.partialHash = await e.read(216), n.nextChallenge = await e.read(64), n.type = await e.readULE32();
+	n.tauG1 = await c(), n.tauG2 = await l(), n.alphaG1 = await c(), n.betaG1 = await c(), n.betaG2 = await l(), n.key = await br(e, t, !0), n.partialHash = await e.read(216), n.nextChallenge = await e.read(64), n.type = await e.readULE32();
 	let r = new Uint8Array(t.G1.F.n8 * 2 * 6 + t.G2.F.n8 * 2 * 3);
-	$n(r, 0, t, n.key, !1);
-	let i = ot(n.partialHash);
+	Sr(r, 0, t, n.key, !1);
+	let i = _t(n.partialHash);
 	i.update(r), n.responseHash = i.digest();
 	let a = await e.readULE32(), o = e.pos, s = 0;
 	for (; e.pos - o < a;) {
@@ -2545,7 +2792,7 @@ async function tr(e, t) {
 		return new Uint8Array(n);
 	}
 }
-async function nr(e, t, n) {
+async function Tr(e, t, n) {
 	/* c8 ignore start */
 	if (!n[7]) throw Error(e.fileName + ": File has no  contributions");
 	/* c8 ignore stop */
@@ -2555,7 +2802,7 @@ async function nr(e, t, n) {
 	e.pos = n[7][0].p;
 	let r = await e.readULE32(), i = [];
 	for (let n = 0; n < r; n++) {
-		let r = await tr(e, t);
+		let r = await wr(e, t);
 		r.id = n + 1, i.push(r);
 	}
 	/* c8 ignore start */
@@ -2563,9 +2810,9 @@ async function nr(e, t, n) {
 	/* c8 ignore stop */
 	return i;
 }
-async function rr(e, t, n) {
+async function Er(e, t, n) {
 	let r = new Uint8Array(t.F1.n8 * 2), i = new Uint8Array(t.F2.n8 * 2);
-	await o(n.tauG1), await s(n.tauG2), await o(n.alphaG1), await o(n.betaG1), await s(n.betaG2), await er(e, t, n.key, !0), await e.write(n.partialHash), await e.write(n.nextChallenge), await e.writeULE32(n.type || 0);
+	await o(n.tauG1), await s(n.tauG2), await o(n.alphaG1), await o(n.betaG1), await s(n.betaG2), await Cr(e, t, n.key, !0), await e.write(n.partialHash), await e.write(n.nextChallenge), await e.writeULE32(n.type || 0);
 	let a = [];
 	if (n.name) {
 		a.push(1);
@@ -2588,15 +2835,15 @@ async function rr(e, t, n) {
 		t.G2.toRprLEM(i, 0, n), await e.write(i);
 	}
 }
-async function ir(e, t, n) {
+async function Dr(e, t, n) {
 	await e.writeULE32(7);
 	let r = e.pos;
 	await e.writeULE64(0), await e.writeULE32(n.length);
-	for (let r = 0; r < n.length; r++) await rr(e, t, n[r]);
+	for (let r = 0; r < n.length; r++) await Er(e, t, n[r]);
 	let i = e.pos - r - 8, a = e.pos;
 	await e.writeULE64(i, r), e.pos = a;
 }
-function ar(e, t, n) {
+function Or(e, t, n) {
 	n && n.debug("Calculating First Challenge Hash");
 	let r = K.create({ dkLen: 64 }), i = new Uint8Array(e.G1.F.n8 * 2), a = new Uint8Array(e.G2.F.n8 * 2);
 	e.G1.toRprUncompressed(i, 0, e.G1.g), e.G2.toRprUncompressed(a, 0, e.G2.g), r.update(K.create({ dkLen: 64 }).digest());
@@ -2611,14 +2858,14 @@ function ar(e, t, n) {
 		for (let t = 0; t < o; t++) r.update(e);
 	}
 }
-async function or(e, t, n, r) {
-	return Jn(e, t, await mt(n, r));
+async function kr(e, t, n, r) {
+	return _r(e, t, await Tt(n, r));
 }
 //#endregion
 //#region src/powersoftau_new.js
-async function sr(e, t, n, r) {
+async function Ar(e, t, n, r) {
 	let i = await L(n, "ptau", 1, 7);
-	await Yn(i, e, t, 0);
+	await vr(i, e, t, 0);
 	let a = e.G1.oneAffine, o = e.G2.oneAffine;
 	await R(i, 2);
 	let s = 2 ** t * 2 - 1;
@@ -2633,18 +2880,18 @@ async function sr(e, t, n, r) {
 	let u = 2 ** t;
 	for (let e = 0; e < u; e++) await i.write(a), r && e % 1e5 == 0 && e && r.log("betaTauG1: " + e);
 	await z(i), await R(i, 6), await i.write(o), await z(i), await R(i, 7), await i.writeULE32(0), await z(i), await i.close();
-	let d = ar(e, t, r);
+	let d = Or(e, t, r);
 	return r && r.debug(q(K.create({ dkLen: 64 }).digest(), "Blank Contribution Hash:")), r && r.info(q(d, "First Contribution Hash:")), d;
 }
 //#endregion
 //#region src/powersoftau_export_challenge.js
-async function cr(e, t, n) {
-	let { fd: r, sections: i } = await I(e, "ptau", 1), { curve: a, power: o } = await Xn(r, i), s = await nr(r, a, i), c, l;
-	s.length == 0 ? (c = K.create({ dkLen: 64 }).digest(), l = ar(a, o)) : (c = s[s.length - 1].responseHash, l = s[s.length - 1].nextChallenge), n && n.info(q(c, "Last Response Hash: ")), n && n.info(q(l, "New Challenge Hash: "));
-	let u = await Cn(t), d = K.create({ dkLen: 64 });
+async function jr(e, t, n) {
+	let { fd: r, sections: i } = await I(e, "ptau", 1), { curve: a, power: o } = await yr(r, i), s = await Tr(r, a, i), c, l;
+	s.length == 0 ? (c = K.create({ dkLen: 64 }).digest(), l = Or(a, o)) : (c = s[s.length - 1].responseHash, l = s[s.length - 1].nextChallenge), n && n.info(q(c, "Last Response Hash: ")), n && n.info(q(l, "New Challenge Hash: "));
+	let u = await Kn(t), d = K.create({ dkLen: 64 });
 	await u.write(c), d.update(c), await p(2, "G1", 2 ** o * 2 - 1, "tauG1"), await p(3, "G2", 2 ** o, "tauG2"), await p(4, "G1", 2 ** o, "alphaTauG1"), await p(5, "G1", 2 ** o, "betaTauG1"), await p(6, "G2", 1, "betaG2"), await r.close(), await u.close();
 	let f = d.digest();
-	if (!it(l, f)) throw n && n.info(q(f, "Calc Curret Challenge Hash: ")), n && n.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one"), Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
+	if (!ht(l, f)) throw n && n.info(q(f, "Calc Curret Challenge Hash: ")), n && n.error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one"), Error("PTau file is corrupted. Calculated new challenge hash does not match with the eclared one");
 	return l;
 	async function p(e, t, o, s) {
 		let c = a[t], l = c.F.n8 * 2, f = Math.floor((1 << 24) / l);
@@ -2659,31 +2906,31 @@ async function cr(e, t, n) {
 }
 //#endregion
 //#region src/powersoftau_import.js
-async function lr(e, t, n, r, i, a) {
+async function Mr(e, t, n, r, i, a) {
 	let o = /* @__PURE__ */ new Uint8Array(64);
 	for (let e = 0; e < 64; e++) o[e] = 255;
-	let { fd: s, sections: c } = await I(e, "ptau", 1), { curve: l, power: u } = await Xn(s, c), d = await nr(s, l, c), f = {};
+	let { fd: s, sections: c } = await I(e, "ptau", 1), { curve: l, power: u } = await yr(s, c), d = await Tr(s, l, c), f = {};
 	r && (f.name = r);
-	let p = l.F1.n8 * 2, m = l.F1.n8, h = l.F2.n8 * 2, g = l.F2.n8, _ = await wn(t);
+	let p = l.F1.n8 * 2, m = l.F1.n8, h = l.F2.n8 * 2, g = l.F2.n8, _ = await qn(t);
 	if (_.totalSize != 64 + (2 ** u * 2 - 1) * m + 2 ** u * g + 2 ** u * m + 2 ** u * m + g + p * 6 + h * 3) throw Error("Size of the contribution is invalid");
 	let v;
-	v = d.length > 0 ? d[d.length - 1].nextChallenge : ar(l, u, a);
+	v = d.length > 0 ? d[d.length - 1].nextChallenge : Or(l, u, a);
 	let y = await L(n, "ptau", 1, i ? 7 : 2);
-	await Yn(y, l, u);
+	await vr(y, l, u);
 	let b = await _.read(64);
-	if (it(o, v) && (v = b, d[d.length - 1].nextChallenge = v), !it(b, v)) throw Error("Wrong contribution. This contribution is not based on the previous hash");
+	if (ht(o, v) && (v = b, d[d.length - 1].nextChallenge = v), !ht(b, v)) throw Error("Wrong contribution. This contribution is not based on the previous hash");
 	let x = K.create({ dkLen: 64 });
 	x.update(b);
 	let S = [], C;
-	C = await E(_, y, "G1", 2, 2 ** u * 2 - 1, [1], "tauG1"), f.tauG1 = C[0], C = await E(_, y, "G2", 3, 2 ** u, [1], "tauG2"), f.tauG2 = C[0], C = await E(_, y, "G1", 4, 2 ** u, [0], "alphaG1"), f.alphaG1 = C[0], C = await E(_, y, "G1", 5, 2 ** u, [0], "betaG1"), f.betaG1 = C[0], C = await E(_, y, "G2", 6, 1, [0], "betaG2"), f.betaG2 = C[0], f.partialHash = st(x);
+	C = await E(_, y, "G1", 2, 2 ** u * 2 - 1, [1], "tauG1"), f.tauG1 = C[0], C = await E(_, y, "G2", 3, 2 ** u, [1], "tauG2"), f.tauG2 = C[0], C = await E(_, y, "G1", 4, 2 ** u, [0], "alphaG1"), f.alphaG1 = C[0], C = await E(_, y, "G1", 5, 2 ** u, [0], "betaG1"), f.betaG1 = C[0], C = await E(_, y, "G2", 6, 1, [0], "betaG2"), f.betaG2 = C[0], f.partialHash = vt(x);
 	let w = await _.read(l.F1.n8 * 2 * 6 + l.F2.n8 * 2 * 3);
-	f.key = Qn(w, 0, l, !1), x.update(new Uint8Array(w));
+	f.key = xr(w, 0, l, !1), x.update(new Uint8Array(w));
 	let T = x.digest();
 	if (a && a.info(q(T, "Contribution Response Hash imported: ")), i) {
 		let e = K.create({ dkLen: 64 });
 		e.update(T), await k(e, y, "G1", 2, 2 ** u * 2 - 1, "tauG1", a), await k(e, y, "G2", 3, 2 ** u, "tauG2", a), await k(e, y, "G1", 4, 2 ** u, "alphaTauG1", a), await k(e, y, "G1", 5, 2 ** u, "betaTauG1", a), await k(e, y, "G2", 6, 1, "betaG2", a), f.nextChallenge = e.digest(), a && a.info(q(f.nextChallenge, "Next Challenge Hash: "));
 	} else f.nextChallenge = o;
-	return d.push(f), await ir(y, l, d), await _.close(), await y.close(), await s.close(), f.nextChallenge;
+	return d.push(f), await Dr(y, l, d), await _.close(), await y.close(), await s.close(), f.nextChallenge;
 	async function E(e, t, n, r, a, o, s) {
 		return i ? await D(e, t, n, r, a, o, s) : await O(e, t, n, r, a, o, s);
 	}
@@ -2737,11 +2984,11 @@ async function lr(e, t, n, r, i, a) {
 }
 //#endregion
 //#region src/powersoftau_verify.js
-var ur = ct;
-async function dr(e, t, n, r) {
+var Nr = yt;
+async function Pr(e, t, n, r) {
 	let i;
 	if (t.type == 1) {
-		let i = await or(e, n.nextChallenge, t.beaconHash, t.numIterationsExp);
+		let i = await kr(e, n.nextChallenge, t.beaconHash, t.numIterationsExp);
 		if (!e.G1.eq(t.key.tau.g1_s, i.tau.g1_s)) return r && r.error(`BEACON key (tauG1_s) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
 		if (!e.G1.eq(t.key.tau.g1_sx, i.tau.g1_sx)) return r && r.error(`BEACON key (tauG1_sx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
 		if (!e.G2.eq(t.key.tau.g2_spx, i.tau.g2_spx)) return r && r.error(`BEACON key (tauG2_spx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
@@ -2752,14 +2999,14 @@ async function dr(e, t, n, r) {
 		if (!e.G1.eq(t.key.beta.g1_sx, i.beta.g1_sx)) return r && r.error(`BEACON key (betaG1_sx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
 		if (!e.G2.eq(t.key.beta.g2_spx, i.beta.g2_spx)) return r && r.error(`BEACON key (betaG2_spx) is not generated correctly in challenge #${t.id}  ${t.name || ""}`), !1;
 	}
-	return t.key.tau.g2_sp = e.G2.toAffine(Kn(e, 0, n.nextChallenge, t.key.tau.g1_s, t.key.tau.g1_sx)), t.key.alpha.g2_sp = e.G2.toAffine(Kn(e, 1, n.nextChallenge, t.key.alpha.g1_s, t.key.alpha.g1_sx)), t.key.beta.g2_sp = e.G2.toAffine(Kn(e, 2, n.nextChallenge, t.key.beta.g1_s, t.key.beta.g1_sx)), i = await ur(e, t.key.tau.g1_s, t.key.tau.g1_sx, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await ur(e, t.key.alpha.g1_s, t.key.alpha.g1_sx, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await ur(e, t.key.beta.g1_s, t.key.beta.g1_sx, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await ur(e, n.tauG1, t.tauG1, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await ur(e, t.key.tau.g1_s, t.key.tau.g1_sx, n.tauG2, t.tauG2), i === !0 ? (i = await ur(e, n.alphaG1, t.alphaG1, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await ur(e, n.betaG1, t.betaG1, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await ur(e, t.key.beta.g1_s, t.key.beta.g1_sx, n.betaG2, t.betaG2), i === !0 ? (r && r.info("Powers Of tau file OK!"), !0) : (r && r.error("INVALID beta*G2. challenge #" + t.id + "It does not follow the previous contribution"), !1)) : (r && r.error("INVALID beta*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID alpha*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G2. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID key (beta) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (alpha) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (tau) in challenge #" + t.id), !1);
+	return t.key.tau.g2_sp = e.G2.toAffine(hr(e, 0, n.nextChallenge, t.key.tau.g1_s, t.key.tau.g1_sx)), t.key.alpha.g2_sp = e.G2.toAffine(hr(e, 1, n.nextChallenge, t.key.alpha.g1_s, t.key.alpha.g1_sx)), t.key.beta.g2_sp = e.G2.toAffine(hr(e, 2, n.nextChallenge, t.key.beta.g1_s, t.key.beta.g1_sx)), i = await Nr(e, t.key.tau.g1_s, t.key.tau.g1_sx, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await Nr(e, t.key.alpha.g1_s, t.key.alpha.g1_sx, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await Nr(e, t.key.beta.g1_s, t.key.beta.g1_sx, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await Nr(e, n.tauG1, t.tauG1, t.key.tau.g2_sp, t.key.tau.g2_spx), i === !0 ? (i = await Nr(e, t.key.tau.g1_s, t.key.tau.g1_sx, n.tauG2, t.tauG2), i === !0 ? (i = await Nr(e, n.alphaG1, t.alphaG1, t.key.alpha.g2_sp, t.key.alpha.g2_spx), i === !0 ? (i = await Nr(e, n.betaG1, t.betaG1, t.key.beta.g2_sp, t.key.beta.g2_spx), i === !0 ? (i = await Nr(e, t.key.beta.g1_s, t.key.beta.g1_sx, n.betaG2, t.betaG2), i === !0 ? (r && r.info("Powers Of tau file OK!"), !0) : (r && r.error("INVALID beta*G2. challenge #" + t.id + "It does not follow the previous contribution"), !1)) : (r && r.error("INVALID beta*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID alpha*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G2. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID tau*G1. challenge #" + t.id + " It does not follow the previous contribution"), !1)) : (r && r.error("INVALID key (beta) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (alpha) in challenge #" + t.id), !1)) : (r && r.error("INVALID key (tau) in challenge #" + t.id), !1);
 }
-async function fr(n, r) {
+async function Fr(n, r) {
 	let i, a;
 	try {
 		let o;
 		({fd: i, sections: a} = await I(n, "ptau", 1));
-		let { curve: s, power: c, ceremonyPower: l } = await Xn(i, a), u = await nr(i, s, a);
+		let { curve: s, power: c, ceremonyPower: l } = await yr(i, a), u = await Tr(i, s, a);
 		r && r.debug("power: 2**" + c), r && r.debug("Computing initial contribution hash");
 		let d = {
 			tauG1: s.G1.g,
@@ -2767,18 +3014,18 @@ async function fr(n, r) {
 			alphaG1: s.G1.g,
 			betaG1: s.G1.g,
 			betaG2: s.G2.g,
-			nextChallenge: ar(s, l, r),
+			nextChallenge: Or(s, l, r),
 			responseHash: K.create({ dkLen: 64 }).digest()
 		};
 		if (u.length == 0) return r && r.error("This file has no contribution! It cannot be used in production"), !1;
 		let f;
 		f = u.length > 1 ? u[u.length - 2] : d;
 		let p = u[u.length - 1];
-		if (r && r.debug("Validating contribution #" + u[u.length - 1].id), !await dr(s, p, f, r)) return !1;
+		if (r && r.debug("Validating contribution #" + u[u.length - 1].id), !await Pr(s, p, f, r)) return !1;
 		let m = K.create({ dkLen: 64 });
 		m.update(p.responseHash), r && r.debug("Verifying powers in tau*G1 section");
 		let h = await C(2, "G1", "tauG1", 2 ** c * 2 - 1, [0, 1], r);
-		if (o = await ur(s, h.R1, h.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("tauG1 section. Powers do not match"), !1;
+		if (o = await Nr(s, h.R1, h.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("tauG1 section. Powers do not match"), !1;
 		/* c8 ignore start */
 		if (!s.G1.eq(s.G1.g, h.singularPoints[0])) return r && r.error("First element of tau*G1 section must be the generator"), !1;
 		/* c8 ignore stop */
@@ -2787,7 +3034,7 @@ async function fr(n, r) {
 		/* c8 ignore stop */
 		r && r.debug("Verifying powers in tau*G2 section");
 		let g = await C(3, "G2", "tauG2", 2 ** c, [0, 1], r);
-		if (o = await ur(s, s.G1.g, p.tauG1, g.R1, g.R2), o !== !0) return r && r.error("tauG2 section. Powers do not match"), !1;
+		if (o = await Nr(s, s.G1.g, p.tauG1, g.R1, g.R2), o !== !0) return r && r.error("tauG2 section. Powers do not match"), !1;
 		/* c8 ignore start */
 		if (!s.G2.eq(s.G2.g, g.singularPoints[0])) return r && r.error("First element of tau*G2 section must be the generator"), !1;
 		/* c8 ignore stop */
@@ -2796,24 +3043,24 @@ async function fr(n, r) {
 		/* c8 ignore stop */
 		r && r.debug("Verifying powers in alpha*tau*G1 section");
 		let _ = await C(4, "G1", "alphatauG1", 2 ** c, [0], r);
-		if (o = await ur(s, _.R1, _.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("alphaTauG1 section. Powers do not match"), !1;
+		if (o = await Nr(s, _.R1, _.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("alphaTauG1 section. Powers do not match"), !1;
 		/* c8 ignore start */
 		if (!s.G1.eq(p.alphaG1, _.singularPoints[0])) return r && r.error("First element of alpha*tau*G1 section (alpha*G1) does not match the one in the contribution section"), !1;
 		/* c8 ignore stop */
 		r && r.debug("Verifying powers in beta*tau*G1 section");
 		let v = await C(5, "G1", "betatauG1", 2 ** c, [0], r);
-		if (o = await ur(s, v.R1, v.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("betaTauG1 section. Powers do not match"), !1;
+		if (o = await Nr(s, v.R1, v.R2, s.G2.g, p.tauG2), o !== !0) return r && r.error("betaTauG1 section. Powers do not match"), !1;
 		/* c8 ignore start */
 		if (!s.G1.eq(p.betaG1, v.singularPoints[0])) return r && r.error("First element of beta*tau*G1 section (beta*G1) does not match the one in the contribution section"), !1;
 		/* c8 ignore stop */
 		let y = await S(r);
 		if (!s.G2.eq(p.betaG2, y)) return r && r.error("betaG2 element in betaG2 section does not match the one in the contribution section"), !1;
 		let b = m.digest();
-		if (c == l && !it(b, p.nextChallenge)) return r && r.error("Hash of the values does not match the next challenge of the last contributor in the contributions section"), !1;
+		if (c == l && !ht(b, p.nextChallenge)) return r && r.error("Hash of the values does not match the next challenge of the last contributor in the contributions section"), !1;
 		r && r.info(q(b, "Next challenge hash: ")), x(p, f);
 		for (let e = u.length - 2; e >= 0; e--) {
 			let t = u[e], n = e > 0 ? u[e - 1] : d;
-			if (!await dr(s, t, n, r)) return !1;
+			if (!await Pr(s, t, n, r)) return !1;
 			x(t, n, r);
 		}
 		if (r && r.info("-----------------------------------------------------"), !a[12] || !a[13] || !a[14] || !a[15]) r && r.warn("this file does not contain phase2 precalculated values. Please run: \n   snarkjs \"powersoftau preparephase2\" to prepare this file to be used in the phase2 ceremony.");
@@ -2832,11 +3079,11 @@ async function fr(n, r) {
 			if (!r) return;
 			r.info("-----------------------------------------------------"), r.info(`Contribution #${e.id}: ${e.name || ""}`), r.info(q(e.nextChallenge, "Next Challenge: "));
 			let n = new Uint8Array(s.G1.F.n8 * 2 * 6 + s.G2.F.n8 * 2 * 3);
-			$n(n, 0, s, e.key, !1);
-			let i = ot(e.partialHash);
+			Sr(n, 0, s, e.key, !1);
+			let i = _t(e.partialHash);
 			i.update(n);
 			let a = i.digest();
-			r.info(q(a, "Response Hash:")), r.info(q(t.nextChallenge, "Response Hash:")), e.type == 1 && (r.info(`Beacon generator: ${gt(e.beaconHash)}`), r.info(`Beacon iterations Exp: ${e.numIterationsExp}`));
+			r.info(q(a, "Response Hash:")), r.info(q(t.nextChallenge, "Response Hash:")), e.type == 1 && (r.info(`Beacon generator: ${Dt(e.beaconHash)}`), r.info(`Beacon iterations Exp: ${e.numIterationsExp}`));
 		}
 		async function S(e) {
 			let t = s.G2, n = t.F.n8 * 2, r = new Uint8Array(n);
@@ -2858,10 +3105,10 @@ async function fr(n, r) {
 				c && c.debug(`points relations: ${n}: ${e}/${r} `);
 				let t = Math.min(r - e, l), a = await i.read(t * d), s = await u.batchLEMtoU(a);
 				m.update(s);
-				let _ = ut(4 * (t - 1));
+				let _ = xt(4 * (t - 1));
 				/* c8 ignore start */
 				if (e > 0) {
-					let e = u.fromRprLEM(a, 0), t = ft(ut(4), 0);
+					let e = u.fromRprLEM(a, 0), t = Ct(xt(4), 0);
 					p = u.add(p, u.timesScalar(g, t)), h = u.add(h, u.timesScalar(e, t));
 				}
 				/* c8 ignore stop */
@@ -2884,7 +3131,7 @@ async function fr(n, r) {
 		async function w(n, r, o, l, u) {
 			u && u.debug(`Verifying phase2 calculated values ${l}...`);
 			let d = s[n], f = d.F.n8 * 2, p = Array(8);
-			for (let e = 0; e < 8; e++) p[e] = ft(ut(4), 0);
+			for (let e = 0; e < 8; e++) p[e] = Ct(xt(4), 0);
 			for (let e = 0; e <= c; e++) if (!await m(e)) return !1;
 			if (r == 2 && !await m(c + 1)) return !1;
 			return !0;
@@ -2912,7 +3159,7 @@ async function fr(n, r) {
 }
 //#endregion
 //#region src/mpc_applykey.js
-async function pr(e, t, n, r, i, a, o, s, c, l) {
+async function Ir(e, t, n, r, i, a, o, s, c, l) {
 	let u = 65536, d = i[a], f = d.F.n8 * 2, p = t[r][0].size / f;
 	await B(e, t, r), await R(n, r);
 	let m = o;
@@ -2923,7 +3170,7 @@ async function pr(e, t, n, r, i, a, o, s, c, l) {
 	}
 	await z(n), await V(e);
 }
-async function mr(e, t, n, r, i, a, o, s, c, l, u) {
+async function Lr(e, t, n, r, i, a, o, s, c, l, u) {
 	let d = r[i], f = d.F.n8 * 2, p = Math.floor((1 << 20) / f), m = o;
 	for (let i = 0; i < a; i += p) {
 		u && u.debug(`Applying key ${l}: ${i}/${a}`);
@@ -2933,12 +3180,12 @@ async function mr(e, t, n, r, i, a, o, s, c, l, u) {
 }
 //#endregion
 //#region src/powersoftau_challenge_contribute.js
-async function hr(e, t, n, r, i) {
-	let a = await wn(t), o = e.F1.n64 * 8 * 2, s = e.F2.n64 * 8 * 2, c = (a.totalSize + o - 64 - s) / (4 * o + s), l = c, u = 0;
+async function Rr(e, t, n, r, i) {
+	let a = await qn(t), o = e.F1.n64 * 8 * 2, s = e.F2.n64 * 8 * 2, c = (a.totalSize + o - 64 - s) / (4 * o + s), l = c, u = 0;
 	for (; l > 1;) l /= 2, u += 1;
 	if (2 ** u != c) throw Error("Invalid file size");
 	i && i.debug("Power to tau size: " + u);
-	let d = await pt(r), f = await Cn(n), p = K.create({ dkLen: 64 });
+	let d = await wt(r), f = await Kn(n), p = K.create({ dkLen: 64 });
 	for (let e = 0; e < a.totalSize; e += a.pageSize) {
 		i && i.debug(`Hashing challenge ${e}/${a.totalSize}`);
 		let t = Math.min(a.totalSize - e, a.pageSize), n = await a.read(t);
@@ -2948,7 +3195,7 @@ async function hr(e, t, n, r, i) {
 	i && i.info(q(m, "Claimed Previous Response Hash: "));
 	let h = p.digest();
 	i && i.info(q(h, "Current Challenge Hash: "));
-	let g = Jn(e, h, d);
+	let g = _r(e, h, d);
 	i && [
 		"tau",
 		"alpha",
@@ -2957,41 +3204,41 @@ async function hr(e, t, n, r, i) {
 		i.debug(t + ".g1_s: " + e.G1.toString(g[t].g1_s, 16)), i.debug(t + ".g1_sx: " + e.G1.toString(g[t].g1_sx, 16)), i.debug(t + ".g2_sp: " + e.G2.toString(g[t].g2_sp, 16)), i.debug(t + ".g2_spx: " + e.G2.toString(g[t].g2_spx, 16)), i.debug("");
 	});
 	let _ = K.create({ dkLen: 64 });
-	await f.write(h), _.update(h), await mr(a, f, _, e, "G1", 2 ** u * 2 - 1, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG1", i), await mr(a, f, _, e, "G2", 2 ** u, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG2", i), await mr(a, f, _, e, "G1", 2 ** u, g.alpha.prvKey, g.tau.prvKey, "COMPRESSED", "alphaTauG1", i), await mr(a, f, _, e, "G1", 2 ** u, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG1", i), await mr(a, f, _, e, "G2", 1, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG2", i);
+	await f.write(h), _.update(h), await Lr(a, f, _, e, "G1", 2 ** u * 2 - 1, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG1", i), await Lr(a, f, _, e, "G2", 2 ** u, e.Fr.one, g.tau.prvKey, "COMPRESSED", "tauG2", i), await Lr(a, f, _, e, "G1", 2 ** u, g.alpha.prvKey, g.tau.prvKey, "COMPRESSED", "alphaTauG1", i), await Lr(a, f, _, e, "G1", 2 ** u, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG1", i), await Lr(a, f, _, e, "G2", 1, g.beta.prvKey, g.tau.prvKey, "COMPRESSED", "betaTauG2", i);
 	let v = new Uint8Array(e.F1.n8 * 2 * 6 + e.F2.n8 * 2 * 3);
-	$n(v, 0, e, g, !1), await f.write(v), _.update(v);
+	Sr(v, 0, e, g, !1), await f.write(v), _.update(v);
 	let y = _.digest();
 	i && i.info(q(y, "Contribution Response Hash: ")), await f.close(), await a.close();
 }
 //#endregion
 //#region src/powersoftau_beacon.js
-async function gr(e, t, n, r, i, a) {
-	let o = ht(r);
+async function zr(e, t, n, r, i, a) {
+	let o = Et(r);
 	if (o.byteLength == 0 || o.byteLength * 2 != r.length) return a && a.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)"), !1;
 	if (o.length >= 256) return a && a.error("Maximum length of beacon hash is 255 bytes"), !1;
 	if (i = parseInt(i), i < 10 || i > 63) return a && a.error("Invalid numIterationsExp. (Must be between 10 and 63)"), !1;
-	let { fd: s, sections: c } = await I(e, "ptau", 1), { curve: l, power: u, ceremonyPower: d } = await Xn(s, c);
+	let { fd: s, sections: c } = await I(e, "ptau", 1), { curve: l, power: u, ceremonyPower: d } = await yr(s, c);
 	if (u != d) return a && a.error("This file has been reduced. You cannot contribute into a reduced file."), !1;
 	c[12] && a && a.warn("Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
-	let f = await nr(s, l, c), p = {
+	let f = await Tr(s, l, c), p = {
 		name: n,
 		type: 1,
 		numIterationsExp: i,
 		beaconHash: o
 	}, m;
-	m = f.length > 0 ? f[f.length - 1].nextChallenge : ar(l, u, a), p.key = await or(l, m, o, i);
+	m = f.length > 0 ? f[f.length - 1].nextChallenge : Or(l, u, a), p.key = await kr(l, m, o, i);
 	let h = K.create({ dkLen: 64 });
 	h.update(m);
 	let g = await L(t, "ptau", 1, 7);
-	await Yn(g, l, u);
+	await vr(g, l, u);
 	let _ = [], v;
-	v = await S(2, "G1", 2 ** u * 2 - 1, l.Fr.e(1), p.key.tau.prvKey, "tauG1", a), p.tauG1 = v[1], v = await S(3, "G2", 2 ** u, l.Fr.e(1), p.key.tau.prvKey, "tauG2", a), p.tauG2 = v[1], v = await S(4, "G1", 2 ** u, p.key.alpha.prvKey, p.key.tau.prvKey, "alphaTauG1", a), p.alphaG1 = v[0], v = await S(5, "G1", 2 ** u, p.key.beta.prvKey, p.key.tau.prvKey, "betaTauG1", a), p.betaG1 = v[0], v = await S(6, "G2", 1, p.key.beta.prvKey, p.key.tau.prvKey, "betaTauG2", a), p.betaG2 = v[0], p.partialHash = st(h);
+	v = await S(2, "G1", 2 ** u * 2 - 1, l.Fr.e(1), p.key.tau.prvKey, "tauG1", a), p.tauG1 = v[1], v = await S(3, "G2", 2 ** u, l.Fr.e(1), p.key.tau.prvKey, "tauG2", a), p.tauG2 = v[1], v = await S(4, "G1", 2 ** u, p.key.alpha.prvKey, p.key.tau.prvKey, "alphaTauG1", a), p.alphaG1 = v[0], v = await S(5, "G1", 2 ** u, p.key.beta.prvKey, p.key.tau.prvKey, "betaTauG1", a), p.betaG1 = v[0], v = await S(6, "G2", 1, p.key.beta.prvKey, p.key.tau.prvKey, "betaTauG2", a), p.betaG2 = v[0], p.partialHash = vt(h);
 	let y = new Uint8Array(l.F1.n8 * 2 * 6 + l.F2.n8 * 2 * 3);
-	$n(y, 0, l, p.key, !1), h.update(new Uint8Array(y));
+	Sr(y, 0, l, p.key, !1), h.update(new Uint8Array(y));
 	let b = h.digest();
 	a && a.info(q(b, "Contribution Response Hash imported: "));
 	let x = K.create({ dkLen: 64 });
-	return x.update(b), await C(g, "G1", 2, 2 ** u * 2 - 1, "tauG1", a), await C(g, "G2", 3, 2 ** u, "tauG2", a), await C(g, "G1", 4, 2 ** u, "alphaTauG1", a), await C(g, "G1", 5, 2 ** u, "betaTauG1", a), await C(g, "G2", 6, 1, "betaG2", a), p.nextChallenge = x.digest(), a && a.info(q(p.nextChallenge, "Next Challenge Hash: ")), f.push(p), await ir(g, l, f), await s.close(), await g.close(), b;
+	return x.update(b), await C(g, "G1", 2, 2 ** u * 2 - 1, "tauG1", a), await C(g, "G2", 3, 2 ** u, "tauG2", a), await C(g, "G1", 4, 2 ** u, "alphaTauG1", a), await C(g, "G1", 5, 2 ** u, "betaTauG1", a), await C(g, "G2", 6, 1, "betaG2", a), p.nextChallenge = x.digest(), a && a.info(q(p.nextChallenge, "Next Challenge Hash: ")), f.push(p), await Dr(g, l, f), await s.close(), await g.close(), b;
 	async function S(e, t, n, r, i, a, o) {
 		let u = [];
 		s.pos = c[e][0].p, await R(g, e), _[e] = g.pos;
@@ -3017,27 +3264,27 @@ async function gr(e, t, n, r, i, a) {
 }
 //#endregion
 //#region src/powersoftau_contribute.js
-async function _r(e, t, n, r, i) {
-	let { fd: a, sections: o } = await I(e, "ptau", 1), { curve: s, power: c, ceremonyPower: l } = await Xn(a, o);
+async function Br(e, t, n, r, i) {
+	let { fd: a, sections: o } = await I(e, "ptau", 1), { curve: s, power: c, ceremonyPower: l } = await yr(a, o);
 	if (c != l) throw i && i.error("This file has been reduced. You cannot contribute into a reduced file."), Error("This file has been reduced. You cannot contribute into a reduced file.");
 	o[12] && i && i.warn("WARNING: Contributing into a file that has phase2 calculated. You will have to prepare phase2 again.");
-	let u = await nr(a, s, o), d = {
+	let u = await Tr(a, s, o), d = {
 		name: n,
 		type: 0
-	}, f, p = await pt(r);
-	f = u.length > 0 ? u[u.length - 1].nextChallenge : ar(s, c, i), d.key = Jn(s, f, p);
+	}, f, p = await wt(r);
+	f = u.length > 0 ? u[u.length - 1].nextChallenge : Or(s, c, i), d.key = _r(s, f, p);
 	let m = K.create({ dkLen: 64 });
 	m.update(f);
 	let h = await L(t, "ptau", 1, 7);
-	await Yn(h, s, c);
+	await vr(h, s, c);
 	let g = [], _;
-	_ = await x(2, "G1", 2 ** c * 2 - 1, s.Fr.e(1), d.key.tau.prvKey, "tauG1"), d.tauG1 = _[1], _ = await x(3, "G2", 2 ** c, s.Fr.e(1), d.key.tau.prvKey, "tauG2"), d.tauG2 = _[1], _ = await x(4, "G1", 2 ** c, d.key.alpha.prvKey, d.key.tau.prvKey, "alphaTauG1"), d.alphaG1 = _[0], _ = await x(5, "G1", 2 ** c, d.key.beta.prvKey, d.key.tau.prvKey, "betaTauG1"), d.betaG1 = _[0], _ = await x(6, "G2", 1, d.key.beta.prvKey, d.key.tau.prvKey, "betaTauG2"), d.betaG2 = _[0], d.partialHash = st(m);
+	_ = await x(2, "G1", 2 ** c * 2 - 1, s.Fr.e(1), d.key.tau.prvKey, "tauG1"), d.tauG1 = _[1], _ = await x(3, "G2", 2 ** c, s.Fr.e(1), d.key.tau.prvKey, "tauG2"), d.tauG2 = _[1], _ = await x(4, "G1", 2 ** c, d.key.alpha.prvKey, d.key.tau.prvKey, "alphaTauG1"), d.alphaG1 = _[0], _ = await x(5, "G1", 2 ** c, d.key.beta.prvKey, d.key.tau.prvKey, "betaTauG1"), d.betaG1 = _[0], _ = await x(6, "G2", 1, d.key.beta.prvKey, d.key.tau.prvKey, "betaTauG2"), d.betaG2 = _[0], d.partialHash = vt(m);
 	let v = new Uint8Array(s.F1.n8 * 2 * 6 + s.F2.n8 * 2 * 3);
-	$n(v, 0, s, d.key, !1), m.update(new Uint8Array(v));
+	Sr(v, 0, s, d.key, !1), m.update(new Uint8Array(v));
 	let y = m.digest();
 	i && i.info(q(y, "Contribution Response Hash imported: "));
 	let b = K.create({ dkLen: 64 });
-	return b.update(y), await S(h, "G1", 2, 2 ** c * 2 - 1, "tauG1"), await S(h, "G2", 3, 2 ** c, "tauG2"), await S(h, "G1", 4, 2 ** c, "alphaTauG1"), await S(h, "G1", 5, 2 ** c, "betaTauG1"), await S(h, "G2", 6, 1, "betaG2"), d.nextChallenge = b.digest(), i && i.info(q(d.nextChallenge, "Next Challenge Hash: ")), u.push(d), await ir(h, s, u), await a.close(), await h.close(), y;
+	return b.update(y), await S(h, "G1", 2, 2 ** c * 2 - 1, "tauG1"), await S(h, "G2", 3, 2 ** c, "tauG2"), await S(h, "G1", 4, 2 ** c, "alphaTauG1"), await S(h, "G1", 5, 2 ** c, "betaTauG1"), await S(h, "G2", 6, 1, "betaG2"), d.nextChallenge = b.digest(), i && i.info(q(d.nextChallenge, "Next Challenge Hash: ")), u.push(d), await Dr(h, s, u), await a.close(), await h.close(), y;
 	async function x(e, t, n, r, c, l) {
 		let u = [];
 		a.pos = o[e][0].p, await R(h, e), g[e] = h.pos;
@@ -3063,9 +3310,9 @@ async function _r(e, t, n, r, i) {
 }
 //#endregion
 //#region src/powersoftau_preparephase2.js
-async function vr(t, n, r) {
-	let { fd: i, sections: a } = await I(t, "ptau", 1), { curve: o, power: s } = await Xn(i, a), c = await L(n, "ptau", 1, 11);
-	await Yn(c, o, s), await H(i, a, c, 2), await H(i, a, c, 3), await H(i, a, c, 4), await H(i, a, c, 5), await H(i, a, c, 6), await H(i, a, c, 7), await l(2, 12, "G1", "tauG1"), await l(3, 13, "G2", "tauG2"), await l(4, 14, "G1", "alphaTauG1"), await l(5, 15, "G1", "betaTauG1"), await i.close(), await c.close();
+async function Vr(t, n, r) {
+	let { fd: i, sections: a } = await I(t, "ptau", 1), { curve: o, power: s } = await yr(i, a), c = await L(n, "ptau", 1, 11);
+	await vr(c, o, s), await H(i, a, c, 2), await H(i, a, c, 3), await H(i, a, c, 4), await H(i, a, c, 5), await H(i, a, c, 6), await H(i, a, c, 7), await l(2, 12, "G1", "tauG1"), await l(3, 13, "G2", "tauG2"), await l(4, 14, "G1", "alphaTauG1"), await l(5, 15, "G1", "betaTauG1"), await i.close(), await c.close();
 	return;
 	async function l(t, n, l, u) {
 		r && r.debug("Starting section: " + u), await R(c, n);
@@ -3079,8 +3326,8 @@ async function vr(t, n, r) {
 }
 //#endregion
 //#region src/powersoftau_truncate.js
-async function yr(e, t, n) {
-	let { fd: r, sections: i } = await I(e, "ptau", 1), { curve: a, power: o, ceremonyPower: s } = await Xn(r, i), c = a.G1.F.n8 * 2, l = a.G2.F.n8 * 2;
+async function Hr(e, t, n) {
+	let { fd: r, sections: i } = await I(e, "ptau", 1), { curve: a, power: o, ceremonyPower: s } = await yr(r, i), c = a.G1.F.n8 * 2, l = a.G2.F.n8 * 2;
 	for (let e = 1; e < o; e++) await u(e);
 	return await r.close(), !0;
 	async function u(e) {
@@ -3088,14 +3335,14 @@ async function yr(e, t, n) {
 		for (; o.length < 2;) o = "0" + o;
 		n && n.debug("Writing Power: " + o);
 		let u = await L(t + o + ".ptau", "ptau", 1, 11);
-		await Yn(u, a, e, s), await H(r, i, u, 2, (2 ** e * 2 - 1) * c), await H(r, i, u, 3, 2 ** e * l), await H(r, i, u, 4, 2 ** e * c), await H(r, i, u, 5, 2 ** e * c), await H(r, i, u, 6, l), await H(r, i, u, 7), await H(r, i, u, 12, (2 ** (e + 1) * 2 - 1) * c), await H(r, i, u, 13, (2 ** e * 2 - 1) * l), await H(r, i, u, 14, (2 ** e * 2 - 1) * c), await H(r, i, u, 15, (2 ** e * 2 - 1) * c), await u.close();
+		await vr(u, a, e, s), await H(r, i, u, 2, (2 ** e * 2 - 1) * c), await H(r, i, u, 3, 2 ** e * l), await H(r, i, u, 4, 2 ** e * c), await H(r, i, u, 5, 2 ** e * c), await H(r, i, u, 6, l), await H(r, i, u, 7), await H(r, i, u, 12, (2 ** (e + 1) * 2 - 1) * c), await H(r, i, u, 13, (2 ** e * 2 - 1) * l), await H(r, i, u, 14, (2 ** e * 2 - 1) * c), await H(r, i, u, 15, (2 ** e * 2 - 1) * c), await u.close();
 	}
 }
 //#endregion
 //#region src/powersoftau_convert.js
-async function br(t, n, r) {
-	let { fd: i, sections: a } = await I(t, "ptau", 1), { curve: o, power: s } = await Xn(i, a), c = await L(n, "ptau", 1, 11);
-	await Yn(c, o, s), await H(i, a, c, 2), await H(i, a, c, 3), await H(i, a, c, 4), await H(i, a, c, 5), await H(i, a, c, 6), await H(i, a, c, 7), await l(2, 12, "G1", "tauG1"), await H(i, a, c, 13), await H(i, a, c, 14), await H(i, a, c, 15), await i.close(), await c.close();
+async function Ur(t, n, r) {
+	let { fd: i, sections: a } = await I(t, "ptau", 1), { curve: o, power: s } = await yr(i, a), c = await L(n, "ptau", 1, 11);
+	await vr(c, o, s), await H(i, a, c, 2), await H(i, a, c, 3), await H(i, a, c, 4), await H(i, a, c, 5), await H(i, a, c, 6), await H(i, a, c, 7), await l(2, 12, "G1", "tauG1"), await H(i, a, c, 13), await H(i, a, c, 14), await H(i, a, c, 15), await i.close(), await c.close();
 	return;
 	async function l(t, n, l, u) {
 		r && r.debug("Starting section: " + u), await R(c, n);
@@ -3114,9 +3361,9 @@ async function br(t, n, r) {
 }
 //#endregion
 //#region src/powersoftau_export_json.js
-async function xr(e, t) {
-	let { fd: n, sections: r } = await I(e, "ptau", 1), { curve: i, power: a } = await Xn(n, r), o = {};
-	return o.q = i.q, o.power = a, o.contributions = await nr(n, i, r), o.tauG1 = await s(2, "G1", 2 ** a * 2 - 1, "tauG1"), o.tauG2 = await s(3, "G2", 2 ** a, "tauG2"), o.alphaTauG1 = await s(4, "G1", 2 ** a, "alphaTauG1"), o.betaTauG1 = await s(5, "G1", 2 ** a, "betaTauG1"), o.betaG2 = await s(6, "G2", 1, "betaG2"), o.lTauG1 = await c(12, "G1", "lTauG1"), o.lTauG2 = await c(13, "G2", "lTauG2"), o.lAlphaTauG1 = await c(14, "G1", "lAlphaTauG2"), o.lBetaTauG1 = await c(15, "G1", "lBetaTauG2"), await n.close(), _t(i.Fr, o);
+async function Wr(e, t) {
+	let { fd: n, sections: r } = await I(e, "ptau", 1), { curve: i, power: a } = await yr(n, r), o = {};
+	return o.q = i.q, o.power = a, o.contributions = await Tr(n, i, r), o.tauG1 = await s(2, "G1", 2 ** a * 2 - 1, "tauG1"), o.tauG2 = await s(3, "G2", 2 ** a, "tauG2"), o.alphaTauG1 = await s(4, "G1", 2 ** a, "alphaTauG1"), o.betaTauG1 = await s(5, "G1", 2 ** a, "betaTauG1"), o.betaG2 = await s(6, "G2", 1, "betaG2"), o.lTauG1 = await c(12, "G1", "lTauG1"), o.lTauG2 = await c(13, "G2", "lTauG2"), o.lAlphaTauG1 = await c(14, "G1", "lAlphaTauG2"), o.lBetaTauG1 = await c(15, "G1", "lBetaTauG2"), await n.close(), Ot(i.Fr, o);
 	async function s(e, a, o, s) {
 		let c = i[a], l = c.F.n8 * 2, u = [];
 		await B(n, r, e);
@@ -3144,22 +3391,22 @@ async function xr(e, t) {
 }
 //#endregion
 //#region src/powersoftau.js
-var Sr = /* @__PURE__ */ l({
-	beacon: () => gr,
-	challengeContribute: () => hr,
-	contribute: () => _r,
-	convert: () => br,
-	exportChallenge: () => cr,
-	exportJson: () => xr,
-	importResponse: () => lr,
-	newAccumulator: () => sr,
-	preparePhase2: () => vr,
-	truncate: () => yr,
-	verify: () => fr
+var Gr = /* @__PURE__ */ l({
+	beacon: () => zr,
+	challengeContribute: () => Rr,
+	contribute: () => Br,
+	convert: () => Ur,
+	exportChallenge: () => jr,
+	exportJson: () => Wr,
+	importResponse: () => Mr,
+	newAccumulator: () => Ar,
+	preparePhase2: () => Vr,
+	truncate: () => Hr,
+	verify: () => Fr
 });
 //#endregion
 //#region src/r1cs_print.js
-function Cr(e, t, n) {
+function Kr(e, t, n) {
 	for (let t = 0; t < e.constraints.length; t++) r(e.constraints[t]);
 	function r(r) {
 		let i = (n) => {
@@ -3176,17 +3423,17 @@ function Cr(e, t, n) {
 }
 //#endregion
 //#region node_modules/@iden3/bigarray/src/bigarray.js
-var wr = 262144, Tr = {
+var qr = 262144, Jr = {
 	get: function(e, t) {
 		return isNaN(t) ? e[t] : e.getElement(t);
 	},
 	set: function(e, t, n) {
 		return isNaN(t) ? (e[t] = n, !0) : e.setElement(t, n);
 	}
-}, Er = class {
+}, Yr = class {
 	constructor(e) {
-		this.length = e || 0, this.arr = Array(wr);
-		for (let t = 0; t < e; t += wr) this.arr[t / wr] = Array(Math.min(wr, e - t));
+		this.length = e || 0, this.arr = Array(qr);
+		for (let t = 0; t < e; t += qr) this.arr[t / qr] = Array(Math.min(qr, e - t));
 		return this;
 	}
 	push() {
@@ -3199,32 +3446,32 @@ var wr = 262144, Tr = {
 	}
 	getElement(e) {
 		e = parseInt(e);
-		let t = Math.floor(e / wr), n = e % wr;
+		let t = Math.floor(e / qr), n = e % qr;
 		return this.arr[t] ? this.arr[t][n] : void 0;
 	}
 	setElement(e, t) {
 		e = parseInt(e);
-		let n = Math.floor(e / wr);
-		this.arr[n] || (this.arr[n] = Array(wr));
-		let r = e % wr;
+		let n = Math.floor(e / qr);
+		this.arr[n] || (this.arr[n] = Array(qr));
+		let r = e % qr;
 		return this.arr[n][r] = t, e >= this.length && (this.length = e + 1), !0;
 	}
 	getKeys() {
-		let e = new Dr();
-		for (let t = 0; t < this.arr.length; t++) if (this.arr[t]) for (let n = 0; n < this.arr[t].length; n++) this.arr[t][n] !== void 0 && e.push(t * wr + n);
+		let e = new Xr();
+		for (let t = 0; t < this.arr.length; t++) if (this.arr[t]) for (let n = 0; n < this.arr[t].length; n++) this.arr[t][n] !== void 0 && e.push(t * qr + n);
 		return e;
 	}
-}, Dr = class {
+}, Xr = class {
 	constructor(e) {
-		let t = new Er(e);
-		return new Proxy(t, Tr);
+		let t = new Yr(e);
+		return new Proxy(t, Jr);
 	}
 };
-async function Or(e, t, r) {
+async function Zr(e, t, r) {
 	let i;
 	i = typeof r == "object" ? r : r === void 0 ? { singleThread: !1 } : { singleThread: r };
 	let a = {};
-	if (await B(e, t, 1), a.n8 = await e.readULE32(), a.prime = await ce(e, a.n8), i.F) {
+	if (await B(e, t, 1), a.n8 = await e.readULE32(), a.prime = await ye(e, a.n8), i.F) {
 		if (i.F.p != a.prime) throw Error("Different Prime");
 		a.F = i.F;
 	} else if (i.getFieldFromPrime) a.F = await i.getFieldFromPrime(a.prime, i.singleThread);
@@ -3236,14 +3483,14 @@ async function Or(e, t, r) {
 	}
 	return a.nVars = await e.readULE32(), a.nOutputs = await e.readULE32(), a.nPubInputs = await e.readULE32(), a.nPrvInputs = await e.readULE32(), a.nLabels = await e.readULE64(), a.nConstraints = await e.readULE32(), a.useCustomGates = t[4] !== void 0 && t[4] !== null && t[5] !== void 0 && t[5] !== null, await V(e), a;
 }
-async function kr(e, t, n, r, i) {
+async function Qr(e, t, n, r, i) {
 	let a;
 	a = typeof r == "object" ? r : r === void 0 ? {} : {
 		logger: r,
 		loggerCtx: i
 	};
 	let o = await U(e, t, 2), s = 0, c;
-	c = n.nConstraints > 1 << 20 ? new Dr() : [];
+	c = n.nConstraints > 1 << 20 ? new Xr() : [];
 	for (let e = 0; e < n.nConstraints; e++) {
 		a.logger && e % 1e5 == 0 && a.logger.info(`${a.loggerCtx}: Loading constraints: ${e}/${n.nConstraints}`);
 		let t = l();
@@ -3267,14 +3514,14 @@ async function kr(e, t, n, r, i) {
 		return e;
 	}
 }
-async function Ar(e, t, n, r, i) {
+async function $r(e, t, n, r, i) {
 	let a;
 	a = typeof r == "object" ? r : r === void 0 ? {} : {
 		logger: r,
 		loggerCtx: i
 	};
 	let o = await U(e, t, 3), s = 0, c;
-	c = n.nVars > 1 << 20 ? new Dr() : [];
+	c = n.nVars > 1 << 20 ? new Xr() : [];
 	for (let e = 0; e < n.nVars; e++) {
 		a.logger && e % 1e4 == 0 && a.logger.info(`${a.loggerCtx}: Loading map: ${e}/${n.nVars}`);
 		let t = l();
@@ -3288,13 +3535,13 @@ async function Ar(e, t, n, r, i) {
 		return t.getUint32(4, !0) * 4294967296 + n;
 	}
 }
-async function jr(e, t, n) {
+async function ei(e, t, n) {
 	if (typeof n != "object") throw Error("readR1csFd: options must be an object");
 	n.loadConstraints = "loadConstraints" in n ? n.loadConstraints : !0, n.loadMap = "loadMap" in n && n.loadMap, n.loadCustomGates = "loadCustomGates" in n ? n.loadCustomGates : !0;
-	let r = await Or(e, t, n);
-	return n.loadConstraints && (r.constraints = await kr(e, t, r, n)), n.loadMap && (r.map = await Ar(e, t, r, n)), n.loadCustomGates && (r.useCustomGates ? (r.customGates = await Nr(e, t, r), r.customGatesUses = await Pr(e, t, n)) : (r.customGates = [], r.customGatesUses = [])), r;
+	let r = await Zr(e, t, n);
+	return n.loadConstraints && (r.constraints = await Qr(e, t, r, n)), n.loadMap && (r.map = await $r(e, t, r, n)), n.loadCustomGates && (r.useCustomGates ? (r.customGates = await ni(e, t, r), r.customGatesUses = await ri(e, t, n)) : (r.customGates = [], r.customGatesUses = [])), r;
 }
-async function Mr(e, t, n, r, i, a) {
+async function ti(e, t, n, r, i, a) {
 	let o;
 	o = typeof t == "object" ? t : t === void 0 ? {
 		loadConstraints: !0,
@@ -3307,10 +3554,10 @@ async function Mr(e, t, n, r, i, a) {
 		logger: i,
 		loggerCtx: a
 	};
-	let { fd: s, sections: c } = await I(e, "r1cs", 1, 1 << 25, 1 << 22), l = await jr(s, c, o);
+	let { fd: s, sections: c } = await I(e, "r1cs", 1, 1 << 25, 1 << 22), l = await ei(s, c, o);
 	return await s.close(), l;
 }
-async function Nr(e, t, n) {
+async function ni(e, t, n) {
 	await B(e, t, 4);
 	let r = await e.readULE32(), i = [];
 	for (let t = 0; t < r; t++) {
@@ -3324,9 +3571,9 @@ async function Nr(e, t, n) {
 	}
 	return await V(e), i;
 }
-async function Pr(e, t, n) {
+async function ri(e, t, n) {
 	let r = await U(e, t, 5), i = new Uint32Array(r.buffer, r.byteOffset, r.byteLength / 4), a = i[0], o = 1, s;
-	s = a > 1 << 20 ? new Dr() : [];
+	s = a > 1 << 20 ? new Xr() : [];
 	for (let e = 0; e < a; e++) {
 		n.logger && e % 1e5 == 0 && n.logger.info(`${n.loggerCtx}: Loading custom gate uses: ${e}/${a}`);
 		let t = {};
@@ -3343,35 +3590,35 @@ async function Pr(e, t, n) {
 }
 //#endregion
 //#region src/r1cs_info.js
-var Fr = r.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), Ir = r.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-async function Lr(e, t) {
-	let n = await Mr(e, {
+var ii = r.e("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001", 16), ai = r.e("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+async function oi(e, t) {
+	let n = await ti(e, {
 		loadConstraints: !1,
 		loadMap: !1
 	});
-	return r.eq(n.prime, Ir) ? t && t.info("Curve: bn-128") : r.eq(n.prime, Fr) ? t && t.info("Curve: bls12-381") : t && t.info(`Unknown Curve. Prime: ${r.toString(n.prime)}`), t && t.info(`# of Wires: ${n.nVars}`), t && t.info(`# of Constraints: ${n.nConstraints}`), t && t.info(`# of Private Inputs: ${n.nPrvInputs}`), t && t.info(`# of Public Inputs: ${n.nPubInputs}`), t && t.info(`# of Labels: ${n.nLabels}`), t && t.info(`# of Outputs: ${n.nOutputs}`), n;
+	return r.eq(n.prime, ai) ? t && t.info("Curve: bn-128") : r.eq(n.prime, ii) ? t && t.info("Curve: bls12-381") : t && t.info(`Unknown Curve. Prime: ${r.toString(n.prime)}`), t && t.info(`# of Wires: ${n.nVars}`), t && t.info(`# of Constraints: ${n.nConstraints}`), t && t.info(`# of Private Inputs: ${n.nPrvInputs}`), t && t.info(`# of Public Inputs: ${n.nPubInputs}`), t && t.info(`# of Labels: ${n.nLabels}`), t && t.info(`# of Outputs: ${n.nOutputs}`), n;
 }
 //#endregion
 //#region src/r1cs_export_json.js
-async function Rr(e, t) {
-	let n = await Mr(e, !0, !0, !0, t), r = n.curve.Fr;
-	return delete n.curve, delete n.F, _t(r, n);
+async function si(e, t) {
+	let n = await ti(e, !0, !0, !0, t), r = n.curve.Fr;
+	return delete n.curve, delete n.F, Ot(r, n);
 }
 //#endregion
 //#region src/r1cs.js
-var zr = /* @__PURE__ */ l({
-	exportJson: () => Rr,
-	info: () => Lr,
-	print: () => Cr
+var ci = /* @__PURE__ */ l({
+	exportJson: () => si,
+	info: () => oi,
+	print: () => Kr
 });
 //#endregion
 //#region src/loadsyms.js
-async function Br(e) {
+async function li(e) {
 	let t = {
 		labelIdx2Name: ["one"],
 		varIdx2Name: ["one"],
 		componentIdx2Name: []
-	}, n = await wn(e), r = await n.read(n.totalSize), i = new TextDecoder("utf-8").decode(r).split("\n");
+	}, n = await qn(e), r = await n.read(n.totalSize), i = new TextDecoder("utf-8").decode(r).split("\n");
 	for (let e = 0; e < i.length; e++) {
 		let n = i[e].split(",");
 		n.length == 4 && (t.varIdx2Name[n[1]] ? t.varIdx2Name[n[1]] += "|" + n[3] : t.varIdx2Name[n[1]] = n[3], t.labelIdx2Name[n[0]] = n[3], t.componentIdx2Name[n[2]] || (t.componentIdx2Name[n[2]] = a(n[3])));
@@ -3384,47 +3631,47 @@ async function Br(e) {
 }
 //#endregion
 //#region src/wtns_debug.js
-var { unstringifyBigInts: Vr } = s;
-async function Hr(e, t, n, r, i, a) {
-	let o = Vr(e), s = await wn(t), c = await s.read(s.totalSize);
+var { unstringifyBigInts: ui } = s;
+async function di(e, t, n, r, i, a) {
+	let o = ui(e), s = await qn(t), c = await s.read(s.totalSize);
 	await s.close();
 	let l = {
 		...i,
 		sanityCheck: !0
-	}, u = await Br(r);
-	i.set && (u ||= await Br(r), l.logSetSignal = function(e, t) {
+	}, u = await li(r);
+	i.set && (u ||= await li(r), l.logSetSignal = function(e, t) {
 		a && a.info("SET " + u.labelIdx2Name[e] + " <-- " + t.toString());
-	}), i.get && (u ||= await Br(r), l.logGetSignal = function(e, t) {
+	}), i.get && (u ||= await li(r), l.logGetSignal = function(e, t) {
 		a && a.info("GET " + u.labelIdx2Name[e] + " --> " + t.toString());
-	}), i.trigger && (u ||= await Br(r), l.logStartComponent = function(e) {
+	}), i.trigger && (u ||= await li(r), l.logStartComponent = function(e) {
 		a && a.info("START: " + u.componentIdx2Name[e]);
 	}, l.logFinishComponent = function(e) {
 		a && a.info("FINISH: " + u.componentIdx2Name[e]);
 	}), l.sym = u;
-	let d = await kn(c, l), f = await d.calculateWitness(o, !0), p = await L(n, "wtns", 2, 2);
-	await Pt(p, f, d.prime), await p.close();
+	let d = await Qn(c, l), f = await d.calculateWitness(o, !0), p = await L(n, "wtns", 2, 2);
+	await Kt(p, f, d.prime), await p.close();
 }
 //#endregion
 //#region src/wtns_export_json.js
-async function Ur(e) {
-	return await Lt(e);
+async function fi(e) {
+	return await Yt(e);
 }
 //#endregion
 //#region src/wtns_check.js
-async function Wr(e, t, n) {
+async function pi(e, t, n) {
 	let i, a, o, s;
 	try {
 		n && n.info("WITNESS CHECKING STARTED"), n && n.info("> Reading r1cs file"), {fd: i, sections: a} = await I(e, "r1cs", 1, 1 << 22, 1 << 24);
-		let c = await jr(i, a, {
+		let c = await ei(i, a, {
 			loadConstraints: !1,
 			loadCustomGates: !1
 		});
 		n && n.info("> Reading witness file"), {fd: o, sections: s} = await I(t, "wtns", 2, 1 << 22, 1 << 24);
-		let l = await It(o, s);
+		let l = await Jt(o, s);
 		if (!r.eq(c.prime, l.q)) throw Error("Curve of the witness does not match the curve of the proving key");
 		let u = await U(o, s, 2);
 		await o.close();
-		let d = (await he(c.prime)).Fr, f = d.n8, p = await U(i, a, 2);
+		let d = (await Ee(c.prime)).Fr, f = d.n8, p = await U(i, a, 2);
 		n && (n.info("----------------------------"), n.info("  WITNESS CHECK"), n.info(`  Curve:          ${c.curve.name}`), n.info(`  Vars (wires):   ${c.nVars}`), n.info(`  Outputs:        ${c.nOutputs}`), n.info(`  Public Inputs:  ${c.nPubInputs}`), n.info(`  Private Inputs: ${c.nPrvInputs}`), n.info(`  Labels:         ${c.nLabels}`), n.info(`  Constraints:    ${c.nConstraints}`), n.info(`  Custom Gates:   ${c.useCustomGates}`), n.info("----------------------------")), n && n.info("> Checking witness correctness");
 		let m = 0, h = !0;
 		for (let e = 0; e < c.nConstraints; e++) {
@@ -3466,22 +3713,22 @@ async function Wr(e, t, n) {
 }
 //#endregion
 //#region src/wtns.js
-var Gr = /* @__PURE__ */ l({
-	calculate: () => Nn,
-	check: () => Wr,
-	debug: () => Hr,
-	exportJson: () => Ur
-}), Kr = 262144, qr = {
+var mi = /* @__PURE__ */ l({
+	calculate: () => nr,
+	check: () => pi,
+	debug: () => di,
+	exportJson: () => fi
+}), hi = 262144, gi = {
 	get: function(e, t) {
 		return isNaN(t) ? e[t] : e.getElement(t);
 	},
 	set: function(e, t, n) {
 		return isNaN(t) ? (e[t] = n, !0) : e.setElement(t, n);
 	}
-}, Jr = class {
+}, _i = class {
 	constructor(e) {
-		this.length = e || 0, this.arr = Array(Kr);
-		for (let t = 0; t < e; t += Kr) this.arr[t / Kr] = Array(Math.min(Kr, e - t));
+		this.length = e || 0, this.arr = Array(hi);
+		for (let t = 0; t < e; t += hi) this.arr[t / hi] = Array(Math.min(hi, e - t));
 		return this;
 	}
 	push() {
@@ -3494,47 +3741,47 @@ var Gr = /* @__PURE__ */ l({
 	}
 	getElement(e) {
 		e = parseInt(e);
-		let t = Math.floor(e / Kr), n = e % Kr;
+		let t = Math.floor(e / hi), n = e % hi;
 		return this.arr[t] ? this.arr[t][n] : void 0;
 	}
 	setElement(e, t) {
 		e = parseInt(e);
-		let n = Math.floor(e / Kr);
-		this.arr[n] || (this.arr[n] = Array(Kr));
-		let r = e % Kr;
+		let n = Math.floor(e / hi);
+		this.arr[n] || (this.arr[n] = Array(hi));
+		let r = e % hi;
 		return this.arr[n][r] = t, e >= this.length && (this.length = e + 1), !0;
 	}
 	getKeys() {
-		let e = new Yr();
-		for (let t = 0; t < this.arr.length; t++) if (this.arr[t]) for (let n = 0; n < this.arr[t].length; n++) this.arr[t][n] !== void 0 && e.push(t * Kr + n);
+		let e = new vi();
+		for (let t = 0; t < this.arr.length; t++) if (this.arr[t]) for (let n = 0; n < this.arr[t].length; n++) this.arr[t][n] !== void 0 && e.push(t * hi + n);
 		return e;
 	}
-}, Yr = class {
+}, vi = class {
 	constructor(e) {
-		let t = new Jr(e);
-		return new Proxy(t, qr);
+		let t = new _i(e);
+		return new Proxy(t, gi);
 	}
 };
 //#endregion
 //#region src/zkey_new.js
-async function Xr(t, n, i, a) {
+async function yi(t, n, i, a) {
 	let o, s, c, l, u;
 	try {
 		let d = K.create({ dkLen: 64 });
 		({fd: o, sections: s} = await I(n, "ptau", 1, 1 << 22, 1 << 24));
-		let { curve: f, power: p } = await Xn(o, s);
+		let { curve: f, power: p } = await yr(o, s);
 		({fd: c, sections: l} = await I(t, "r1cs", 1, 1 << 22, 1 << 24));
-		let m = await Or(c, l, !1);
+		let m = await Zr(c, l, !1);
 		u = await L(i, "zkey", 1, 10, 1 << 22, 1 << 24);
 		let h = f.G1.F.n8 * 2, g = f.G2.F.n8 * 2;
 		if (m.prime != f.r) return a && a.error("r1cs curve does not match powers of tau ceremony curve"), -1;
-		let _ = rt(m.nConstraints + m.nPubInputs + m.nOutputs + 1 - 1) + 1;
+		let _ = mt(m.nConstraints + m.nPubInputs + m.nOutputs + 1 - 1) + 1;
 		if (_ > p) return a && a.error(`circuit too big for this power of tau ceremony. ${m.nConstraints}*2 > 2**${p}`), -1;
 		if (!s[12]) return a && a.error("Powers of tau is not prepared."), -1;
 		let v = m.nOutputs + m.nPubInputs, y = 2 ** _;
 		await R(u, 1), await u.writeULE32(1), await z(u), await R(u, 2);
 		let b = f.q, x = (Math.floor((r.bitLength(b) - 1) / 64) + 1) * 8, S = f.r, C = (Math.floor((r.bitLength(S) - 1) / 64) + 1) * 8, w = r.mod(r.shl(1, C * 8), S), T = f.Fr.e(r.mod(r.mul(w, w), S));
-		await u.writeULE32(x), await se(u, b, x), await u.writeULE32(C), await se(u, S, C), await u.writeULE32(m.nVars), await u.writeULE32(v), await u.writeULE32(y), await (async function() {
+		await u.writeULE32(x), await ve(u, b, x), await u.writeULE32(C), await ve(u, S, C), await u.writeULE32(m.nVars), await u.writeULE32(v), await u.writeULE32(y), await (async function() {
 			let e = await o.read(h, s[4][0].p);
 			await u.write(e), e = await f.G1.batchLEMtoU(e), d.update(e);
 			let t = await o.read(h, s[5][0].p);
@@ -3552,7 +3799,7 @@ async function Xr(t, n, i, a) {
 		})(), await z(u), a && a.info("Reading r1cs");
 		let E = await U(c, l, 2);
 		await c.close();
-		let D = new Yr(m.nVars), O = new Yr(m.nVars), k = new Yr(m.nVars), A = new Yr(m.nVars - v - 1), j = Array(v + 1);
+		let D = new vi(m.nVars), O = new vi(m.nVars), k = new vi(m.nVars), A = new vi(m.nVars - v - 1), j = Array(v + 1);
 		a && a.info("Reading tauG1");
 		let M = await U(o, s, 12, (y - 1) * h, y * h), N = null;
 		a && a.info("Reading alphatauG1");
@@ -3587,7 +3834,7 @@ async function Xr(t, n, i, a) {
 				let e = E.slice(i, i + 4);
 				return i += 4, new DataView(e.buffer).getUint32(0, !0);
 			}
-			let s = new Yr();
+			let s = new vi();
 			for (let e = 0; e < m.nConstraints; e++) {
 				a && e % 1e4 == 0 && a.debug(`processing constraints: ${e}/${m.nConstraints}`);
 				let t = o();
@@ -3693,7 +3940,7 @@ async function Xr(t, n, i, a) {
 		}
 		async function re(e, t, n, r) {
 			let i = 32768, o = f[t];
-			V(n.length), await R(u, e);
+			ce(n.length), await R(u, e);
 			let s = [], c = 0;
 			for (; c < n.length;) {
 				let e = 0;
@@ -3823,7 +4070,7 @@ async function Xr(t, n, i, a) {
 		}
 		async function ae() {
 			let e = 16384;
-			V(y - 1);
+			ce(y - 1);
 			for (let t = 0; t < y - 1; t += e) {
 				a && a.debug(`HashingHPoints: ${t}/${y}`);
 				let n = Math.min(y - 1, e);
@@ -3836,12 +4083,12 @@ async function Xr(t, n, i, a) {
 				let o;
 				if (o = e < i - 1 ? a : t - e * a, o == 0) continue;
 				let s = n.slice(e * a * h, (e * a + o) * h), l = r.slice(e * a * h, (e * a + o) * h);
-				c.push(B(s, l));
+				c.push(se(s, l));
 			}
 			let l = await Promise.all(c);
 			for (let e = 0; e < l.length; e++) d.update(l[e][0]);
 		}
-		async function B(e, t) {
+		async function se(e, t) {
 			let n = e.byteLength / h, r = f.G1.F.n8 * 3, i = [];
 			i.push({
 				cmd: "ALLOCSET",
@@ -3897,7 +4144,7 @@ async function Xr(t, n, i, a) {
 				len: n * h
 			}), await f.tm.queueAction(i);
 		}
-		function V(e) {
+		function ce(e) {
 			let t = /* @__PURE__ */ new Uint8Array(4);
 			new DataView(t.buffer, t.byteOffset, t.byteLength).setUint32(0, e, !1), d.update(t);
 		}
@@ -3913,10 +4160,10 @@ async function Xr(t, n, i, a) {
 }
 //#endregion
 //#region src/zkey_export_bellman.js
-async function Zr(e, t, n) {
-	let { fd: r, sections: i } = await I(e, "zkey", 2), a = await St(r, i);
+async function bi(e, t, n) {
+	let { fd: r, sections: i } = await I(e, "zkey", 2), a = await Pt(r, i);
 	if (a.protocol != "groth16") throw Error("zkey file is not groth16");
-	let o = await ge(a.q), s = o.G1.F.n8 * 2, c = o.G2.F.n8 * 2, l = await Ot(r, o, i), u = await Cn(t);
+	let o = await De(a.q), s = o.G1.F.n8 * 2, c = o.G2.F.n8 * 2, l = await Bt(r, o, i), u = await Kn(t);
 	await v(a.vk_alpha_1), await v(a.vk_beta_1), await y(a.vk_beta_2), await y(a.vk_gamma_2), await v(a.vk_delta_1), await y(a.vk_delta_2);
 	let d;
 	d = await U(r, i, 3), d = await o.G1.batchLEMtoU(d), await b("G1", d);
@@ -3956,14 +4203,14 @@ async function Zr(e, t, n) {
 }
 //#endregion
 //#region src/zkey_import_bellman.js
-async function Qr(e, t, n, r, i) {
+async function xi(e, t, n, r, i) {
 	let a, o, s, c;
 	try {
 		({fd: a, sections: o} = await I(e, "zkey", 2));
-		let l = await St(a, o, !1);
+		let l = await Pt(a, o, !1);
 		if (l.protocol != "groth16") throw Error("zkey file is not groth16");
-		let u = await ge(l.q), d = u.G1.F.n8 * 2, f = u.G2.F.n8 * 2, p = await Ot(a, u, o), m = {};
-		s = await wn(t), s.pos = d * 3 + f * 3 + 8 + d * l.nVars + 4 + d * (l.domainSize - 1) + 4 + d * l.nVars + 4 + d * l.nVars + 4 + f * l.nVars, m.csHash = await s.read(64);
+		let u = await De(l.q), d = u.G1.F.n8 * 2, f = u.G2.F.n8 * 2, p = await Bt(a, u, o), m = {};
+		s = await qn(t), s.pos = d * 3 + f * 3 + 8 + d * l.nVars + 4 + d * (l.domainSize - 1) + 4 + d * l.nVars + 4 + d * l.nVars + 4 + f * l.nVars, m.csHash = await s.read(64);
 		let h = await s.readUBE32();
 		m.contributions = [];
 		for (let e = 0; e < h; e++) {
@@ -3971,13 +4218,13 @@ async function Qr(e, t, n, r, i) {
 			t.deltaAfter = await S(s), t.delta.g1_s = await S(s), t.delta.g1_sx = await S(s), t.delta.g2_spx = await C(s), t.transcript = await s.read(64), e < p.contributions.length && (t.type = p.contributions[e].type, t.type == 1 && (t.beaconHash = p.contributions[e].beaconHash, t.numIterationsExp = p.contributions[e].numIterationsExp), p.contributions[e].name && (t.name = p.contributions[e].name)), m.contributions.push(t);
 		}
 		/* c8 ignore start */
-		if (!it(m.csHash, p.csHash)) return i && i.error("Hash of the original circuit does not match with the MPC one"), !1;
+		if (!ht(m.csHash, p.csHash)) return i && i.error("Hash of the original circuit does not match with the MPC one"), !1;
 		/* c8 ignore stop */
 		if (p.contributions.length > m.contributions.length) return i && i.error("The impoerted file does not include new contributions"), !1;
 		for (let e = 0; e < p.contributions.length; e++) if (!w(p.contributions[e], m.contributions[e])) return i && i.error(`Previous contribution ${e} does not match`), !1;
 		if (r) for (let e = p.contributions.length; e < m.contributions.length; e++) m.contributions[e].name = r;
 		/* c8 ignore start */
-		if (c = await L(n, "zkey", 1, 10), s.pos = 0, s.pos += d, s.pos += d, s.pos += f, s.pos += f, l.vk_delta_1 = await S(s), l.vk_delta_2 = await C(s), await vt(c, l), await s.readUBE32() != l.nPublic + 1) return i && i.error("Invalid number of points in IC"), await c.discard(), !1;
+		if (c = await L(n, "zkey", 1, 10), s.pos = 0, s.pos += d, s.pos += d, s.pos += f, s.pos += f, l.vk_delta_1 = await S(s), l.vk_delta_2 = await C(s), await At(c, l), await s.readUBE32() != l.nPublic + 1) return i && i.error("Invalid number of points in IC"), await c.discard(), !1;
 		/* c8 ignore start */
 		if (s.pos += d * (l.nPublic + 1), await H(a, o, c, 3), await H(a, o, c, 4), await s.readUBE32() != l.domainSize - 1) return i && i.error("Invalid number of points in H"), await c.discard(), !1;
 		/* c8 ignore stop */
@@ -3994,7 +4241,7 @@ async function Qr(e, t, n, r, i) {
 		if (s.pos += d * l.nVars, await H(a, o, c, 5), await s.readUBE32() != l.nVars) return i && i.error("Invalid number of points in B1"), await c.discard(), !1;
 		/* c8 ignore start */
 		if (s.pos += d * l.nVars, await H(a, o, c, 6), await s.readUBE32() != l.nVars) return i && i.error("Invalid number of points in B2"), await c.discard(), !1;
-		return s.pos += f * l.nVars, await H(a, o, c, 7), await At(c, u, m), await s.close(), await c.close(), await a.close(), !0;
+		return s.pos += f * l.nVars, await H(a, o, c, 7), await Ht(c, u, m), await s.close(), await c.close(), await a.close(), !0;
 		async function S(e) {
 			let t = await e.read(u.G1.F.n8 * 2);
 			return u.G1.fromRprUncompressed(t, 0);
@@ -4005,7 +4252,7 @@ async function Qr(e, t, n, r, i) {
 		}
 		function w(e, t) {
 			/* c8 ignore stop */
-			return !(!u.G1.eq(e.deltaAfter, t.deltaAfter) || !u.G1.eq(e.delta.g1_s, t.delta.g1_s) || !u.G1.eq(e.delta.g1_sx, t.delta.g1_sx) || !u.G2.eq(e.delta.g2_spx, t.delta.g2_spx) || !it(e.transcript, t.transcript));
+			return !(!u.G1.eq(e.deltaAfter, t.deltaAfter) || !u.G1.eq(e.delta.g1_s, t.delta.g1_s) || !u.G1.eq(e.delta.g1_sx, t.delta.g1_sx) || !u.G2.eq(e.delta.g2_spx, t.delta.g2_spx) || !ht(e.transcript, t.transcript));
 		}
 	} finally {
 		for (let e of [
@@ -4019,42 +4266,42 @@ async function Qr(e, t, n, r, i) {
 }
 //#endregion
 //#region src/zkey_verify_frominit.js
-/* c8 ignore stop */ var $r = ct;
-async function ei(n, i, a, o) {
+/* c8 ignore stop */ var Si = yt;
+async function Ci(n, i, a, o) {
 	let s, c, l, u, d, f;
 	try {
 		let p;
 		({fd: s, sections: c} = await I(a, "zkey", 2));
-		let m = await St(s, c, !1);
+		let m = await Pt(s, c, !1);
 		if (m.protocol != "groth16") throw Error("zkey file is not groth16");
-		let h = await ge(m.q), g = h.G1.F.n8 * 2, _ = await Ot(s, h, c), v = K.create({ dkLen: 64 });
+		let h = await De(m.q), g = h.G1.F.n8 * 2, _ = await Bt(s, h, c), v = K.create({ dkLen: 64 });
 		v.update(_.csHash);
 		let y = h.G1.g;
 		for (let e = 0; e < _.contributions.length; e++) {
-			let t = _.contributions[e], n = at(v);
+			let t = _.contributions[e], n = gt(v);
 			/* c8 ignore start */
-			if (jt(n, h, t.delta.g1_s), jt(n, h, t.delta.g1_sx), !it(n.digest(), t.transcript)) return console.log(`INVALID(${e}): Inconsistent transcript `), !1;
+			if (Ut(n, h, t.delta.g1_s), Ut(n, h, t.delta.g1_sx), !ht(n.digest(), t.transcript)) return console.log(`INVALID(${e}): Inconsistent transcript `), !1;
 			/* c8 ignore stop */
-			let r = Gn(h, t.transcript);
+			let r = mr(h, t.transcript);
 			/* c8 ignore start */
-			if (p = await $r(h, t.delta.g1_s, t.delta.g1_sx, r, t.delta.g2_spx), p !== !0) return console.log(`INVALID(${e}): public key G1 and G2 do not have the same ration `), !1;
+			if (p = await Si(h, t.delta.g1_s, t.delta.g1_sx, r, t.delta.g2_spx), p !== !0) return console.log(`INVALID(${e}): public key G1 and G2 do not have the same ration `), !1;
 			/* c8 ignore start */
-			if (p = await $r(h, y, t.deltaAfter, r, t.delta.g2_spx), p !== !0) return console.log(`INVALID(${e}): deltaAfter does not fillow the public key `), !1;
+			if (p = await Si(h, y, t.deltaAfter, r, t.delta.g2_spx), p !== !0) return console.log(`INVALID(${e}): deltaAfter does not fillow the public key `), !1;
 			/* c8 ignore stop */
 			if (t.type == 1) {
-				let n = await mt(t.beaconHash, t.numIterationsExp), r = h.Fr.fromRng(n), i = h.G1.toAffine(h.G1.fromRng(n)), a = h.G1.toAffine(h.G1.timesFr(i, r));
+				let n = await Tt(t.beaconHash, t.numIterationsExp), r = h.Fr.fromRng(n), i = h.G1.toAffine(h.G1.fromRng(n)), a = h.G1.toAffine(h.G1.timesFr(i, r));
 				/* c8 ignore start */
 				if (h.G1.eq(i, t.delta.g1_s) !== !0) return console.log(`INVALID(${e}): Key of the beacon does not match. g1_s `), !1;
 				/* c8 ignore stop */
 				/* c8 ignore start */
 				if (h.G1.eq(a, t.delta.g1_sx) !== !0) return console.log(`INVALID(${e}): Key of the beacon does not match. g1_sx `), !1;
 			}
-			Nt(v, h, t);
+			Gt(v, h, t);
 			let i = K.create({ dkLen: 64 });
-			Nt(i, h, t), t.contributionHash = i.digest(), y = t.deltaAfter;
+			Gt(i, h, t), t.contributionHash = i.digest(), y = t.deltaAfter;
 		}
 		({fd: l, sections: u} = await I(n, "zkey", 2));
-		let b = await St(l, u, !1);
+		let b = await Pt(l, u, !1);
 		if (b.protocol != "groth16") throw Error("zkeyinit file is not groth16");
 		if (!r.eq(b.q, m.q) || !r.eq(b.r, m.r) || b.n8q != m.n8q || b.n8r != m.n8r) return o && o.error("INVALID:  Different curves"), !1;
 		if (b.nVars != m.nVars || b.nPublic != m.nPublic || b.domainSize != m.domainSize) return o && o.error("INVALID:  Different circuit parameters"), !1;
@@ -4063,9 +4310,9 @@ async function ei(n, i, a, o) {
 		if (!h.G2.eq(m.vk_beta_2, b.vk_beta_2)) return o && o.error("INVALID:  Invalid beta2"), !1;
 		if (!h.G2.eq(m.vk_gamma_2, b.vk_gamma_2)) return o && o.error("INVALID:  Invalid gamma2"), !1;
 		if (!h.G1.eq(m.vk_delta_1, y)) return o && o.error("INVALID:  Invalid delta1"), !1;
-		if (p = await $r(h, h.G1.g, y, h.G2.g, m.vk_delta_2), p !== !0) return o && o.error("INVALID:  Invalid delta2"), !1;
-		let x = await Ot(l, h, u);
-		if (!it(_.csHash, x.csHash)) return o && o.error("INVALID:  Circuit does not match"), !1;
+		if (p = await Si(h, h.G1.g, y, h.G2.g, m.vk_delta_2), p !== !0) return o && o.error("INVALID:  Invalid delta2"), !1;
+		let x = await Bt(l, h, u);
+		if (!ht(_.csHash, x.csHash)) return o && o.error("INVALID:  Circuit does not match"), !1;
 		/* c8 ignore start */
 		if (c[8][0].size != g * (m.nVars - m.nPublic - 1)) return o && o.error("INVALID:  Invalid L section size"), !1;
 		/* c8 ignore stop */
@@ -4073,17 +4320,17 @@ async function ei(n, i, a, o) {
 		if (c[9][0].size != g * m.domainSize) return o && o.error("INVALID:  Invalid H section size"), !1;
 		/* c8 ignore stop */
 		let S;
-		if (S = await le(s, c, l, u, 3), !S) return o && o.error("INVALID:  IC section is not identical"), !1;
-		if (S = await le(s, c, l, u, 4), !S) return o && o.error("Coeffs section is not identical"), !1;
-		if (S = await le(s, c, l, u, 5), !S) return o && o.error("A section is not identical"), !1;
-		if (S = await le(s, c, l, u, 6), !S) return o && o.error("B1 section is not identical"), !1;
-		if (S = await le(s, c, l, u, 7), !S) return o && o.error("B2 section is not identical"), !1;
+		if (S = await be(s, c, l, u, 3), !S) return o && o.error("INVALID:  IC section is not identical"), !1;
+		if (S = await be(s, c, l, u, 4), !S) return o && o.error("Coeffs section is not identical"), !1;
+		if (S = await be(s, c, l, u, 5), !S) return o && o.error("A section is not identical"), !1;
+		if (S = await be(s, c, l, u, 6), !S) return o && o.error("B1 section is not identical"), !1;
+		if (S = await be(s, c, l, u, 7), !S) return o && o.error("B2 section is not identical"), !1;
 		if (p = await C("G1", l, u, s, c, 8, m.vk_delta_2, b.vk_delta_2, "L section"), p !== !0) return o && o.error("L section does not match"), !1;
 		if (p = await w(), p !== !0) return o && o.error("H section does not match"), !1;
 		o && o.info(q(_.csHash, "Circuit Hash: ")), await s.close(), await l.close();
 		for (let e = _.contributions.length - 1; e >= 0; e--) {
 			let t = _.contributions[e];
-			o && o.info("-------------------------"), o && o.info(q(t.contributionHash, `contribution #${e + 1} ${t.name ? t.name : ""}:`)), t.type == 1 && (o && o.info(`Beacon generator: ${gt(t.beaconHash)}`), o && o.info(`Beacon iterations Exp: ${t.numIterationsExp}`));
+			o && o.info("-------------------------"), o && o.info(q(t.contributionHash, `contribution #${e + 1} ${t.name ? t.name : ""}:`)), t.type == 1 && (o && o.info(`Beacon generator: ${Dt(t.beaconHash)}`), o && o.info(`Beacon iterations Exp: ${t.numIterationsExp}`));
 		}
 		return o && o.info("-------------------------"), o && o.info("ZKey Ok!"), !0;
 		async function C(e, t, n, r, i, a, s, c, l) {
@@ -4092,18 +4339,18 @@ async function ei(n, i, a, o) {
 			let m = d.zero, g = d.zero, _ = n[a][0].size / f;
 			for (let e = 0; e < _; e += u) {
 				o && o.debug(`Same ratio check ${l}:  ${e}/${_}`);
-				let n = Math.min(_ - e, u), i = await t.read(n * f), a = await r.read(n * f), s = ut(4 * n), c = await d.multiExpAffine(i, s), p = await d.multiExpAffine(a, s);
+				let n = Math.min(_ - e, u), i = await t.read(n * f), a = await r.read(n * f), s = xt(4 * n), c = await d.multiExpAffine(i, s), p = await d.multiExpAffine(a, s);
 				m = d.add(m, c), g = d.add(g, p);
 			}
 			return await V(t), await V(r), _ == 0 || 
 			/* c8 ignore stop */
-			(p = await $r(h, m, g, s, c), p === !0);
+			(p = await Si(h, m, g, s, c), p === !0);
 		}
 		async function w() {
 			let n = 1 << 20, r = h.G1, a = h.Fr, l = r.F.n8 * 2;
 			({fd: d, sections: f} = await I(i, "ptau", 1));
 			let u = new e(m.domainSize * m.n8r), g = Array(8);
-			for (let e = 0; e < 8; e++) g[e] = ft(ut(4), 0);
+			for (let e = 0; e < 8; e++) g[e] = Ct(xt(4), 0);
 			let _ = new t(g);
 			for (let e = 0; e < m.domainSize - 1; e++) {
 				let t = a.fromRng(_);
@@ -4133,7 +4380,7 @@ async function ei(n, i, a, o) {
 				let t = Math.min(m.domainSize - e, n), i = await s.read(l * t), a = u.slice(e * m.n8r, (e + t) * m.n8r), c = await r.multiExpAffine(i, a);
 				S = r.add(S, c);
 			}
-			return await V(s), p = await $r(h, v, S, m.vk_delta_2, b.vk_delta_2), p === !0;
+			return await V(s), p = await Si(h, v, S, m.vk_delta_2, b.vk_delta_2), p === !0;
 		}
 		async function T(e, t) {
 			let n = h.G1.F.n8 * 2, r = e.byteLength / n, i = h.tm.concurrency, a = Math.floor(r / i), o = [];
@@ -4209,58 +4456,58 @@ async function ei(n, i, a, o) {
 }
 //#endregion
 //#region src/zkey_verify_fromr1cs.js
-async function ti(e, t, n, r) {
+async function wi(e, t, n, r) {
 	let i = { type: "bigMem" };
-	return await Xr(e, t, i, r), await ei(i, t, n, r);
+	return await yi(e, t, i, r), await Ci(i, t, n, r);
 }
 //#endregion
 //#region src/zkey_contribute.js
-async function ni(e, t, n, r, i) {
-	let { fd: a, sections: o } = await I(e, "zkey", 2), s = await St(a, o);
+async function Ti(e, t, n, r, i) {
+	let { fd: a, sections: o } = await I(e, "zkey", 2), s = await Pt(a, o);
 	if (s.protocol != "groth16") throw Error("zkey file is not groth16");
-	let c = await ge(s.q), l = await Ot(a, c, o), u = await L(t, "zkey", 1, 10), d = await pt(r), f = K.create({ dkLen: 64 });
+	let c = await De(s.q), l = await Bt(a, c, o), u = await L(t, "zkey", 1, 10), d = await wt(r), f = K.create({ dkLen: 64 });
 	f.update(l.csHash);
-	for (let e = 0; e < l.contributions.length; e++) Nt(f, c, l.contributions[e]);
+	for (let e = 0; e < l.contributions.length; e++) Gt(f, c, l.contributions[e]);
 	let p = {};
-	p.delta = {}, p.delta.prvKey = c.Fr.fromRng(d), p.delta.g1_s = c.G1.toAffine(c.G1.fromRng(d)), p.delta.g1_sx = c.G1.toAffine(c.G1.timesFr(p.delta.g1_s, p.delta.prvKey)), jt(f, c, p.delta.g1_s), jt(f, c, p.delta.g1_sx), p.transcript = f.digest(), p.delta.g2_sp = Gn(c, p.transcript), p.delta.g2_spx = c.G2.toAffine(c.G2.timesFr(p.delta.g2_sp, p.delta.prvKey)), s.vk_delta_1 = c.G1.timesFr(s.vk_delta_1, p.delta.prvKey), s.vk_delta_2 = c.G2.timesFr(s.vk_delta_2, p.delta.prvKey), p.deltaAfter = s.vk_delta_1, p.type = 0, n && (p.name = n), l.contributions.push(p), await vt(u, s), await H(a, o, u, 3), await H(a, o, u, 4), await H(a, o, u, 5), await H(a, o, u, 6), await H(a, o, u, 7);
+	p.delta = {}, p.delta.prvKey = c.Fr.fromRng(d), p.delta.g1_s = c.G1.toAffine(c.G1.fromRng(d)), p.delta.g1_sx = c.G1.toAffine(c.G1.timesFr(p.delta.g1_s, p.delta.prvKey)), Ut(f, c, p.delta.g1_s), Ut(f, c, p.delta.g1_sx), p.transcript = f.digest(), p.delta.g2_sp = mr(c, p.transcript), p.delta.g2_spx = c.G2.toAffine(c.G2.timesFr(p.delta.g2_sp, p.delta.prvKey)), s.vk_delta_1 = c.G1.timesFr(s.vk_delta_1, p.delta.prvKey), s.vk_delta_2 = c.G2.timesFr(s.vk_delta_2, p.delta.prvKey), p.deltaAfter = s.vk_delta_1, p.type = 0, n && (p.name = n), l.contributions.push(p), await At(u, s), await H(a, o, u, 3), await H(a, o, u, 4), await H(a, o, u, 5), await H(a, o, u, 6), await H(a, o, u, 7);
 	let m = c.Fr.inv(p.delta.prvKey);
-	await pr(a, o, u, 8, c, "G1", m, c.Fr.e(1), "L Section", i), await pr(a, o, u, 9, c, "G1", m, c.Fr.e(1), "H Section", i), await At(u, c, l), await a.close(), await u.close();
+	await Ir(a, o, u, 8, c, "G1", m, c.Fr.e(1), "L Section", i), await Ir(a, o, u, 9, c, "G1", m, c.Fr.e(1), "H Section", i), await Ht(u, c, l), await a.close(), await u.close();
 	let h = K.create({ dkLen: 64 });
-	Nt(h, c, p);
+	Gt(h, c, p);
 	let g = h.digest();
 	return i && i.info(q(l.csHash, "Circuit Hash: ")), i && i.info(q(g, "Contribution Hash: ")), g;
 }
 //#endregion
 //#region src/zkey_beacon.js
-async function ri(e, t, n, r, i, a) {
-	let o = ht(r);
+async function Ei(e, t, n, r, i, a) {
+	let o = Et(r);
 	if (o.byteLength == 0 || o.byteLength * 2 != r.length) return a && a.error("Invalid Beacon Hash. (It must be a valid hexadecimal sequence)"), !1;
 	if (o.length >= 256) return a && a.error("Maximum length of beacon hash is 255 bytes"), !1;
 	if (i = parseInt(i), i < 10 || i > 63) return a && a.error("Invalid numIterationsExp. (Must be between 10 and 63)"), !1;
-	let { fd: s, sections: c } = await I(e, "zkey", 2), l = await St(s, c);
+	let { fd: s, sections: c } = await I(e, "zkey", 2), l = await Pt(s, c);
 	if (l.protocol != "groth16") throw Error("zkey file is not groth16");
-	let u = await ge(l.q), d = await Ot(s, u, c), f = await L(t, "zkey", 1, 10), p = await mt(o, i), m = K.create({ dkLen: 64 });
+	let u = await De(l.q), d = await Bt(s, u, c), f = await L(t, "zkey", 1, 10), p = await Tt(o, i), m = K.create({ dkLen: 64 });
 	m.update(d.csHash);
-	for (let e = 0; e < d.contributions.length; e++) Nt(m, u, d.contributions[e]);
+	for (let e = 0; e < d.contributions.length; e++) Gt(m, u, d.contributions[e]);
 	let h = {};
-	h.delta = {}, h.delta.prvKey = u.Fr.fromRng(p), h.delta.g1_s = u.G1.toAffine(u.G1.fromRng(p)), h.delta.g1_sx = u.G1.toAffine(u.G1.timesFr(h.delta.g1_s, h.delta.prvKey)), jt(m, u, h.delta.g1_s), jt(m, u, h.delta.g1_sx), h.transcript = m.digest(), h.delta.g2_sp = Gn(u, h.transcript), h.delta.g2_spx = u.G2.toAffine(u.G2.timesFr(h.delta.g2_sp, h.delta.prvKey)), l.vk_delta_1 = u.G1.timesFr(l.vk_delta_1, h.delta.prvKey), l.vk_delta_2 = u.G2.timesFr(l.vk_delta_2, h.delta.prvKey), h.deltaAfter = l.vk_delta_1, h.type = 1, h.numIterationsExp = i, h.beaconHash = o, n && (h.name = n), d.contributions.push(h), await vt(f, l), await H(s, c, f, 3), await H(s, c, f, 4), await H(s, c, f, 5), await H(s, c, f, 6), await H(s, c, f, 7);
+	h.delta = {}, h.delta.prvKey = u.Fr.fromRng(p), h.delta.g1_s = u.G1.toAffine(u.G1.fromRng(p)), h.delta.g1_sx = u.G1.toAffine(u.G1.timesFr(h.delta.g1_s, h.delta.prvKey)), Ut(m, u, h.delta.g1_s), Ut(m, u, h.delta.g1_sx), h.transcript = m.digest(), h.delta.g2_sp = mr(u, h.transcript), h.delta.g2_spx = u.G2.toAffine(u.G2.timesFr(h.delta.g2_sp, h.delta.prvKey)), l.vk_delta_1 = u.G1.timesFr(l.vk_delta_1, h.delta.prvKey), l.vk_delta_2 = u.G2.timesFr(l.vk_delta_2, h.delta.prvKey), h.deltaAfter = l.vk_delta_1, h.type = 1, h.numIterationsExp = i, h.beaconHash = o, n && (h.name = n), d.contributions.push(h), await At(f, l), await H(s, c, f, 3), await H(s, c, f, 4), await H(s, c, f, 5), await H(s, c, f, 6), await H(s, c, f, 7);
 	let g = u.Fr.inv(h.delta.prvKey);
-	await pr(s, c, f, 8, u, "G1", g, u.Fr.e(1), "L Section", a), await pr(s, c, f, 9, u, "G1", g, u.Fr.e(1), "H Section", a), await At(f, u, d), await s.close(), await f.close();
+	await Ir(s, c, f, 8, u, "G1", g, u.Fr.e(1), "L Section", a), await Ir(s, c, f, 9, u, "G1", g, u.Fr.e(1), "H Section", a), await Ht(f, u, d), await s.close(), await f.close();
 	let _ = K.create({ dkLen: 64 });
-	Nt(_, u, h);
+	Gt(_, u, h);
 	let v = _.digest();
 	return a && a.info(q(v, "Contribution Hash: ")), v;
 }
 //#endregion
 //#region src/zkey_export_json.js
-async function ii(e) {
-	let t = await Et(e, !0);
+async function Di(e) {
+	let t = await Rt(e, !0);
 	return delete t.curve, delete t.F, s.stringifyBigInts(t);
 }
 //#endregion
 //#region src/zkey_bellman_contribute.js
-async function ai(e, t, n, r, i) {
-	let a = await pt(r), o = e.Fr.fromRng(a), s = e.Fr.inv(o), c = e.G1.F.n8 * 2, l = e.G2.F.n8 * 2, u = await wn(t), d = await Cn(n);
+async function Oi(e, t, n, r, i) {
+	let a = await wt(r), o = e.Fr.fromRng(a), s = e.Fr.inv(o), c = e.G1.F.n8 * 2, l = e.G2.F.n8 * 2, u = await qn(t), d = await Kn(n);
 	await D(c), await D(c), await D(l), await D(l);
 	let f = await O(), p = e.G1.timesFr(f, o);
 	await A(p);
@@ -4269,9 +4516,9 @@ async function ai(e, t, n, r, i) {
 	let h = await u.readUBE32();
 	await d.writeUBE32(h), await D(h * c);
 	let g = await u.readUBE32();
-	await d.writeUBE32(g), await mr(u, d, null, e, "G1", g, s, e.Fr.e(1), "UNCOMPRESSED", "H", i);
+	await d.writeUBE32(g), await Lr(u, d, null, e, "G1", g, s, e.Fr.e(1), "UNCOMPRESSED", "H", i);
 	let _ = await u.readUBE32();
-	await d.writeUBE32(_), await mr(u, d, null, e, "G1", _, s, e.Fr.e(1), "UNCOMPRESSED", "L", i);
+	await d.writeUBE32(_), await Lr(u, d, null, e, "G1", _, s, e.Fr.e(1), "UNCOMPRESSED", "L", i);
 	let v = await u.readUBE32();
 	await d.writeUBE32(v), await D(v * c);
 	let y = await u.readUBE32();
@@ -4284,16 +4531,16 @@ async function ai(e, t, n, r, i) {
 	S.contributions = [];
 	for (let t = 0; t < C; t++) {
 		let t = { delta: {} };
-		t.deltaAfter = await O(), t.delta.g1_s = await O(), t.delta.g1_sx = await O(), t.delta.g2_spx = await k(), t.transcript = await u.read(64), S.contributions.push(t), Nt(x, e, t);
+		t.deltaAfter = await O(), t.delta.g1_s = await O(), t.delta.g1_sx = await O(), t.delta.g2_spx = await k(), t.transcript = await u.read(64), S.contributions.push(t), Gt(x, e, t);
 	}
 	let w = {};
-	w.delta = {}, w.delta.prvKey = o, w.delta.g1_s = e.G1.toAffine(e.G1.fromRng(a)), w.delta.g1_sx = e.G1.toAffine(e.G1.timesFr(w.delta.g1_s, o)), jt(x, e, w.delta.g1_s), jt(x, e, w.delta.g1_sx), w.transcript = x.digest(), w.delta.g2_sp = Gn(e, w.transcript), w.delta.g2_spx = e.G2.toAffine(e.G2.timesFr(w.delta.g2_sp, o)), w.deltaAfter = p, w.type = 0, S.contributions.push(w), await d.write(S.csHash), await d.writeUBE32(S.contributions.length);
+	w.delta = {}, w.delta.prvKey = o, w.delta.g1_s = e.G1.toAffine(e.G1.fromRng(a)), w.delta.g1_sx = e.G1.toAffine(e.G1.timesFr(w.delta.g1_s, o)), Ut(x, e, w.delta.g1_s), Ut(x, e, w.delta.g1_sx), w.transcript = x.digest(), w.delta.g2_sp = mr(e, w.transcript), w.delta.g2_spx = e.G2.toAffine(e.G2.timesFr(w.delta.g2_sp, o)), w.deltaAfter = p, w.type = 0, S.contributions.push(w), await d.write(S.csHash), await d.writeUBE32(S.contributions.length);
 	for (let e = 0; e < S.contributions.length; e++) {
 		let t = S.contributions[e];
 		await A(t.deltaAfter), await A(t.delta.g1_s), await A(t.delta.g1_sx), await j(t.delta.g2_spx), await d.write(t.transcript);
 	}
 	let T = K.create({ dkLen: 64 });
-	Nt(T, e, w);
+	Gt(T, e, w);
 	let E = T.digest();
 	return i && i.info(q(E, "Contribution Hash: ")), await d.close(), await u.close(), E;
 	async function D(e) {
@@ -4322,20 +4569,20 @@ async function ai(e, t, n, r, i) {
 }
 //#endregion
 //#region src/zkey_export_verificationkey.js
-var { stringifyBigInts: oi } = s;
-async function si(e, t) {
+var { stringifyBigInts: ki } = s;
+async function Ai(e, t) {
 	t && t.info("EXPORT VERIFICATION KEY STARTED");
-	let { fd: n, sections: r } = await I(e, "zkey", 2), i = await St(n, r);
+	let { fd: n, sections: r } = await I(e, "zkey", 2), i = await Pt(n, r);
 	t && t.info("> Detected protocol: " + i.protocol);
 	let a;
-	if (i.protocol === "groth16") a = await ci(i, n, r);
-	else if (i.protocol === "plonk") a = await li(i);
-	else if (i.protocolId && i.protocolId === 10) a = await ui(i, t);
+	if (i.protocol === "groth16") a = await ji(i, n, r);
+	else if (i.protocol === "plonk") a = await Mi(i);
+	else if (i.protocolId && i.protocolId === 10) a = await Ni(i, t);
 	else throw Error("zkey file protocol unrecognized");
 	return await n.close(), t && t.info("EXPORT VERIFICATION KEY FINISHED"), a;
 }
-async function ci(e, t, n) {
-	let r = await ge(e.q), i = r.G1.F.n8 * 2, a = await r.pairing(e.vk_alpha_1, e.vk_beta_2), o = {
+async function ji(e, t, n) {
+	let r = await De(e.q), i = r.G1.F.n8 * 2, a = await r.pairing(e.vk_alpha_1, e.vk_beta_2), o = {
 		protocol: e.protocol,
 		curve: r.name,
 		nPublic: e.nPublic,
@@ -4350,10 +4597,10 @@ async function ci(e, t, n) {
 		let e = await t.read(i), n = r.G1.toObject(e);
 		o.IC.push(n);
 	}
-	return await V(t), o = oi(o), o;
+	return await V(t), o = ki(o), o;
 }
-async function li(e) {
-	let t = await ge(e.q), n = {
+async function Mi(e) {
+	let t = await De(e.q), n = {
 		protocol: e.protocol,
 		curve: t.name,
 		nPublic: e.nPublic,
@@ -4371,11 +4618,11 @@ async function li(e) {
 		X_2: t.G2.toObject(e.X_2),
 		w: t.Fr.toObject(t.Fr.w[e.power])
 	};
-	return n = oi(n), n;
+	return n = ki(n), n;
 }
-async function ui(e, t) {
-	let n = await ge(e.q);
-	return oi({
+async function Ni(e, t) {
+	let n = await De(e.q);
+	return ki({
 		protocol: e.protocol,
 		curve: n.name,
 		nPublic: e.nPublic,
@@ -4393,35 +4640,35 @@ async function ui(e, t) {
 }
 //#endregion
 //#region src/zkey.js
-var di = /* @__PURE__ */ l({
-	beacon: () => ri,
-	bellmanContribute: () => ai,
-	contribute: () => ni,
-	exportBellman: () => Zr,
-	exportJson: () => ii,
+var Pi = /* @__PURE__ */ l({
+	beacon: () => Ei,
+	bellmanContribute: () => Oi,
+	contribute: () => Ti,
+	exportBellman: () => bi,
+	exportJson: () => Di,
 	exportSolidityVerifier: () => null,
-	exportVerificationKey: () => si,
-	importBellman: () => Qr,
-	newZKey: () => Xr,
-	verifyFromInit: () => ei,
-	verifyFromR1cs: () => ti
+	exportVerificationKey: () => Ai,
+	importBellman: () => xi,
+	newZKey: () => yi,
+	verifyFromInit: () => Ci,
+	verifyFromR1cs: () => wi
 });
 //#endregion
 //#region src/plonk_setup.js
-async function fi(t, n, i, a) {
+async function Fi(t, n, i, a) {
 	let o, s, c, l, u;
 	try {
 		globalThis.gc && globalThis.gc(), {fd: o, sections: s} = await I(n, "ptau", 1, 1 << 22, 1 << 24);
-		let { curve: d, power: f } = await Xn(o, s);
+		let { curve: d, power: f } = await yr(o, s);
 		({fd: c, sections: l} = await I(t, "r1cs", 1, 1 << 22, 1 << 24));
-		let p = await jr(c, l, {
+		let p = await ei(c, l, {
 			loadConstraints: !0,
 			loadCustomGates: !0
 		}), m = d.G1.F.n8 * 2, h = d.G1, g = d.G2.F.n8 * 2, _ = d.Fr, v = d.Fr.n8;
 		a && a.info("Reading r1cs");
-		let y = new Yr(), b = new Yr(), x = p.nVars, S = p.nOutputs + p.nPubInputs;
+		let y = new vi(), b = new vi(), x = p.nVars, S = p.nOutputs + p.nPubInputs;
 		if (await j(d.Fr, p, a), globalThis.gc && globalThis.gc(), u = await L(i, "zkey", 1, 14, 1 << 22, 1 << 24), p.prime != d.r) return a && a.error("r1cs curve does not match powers of tau ceremony curve"), -1;
-		let C = rt(y.length - 1) + 1;
+		let C = mt(y.length - 1) + 1;
 		/* c8 ignore start */
 		C < 3 && (C = 3);
 		/* c8 ignore stop */
@@ -4563,7 +4810,7 @@ async function fi(t, n, i, a) {
 			await z(u);
 		}
 		async function ee(t, n) {
-			let r = new e(v * w * 3), i = new Yr(x), o = new Yr(x), s = _.one;
+			let r = new e(v * w * 3), i = new vi(x), o = new vi(x), s = _.one;
 			for (let e = 0; e < w; e++) e < y.length ? (p(y[e][0], e), p(y[e][1], w + e), p(y[e][2], w * 2 + e)) : (p(0, e), p(0, w + e), p(0, w * 2 + e)), s = _.mul(s, _.w[C]), a && e % 1e6 == 0 && a.debug(`writing ${n} phase1: ${e}/${y.length}`);
 			for (let e = 0; e < x; e++) o[e] === void 0 ? console.log("Variable not used") : r.set(i[e], o[e] * v), a && e % 1e6 == 0 && a.debug(`writing ${n} phase2: ${e}/${x}`);
 			globalThis.gc && globalThis.gc(), await R(u, t);
@@ -4591,7 +4838,7 @@ async function fi(t, n, i, a) {
 		async function ne() {
 			await R(u, 1), await u.writeULE32(2), await z(u), await R(u, 2);
 			let e = d.q, t = (Math.floor((r.bitLength(e) - 1) / 64) + 1) * 8, n = d.r, i = (Math.floor((r.bitLength(n) - 1) / 64) + 1) * 8;
-			await u.writeULE32(t), await se(u, e, t), await u.writeULE32(i), await se(u, n, i), await u.writeULE32(x), await u.writeULE32(S), await u.writeULE32(w), await u.writeULE32(b.length), await u.writeULE32(y.length), await u.write(D), await u.write(O), await u.write(h.toAffine(k.Qm)), await u.write(h.toAffine(k.Ql)), await u.write(h.toAffine(k.Qr)), await u.write(h.toAffine(k.Qo)), await u.write(h.toAffine(k.Qc)), await u.write(h.toAffine(k.S1)), await u.write(h.toAffine(k.S2)), await u.write(h.toAffine(k.S3));
+			await u.writeULE32(t), await ve(u, e, t), await u.writeULE32(i), await ve(u, n, i), await u.writeULE32(x), await u.writeULE32(S), await u.writeULE32(w), await u.writeULE32(b.length), await u.writeULE32(y.length), await u.write(D), await u.write(O), await u.write(h.toAffine(k.Qm)), await u.write(h.toAffine(k.Ql)), await u.write(h.toAffine(k.Qr)), await u.write(h.toAffine(k.Qo)), await u.write(h.toAffine(k.Qc)), await u.write(h.toAffine(k.S1)), await u.write(h.toAffine(k.S2)), await u.write(h.toAffine(k.S3));
 			let a;
 			a = await o.read(g, s[3][0].p + g), await u.write(a), await z(u);
 		}
@@ -4631,7 +4878,7 @@ async function fi(t, n, i, a) {
 }
 //#endregion
 //#region src/proof.js
-var pi = class {
+var Ii = class {
 	constructor(e, t) {
 		this.curve = e, this.logger = t, this.resetProof();
 	}
@@ -4670,37 +4917,37 @@ var pi = class {
 			this.evaluations[t] = this.curve.Fr.fromObject(e.evaluations[t]);
 		});
 	}
-}, mi = BigInt(0), hi = BigInt(1), gi = BigInt(2), _i = BigInt(7), vi = BigInt(256), yi = BigInt(113), bi = [], xi = [], Si = [];
-for (let e = 0, t = hi, n = 1, r = 0; e < 24; e++) {
-	[n, r] = [r, (2 * n + 3 * r) % 5], bi.push(2 * (5 * r + n)), xi.push((e + 1) * (e + 2) / 2 % 64);
-	let i = mi;
-	for (let e = 0; e < 7; e++) t = (t << hi ^ (t >> _i) * yi) % vi, t & gi && (i ^= hi << (hi << BigInt(e)) - hi);
-	Si.push(i);
+}, Li = BigInt(0), Ri = BigInt(1), zi = BigInt(2), Bi = BigInt(7), Vi = BigInt(256), Hi = BigInt(113), Ui = [], Wi = [], Gi = [];
+for (let e = 0, t = Ri, n = 1, r = 0; e < 24; e++) {
+	[n, r] = [r, (2 * n + 3 * r) % 5], Ui.push(2 * (5 * r + n)), Wi.push((e + 1) * (e + 2) / 2 % 64);
+	let i = Li;
+	for (let e = 0; e < 7; e++) t = (t << Ri ^ (t >> Bi) * Hi) % Vi, t & zi && (i ^= Ri << (Ri << BigInt(e)) - Ri);
+	Gi.push(i);
 }
-var Ci = Fe(Si, !0), wi = Ci[0], Ti = Ci[1], Ei = (e, t, n) => n > 32 ? We(e, t, n) : He(e, t, n), Di = (e, t, n) => n > 32 ? Ge(e, t, n) : Ue(e, t, n);
-function Oi(e, t = 24) {
-	if (ye(t, "rounds"), t < 1 || t > 24) throw Error("\"rounds\" expected integer 1..24");
+var Ki = Ke(Gi, !0), qi = Ki[0], Ji = Ki[1], Yi = (e, t, n) => n > 32 ? tt(e, t, n) : $e(e, t, n), Xi = (e, t, n) => n > 32 ? nt(e, t, n) : et(e, t, n);
+function Zi(e, t = 24) {
+	if (Ae(t, "rounds"), t < 1 || t > 24) throw Error("\"rounds\" expected integer 1..24");
 	let n = /* @__PURE__ */ new Uint32Array(10);
 	for (let r = 24 - t; r < 24; r++) {
 		for (let t = 0; t < 10; t++) n[t] = e[t] ^ e[t + 10] ^ e[t + 20] ^ e[t + 30] ^ e[t + 40];
 		for (let t = 0; t < 10; t += 2) {
-			let r = (t + 8) % 10, i = (t + 2) % 10, a = n[i], o = n[i + 1], s = Ei(a, o, 1) ^ n[r], c = Di(a, o, 1) ^ n[r + 1];
+			let r = (t + 8) % 10, i = (t + 2) % 10, a = n[i], o = n[i + 1], s = Yi(a, o, 1) ^ n[r], c = Xi(a, o, 1) ^ n[r + 1];
 			for (let n = 0; n < 50; n += 10) e[t + n] ^= s, e[t + n + 1] ^= c;
 		}
 		let t = e[2], i = e[3];
 		for (let n = 0; n < 24; n++) {
-			let r = xi[n], a = Ei(t, i, r), o = Di(t, i, r), s = bi[n];
+			let r = Wi[n], a = Yi(t, i, r), o = Xi(t, i, r), s = Ui[n];
 			t = e[s], i = e[s + 1], e[s] = a, e[s + 1] = o;
 		}
 		for (let t = 0; t < 50; t += 10) {
 			let n = e[t], r = e[t + 1], i = e[t + 2], a = e[t + 3];
 			e[t] ^= ~e[t + 2] & e[t + 4], e[t + 1] ^= ~e[t + 3] & e[t + 5], e[t + 2] ^= ~e[t + 4] & e[t + 6], e[t + 3] ^= ~e[t + 5] & e[t + 7], e[t + 4] ^= ~e[t + 6] & e[t + 8], e[t + 5] ^= ~e[t + 7] & e[t + 9], e[t + 6] ^= ~e[t + 8] & n, e[t + 7] ^= ~e[t + 9] & r, e[t + 8] ^= ~n & i, e[t + 9] ^= ~r & a;
 		}
-		e[0] ^= wi[r], e[1] ^= Ti[r];
+		e[0] ^= qi[r], e[1] ^= Ji[r];
 	}
-	we(n);
+	Fe(n);
 }
-var ki = class e {
+var Qi = class e {
 	state;
 	pos = 0;
 	posOut = 0;
@@ -4714,17 +4961,17 @@ var ki = class e {
 	enableXOF = !1;
 	rounds;
 	constructor(e, t, n, r = !1, i = 24) {
-		if (this.blockLen = e, this.suffix = t, this.outputLen = n, this.enableXOF = r, this.canXOF = r, this.rounds = i, ye(n, "outputLen"), !(0 < e && e < 200)) throw Error("only keccak-f1600 function is supported");
-		this.state = /* @__PURE__ */ new Uint8Array(200), this.state32 = Ce(this.state);
+		if (this.blockLen = e, this.suffix = t, this.outputLen = n, this.enableXOF = r, this.canXOF = r, this.rounds = i, Ae(n, "outputLen"), !(0 < e && e < 200)) throw Error("only keccak-f1600 function is supported");
+		this.state = /* @__PURE__ */ new Uint8Array(200), this.state32 = Pe(this.state);
 	}
 	clone() {
 		return this._cloneInto();
 	}
 	keccak() {
-		ke(this.state32), Oi(this.state32, this.rounds), ke(this.state32), this.posOut = 0, this.pos = 0;
+		Be(this.state32), Zi(this.state32, this.rounds), Be(this.state32), this.posOut = 0, this.pos = 0;
 	}
 	update(e) {
-		xe(this), be(e);
+		Me(this), je(e);
 		let { blockLen: t, state: n } = this, r = e.length;
 		for (let i = 0; i < r;) {
 			let a = Math.min(t - this.pos, r - i);
@@ -4740,7 +4987,7 @@ var ki = class e {
 		e[n] ^= t, t & 128 && n === r - 1 && this.keccak(), e[r - 1] ^= 128, this.keccak();
 	}
 	writeInto(e) {
-		xe(this, !1), be(e), this.finish();
+		Me(this, !1), je(e), this.finish();
 		let t = this.state, { blockLen: n } = this;
 		for (let r = 0, i = e.length; r < i;) {
 			this.posOut >= n && this.keccak();
@@ -4754,10 +5001,10 @@ var ki = class e {
 		return this.writeInto(e);
 	}
 	xof(e) {
-		return ye(e), this.xofInto(new Uint8Array(e));
+		return Ae(e), this.xofInto(new Uint8Array(e));
 	}
 	digestInto(e) {
-		if (Se(e, this), this.finished) throw Error("digest() was already called");
+		if (Ne(e, this), this.finished) throw Error("digest() was already called");
 		this.writeInto(e.subarray(0, this.outputLen)), this.destroy();
 	}
 	digest() {
@@ -4765,13 +5012,13 @@ var ki = class e {
 		return this.digestInto(e), e;
 	}
 	destroy() {
-		this.destroyed = !0, we(this.state);
+		this.destroyed = !0, Fe(this.state);
 	}
 	_cloneInto(t) {
 		let { blockLen: n, suffix: r, outputLen: i, rounds: a, enableXOF: o } = this;
 		return t ||= new e(n, r, i, o, a), t.blockLen = n, t.state32.set(this.state32), t.pos = this.pos, t.posOut = this.posOut, t.finished = this.finished, t.rounds = a, t.suffix = r, t.outputLen = i, t.enableXOF = o, t.canXOF = this.canXOF, t.destroyed = this.destroyed, t;
 	}
-}, Ai = /* @__PURE__ */ ((e, t, n, r = {}) => Ae(() => new ki(t, e, n), r))(1, 136, 32), ji = 0, Mi = 1, Ni = class {
+}, $i = /* @__PURE__ */ ((e, t, n, r = {}) => Ve(() => new Qi(t, e, n), r))(1, 136, 32), ea = 0, ta = 1, na = class {
 	constructor(e) {
 		this.G1 = e.G1, this.Fr = e.Fr, this.reset();
 	}
@@ -4780,26 +5027,26 @@ var ki = class e {
 	}
 	addPolCommitment(e) {
 		this.data.push({
-			type: ji,
+			type: ea,
 			data: e
 		});
 	}
 	addScalar(e) {
 		this.data.push({
-			type: Mi,
+			type: ta,
 			data: e
 		});
 	}
 	getChallenge() {
 		if (this.data.length === 0) throw Error("Keccak256Transcript: No data to generate a transcript");
 		let e = 0, t = 0;
-		this.data.forEach((n) => ji === n.type ? e++ : t++);
+		this.data.forEach((n) => ea === n.type ? e++ : t++);
 		let n = new Uint8Array(t * this.Fr.n8 + e * this.G1.F.n8 * 2), i = 0;
-		for (let e = 0; e < this.data.length; e++) ji === this.data[e].type ? (this.G1.toRprUncompressed(n, i, this.data[e].data), i += this.G1.F.n8 * 2) : (this.Fr.toRprBE(n, i, this.data[e].data), i += this.Fr.n8);
-		let a = r.fromRprBE(Ai(n));
+		for (let e = 0; e < this.data.length; e++) ea === this.data[e].type ? (this.G1.toRprUncompressed(n, i, this.data[e].data), i += this.G1.F.n8 * 2) : (this.Fr.toRprBE(n, i, this.data[e].data), i += this.Fr.n8);
+		let a = r.fromRprBE($i(n));
 		return this.Fr.e(a);
 	}
-}, Pi = class {
+}, ra = class {
 	static getZ1(e) {
 		return [
 			e.zero,
@@ -5191,14 +5438,14 @@ var ki = class e {
 		if (e !== Math.floor(this.eval.byteLength / this.Fr.n8)) throw Error("Polynomial evaluations buffer has incorrect size");
 		return e === 0 && this.logger.warn("Polynomial has length zero"), e;
 	}
-}, { stringifyBigInts: Fi } = s;
-async function Ii(t, n, i, a) {
+}, { stringifyBigInts: ia } = s;
+async function aa(t, n, i, a) {
 	let o, s, c, l;
 	try {
 		({fd: o, sections: s} = await I(n, "wtns", 2, 1 << 25, 1 << 23)), i && i.debug("> Reading witness file");
-		let u = await It(o, s);
+		let u = await Jt(o, s);
 		i && i.debug("> Reading zkey file"), {fd: c, sections: l} = await I(t, "zkey", 2, 1 << 25, 1 << 23);
-		let d = await St(c, l, void 0, a);
+		let d = await Pt(c, l, void 0, a);
 		if (d.protocol != "plonk") throw Error("zkey file is not plonk");
 		if (!r.eq(d.r, u.q)) throw Error("Curve of the witness does not match the curve of the proving key");
 		if (u.nWitness != d.nVars - d.nAdditions) throw Error(`Invalid witness length. Circuit: ${d.nVars}, witness: ${u.nWitness}, ${d.nAdditions}`);
@@ -5206,7 +5453,7 @@ async function Ii(t, n, i, a) {
 		i && (i.debug("----------------------------"), i.debug("  PLONK PROVE SETTINGS"), i.debug(`  Curve:         ${f.name}`), i.debug(`  Circuit power: ${d.power}`), i.debug(`  Domain size:   ${d.domainSize}`), i.debug(`  Vars:          ${d.nVars}`), i.debug(`  Public vars:   ${d.nPublic}`), i.debug(`  Constraints:   ${d.nConstraints}`), i.debug(`  Additions:     ${d.nAdditions}`), i.debug("----------------------------")), i && i.debug("> Reading witness file data");
 		let g = await U(o, s, 2);
 		g.set(p.zero, 0);
-		let _ = new e(m * d.nAdditions), v = {}, y = {}, b = {}, x = {}, S = new pi(f, i), C = new Ni(f);
+		let _ = new e(m * d.nAdditions), v = {}, y = {}, b = {}, x = {}, S = new Ii(f, i), C = new na(f);
 		i && i.debug("> Reading Section 3. Additions"), await D(), i && i.debug("> Reading Section 12. Sigma1, Sigma2 & Sigma 3"), i && i.debug("··· Reading Sigma polynomials "), y.Sigma1 = new X(new e(h), f, i), y.Sigma2 = new X(new e(h), f, i), y.Sigma3 = new X(new e(h), f, i), await c.readToBuffer(y.Sigma1.coef, 0, h, l[12][0].p), await c.readToBuffer(y.Sigma2.coef, 0, h, l[12][0].p + 5 * h), await c.readToBuffer(y.Sigma3.coef, 0, h, l[12][0].p + 10 * h), i && i.debug("··· Reading Sigma evaluations"), b.Sigma1 = new Z(new e(h * 4), f, i), b.Sigma2 = new Z(new e(h * 4), f, i), b.Sigma3 = new Z(new e(h * 4), f, i), await c.readToBuffer(b.Sigma1.eval, 0, h * 4, l[12][0].p + h), await c.readToBuffer(b.Sigma2.eval, 0, h * 4, l[12][0].p + 6 * h), await c.readToBuffer(b.Sigma3.eval, 0, h * 4, l[12][0].p + 11 * h), i && i.debug("> Reading Section 14. Powers of Tau");
 		let w = await U(c, l, 14), T = [];
 		for (let e = 1; e <= d.nPublic; e++) {
@@ -5216,8 +5463,8 @@ async function Ii(t, n, i, a) {
 		i && i.debug(""), i && i.debug("> ROUND 1"), await A(), i && i.debug("> ROUND 2"), await M(), i && i.debug("> ROUND 3"), await P(), i && i.debug("> ROUND 4"), await ee(), i && i.debug("> ROUND 5"), await te(), await c.close(), await o.close();
 		let E = S.toObjectProof(!1);
 		return E.protocol = "plonk", E.curve = f.name, i && i.debug("PLONK PROVER FINISHED"), {
-			proof: Fi(E),
-			publicSignals: Fi(T)
+			proof: ia(E),
+			publicSignals: ia(T)
 		};
 		async function D() {
 			i && i.debug("··· Computing additions");
@@ -5335,7 +5582,7 @@ async function Ii(t, n, i, a) {
 					let n = t * 4 * d.domainSize + e, r = b.Lagrange.getEvaluation(n), i = v.A.slice(t * m, (t + 1) * m);
 					A = p.sub(A, p.mul(r, i));
 				}
-				let [j, M] = Pi.mul2(n, r, S, C, e % 4, p);
+				let [j, M] = ra.mul2(n, r, S, C, e % 4, p);
 				j = p.mul(j, c), M = p.mul(M, c), j = p.add(j, p.mul(n, l)), M = p.add(M, p.mul(S, l)), j = p.add(j, p.mul(r, u)), M = p.add(M, p.mul(C, u)), j = p.add(j, p.mul(a, f)), M = p.add(M, p.mul(w, f)), j = p.add(j, A), j = p.add(j, h);
 				let N = p.mul(x.beta, t), P = n;
 				P = p.add(P, N), P = p.add(P, x.gamma);
@@ -5343,7 +5590,7 @@ async function Ii(t, n, i, a) {
 				F = p.add(F, p.mul(N, d.k1)), F = p.add(F, x.gamma);
 				let ee = a;
 				ee = p.add(ee, p.mul(N, d.k2)), ee = p.add(ee, x.gamma);
-				let te = o, [ne, re] = Pi.mul4(P, F, ee, te, S, C, w, E, e % 4, p);
+				let te = o, [ne, re] = ra.mul4(P, F, ee, te, S, C, w, E, e % 4, p);
 				ne = p.mul(ne, x.alpha), re = p.mul(re, x.alpha);
 				let ie = n;
 				ie = p.add(ie, p.mul(x.beta, g)), ie = p.add(ie, x.gamma);
@@ -5351,14 +5598,14 @@ async function Ii(t, n, i, a) {
 				ae = p.add(ae, p.mul(x.beta, _)), ae = p.add(ae, x.gamma);
 				let oe = a;
 				oe = p.add(oe, p.mul(x.beta, y)), oe = p.add(oe, x.gamma);
-				let I = s, [L, R] = Pi.mul4(ie, ae, oe, I, S, C, w, k, e % 4, p);
-				L = p.mul(L, x.alpha), R = p.mul(R, x.alpha);
-				let z = p.sub(o, p.one);
-				z = p.mul(z, b.Lagrange.getEvaluation(e)), z = p.mul(z, x.alpha2);
-				let B = p.mul(E, b.Lagrange.getEvaluation(e));
-				B = p.mul(B, x.alpha2);
-				let V = p.add(p.sub(p.add(j, ne), L), z), se = p.add(p.sub(p.add(M, re), R), B);
-				v.T.set(V, e * m), v.Tz.set(se, e * m), t = p.mul(t, p.w[d.power + 2]);
+				let se = s, [ce, le] = ra.mul4(ie, ae, oe, se, S, C, w, k, e % 4, p);
+				ce = p.mul(ce, x.alpha), le = p.mul(le, x.alpha);
+				let ue = p.sub(o, p.one);
+				ue = p.mul(ue, b.Lagrange.getEvaluation(e)), ue = p.mul(ue, x.alpha2);
+				let de = p.mul(E, b.Lagrange.getEvaluation(e));
+				de = p.mul(de, x.alpha2);
+				let fe = p.add(p.sub(p.add(j, ne), ce), ue), pe = p.add(p.sub(p.add(M, re), le), de);
+				v.T.set(fe, e * m), v.Tz.set(pe, e * m), t = p.mul(t, p.w[d.power + 2]);
 			}
 			/* c8 ignore start */
 			if (i && i.debug("··· Computing T ifft"), y.T = await X.fromEvaluations(v.T, f, i), i && i.debug("··· Computing T / ZH"), y.T.divZh(d.domainSize, 4), i && i.debug("··· Computing Tz ifft"), y.Tz = await X.fromEvaluations(v.Tz, f, i), y.T.add(y.Tz), y.T.degree() >= d.domainSize * 3 + 6) throw Error("T Polynomial is not well calculated");
@@ -5429,80 +5676,80 @@ async function Ii(t, n, i, a) {
 }
 //#endregion
 //#region src/plonk_fullprove.js
-var { unstringifyBigInts: Li } = s;
-async function Ri(e, t, n, r, i, a) {
-	let o = Li(e), s = { type: "mem" };
-	return await Nn(o, t, s, i), await Ii(n, s, r, a);
+var { unstringifyBigInts: oa } = s;
+async function sa(e, t, n, r, i, a) {
+	let o = oa(e), s = { type: "mem" };
+	return await nr(o, t, s, i), await aa(n, s, r, a);
 }
 //#endregion
 //#region src/plonk_verify.js
-var { unstringifyBigInts: zi } = s;
-async function Bi(e, t, n, r) {
-	let i = zi(e);
-	n = zi(n);
-	let a = zi(t), o = await _e(i.curve), s = o.Fr, c = o.G1;
+var { unstringifyBigInts: ca } = s;
+async function la(e, t, n, r) {
+	let i = ca(e);
+	n = ca(n);
+	let a = ca(t), o = await Oe(i.curve), s = o.Fr, c = o.G1;
 	r && r.info("PLONK VERIFIER STARTED");
-	let l = Vi(o, n);
-	if (i = Hi(o, i), !Ui(o, l)) return r && r.error("Proof commitments are not valid."), !1;
+	let l = ua(o, n);
+	if (i = da(o, i), !fa(o, l)) return r && r.error("Proof commitments are not valid."), !1;
 	if (a.length != i.nPublic) return r && r.error("Invalid number of public inputs"), !1;
-	if (!Ki(o, l)) return r && r.error("Proof evaluations are not valid"), !1;
-	if (!qi(o, a)) return r && r.error("Public inputs are not valid."), !1;
-	let u = Ji(o, l, a, i);
+	if (!ha(o, l)) return r && r.error("Proof evaluations are not valid"), !1;
+	if (!ga(o, a)) return r && r.error("Public inputs are not valid."), !1;
+	let u = _a(o, l, a, i);
 	if (r) {
 		r.debug("beta: " + s.toString(u.beta, 16)), r.debug("gamma: " + s.toString(u.gamma, 16)), r.debug("alpha: " + s.toString(u.alpha, 16)), r.debug("xi: " + s.toString(u.xi, 16));
 		for (let e = 1; e < 6; e++) r && r.debug("v: " + s.toString(u.v[e], 16));
 		r.debug("u: " + s.toString(u.u, 16));
 	}
-	let d = Yi(o, u, i);
+	let d = va(o, u, i);
 	if (r) for (let e = 1; e < d.length; e++) r.debug(`L${e}(xi)=` + s.toString(d[e], 16));
 	if (a.length != i.nPublic) return r && r.error("Number of public signals does not match with vk"), !1;
-	let f = Xi(o, a, d);
+	let f = ya(o, a, d);
 	r && r.debug("PI(xi): " + s.toString(f, 16));
-	let p = Zi(o, l, u, f, d[1]);
+	let p = ba(o, l, u, f, d[1]);
 	r && r.debug("r0: " + s.toString(p, 16));
-	let m = Qi(o, l, u, i, d[1]);
+	let m = xa(o, l, u, i, d[1]);
 	r && r.debug("D: " + c.toString(c.toAffine(m), 16));
-	let h = $i(o, l, u, i, m);
+	let h = Sa(o, l, u, i, m);
 	r && r.debug("F: " + c.toString(c.toAffine(h), 16));
-	let g = ea(o, l, u, p);
+	let g = Ca(o, l, u, p);
 	r && r.debug("E: " + c.toString(c.toAffine(g), 16));
-	let _ = await ta(o, l, u, i, g, h);
+	let _ = await wa(o, l, u, i, g, h);
 	return r && (_ ? r.info("OK!") : r.warn("Invalid Proof")), _;
 }
-function Vi(e, t) {
+function ua(e, t) {
 	let n = e.G1, r = e.Fr, i = {};
 	return i.A = n.fromObject(t.A), i.B = n.fromObject(t.B), i.C = n.fromObject(t.C), i.Z = n.fromObject(t.Z), i.T1 = n.fromObject(t.T1), i.T2 = n.fromObject(t.T2), i.T3 = n.fromObject(t.T3), i.eval_a = r.fromObject(t.eval_a), i.eval_b = r.fromObject(t.eval_b), i.eval_c = r.fromObject(t.eval_c), i.eval_zw = r.fromObject(t.eval_zw), i.eval_s1 = r.fromObject(t.eval_s1), i.eval_s2 = r.fromObject(t.eval_s2), i.Wxi = n.fromObject(t.Wxi), i.Wxiw = n.fromObject(t.Wxiw), i;
 }
-function Hi(e, t) {
+function da(e, t) {
 	let n = e.G1, r = e.G2, i = e.Fr, a = t;
 	return a.Qm = n.fromObject(t.Qm), a.Ql = n.fromObject(t.Ql), a.Qr = n.fromObject(t.Qr), a.Qo = n.fromObject(t.Qo), a.Qc = n.fromObject(t.Qc), a.S1 = n.fromObject(t.S1), a.S2 = n.fromObject(t.S2), a.S3 = n.fromObject(t.S3), a.k1 = i.fromObject(t.k1), a.k2 = i.fromObject(t.k2), a.X_2 = r.fromObject(t.X_2), a;
 }
-function Ui(e, t) {
+function fa(e, t) {
 	let n = e.G1;
 	return !(!n.isValid(t.A) || !n.isValid(t.B) || !n.isValid(t.C) || !n.isValid(t.Z) || !n.isValid(t.T1) || !n.isValid(t.T2) || !n.isValid(t.T3) || !n.isValid(t.Wxi) || !n.isValid(t.Wxiw));
 }
-function Wi(e, t) {
+function pa(e, t) {
 	return r.geq(t, 0) && r.lt(t, e.r);
 }
-function Gi(e, t) {
-	return Wi(e, r.fromRprLE(t));
+function ma(e, t) {
+	return pa(e, r.fromRprLE(t));
 }
-function Ki(e, t) {
-	return Gi(e, t.eval_a) && Gi(e, t.eval_b) && Gi(e, t.eval_c) && Gi(e, t.eval_s1) && Gi(e, t.eval_s2) && Gi(e, t.eval_zw);
+function ha(e, t) {
+	return ma(e, t.eval_a) && ma(e, t.eval_b) && ma(e, t.eval_c) && ma(e, t.eval_s1) && ma(e, t.eval_s2) && ma(e, t.eval_zw);
 }
-function qi(e, t) {
-	for (let n = 0; n < t.length; n++) if (!Wi(e, t[n])) return !1;
+function ga(e, t) {
+	for (let n = 0; n < t.length; n++) if (!pa(e, t[n])) return !1;
 	return !0;
 }
-function Ji(e, t, n, r) {
-	let i = e.Fr, a = {}, o = new Ni(e);
+function _a(e, t, n, r) {
+	let i = e.Fr, a = {}, o = new na(e);
 	o.addPolCommitment(r.Qm), o.addPolCommitment(r.Ql), o.addPolCommitment(r.Qr), o.addPolCommitment(r.Qo), o.addPolCommitment(r.Qc), o.addPolCommitment(r.S1), o.addPolCommitment(r.S2), o.addPolCommitment(r.S3);
 	for (let e = 0; e < n.length; e++) o.addScalar(i.e(n[e]));
 	o.addPolCommitment(t.A), o.addPolCommitment(t.B), o.addPolCommitment(t.C), a.beta = o.getChallenge(), o.reset(), o.addScalar(a.beta), a.gamma = o.getChallenge(), o.reset(), o.addScalar(a.beta), o.addScalar(a.gamma), o.addPolCommitment(t.Z), a.alpha = o.getChallenge(), o.reset(), o.addScalar(a.alpha), o.addPolCommitment(t.T1), o.addPolCommitment(t.T2), o.addPolCommitment(t.T3), a.xi = o.getChallenge(), o.reset(), o.addScalar(a.xi), o.addScalar(t.eval_a), o.addScalar(t.eval_b), o.addScalar(t.eval_c), o.addScalar(t.eval_s1), o.addScalar(t.eval_s2), o.addScalar(t.eval_zw), a.v = [], a.v[1] = o.getChallenge();
 	for (let e = 2; e < 6; e++) a.v[e] = i.mul(a.v[e - 1], a.v[1]);
 	return o.reset(), o.addPolCommitment(t.Wxi), o.addPolCommitment(t.Wxiw), a.u = o.getChallenge(), a;
 }
-function Yi(e, t, n) {
+function va(e, t, n) {
 	let r = e.Fr, i = t.xi, a = 1;
 	for (let e = 0; e < n.power; e++) i = r.square(i), a *= 2;
 	t.xin = i, t.zh = r.sub(i, r.one);
@@ -5510,7 +5757,7 @@ function Yi(e, t, n) {
 	for (let e = 1; e <= Math.max(1, n.nPublic); e++) o[e] = r.div(r.mul(c, t.zh), r.mul(s, r.sub(t.xi, c))), c = r.mul(c, r.w[n.power]);
 	return o;
 }
-function Xi(e, t, n) {
+function ya(e, t, n) {
 	let r = e.Fr, i = r.zero;
 	for (let e = 0; e < t.length; e++) {
 		let a = r.e(t[e]);
@@ -5518,7 +5765,7 @@ function Xi(e, t, n) {
 	}
 	return i;
 }
-function Zi(e, t, n, r, i) {
+function ba(e, t, n, r, i) {
 	let a = e.Fr, o = r, s = a.mul(i, a.square(n.alpha)), c = a.add(t.eval_a, a.mul(n.beta, t.eval_s1));
 	c = a.add(c, n.gamma);
 	let l = a.add(t.eval_b, a.mul(n.beta, t.eval_s2));
@@ -5526,21 +5773,21 @@ function Zi(e, t, n, r, i) {
 	let u = a.add(t.eval_c, n.gamma), d = a.mul(a.mul(c, l), u);
 	return d = a.mul(d, t.eval_zw), d = a.mul(d, n.alpha), a.sub(a.sub(o, s), d);
 }
-function Qi(e, t, n, r, i) {
+function xa(e, t, n, r, i) {
 	let a = e.G1, o = e.Fr, s = a.timesFr(r.Qm, o.mul(t.eval_a, t.eval_b));
 	s = a.add(s, a.timesFr(r.Ql, t.eval_a)), s = a.add(s, a.timesFr(r.Qr, t.eval_b)), s = a.add(s, a.timesFr(r.Qo, t.eval_c)), s = a.add(s, r.Qc);
 	let c = o.mul(n.beta, n.xi), l = o.add(o.add(t.eval_a, c), n.gamma), u = o.add(o.add(t.eval_b, o.mul(c, r.k1)), n.gamma), d = o.add(o.add(t.eval_c, o.mul(c, r.k2)), n.gamma), f = o.mul(o.mul(o.mul(l, u), d), n.alpha), p = o.mul(i, o.square(n.alpha)), m = a.timesFr(t.Z, o.add(o.add(f, p), n.u)), h = o.add(o.add(t.eval_a, o.mul(n.beta, t.eval_s1)), n.gamma), g = o.add(o.add(t.eval_b, o.mul(n.beta, t.eval_s2)), n.gamma), _ = o.mul(o.mul(n.alpha, n.beta), t.eval_zw), v = a.timesFr(r.S3, o.mul(o.mul(h, g), _)), y = t.T1, b = a.timesFr(t.T2, n.xin), x = a.timesFr(t.T3, o.square(n.xin)), S = a.add(y, a.add(b, x));
 	return S = a.timesFr(S, n.zh), a.sub(a.sub(a.add(s, m), v), S);
 }
-function $i(e, t, n, r, i) {
+function Sa(e, t, n, r, i) {
 	let a = e.G1, o = a.add(i, a.timesFr(t.A, n.v[1]));
 	return o = a.add(o, a.timesFr(t.B, n.v[2])), o = a.add(o, a.timesFr(t.C, n.v[3])), o = a.add(o, a.timesFr(r.S1, n.v[4])), o = a.add(o, a.timesFr(r.S2, n.v[5])), o;
 }
-function ea(e, t, n, r) {
+function Ca(e, t, n, r) {
 	let i = e.G1, a = e.Fr, o = a.add(a.neg(r), a.mul(n.v[1], t.eval_a));
 	return o = a.add(o, a.mul(n.v[2], t.eval_b)), o = a.add(o, a.mul(n.v[3], t.eval_c)), o = a.add(o, a.mul(n.v[4], t.eval_s1)), o = a.add(o, a.mul(n.v[5], t.eval_s2)), o = a.add(o, a.mul(n.u, t.eval_zw)), i.timesFr(i.one, o);
 }
-async function ta(e, t, n, r, i, a) {
+async function wa(e, t, n, r, i, a) {
 	let o = e.G1, s = e.Fr, c = t.Wxi;
 	c = o.add(c, o.timesFr(t.Wxiw, n.u));
 	let l = o.timesFr(t.Wxi, n.xi), u = s.mul(s.mul(n.u, n.xi), s.w[r.power]);
@@ -5548,31 +5795,31 @@ async function ta(e, t, n, r, i, a) {
 }
 //#endregion
 //#region src/plonk_exportsoliditycalldata.js
-var { unstringifyBigInts: na } = s;
+var { unstringifyBigInts: Ta } = s;
 function Q(e) {
 	let t = e.toString(16);
 	for (; t.length < 64;) t = "0" + t;
 	return t = `"0x${t}"`, t;
 }
-async function ra(e, t) {
-	let n = na(e), r = na(t);
-	await _e(n.curve);
+async function Ea(e, t) {
+	let n = Ta(e), r = Ta(t);
+	await Oe(n.curve);
 	let i = "";
 	for (let e = 0; e < r.length; e++) i != "" && (i += ","), i += Q(r[e]);
 	return `[${Q(n.A[0])}, ${Q(n.A[1])},${Q(n.B[0])},${Q(n.B[1])},${Q(n.C[0])},${Q(n.C[1])},${Q(n.Z[0])},${Q(n.Z[1])},${Q(n.T1[0])},${Q(n.T1[1])},${Q(n.T2[0])},${Q(n.T2[1])},${Q(n.T3[0])},${Q(n.T3[1])},${Q(n.Wxi[0])},${Q(n.Wxi[1])},${Q(n.Wxiw[0])},${Q(n.Wxiw[1])},${Q(n.eval_a)},${Q(n.eval_b)},${Q(n.eval_c)},${Q(n.eval_s1)},${Q(n.eval_s2)},${Q(n.eval_zw)}][${i}]`;
 }
 //#endregion
 //#region src/plonk.js
-var ia = /* @__PURE__ */ l({
-	exportSolidityCallData: () => ra,
-	fullProve: () => Ri,
-	prove: () => Ii,
-	setup: () => fi,
-	verify: () => Bi
+var Da = /* @__PURE__ */ l({
+	exportSolidityCallData: () => Ea,
+	fullProve: () => sa,
+	prove: () => aa,
+	setup: () => Fi,
+	verify: () => la
 });
 //#endregion
 //#region src/plonk_equation.js
-function aa(e, t) {
+function Oa(e, t) {
 	return [
 		e,
 		0,
@@ -5584,7 +5831,7 @@ function aa(e, t) {
 		t.zero
 	];
 }
-function oa(e, t, n, r, i, a, o, s) {
+function ka(e, t, n, r, i, a, o, s) {
 	return [
 		e,
 		t,
@@ -5596,7 +5843,7 @@ function oa(e, t, n, r, i, a, o, s) {
 		s
 	];
 }
-function sa(e, t, n, r, i, a, o, s, c) {
+function Aa(e, t, n, r, i, a, o, s, c) {
 	return [
 		e,
 		t,
@@ -5610,20 +5857,20 @@ function sa(e, t, n, r, i, a, o, s, c) {
 }
 //#endregion
 //#region src/r1cs_constraint_processor.js
-var ca = 0, la = 1, ua = 2, da = class {
+var ja = 0, Ma = 1, Na = 2, Pa = class {
 	constructor(e, t, n, r, i) {
 		this.Fr = e, this.logger = i, this.fnGetAdditionConstraint = n, this.fnGetMultiplicationConstraint = r;
 	}
 	processR1csConstraint(e, t, n, r) {
 		this.normalizeLinearCombination(t), this.normalizeLinearCombination(n), this.normalizeLinearCombination(r);
 		let i = this.getLinearCombinationType(t), a = this.getLinearCombinationType(n);
-		if (i === ca || a === ca) return this.processR1csAdditionConstraint(e, r);
-		if (i === la) {
+		if (i === ja || a === ja) return this.processR1csAdditionConstraint(e, r);
+		if (i === Ma) {
 			/* c8 ignore start */
 			let i = this.joinLinearCombinations(n, r, t[0]);
 			return this.processR1csAdditionConstraint(e, i);
 		}
-		if (a === la) {
+		if (a === Ma) {
 			let i = this.joinLinearCombinations(t, r, n[0]);
 			return this.processR1csAdditionConstraint(e, i);
 		}
@@ -5634,9 +5881,9 @@ var ca = 0, la = 1, ua = 2, da = class {
 		for (let i = 0; i < r.length; i++)
  /* c8 ignore start */
 		e[r[i]] == 0n ? delete e[r[i]] : r[i] == 0 ? t = this.Fr.add(t, e[r[i]]) : n++;
-		return n > 0 ? ua : 
+		return n > 0 ? Na : 
 		/* c8 ignore next */
-		this.Fr.isZero(t) ? ca : la;
+		this.Fr.isZero(t) ? ja : Ma;
 	}
 	normalizeLinearCombination(e) {
 		let t = Object.keys(e);
@@ -5684,7 +5931,7 @@ var ca = 0, la = 1, ua = 2, da = class {
 		let i = [], a = [], o = this.reduceCoefs(e, i, a, t, 1), s = this.reduceCoefs(e, i, a, n, 1), c = this.reduceCoefs(e, i, a, r, 1), l = this.fnGetMultiplicationConstraint(o.signals[0], s.signals[0], c.signals[0], this.Fr.mul(o.coefs[0], s.k), this.Fr.mul(o.k, s.coefs[0]), this.Fr.mul(o.coefs[0], s.coefs[0]), this.Fr.neg(c.coefs[0]), this.Fr.sub(this.Fr.mul(o.k, s.k), c.k));
 		return i.push(l), [i, a];
 	}
-}, fa = class {
+}, Fa = class {
 	constructor(e, t, n) {
 		this.n = e, this.polynomials = Array(e).fill(void 0), this.curve = t, this.Fr = t.Fr, this.G1 = t.G1, this.logger = n;
 	}
@@ -5697,7 +5944,7 @@ var ca = 0, la = 1, ua = 2, da = class {
 		return Math.max(...e);
 	}
 	getPolynomial() {
-		let t = this.polynomials.map((e) => e === void 0 ? 0 : e.degree()), n = this.degree(), r = 2 ** (rt(n - 1) + 1), i = this.Fr.n8, a = new X(new e(r * i), this.curve, this.logger);
+		let t = this.polynomials.map((e) => e === void 0 ? 0 : e.degree()), n = this.degree(), r = 2 ** (mt(n - 1) + 1), i = this.Fr.n8, a = new X(new e(r * i), this.curve, this.logger);
 		for (let e = 0; e < n; e++) {
 			let n = e * i, r = n * this.n;
 			for (let o = 0; o < this.n; o++) this.polynomials[o] !== void 0 && e <= t[o] && a.coef.set(this.polynomials[o].coef.slice(n, n + i), r + o * i);
@@ -5711,14 +5958,14 @@ var ca = 0, la = 1, ua = 2, da = class {
 };
 //#endregion
 //#region src/fflonk_setup.js
-async function pa(t, n, i, a) {
+async function Ia(t, n, i, a) {
 	let o, s, c, l, u;
 	try {
 		if (a && a.info("FFLONK SETUP STARTED"), globalThis.gc && globalThis.gc(), a && a.info("> Reading PTau file"), {fd: o, sections: s} = await I(n, "ptau", 1, 1 << 22, 1 << 24), !s[12]) throw Error("Powers of Tau is not well prepared. Section 12 missing.");
 		a && a.info("> Getting curve from PTau settings");
-		let { curve: d } = await Xn(o, s);
+		let { curve: d } = await yr(o, s);
 		a && a.info("> Reading r1cs file"), {fd: c, sections: l} = await I(t, "r1cs", 1, 1 << 22, 1 << 24);
-		let f = await jr(c, l, {
+		let f = await ei(c, l, {
 			loadConstraints: !1,
 			loadCustomGates: !0
 		});
@@ -5726,8 +5973,8 @@ async function pa(t, n, i, a) {
 		let p = d.Fr, m = d.Fr.n8, h = d.G1.F.n8 * 2, g = d.G2.F.n8 * 2, _ = {}, v = {}, y, b = {
 			nVars: f.nVars,
 			nPublic: f.nOutputs + f.nPubInputs
-		}, x = new Yr(), S = new Yr();
-		if (a && a.info("> Processing FFlonk constraints"), await k(d.Fr, f, a), globalThis.gc && globalThis.gc(), b.cirPower = Math.max(3, rt(x.length + 2 - 1) + 1), b.domainSize = 2 ** b.cirPower, s[2][0].size < (b.domainSize * 9 + 18) * h) throw Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
+		}, x = new vi(), S = new vi();
+		if (a && a.info("> Processing FFlonk constraints"), await k(d.Fr, f, a), globalThis.gc && globalThis.gc(), b.cirPower = Math.max(3, mt(x.length + 2 - 1) + 1), b.domainSize = 2 ** b.cirPower, s[2][0].size < (b.domainSize * 9 + 18) * h) throw Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
 		/* c8 ignore start */
 		if (s[3][0].size < g) throw Error("Powers of Tau is not well prepared. Section 3 too small.");
 		a && (a.info("----------------------------"), a.info("  FFLONK SETUP SETTINGS"), a.info(`  Curve:         ${d.name}`), a.info(`  Circuit power: ${b.cirPower}`), a.info(`  Domain size:   ${b.domainSize}`), a.info(`  Vars:          ${b.nVars}`), a.info(`  Public vars:   ${b.nPublic}`), a.info(`  Constraints:   ${x.length}`), a.info(`  Additions:     ${S.length}`), a.info("----------------------------")), a && a.info("> computing k1 and k2");
@@ -5735,15 +5982,15 @@ async function pa(t, n, i, a) {
 		a && a.info("> computing w3");
 		let T = oe();
 		a && a.info("> computing w4");
-		let E = B();
+		let E = se();
 		a && a.info("> computing w8");
-		let D = V();
+		let D = ce();
 		a && a.info("> computing wr");
-		let O = ce(b.cirPower, d.Fr);
+		let O = le(b.cirPower, d.Fr);
 		return await A(), await c.close(), await o.close(), a && a.info("FFLONK SETUP FINISHED"), 0;
 		async function k(e, t, n) {
-			for (let t = 0; t < b.nPublic; t++) x.push(aa(t + 1, e));
-			let r = new da(e, aa, oa, sa, n), i = await U(c, l, 2), a = 0;
+			for (let t = 0; t < b.nPublic; t++) x.push(Oa(t + 1, e));
+			let r = new Pa(e, Oa, ka, Aa, n), i = await U(c, l, 2), a = 0;
 			for (let e = 0; e < t.nConstraints; e++) {
 				/* c8 ignore start */
 				n && e !== 0 && e % 5e5 == 0 && n.info(`    processing r1cs constraints ${e}/${t.nConstraints}`);
@@ -5802,7 +6049,7 @@ async function pa(t, n, i, a) {
 			_[i] = await X.fromEvaluations(o, d, a), v[i] = await Z.fromPolynomial(_[i], 4, d, a), await R(t, n), await t.write(_[i].coef), await t.write(v[i].eval), await z(t);
 		}
 		async function F(t) {
-			let n = new e(m * b.domainSize * 3), r = new Yr(b.nVars), i = new Yr(b.nVars), o = p.one;
+			let n = new e(m * b.domainSize * 3), r = new vi(b.nVars), i = new vi(b.nVars), o = p.one;
 			for (let e = 0; e < b.domainSize; e++)
  /* c8 ignore start */
 			e < x.length ? (s(x[e][0], e), s(x[e][1], b.domainSize + e), s(x[e][2], b.domainSize * 2 + e)) : e < b.domainSize - 2 ? (s(0, e), s(0, b.domainSize + e), s(0, b.domainSize * 2 + e)) : (n.set(o, e * m), n.set(p.mul(o, C), (b.domainSize + e) * m), n.set(p.mul(o, w), (b.domainSize * 2 + e) * m)), o = p.mul(o, p.w[b.cirPower]), a && e !== 0 && e % 5e5 == 0 && a.info(`      writing sigma phase1: ${e}/${x.length}`);
@@ -5836,7 +6083,7 @@ async function pa(t, n, i, a) {
 			await R(t, 16), y = new e((b.domainSize * 9 + 18) * h), await o.readToBuffer(y, 0, (b.domainSize * 9 + 18) * h, s[2][0].p), await t.write(y), await z(t);
 		}
 		async function ne(e) {
-			let t = new fa(8, d, a);
+			let t = new Fa(8, d, a);
 			/* c8 ignore start */
 			if (t.addPolynomial(0, _.QL), t.addPolynomial(1, _.QR), t.addPolynomial(2, _.QO), t.addPolynomial(3, _.QM), t.addPolynomial(4, _.QC), t.addPolynomial(5, _.S1), t.addPolynomial(6, _.S2), t.addPolynomial(7, _.S3), _.C0 = t.getPolynomial(), _.C0.degree() >= 8 * b.domainSize) throw Error("C0 Polynomial is not well calculated");
 			await R(e, 17), await e.write(_.C0.coef), await z(e);
@@ -5844,9 +6091,9 @@ async function pa(t, n, i, a) {
 		async function re(e) {
 			await R(e, 2);
 			let t = d.q, n = (Math.floor((r.bitLength(t) - 1) / 64) + 1) * 8;
-			await e.writeULE32(n), await se(e, t, n);
+			await e.writeULE32(n), await ve(e, t, n);
 			let i = d.r, a = (Math.floor((r.bitLength(i) - 1) / 64) + 1) * 8;
-			await e.writeULE32(a), await se(e, i, a), await e.writeULE32(b.nVars), await e.writeULE32(b.nPublic), await e.writeULE32(b.domainSize), await e.writeULE32(S.length), await e.writeULE32(x.length), await e.write(C), await e.write(w), await e.write(T), await e.write(E), await e.write(D), await e.write(O);
+			await e.writeULE32(a), await ve(e, i, a), await e.writeULE32(b.nVars), await e.writeULE32(b.nPublic), await e.writeULE32(b.domainSize), await e.writeULE32(S.length), await e.writeULE32(x.length), await e.write(C), await e.write(w), await e.write(T), await e.write(E), await e.write(D), await e.write(O);
 			let c;
 			c = await o.read(g, s[3][0].p + g), await e.write(c);
 			let l = await _.C0.multiExponentiation(y, "C0");
@@ -5884,13 +6131,13 @@ async function pa(t, n, i, a) {
 			let e = p.e(31624), t = r.div(3648040478639879203707734290876212514758060733402672390616367364429301415936n, r.e(3));
 			return p.exp(e, t);
 		}
-		function B() {
+		function se() {
 			return p.w[2];
 		}
-		function V() {
+		function ce() {
 			return p.w[3];
 		}
-		function ce(e, t) {
+		function le(e, t) {
 			let n = t.e(467799165886069610036046866799264026481344299079011762026774533774345988080n);
 			return t.exp(n, 2 ** (28 - e));
 		}
@@ -5906,14 +6153,14 @@ async function pa(t, n, i, a) {
 }
 //#endregion
 //#region src/fflonk_prove.js
-var { stringifyBigInts: ma } = s;
-async function ha(t, n, i, a) {
+var { stringifyBigInts: La } = s;
+async function Ra(t, n, i, a) {
 	let o, s, c, l;
 	try {
 		i && i.info("FFLONK PROVER STARTED"), i && i.info("> Reading witness file"), {fd: o, sections: s} = await I(n, "wtns", 2, 1 << 25, 1 << 23);
-		let u = await It(o, s);
+		let u = await Jt(o, s);
 		i && i.info("> Reading zkey file"), {fd: c, sections: l} = await I(t, "zkey", 2, 1 << 25, 1 << 23);
-		let d = await St(c, l, void 0, a);
+		let d = await Pt(c, l, void 0, a);
 		if (d.protocolId !== 10) throw Error("zkey file is not fflonk");
 		if (!r.eq(d.r, u.q)) throw Error("Curve of the witness does not match the curve of the proving key");
 		if (u.nWitness !== d.nVars - d.nAdditions) throw Error(`Invalid witness length. Circuit: ${d.nVars}, witness: ${u.nWitness}, ${d.nAdditions}`);
@@ -5921,7 +6168,7 @@ async function ha(t, n, i, a) {
 		i && (i.info("----------------------------"), i.info("  FFLONK PROVE SETTINGS"), i.info(`  Curve:         ${f.name}`), i.info(`  Circuit power: ${d.power}`), i.info(`  Domain size:   ${d.domainSize}`), i.info(`  Vars:          ${d.nVars}`), i.info(`  Public vars:   ${d.nPublic}`), i.info(`  Constraints:   ${d.nConstraints}`), i.info(`  Additions:     ${d.nAdditions}`), i.info("----------------------------")), i && i.info("> Reading witness file data");
 		let _ = await U(o, s, 2);
 		await o.close(), _.set(p.zero, 0);
-		let v = new e(d.nAdditions * m), y = {}, b = {}, x = {}, S = {}, C = {}, w = {}, T = new pi(f, i);
+		let v = new e(d.nAdditions * m), y = {}, b = {}, x = {}, S = {}, C = {}, w = {}, T = new Ii(f, i);
 		i && i.info("> Reading Section 3. Additions"), await k(), i && i.info("> Reading Sections 12,13,14. Sigma1, Sigma2 & Sigma 3"), i && i.info("··· Reading Sigma polynomials "), b.Sigma1 = new X(new e(g), f, i), b.Sigma2 = new X(new e(g), f, i), b.Sigma3 = new X(new e(g), f, i), await c.readToBuffer(b.Sigma1.coef, 0, g, l[12][0].p), await c.readToBuffer(b.Sigma2.coef, 0, g, l[13][0].p), await c.readToBuffer(b.Sigma3.coef, 0, g, l[14][0].p), i && i.info("··· Reading Sigma evaluations"), x.Sigma1 = new Z(new e(g * 4), f, i), x.Sigma2 = new Z(new e(g * 4), f, i), x.Sigma3 = new Z(new e(g * 4), f, i), await c.readToBuffer(x.Sigma1.eval, 0, g * 4, l[12][0].p + g), await c.readToBuffer(x.Sigma2.eval, 0, g * 4, l[13][0].p + g), await c.readToBuffer(x.Sigma3.eval, 0, g * 4, l[14][0].p + g), i && i.info("> Reading Section 16. Powers of Tau");
 		let E = new e(d.domainSize * 16 * h);
 		await c.readToBuffer(E, 0, (d.domainSize * 9 + 18) * h, l[16][0].p), globalThis.gc && globalThis.gc(), i && i.info(""), i && i.info("> ROUND 1"), await M(), delete b.T0, delete x.QL, delete x.QR, delete x.QM, delete x.QO, delete x.QC, globalThis.gc && globalThis.gc(), i && i.info("> ROUND 2"), await N(), delete y.A, delete y.B, delete y.C, delete x.A, delete x.B, delete x.C, delete x.Sigma1, delete x.Sigma2, delete x.Sigma3, delete x.lagrange1, delete x.Z, globalThis.gc && globalThis.gc(), i && i.info("> ROUND 3"), await P(), delete b.A, delete b.B, delete b.C, delete b.Z, delete b.T1, delete b.T2, delete b.Sigma1, delete b.Sigma2, delete b.Sigma3, delete b.QL, delete b.QR, delete b.QM, delete b.QC, delete b.QO, globalThis.gc && globalThis.gc(), i && i.info("> ROUND 4"), await F(), globalThis.gc && globalThis.gc(), i && i.info("> ROUND 5"), await ee(), delete b.C0, delete b.C1, delete b.C2, delete b.R1, delete b.R2, delete b.F, delete b.L, delete b.ZT, delete b.ZTS2, await c.close(), globalThis.gc && globalThis.gc(), T.addEvaluation("inv", te());
@@ -5933,8 +6180,8 @@ async function ha(t, n, i, a) {
 			O.push(r.fromRprLE(n));
 		}
 		return i && i.info("FFLONK PROVER FINISHED"), {
-			proof: ma(D),
-			publicSignals: ma(O)
+			proof: La(D),
+			publicSignals: La(O)
 		};
 		async function k() {
 			i && i.info("··· Computing additions");
@@ -6017,7 +6264,7 @@ async function ha(t, n, i, a) {
 				delete y.T0;
 			}
 			async function a() {
-				let e = new fa(4, f, i);
+				let e = new Fa(4, f, i);
 				/* c8 ignore start */
 				if (e.addPolynomial(0, b.A), e.addPolynomial(1, b.B), e.addPolynomial(2, b.C), e.addPolynomial(3, b.T0), b.C1 = e.getPolynomial(), b.C1.degree() >= 8 * d.domainSize - 8) throw Error("C1 Polynomial is not well calculated");
 				/* c8 ignore stop */
@@ -6025,7 +6272,7 @@ async function ha(t, n, i, a) {
 		}
 		async function N() {
 			i && i.info("> Computing challenges beta and gamma");
-			let t = new Ni(f);
+			let t = new na(f);
 			t.addPolCommitment(d.C0);
 			for (let e = 0; e < d.nPublic; e++) t.addScalar(y.A.slice(e * m, e * m + m));
 			t.addPolCommitment(T.getPolynomial("C1")), C.beta = t.getChallenge(), i && i.info("··· challenges.beta: " + p.toString(C.beta)), t.reset(), t.addScalar(C.beta), C.gamma = t.getChallenge(), i && i.info("··· challenges.gamma: " + p.toString(C.gamma)), i && i.info("> Computing Z polynomial"), await r(), i && i.info("> Computing T1 polynomial"), await a(), i && i.info("> Computing T2 polynomial"), await o(), i && i.info("> Computing C2 polynomial"), await s(), i && i.info("> Computing C2 multi exponentiation");
@@ -6112,7 +6359,7 @@ async function ha(t, n, i, a) {
 				delete y.T2, delete y.T2z, delete b.T2z;
 			}
 			async function s() {
-				let e = new fa(3, f, i);
+				let e = new Fa(3, f, i);
 				/* c8 ignore start */
 				if (e.addPolynomial(0, b.Z), e.addPolynomial(1, b.T1), e.addPolynomial(2, b.T2), b.C2 = e.getPolynomial(), b.C2.degree() >= 9 * d.domainSize) throw Error("C2 Polynomial is not well calculated");
 				/* c8 ignore stop */
@@ -6120,7 +6367,7 @@ async function ha(t, n, i, a) {
 		}
 		async function P() {
 			i && i.info("> Computing challenge xi");
-			let t = new Ni(f);
+			let t = new na(f);
 			t.addScalar(C.gamma), t.addPolCommitment(T.getPolynomial("C2")), C.xiSeed = t.getChallenge();
 			let n = p.square(C.xiSeed);
 			w.w8 = [], w.w8[0] = p.one;
@@ -6135,7 +6382,7 @@ async function ha(t, n, i, a) {
 		}
 		async function F() {
 			i && i.info("> Computing challenge alpha");
-			let t = new Ni(f);
+			let t = new na(f);
 			t.addScalar(C.xiSeed), t.addScalar(T.getEvaluation("ql")), t.addScalar(T.getEvaluation("qr")), t.addScalar(T.getEvaluation("qm")), t.addScalar(T.getEvaluation("qo")), t.addScalar(T.getEvaluation("qc")), t.addScalar(T.getEvaluation("s1")), t.addScalar(T.getEvaluation("s2")), t.addScalar(T.getEvaluation("s3")), t.addScalar(T.getEvaluation("a")), t.addScalar(T.getEvaluation("b")), t.addScalar(T.getEvaluation("c")), t.addScalar(T.getEvaluation("z")), t.addScalar(T.getEvaluation("zw")), t.addScalar(T.getEvaluation("t1w")), t.addScalar(T.getEvaluation("t2w")), C.alpha = t.getChallenge(), i && i.info("··· challenges.alpha: " + p.toString(C.alpha)), i && i.info("> Reading C0 polynomial"), b.C0 = new X(new e(g * 8), f, i), await c.readToBuffer(b.C0.coef, 0, g * 8, l[17][0].p), i && i.info("> Computing R0 polynomial"), r(), i && i.info("> Computing R1 polynomial"), a(), i && i.info("> Computing R2 polynomial"), o(), i && i.info("> Computing F polynomial"), await s(), i && i.info("> Computing W1 multi exponentiation");
 			let n = await b.F.multiExponentiation(E, "W1");
 			return T.addPolynomial("W1", n), 0;
@@ -6208,7 +6455,7 @@ async function ha(t, n, i, a) {
 		}
 		async function ee() {
 			i && i.info("> Computing challenge y");
-			let e = new Ni(f);
+			let e = new na(f);
 			e.addScalar(C.alpha), e.addPolCommitment(T.getPolynomial("W1")), C.y = e.getChallenge(), i && i.info("··· challenges.y: " + p.toString(C.y)), i && i.info("> Computing L polynomial"), await o(), i && i.info("> Computing ZTS2 polynomial"), await c();
 			let t = b.ZTS2.evaluate(C.y);
 			t = p.inv(t), b.L.mulScalar(t);
@@ -6333,69 +6580,69 @@ async function ha(t, n, i, a) {
 }
 //#endregion
 //#region src/fflonk_full_prove.js
-var { unstringifyBigInts: ga } = s;
-async function _a(e, t, n, r, i, a) {
-	let o = ga(e), s = { type: "mem" };
-	return await Nn(o, t, s, i), await ha(n, s, r, a);
+var { unstringifyBigInts: za } = s;
+async function Ba(e, t, n, r, i, a) {
+	let o = za(e), s = { type: "mem" };
+	return await nr(o, t, s, i), await Ra(n, s, r, a);
 }
 //#endregion
 //#region src/fflonk_verify.js
-var { unstringifyBigInts: va } = s;
-async function ya(e, t, n, r) {
-	r && r.info("FFLONK VERIFIER STARTED"), e = va(e), n = va(n);
-	let i = await _e(e.curve), a = ba(i, e), o = new pi(i, r);
+var { unstringifyBigInts: Va } = s;
+async function Ha(e, t, n, r) {
+	r && r.info("FFLONK VERIFIER STARTED"), e = Va(e), n = Va(n);
+	let i = await Oe(e.curve), a = Ua(i, e), o = new Ii(i, r);
 	o.fromObjectProof(n);
-	let s = va(t);
+	let s = Va(t);
 	if (s.length !== a.nPublic) return r && r.error("Number of public signals does not match with vk"), !1;
 	let c = i.Fr;
-	if (r && (r.info("----------------------------"), r.info("  FFLONK VERIFY SETTINGS"), r.info(`  Curve:         ${i.name}`), r.info(`  Circuit power: ${a.power}`), r.info(`  Domain size:   ${2 ** a.power}`), r.info(`  Public vars:   ${a.nPublic}`), r.info("----------------------------")), r && r.info("> Checking commitments belong to G1"), !xa(i, o, a)) return r && r.error("Proof commitments are not valid"), !1;
-	if (r && r.info("> Checking evaluations belong to F"), !wa(i, o)) return r && r.error("Proof evaluations are not valid."), !1;
-	if (r && r.info("> Checking public inputs belong to F"), !Ta(i, s)) return r && r.error("Public inputs are not valid."), !1;
+	if (r && (r.info("----------------------------"), r.info("  FFLONK VERIFY SETTINGS"), r.info(`  Curve:         ${i.name}`), r.info(`  Circuit power: ${a.power}`), r.info(`  Domain size:   ${2 ** a.power}`), r.info(`  Public vars:   ${a.nPublic}`), r.info("----------------------------")), r && r.info("> Checking commitments belong to G1"), !Wa(i, o, a)) return r && r.error("Proof commitments are not valid"), !1;
+	if (r && r.info("> Checking evaluations belong to F"), !qa(i, o)) return r && r.error("Proof evaluations are not valid."), !1;
+	if (r && r.info("> Checking public inputs belong to F"), !Ja(i, s)) return r && r.error("Public inputs are not valid."), !1;
 	r && r.info("> Computing challenges");
-	let { challenges: l, roots: u } = Ea(i, o, a, s, r);
+	let { challenges: l, roots: u } = Ya(i, o, a, s, r);
 	r && r.info("> Computing Zero polynomial evaluation Z_H(xi)"), l.zh = c.sub(l.xiN, c.one), l.invzh = c.inv(l.zh), r && r.info("> Computing Lagrange evaluations");
-	let d = await Da(i, l, a);
+	let d = await Xa(i, l, a);
 	r && r.info("> Computing polynomial identities PI(X)");
-	let f = Oa(i, s, d);
+	let f = Za(i, s, d);
 	r && r.info("> Computing r0(y)");
-	let p = ka(o, l, u, i, r);
+	let p = Qa(o, l, u, i, r);
 	r && r.info("> Computing r1(y)");
-	let m = Aa(o, l, u, f, i, r);
+	let m = $a(o, l, u, f, i, r);
 	r && r.info("> Computing r2(y)");
-	let h = ja(o, l, u, d[1], a, i, r);
+	let h = eo(o, l, u, d[1], a, i, r);
 	r && r.info("> Computing F");
-	let g = Ma(i, o, a, l, u);
+	let g = to(i, o, a, l, u);
 	r && r.info("> Computing E");
-	let _ = Na(i, o, l, a, p, m, h);
+	let _ = no(i, o, l, a, p, m, h);
 	r && r.info("> Computing J");
-	let v = Pa(i, o, l);
+	let v = ro(i, o, l);
 	r && r.info("> Validate all evaluations with a pairing");
-	let y = await Fa(i, o, l, a, g, _, v);
+	let y = await io(i, o, l, a, g, _, v);
 	return r && (y ? r.info("PROOF VERIFIED SUCCESSFULLY") : r.warn("Invalid Proof")), r && r.info("FFLONK VERIFIER FINISHED"), y;
 }
-function ba(e, t) {
+function Ua(e, t) {
 	let n = t;
 	return n.k1 = e.Fr.fromObject(t.k1), n.k2 = e.Fr.fromObject(t.k2), n.w = e.Fr.fromObject(t.w), n.w3 = e.Fr.fromObject(t.w3), n.w4 = e.Fr.fromObject(t.w4), n.w8 = e.Fr.fromObject(t.w8), n.wr = e.Fr.fromObject(t.wr), n.X_2 = e.G2.fromObject(t.X_2), n.C0 = e.G1.fromObject(t.C0), n;
 }
-function xa(e, t, n) {
+function Wa(e, t, n) {
 	let r = e.G1;
 	return r.isValid(t.polynomials.C1) && r.isValid(t.polynomials.C2) && r.isValid(t.polynomials.W1) && r.isValid(t.polynomials.W2) && r.isValid(n.C0);
 }
-function Sa(e, t) {
+function Ga(e, t) {
 	return r.geq(t, 0) && r.lt(t, e.r);
 }
-function Ca(e, t) {
-	return Sa(e, r.fromRprLE(t));
+function Ka(e, t) {
+	return Ga(e, r.fromRprLE(t));
 }
-function wa(e, t) {
-	return Ca(e, t.evaluations.ql) && Ca(e, t.evaluations.qr) && Ca(e, t.evaluations.qm) && Ca(e, t.evaluations.qo) && Ca(e, t.evaluations.qc) && Ca(e, t.evaluations.s1) && Ca(e, t.evaluations.s2) && Ca(e, t.evaluations.s3) && Ca(e, t.evaluations.a) && Ca(e, t.evaluations.b) && Ca(e, t.evaluations.c) && Ca(e, t.evaluations.z) && Ca(e, t.evaluations.zw) && Ca(e, t.evaluations.t1w) && Ca(e, t.evaluations.t2w);
+function qa(e, t) {
+	return Ka(e, t.evaluations.ql) && Ka(e, t.evaluations.qr) && Ka(e, t.evaluations.qm) && Ka(e, t.evaluations.qo) && Ka(e, t.evaluations.qc) && Ka(e, t.evaluations.s1) && Ka(e, t.evaluations.s2) && Ka(e, t.evaluations.s3) && Ka(e, t.evaluations.a) && Ka(e, t.evaluations.b) && Ka(e, t.evaluations.c) && Ka(e, t.evaluations.z) && Ka(e, t.evaluations.zw) && Ka(e, t.evaluations.t1w) && Ka(e, t.evaluations.t2w);
 }
-function Ta(e, t) {
-	for (let n = 0; n < t.length; n++) if (!Sa(e, t[n])) return !1;
+function Ja(e, t) {
+	for (let n = 0; n < t.length; n++) if (!Ga(e, t[n])) return !1;
 	return !0;
 }
-function Ea(e, t, n, r, i) {
-	let a = e.Fr, o = {}, s = {}, c = new Ni(e);
+function Ya(e, t, n, r, i) {
+	let a = e.Fr, o = {}, s = {}, c = new na(e);
 	c.addPolCommitment(n.C0);
 	for (let e = 0; e < r.length; e++) c.addScalar(a.e(r[e]));
 	c.addPolCommitment(t.polynomials.C1), o.beta = c.getChallenge(), c.reset(), c.addScalar(o.beta), o.gamma = c.getChallenge(), c.reset(), c.addScalar(o.gamma), c.addPolCommitment(t.polynomials.C2);
@@ -6415,7 +6662,7 @@ function Ea(e, t, n, r, i) {
 		roots: s
 	};
 }
-async function Da(t, n, r) {
+async function Xa(t, n, r) {
 	let i = t.Fr, a = Math.max(1, r.nPublic), o = new e(a * i.n8), s = new e(a * i.n8), c = i.one;
 	for (let e = 0; e < a; e++) {
 		let t = e * i.n8;
@@ -6429,7 +6676,7 @@ async function Da(t, n, r) {
 	}
 	return l;
 }
-function Oa(e, t, n) {
+function Za(e, t, n) {
 	let r = e.Fr, i = r.zero;
 	for (let e = 0; e < t.length; e++) {
 		let a = r.e(t[e]);
@@ -6437,8 +6684,8 @@ function Oa(e, t, n) {
 	}
 	return i;
 }
-function ka(e, t, n, r, i) {
-	let a = r.Fr, o = Ia(n.S0.h0w8, t.y, t.xi, r);
+function Qa(e, t, n, r, i) {
+	let a = r.Fr, o = ao(n.S0.h0w8, t.y, t.xi, r);
 	i && i.info("··· Computing r0(y)");
 	let s = a.zero;
 	for (let t = 0; t < 8; t++) {
@@ -6450,8 +6697,8 @@ function ka(e, t, n, r, i) {
 	}
 	return s;
 }
-function Aa(e, t, n, r, i, a) {
-	let o = i.Fr, s = Ia(n.S1.h1w4, t.y, t.xi, i);
+function $a(e, t, n, r, i, a) {
+	let o = i.Fr, s = ao(n.S1.h1w4, t.y, t.xi, i);
 	a && a.info("··· Computing T0(xi)");
 	let c = o.mul(e.evaluations.ql, e.evaluations.a);
 	c = o.add(c, o.mul(e.evaluations.qr, e.evaluations.b)), c = o.add(c, o.mul(e.evaluations.qm, o.mul(e.evaluations.a, e.evaluations.b))), c = o.add(c, o.mul(e.evaluations.qo, e.evaluations.c)), c = o.add(c, e.evaluations.qc), c = o.add(c, r), c = o.mul(c, t.invzh), a && a.info("··· Computing C1(h_1ω_4^i) values");
@@ -6464,8 +6711,8 @@ function Aa(e, t, n, r, i, a) {
 	}
 	return l;
 }
-function ja(e, t, n, r, i, a, o) {
-	let s = a.Fr, c = La([n.S2.h2w3, n.S2.h3w3], t.y, t.xi, t.xiw, a);
+function eo(e, t, n, r, i, a, o) {
+	let s = a.Fr, c = oo([n.S2.h2w3, n.S2.h3w3], t.y, t.xi, t.xiw, a);
 	o && o.info("··· Computing T1(xi)");
 	let l = s.sub(e.evaluations.z, s.one);
 	l = s.mul(l, r), l = s.mul(l, t.invzh), o && o.info("··· Computing T2(xi)");
@@ -6483,7 +6730,7 @@ function ja(e, t, n, r, i, a, o) {
 	}
 	return b;
 }
-function Ma(e, t, n, r, i) {
+function to(e, t, n, r, i) {
 	let a = e.G1, o = e.Fr, s = o.sub(r.y, i.S0.h0w8[0]);
 	for (let e = 1; e < 8; e++) s = o.mul(s, o.sub(r.y, i.S0.h0w8[e]));
 	r.temp = s;
@@ -6496,20 +6743,20 @@ function Ma(e, t, n, r, i) {
 	let u = a.timesFr(t.polynomials.C1, r.quotient1), d = a.timesFr(t.polynomials.C2, r.quotient2);
 	return a.add(n.C0, a.add(u, d));
 }
-function Na(e, t, n, r, i, a, o) {
+function no(e, t, n, r, i, a, o) {
 	let s = e.G1, c = e.Fr, l = c.mul(a, n.quotient1), u = c.mul(o, n.quotient2);
 	return s.timesFr(s.one, c.add(i, c.add(l, u)));
 }
-function Pa(e, t, n) {
+function ro(e, t, n) {
 	return e.G1.timesFr(t.polynomials.W1, n.temp);
 }
-async function Fa(e, t, n, r, i, a, o) {
+async function io(e, t, n, r, i, a, o) {
 	let s = e.G1, c = s.timesFr(t.polynomials.W2, n.y);
 	c = s.add(s.sub(s.sub(i, a), o), c);
 	let l = e.G2.one, u = t.polynomials.W2, d = r.X_2;
 	return await e.pairingEq(s.neg(c), l, u, d);
 }
-function Ia(e, t, n, r) {
+function ao(e, t, n, r) {
 	let i = r.Fr, a = e.length, o = i.sub(i.exp(t, a), n), s = i.mul(i.e(a), i.exp(e[0], a - 2)), c = [];
 	for (let n = 0; n < a; n++) {
 		let r = e[(a - 1) * n % a], l = i.sub(t, e[n]);
@@ -6517,7 +6764,7 @@ function Ia(e, t, n, r) {
 	}
 	return c;
 }
-function La(e, t, n, r, i) {
+function oo(e, t, n, r, i) {
 	let a = i.Fr, o = [], s = e[0].length, c = s * e.length, l = a.exp(t, c), u = a.mul(a.add(n, r), a.exp(t, s)), d = a.mul(n, r), f = a.add(a.sub(l, u), d), p = a.mul(a.mul(a.e(s), e[0][0]), a.sub(n, r));
 	for (let n = 0; n < s; n++) {
 		let r = e[0][(s - 1) * n % s], i = a.sub(t, e[0][n]), c = a.mul(p, a.mul(r, i));
@@ -6532,28 +6779,28 @@ function La(e, t, n, r, i) {
 }
 //#endregion
 //#region src/fflonk_export_calldata.js
-var { unstringifyBigInts: Ra } = s;
+var { unstringifyBigInts: so } = s;
 function $(e) {
 	let t = e.toString(16);
 	for (; t.length < 64;) t = "0" + t;
 	return t = `0x${t}`, t;
 }
-async function za(e, t) {
-	let n = Ra(t), r = Ra(e);
-	await _e(n.curve);
+async function co(e, t) {
+	let n = so(t), r = so(e);
+	await Oe(n.curve);
 	let i = "";
 	for (let e = 0; e < r.length; e++) i !== "" && (i += ","), i += $(r[e]);
 	return `[${$(n.polynomials.C1[0])}, ${$(n.polynomials.C1[1])},${$(n.polynomials.C2[0])},${$(n.polynomials.C2[1])},${$(n.polynomials.W1[0])},${$(n.polynomials.W1[1])},${$(n.polynomials.W2[0])},${$(n.polynomials.W2[1])},${$(n.evaluations.ql)},${$(n.evaluations.qr)},${$(n.evaluations.qm)},${$(n.evaluations.qo)},${$(n.evaluations.qc)},${$(n.evaluations.s1)},${$(n.evaluations.s2)},${$(n.evaluations.s3)},${$(n.evaluations.a)},${$(n.evaluations.b)},${$(n.evaluations.c)},${$(n.evaluations.z)},${$(n.evaluations.zw)},${$(n.evaluations.t1w)},${$(n.evaluations.t2w)},${$(n.evaluations.inv)}],[${i}]`;
 }
 //#endregion
 //#region src/fflonk.js
-var Ba = /* @__PURE__ */ l({
-	exportSolidityCallData: () => za,
+var lo = /* @__PURE__ */ l({
+	exportSolidityCallData: () => co,
 	exportSolidityVerifier: () => null,
-	fullProve: () => _a,
-	prove: () => ha,
-	setup: () => pa,
-	verify: () => ya
+	fullProve: () => Ba,
+	prove: () => Ra,
+	setup: () => Ia,
+	verify: () => Ha
 });
 //#endregion
-export { ue as curves, Ba as fflonk, Wn as groth16, ia as plonk, Sr as powersOfTau, zr as r1cs, Gr as wtns, di as zKey };
+export { xe as curves, lo as fflonk, pr as groth16, Da as plonk, Gr as powersOfTau, ci as r1cs, mi as wtns, Pi as zKey };

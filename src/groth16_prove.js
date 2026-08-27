@@ -20,7 +20,7 @@
 import * as binFileUtils from "@iden3/binfileutils";
 import * as zkeyUtils from "./zkey_utils.js";
 import * as wtnsUtils from "./wtns_utils.js";
-import { log2 } from "./misc.js";
+import { log2, withPersistentCache } from "./misc.js";
 import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
@@ -38,7 +38,10 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
     try {
         const openWtns = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
         fdWtns = openWtns.fd;
-        const openZKey = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
+        // options.persistentCache: cache zkey blocks in IndexedDB across
+        // sessions when the zkey is an http(s) source (browser warm start).
+        const zkeySource = withPersistentCache(zkeyFileName, options && options.persistentCache);
+        const openZKey = await binFileUtils.readBinFile(zkeySource, "zkey", 2, 1<<25, 1<<23);
         fdZKey = openZKey.fd;
         return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
     } finally {
