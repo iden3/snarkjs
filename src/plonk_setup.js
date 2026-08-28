@@ -71,13 +71,21 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
 
     if (logger) logger.info("Reading r1cs");
 
-    const plonkConstraints = new BigArray();
-    const plonkAdditions = new BigArray();
+    let plonkConstraints = new BigArray();
+    let plonkAdditions = new BigArray();
+    let nPlonkConstraints, nPlonkAdditions; // survive the arrays' release
     let plonkNVars = r1cs.nVars;
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
     await processConstraints(curve.Fr, r1cs, logger);
+
+    // the r1cs constraint list is fully converted into
+    // plonkConstraints/plonkAdditions -- release it now (it is the same
+    // order of magnitude as the plonk constraint set itself)
+    r1cs.constraints = null;
+    nPlonkConstraints = plonkConstraints.length;
+    nPlonkAdditions = plonkAdditions.length;
 
     if (globalThis.gc) {globalThis.gc();}
 
@@ -109,7 +117,7 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
     }
 
 
-    const LPoints = new BigBuffer(domainSize*sG1);
+    let LPoints = new BigBuffer(domainSize*sG1);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) -1)*sG1;
     await fdPTau.readToBuffer(LPoints, 0, domainSize*sG1, o);
 
@@ -119,6 +127,7 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
 
 
     await writeAdditions(3, "Additions");
+    plonkAdditions = null; // last consumer (header only needs the count)
     if (globalThis.gc) {globalThis.gc();}
     await writeWitnessMap(4, 0, "Amap");
     if (globalThis.gc) {globalThis.gc();}
@@ -137,6 +146,8 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
     await writeQMap(11, 7, "Qc");
     if (globalThis.gc) {globalThis.gc();}
     await writeSigma(12, "sigma");
+    plonkConstraints = null; // sigma was the last consumer
+    LPoints = null;          // ptau lagrange points: consumed by the Q/sigma multiexps
     if (globalThis.gc) {globalThis.gc();}
     await writeLs(13, "lagrange polynomials");
     if (globalThis.gc) {globalThis.gc();}
@@ -145,9 +156,12 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
     ////////////
 
     await startWriteSection(fdZKey, 14);
-    const buffOut = new BigBuffer((domainSize+6)*sG1);
-    await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
-    await fdZKey.write(buffOut);
+    {
+        // scoped: (domainSize+6) G1 points die right after the write
+        const buffOut = new BigBuffer((domainSize+6)*sG1);
+        await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
+        await fdZKey.write(buffOut);
+    }
     await endWriteSection(fdZKey);
     if (globalThis.gc) {globalThis.gc();}
 
@@ -390,9 +404,9 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
     }
 
     async function writeSigma(sectionNum, name) {
-        const sigma = new BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray(plonkNVars);
-        const firstPos = new BigArray(plonkNVars);
+        let sigma = new BigBuffer(n8r*domainSize*3);
+        let lastAparence =  new BigArray(plonkNVars);
+        let firstPos = new BigArray(plonkNVars);
         let w = Fr.one;
         for (let i=0; i<domainSize;i++) {
             if (i<plonkConstraints.length) {
@@ -417,6 +431,8 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
 
+        lastAparence = null;  // phase bookkeeping: dead once sigma is built
+        firstPos = null;
         if (globalThis.gc) {globalThis.gc();}
         await startWriteSection(fdZKey, sectionNum);
         let S1 = sigma.slice(0, domainSize*n8r);
@@ -427,6 +443,7 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
         if (globalThis.gc) {globalThis.gc();}
         let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
         await writeP4(S3);
+        sigma = null;         // the three slices are copies
         if (globalThis.gc) {globalThis.gc();}
         await endWriteSection(fdZKey);
 
@@ -435,10 +452,13 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
         S3 = await Fr.batchFromMontgomery(S3);
 
         vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
+        S1 = null;
         if (globalThis.gc) {globalThis.gc();}
         vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
+        S2 = null;
         if (globalThis.gc) {globalThis.gc();}
         vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
+        S3 = null;
         if (globalThis.gc) {globalThis.gc();}
 
         function buildSigma(s, p) {
@@ -496,8 +516,8 @@ async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
         await fdZKey.writeULE32(plonkNVars);                         // Total number of bars
         await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
         await fdZKey.writeULE32(domainSize);                  // domainSize
-        await fdZKey.writeULE32(plonkAdditions.length);                  // domainSize
-        await fdZKey.writeULE32(plonkConstraints.length); 
+        await fdZKey.writeULE32(nPlonkAdditions);              // nAdditions
+        await fdZKey.writeULE32(nPlonkConstraints);
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);

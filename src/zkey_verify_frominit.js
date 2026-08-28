@@ -1,5 +1,4 @@
-
-            /* c8 ignore stop *//*
+/* c8 ignore stop *//*
     Copyright 2018 0KIMS association.
 
     This file is part of snarkJS.

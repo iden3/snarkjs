@@ -118,13 +118,18 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         nPublic: r1cs.nOutputs + r1cs.nPubInputs
     };
 
-    const plonkConstraints = new BigArray();
+    let plonkConstraints = new BigArray();
     let plonkAdditions = new BigArray();
 
     // Process constraints inside r1cs
     if (logger) logger.info("> Processing FFlonk constraints");
     await computeFFConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
+
+    // Capture the counts now: the header section is written after the
+    // constraint and addition arrays have been released
+    settings.nConstraints = plonkConstraints.length;
+    settings.nAdditions = plonkAdditions.length;
 
     // As the t polynomial is n+5 we need at least a power of 4
     //TODO check!!!!
@@ -244,6 +249,7 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
         await writeAdditions(fdZKey);
+        plonkAdditions = null;
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
@@ -280,6 +286,7 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
 
         if (logger) logger.info(`··· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
         await writeSigma(fdZKey);
+        plonkConstraints = null;
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
@@ -364,6 +371,7 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         }
 
         polynomials[name] = await Polynomial.fromEvaluations(Q, curve, logger);
+        Q = null;
         evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
 
         // Write Q coefficients and evaluations
@@ -371,13 +379,17 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         await fdZKey.write(polynomials[name].coef);
         await fdZKey.write(evaluations[name].eval);
         await endWriteSection(fdZKey);
+
+        // The evaluations are only stored in the zkey file; the
+        // polynomial itself is still needed to build C0
+        delete evaluations[name];
     }
 
     async function writeSigma(fdZKey) {
         // Compute sigma
-        const sigma = new BigBuffer(sFr * settings.domainSize * 3);
-        const lastSeen = new BigArray(settings.nVars);
-        const firstPos = new BigArray(settings.nVars);
+        let sigma = new BigBuffer(sFr * settings.domainSize * 3);
+        let lastSeen = new BigArray(settings.nVars);
+        let firstPos = new BigArray(settings.nVars);
 
         let w = Fr.one;
         for (let i = 0; i < settings.domainSize; i++) {
@@ -421,6 +433,8 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
             /* c8 ignore stop */
         }
 
+        lastSeen = null;
+        firstPos = null;
         if (globalThis.gc) globalThis.gc();
 
         // Write sigma coefficients and evaluations
@@ -429,11 +443,16 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
 
             let name = "S" + (i + 1);
             polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
+            if (2 === i) sigma = null;
             evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
             await startWriteSection(fdZKey, sectionId);
             await fdZKey.write(polynomials[name].coef);
             await fdZKey.write(evaluations[name].eval);
             await endWriteSection(fdZKey);
+
+            // The evaluations are only stored in the zkey file; the
+            // polynomial itself is still needed to build C0
+            delete evaluations[name];
 
             if (globalThis.gc) globalThis.gc();
         }
@@ -497,6 +516,19 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         C0.addPolynomial(7, polynomials.S3);
 
         polynomials.C0 = C0.getPolynomial();
+        C0 = null;
+
+        // C0 contains a copy of every coefficient; the individual
+        // selector and sigma polynomials are no longer needed
+        delete polynomials.QL;
+        delete polynomials.QR;
+        delete polynomials.QO;
+        delete polynomials.QM;
+        delete polynomials.QC;
+        delete polynomials.S1;
+        delete polynomials.S2;
+        delete polynomials.S3;
+        if (globalThis.gc) globalThis.gc();
 
         // Check degree
         // coverage: internal consistency check on self-computed data; unreachable via the public API
@@ -529,8 +561,8 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         // Total number of r1cs public vars = outputs + public inputs
         await fdZKey.writeULE32(settings.nPublic);
         await fdZKey.writeULE32(settings.domainSize);
-        await fdZKey.writeULE32(plonkAdditions.length);
-        await fdZKey.writeULE32(plonkConstraints.length);
+        await fdZKey.writeULE32(settings.nAdditions);
+        await fdZKey.writeULE32(settings.nConstraints);
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);
@@ -545,6 +577,8 @@ async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fd
         await fdZKey.write(bX_2);
 
         let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
+        delete polynomials.C0;
+        PTau = null;
         await fdZKey.write(commitC0);
 
         await endWriteSection(fdZKey);

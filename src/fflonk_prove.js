@@ -129,7 +129,7 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
     // First element in plonk is not used and can be any value. (But always the same).
     // We set it to zero to go faster in the exponentiations.
     buffWitness.set(Fr.zero, 0);
-    const buffInternalWitness = new BigBuffer(zkey.nAdditions * sFr);
+    let buffInternalWitness = new BigBuffer(zkey.nAdditions * sFr);
 
     let buffers = {};
     let polynomials = {};
@@ -196,29 +196,12 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
     if (logger) logger.info("> ROUND 1");
     await round1();
 
-    delete polynomials.T0;
-    delete evaluations.QL;
-    delete evaluations.QR;
-    delete evaluations.QM;
-    delete evaluations.QO;
-    delete evaluations.QC;
     if (globalThis.gc) globalThis.gc();
 
     // ROUND 2. Compute C2(X) polynomial
     if (logger) logger.info("> ROUND 2");
     await round2();
 
-    delete buffers.A;
-    delete buffers.B;
-    delete buffers.C;
-    delete evaluations.A;
-    delete evaluations.B;
-    delete evaluations.C;
-    delete evaluations.Sigma1;
-    delete evaluations.Sigma2;
-    delete evaluations.Sigma3;
-    delete evaluations.lagrange1;
-    delete evaluations.Z;
     if (globalThis.gc) globalThis.gc();
 
     // ROUND 3. Compute opening evaluations
@@ -250,12 +233,8 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
     if (logger) logger.info("> ROUND 5");
     await round5();
 
-    delete polynomials.C0;
-    delete polynomials.C1;
-    delete polynomials.C2;
     delete polynomials.R1;
     delete polynomials.R2;
-    delete polynomials.F;
     delete polynomials.L;
     delete polynomials.ZT;
     delete polynomials.ZTS2;
@@ -335,10 +314,10 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             const offset = (idx - diff) * sFr;
             return buffInternalWitness.slice(offset, offset + sFr);
         }
-// coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
-/* c8 ignore start */
+        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
+        /* c8 ignore start */
 
-/* c8 ignore stop */
+        /* c8 ignore stop */
         return Fr.zero;
     }
 
@@ -376,9 +355,9 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             buffers.C = new BigBuffer(sDomain);
 
             // Read zkey sections and fill the buffers
-            const aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
-            const bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
-            const cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
+            let aMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_A_MAP_SECTION);
+            let bMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_B_MAP_SECTION);
+            let cMapBuff = await binFileUtils.readSection(fdZKey, zkeySections, ZKEY_FF_C_MAP_SECTION);
 
             // Compute all witness from signal ids and set them to A,B & C buffers
             for (let i = 0; i < zkey.nConstraints; i++) {
@@ -397,6 +376,13 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
                 const signalIdC = readUInt32(cMapBuff, offset);
                 buffers.C.set(getWitness(signalIdC), i_sFr);
             }
+
+            // Every witness value is now copied into the wire buffers.
+            // buffWitness itself is still needed for the public signals
+            aMapBuff = null;
+            bMapBuff = null;
+            cMapBuff = null;
+            buffInternalWitness = null;
 
             // Blind a(X), b(X) and c(X) polynomials coefficients with blinding scalars b
             buffers.A.set(challenges.b[1], sDomain - 64);
@@ -520,6 +506,15 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
                 buffers.T0.set(t0, i * sFr);
             }
 
+            // The T0 evaluations loop was the last consumer of the
+            // selector evaluations
+            delete evaluations.QL;
+            delete evaluations.QR;
+            delete evaluations.QM;
+            delete evaluations.QO;
+            delete evaluations.QC;
+            if (globalThis.gc) globalThis.gc();
+
             if (logger) logger.info("buffer T0: " + buffers.T0.byteLength / sFr);
 
             // Compute the coefficients of the polynomial T0(X) from buffers.T0
@@ -552,6 +547,12 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             C1.addPolynomial(3, polynomials.T0);
 
             polynomials.C1 = C1.getPolynomial();
+            C1 = null;
+
+            // C1 contains a copy of the T0 coefficients; A, B and C are
+            // still needed for the round 3 openings
+            delete polynomials.T0;
+            if (globalThis.gc) globalThis.gc();
 
             // Check degree
             // coverage: internal consistency check on self-computed data; unreachable via the public API
@@ -715,6 +716,12 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             /* c8 ignore stop */
 
             delete buffers.Z;
+            // The Z evaluations loop was the last consumer of the wire
+            // buffers (the round 2 transcript already read buffers.A)
+            delete buffers.A;
+            delete buffers.B;
+            delete buffers.C;
+            if (globalThis.gc) globalThis.gc();
         }
 
         async function computeT1() {
@@ -774,6 +781,9 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             delete buffers.T1;
             delete buffers.T1z;
             delete polynomials.T1z;
+            // computeT1 was the last consumer of the Lagrange evaluations
+            delete evaluations.lagrange1;
+            if (globalThis.gc) globalThis.gc();
         }
 
         async function computeT2() {
@@ -877,6 +887,16 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             delete buffers.T2;
             delete buffers.T2z;
             delete polynomials.T2z;
+            // The T2 evaluations loop was the last consumer of the
+            // extended evaluations
+            delete evaluations.A;
+            delete evaluations.B;
+            delete evaluations.C;
+            delete evaluations.Z;
+            delete evaluations.Sigma1;
+            delete evaluations.Sigma2;
+            delete evaluations.Sigma3;
+            if (globalThis.gc) globalThis.gc();
         }
 
         async function computeC2() {
@@ -886,6 +906,7 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             C2.addPolynomial(2, polynomials.T2);
 
             polynomials.C2 = C2.getPolynomial();
+            C2 = null;
 
             // Check degree
             // coverage: internal consistency check on self-computed data; unreachable via the public API
@@ -1231,6 +1252,14 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
 
             polynomials.L.add(l2);
             polynomials.L.add(l3);
+            l2 = null;
+            l3 = null;
+
+            // The combination polynomials are folded into L now
+            delete polynomials.C0;
+            delete polynomials.C1;
+            delete polynomials.C2;
+            if (globalThis.gc) globalThis.gc();
 
             if (logger) logger.info("> Computing ZT polynomial");
             await computeZT();
@@ -1238,6 +1267,7 @@ async function _fflonkProve(zkeyFileName, witnessFileName, logger, options, fds)
             const evalZTY = polynomials.ZT.evaluate(challenges.y);
             polynomials.F.mulScalar(evalZTY);
             polynomials.L.sub(polynomials.F);
+            delete polynomials.F;
 
             // Check degree
             // coverage: internal consistency check on self-computed data; unreachable via the public API
