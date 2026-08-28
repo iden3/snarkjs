@@ -6,3 +6,4 @@ export * as zKey from "./src/zkey.js";
 export * as plonk from "./src/plonk.js";
 export * as fflonk from "./src/fflonk.js";
 export * as curves from "./src/curves.js";
+export * as exportPlugins from "./src/plugins/index.js";

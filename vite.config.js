@@ -29,6 +29,8 @@ const isBrowserExternal = (id) =>
 const nodeOnlyFiles = new Set([
     resolve("src/zkey_export_solidityverifier.js"),
     resolve("src/fflonk_export_solidity_verifier.js"),
+    resolve("src/plugins/render_ejs.js"),
+    resolve("src/plugins/solidity/verifier.js"),
 ]);
 const stubNodeOnlyModules = {
     name: "stub-node-only-modules",
@@ -175,6 +177,9 @@ export default defineConfig(({ mode }) => {
                 {
                     define: { "process.browser": "true" },
                     resolve: { conditions: ["browser"], alias: browserAlias },
+                    // apply the same node-only stubs as the real browser
+                    // builds, so the test env matches what ships
+                    plugins: [stubNodeOnlyModules],
                     test: {
                         name: "browser-chromium",
                         include: ["test/groth16.test.js"],

@@ -17,47 +17,14 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {getCurveFromName} from "./curves.js";
-import {utils} from "ffjavascript";
-
-const {unstringifyBigInts, stringifyBigInts} = utils;
+// Legacy entry point, kept for back-compat (fflonk.exportSolidityVerifier(vk,
+// templates, logger) takes a vk object, unlike the zkey-taking groth16/plonk
+// path). Routes through the built-in solidity export plugin; the vk
+// augmentation (w3_2, w4_2, w4_3, w8_1..7) now lives in the plugin. Output is
+// byte-identical.
+import exportVerifier from "./zkey_export_verifier.js";
+import solidityPlugin from "./plugins/solidity/index.js";
 
 export default async function fflonkExportSolidityVerifier(vk, templates, logger) {
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
-
-    const curve = await getCurveFromName(vk.curve);
-
-    // Precompute w3_2, w4_2 and w4_3
-    let w3 = fromVkey(vk.w3);
-    vk.w3_2 = toVkey(curve.Fr.square(w3));
-
-    let w4 = fromVkey(vk.w4);
-    vk.w4_2 = toVkey(curve.Fr.square(w4));
-    vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
-
-    let w8 = fromVkey(vk.w8);
-    let acc = curve.Fr.one;
-
-    for (let i = 1; i < 8; i++) {
-        acc = curve.Fr.mul(acc, w8);
-        vk["w8_" + i] = toVkey(acc);
-    }
-
-    let template = templates[vk.protocol];
-
-    if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-
-    const {default: ejs} = await import("ejs");
-    return ejs.render(template, vk);
-
-    function fromVkey(str) {
-        const val = unstringifyBigInts(str);
-        return curve.Fr.fromObject(val);
-    }
-
-    function toVkey(val) {
-        const str = curve.Fr.toObject(val);
-        return stringifyBigInts(str);
-    }
+    return exportVerifier(vk, solidityPlugin, { templates }, { logger });
 }
-
