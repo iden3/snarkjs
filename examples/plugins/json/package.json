@@ -1,0 +1,8 @@
+{
+  "name": "snarkjs-plugin-json",
+  "version": "0.1.0",
+  "description": "Example snarkjs export plugin: verification key and calldata as JSON",
+  "type": "module",
+  "main": "index.js",
+  "license": "GPL-3.0"
+}

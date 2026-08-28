@@ -43,6 +43,11 @@ let fastfile = require("fastfile");
 fastfile = __toESM(fastfile, 1);
 let circom_runtime = require("circom_runtime");
 let r1csfile = require("r1csfile");
+let fs = require("fs");
+fs = __toESM(fs, 1);
+let path = require("path");
+path = __toESM(path, 1);
+let url = require("url");
 let _noble_hashes_sha3_js = require("@noble/hashes/sha3.js");
 //#region src/curves.js
 var curves_exports = /* @__PURE__ */ __exportAll({
@@ -1191,7 +1196,7 @@ function publicInputsAreValid$2(curve, publicInputs) {
 //#endregion
 //#region src/groth16_exportsoliditycalldata.js
 var { unstringifyBigInts: unstringifyBigInts$8 } = ffjavascript.utils;
-function p256$2(n) {
+function p256$3(n) {
 	let nstr = n.toString(16);
 	while (nstr.length < 64) nstr = "0" + nstr;
 	nstr = `"0x${nstr}"`;
@@ -1203,10 +1208,10 @@ async function groth16ExportSolidityCallData(_proof, _pub) {
 	let inputs = "";
 	for (let i = 0; i < pub.length; i++) {
 		if (inputs != "") inputs = inputs + ",";
-		inputs = inputs + p256$2(pub[i]);
+		inputs = inputs + p256$3(pub[i]);
 	}
 	let S;
-	S = `[${p256$2(proof.pi_a[0])}, ${p256$2(proof.pi_a[1])}],[[${p256$2(proof.pi_b[0][1])}, ${p256$2(proof.pi_b[0][0])}],[${p256$2(proof.pi_b[1][1])}, ${p256$2(proof.pi_b[1][0])}]],[${p256$2(proof.pi_c[0])}, ${p256$2(proof.pi_c[1])}],[${inputs}]`;
+	S = `[${p256$3(proof.pi_a[0])}, ${p256$3(proof.pi_a[1])}],[[${p256$3(proof.pi_b[0][1])}, ${p256$3(proof.pi_b[0][0])}],[${p256$3(proof.pi_b[1][1])}, ${p256$3(proof.pi_b[1][0])}]],[${p256$3(proof.pi_c[0])}, ${p256$3(proof.pi_c[1])}],[${inputs}]`;
 	return S;
 }
 //#endregion
@@ -4256,6 +4261,199 @@ async function zkeyExportJson(zkeyFileName) {
 	return ffjavascript.utils.stringifyBigInts(zKey);
 }
 //#endregion
+//#region src/zkey_export_verificationkey.js
+var { stringifyBigInts: stringifyBigInts$3 } = ffjavascript.utils;
+async function zkeyExportVerificationKey(zkeyName, logger) {
+	if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
+	const { fd, sections } = await _iden3_binfileutils.readBinFile(zkeyName, "zkey", 2);
+	const zkey = await readHeader$1(fd, sections);
+	if (logger) logger.info("> Detected protocol: " + zkey.protocol);
+	let res;
+	if (zkey.protocol === "groth16") res = await groth16Vk(zkey, fd, sections);
+	else if (zkey.protocol === "plonk") res = await plonkVk(zkey);
+	else if (zkey.protocolId && zkey.protocolId === 10) res = await exportFFlonkVk(zkey, logger);
+	else throw new Error("zkey file protocol unrecognized");
+	await fd.close();
+	if (logger) logger.info("EXPORT VERIFICATION KEY FINISHED");
+	return res;
+}
+async function groth16Vk(zkey, fd, sections) {
+	const curve = await getCurveFromQ(zkey.q);
+	const sG1 = curve.G1.F.n8 * 2;
+	const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
+	let vKey = {
+		protocol: zkey.protocol,
+		curve: curve.name,
+		nPublic: zkey.nPublic,
+		vk_alpha_1: curve.G1.toObject(zkey.vk_alpha_1),
+		vk_beta_2: curve.G2.toObject(zkey.vk_beta_2),
+		vk_gamma_2: curve.G2.toObject(zkey.vk_gamma_2),
+		vk_delta_2: curve.G2.toObject(zkey.vk_delta_2),
+		vk_alphabeta_12: curve.Gt.toObject(alphaBeta)
+	};
+	await _iden3_binfileutils.startReadUniqueSection(fd, sections, 3);
+	vKey.IC = [];
+	for (let i = 0; i <= zkey.nPublic; i++) {
+		const buff = await fd.read(sG1);
+		const P = curve.G1.toObject(buff);
+		vKey.IC.push(P);
+	}
+	await _iden3_binfileutils.endReadSection(fd);
+	vKey = stringifyBigInts$3(vKey);
+	return vKey;
+}
+async function plonkVk(zkey) {
+	const curve = await getCurveFromQ(zkey.q);
+	let vKey = {
+		protocol: zkey.protocol,
+		curve: curve.name,
+		nPublic: zkey.nPublic,
+		power: zkey.power,
+		k1: curve.Fr.toObject(zkey.k1),
+		k2: curve.Fr.toObject(zkey.k2),
+		Qm: curve.G1.toObject(zkey.Qm),
+		Ql: curve.G1.toObject(zkey.Ql),
+		Qr: curve.G1.toObject(zkey.Qr),
+		Qo: curve.G1.toObject(zkey.Qo),
+		Qc: curve.G1.toObject(zkey.Qc),
+		S1: curve.G1.toObject(zkey.S1),
+		S2: curve.G1.toObject(zkey.S2),
+		S3: curve.G1.toObject(zkey.S3),
+		X_2: curve.G2.toObject(zkey.X_2),
+		w: curve.Fr.toObject(curve.Fr.w[zkey.power])
+	};
+	vKey = stringifyBigInts$3(vKey);
+	return vKey;
+}
+async function exportFFlonkVk(zkey, logger) {
+	const curve = await getCurveFromQ(zkey.q);
+	return stringifyBigInts$3({
+		protocol: zkey.protocol,
+		curve: curve.name,
+		nPublic: zkey.nPublic,
+		power: zkey.power,
+		k1: curve.Fr.toObject(zkey.k1),
+		k2: curve.Fr.toObject(zkey.k2),
+		w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
+		w3: curve.Fr.toObject(zkey.w3),
+		w4: curve.Fr.toObject(zkey.w4),
+		w8: curve.Fr.toObject(zkey.w8),
+		wr: curve.Fr.toObject(zkey.wr),
+		X_2: curve.G2.toObject(zkey.X_2),
+		C0: curve.G1.toObject(zkey.C0)
+	});
+}
+var NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+function normalizeCurveName(name) {
+	const n = String(name).toLowerCase().replace(/[_-]/g, "");
+	if (n === "bn254" || n === "altbn128" || n === "bn128") return "bn128";
+	if (n === "bls12381") return "bls12381";
+	return n;
+}
+function checkCapability(plugin, kind) {
+	const cap = plugin[kind];
+	if (!cap) return;
+	if (!Array.isArray(cap.supports) || cap.supports.length === 0) throw new Error(`Plugin "${plugin.name}": ${kind}.supports must be a non-empty array of {protocol, curve}`);
+	for (const s of cap.supports) if (!s || typeof s.protocol !== "string" || typeof s.curve !== "string") throw new Error(`Plugin "${plugin.name}": every ${kind}.supports entry needs string protocol and curve`);
+	if (typeof cap.generate !== "function") throw new Error(`Plugin "${plugin.name}": ${kind}.generate must be a function`);
+	if (cap.formats !== void 0 && (!Array.isArray(cap.formats) || cap.formats.some((f) => typeof f !== "string"))) throw new Error(`Plugin "${plugin.name}": ${kind}.formats must be an array of strings`);
+}
+function validatePlugin(plugin) {
+	if (!plugin || typeof plugin !== "object") throw new Error("Not a snarkjs export plugin: expected an object (the plugin module's default export)");
+	if (typeof plugin.name !== "string" || !NAME_RE.test(plugin.name)) throw new Error(`Not a snarkjs export plugin: "name" must match ${NAME_RE} (got ${JSON.stringify(plugin.name)})`);
+	if (plugin.apiVersion !== 1) throw new Error(`Plugin "${plugin.name}" targets plugin API v${plugin.apiVersion}; this snarkjs supports v1. Upgrade snarkjs or the plugin.`);
+	if (!plugin.verifier && !plugin.calldata) throw new Error(`Plugin "${plugin.name}" declares neither a verifier nor a calldata capability`);
+	checkCapability(plugin, "verifier");
+	checkCapability(plugin, "calldata");
+	return plugin;
+}
+function supportsCell(cap, protocol, curve) {
+	const c = normalizeCurveName(curve);
+	return cap.supports.some((s) => s.protocol === protocol && normalizeCurveName(s.curve) === c);
+}
+function formatSupports(cap) {
+	return cap.supports.map((s) => `${s.protocol}/${normalizeCurveName(s.curve)}`).join(", ");
+}
+function assertSupports(plugin, kind, protocol, curve, others) {
+	const cap = plugin[kind];
+	const what = kind === "verifier" ? "a verifier" : "calldata";
+	if (!cap) throw new Error(`Plugin "${plugin.name}" does not provide ${what} capability`);
+	if (supportsCell(cap, protocol, curve)) return;
+	let msg = `Plugin "${plugin.name}" cannot export ${what} for ${protocol} on curve ${normalizeCurveName(curve)}.\n"${plugin.name}" supports: ${formatSupports(cap)}.`;
+	if (Array.isArray(others)) {
+		const alt = others.filter((p) => p !== plugin && p[kind] && supportsCell(p[kind], protocol, curve)).map((p) => p.name);
+		if (alt.length) msg += `\nPlugins that support ${protocol}/${normalizeCurveName(curve)}: ${alt.join(", ")}.`;
+	}
+	throw new Error(msg);
+}
+function normalizeResult(res, plugin, kind) {
+	if (typeof res === "string" || res instanceof Uint8Array) return { files: { "": res } };
+	if (res && typeof res === "object" && res.files && typeof res.files === "object") {
+		for (const [p, content] of Object.entries(res.files)) if (typeof content !== "string" && !(content instanceof Uint8Array)) throw new Error(`Plugin "${plugin.name}": ${kind} file "${p}" must be a string or Uint8Array`);
+		return res;
+	}
+	throw new Error(`Plugin "${plugin.name}": ${kind}.generate must return a string or { files: {…} }`);
+}
+//#endregion
+//#region src/plugins/render_ejs.js
+async function renderEjs(template, data, options) {
+	const { default: ejs } = await import("ejs");
+	return ejs.render(template, data, options);
+}
+//#endregion
+//#region src/plugins/context.js
+var { unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2, leInt2Buff, leBuff2int } = ffjavascript.utils;
+function p256$2(n) {
+	let nstr = BigInt(n).toString(16);
+	while (nstr.length < 64) nstr = "0" + nstr;
+	return "0x" + nstr;
+}
+/* c8 ignore next 4 -- reached only from browser bundles, where the ejs leaf is stubbed */
+function renderUnavailable() {
+	throw new Error("ctx.render (ejs) is unavailable in browser bundles; generate strings directly or run this plugin under Node");
+}
+function buildPluginContext(logger) {
+	return {
+		logger,
+		getCurveFromName,
+		render: renderEjs || renderUnavailable,
+		utils: {
+			unstringifyBigInts: unstringifyBigInts$6,
+			stringifyBigInts: stringifyBigInts$2,
+			leInt2Buff,
+			leBuff2int,
+			p256: p256$2
+		}
+	};
+}
+//#endregion
+//#region src/zkey_export_verifier.js
+async function exportVerifier(zkeyOrVk, plugin, params, options) {
+	const opts = options || {};
+	validatePlugin(plugin);
+	const vk = zkeyOrVk && typeof zkeyOrVk === "object" && typeof zkeyOrVk.protocol === "string" ? zkeyOrVk : await zkeyExportVerificationKey(zkeyOrVk, opts.logger);
+	assertSupports(plugin, "verifier", vk.protocol, vk.curve, opts.plugins);
+	const ctx = buildPluginContext(opts.logger);
+	const res = await plugin.verifier.generate(vk, params || {}, ctx);
+	normalizeResult(res, plugin, "verifier");
+	return res;
+}
+//#endregion
+//#region src/export_calldata.js
+async function exportCalldata(proof, publicSignals, plugin, params, options) {
+	const opts = options || {};
+	validatePlugin(plugin);
+	if (!proof || typeof proof.protocol !== "string") throw new Error("exportCalldata: proof.protocol is missing -- pass the parsed proof.json object");
+	assertSupports(plugin, "calldata", proof.protocol, proof.curve, opts.plugins);
+	const p = params || {};
+	const formats = plugin.calldata.formats;
+	if (p.format && Array.isArray(formats) && !formats.includes(p.format)) throw new Error(`Plugin "${plugin.name}" has no calldata format "${p.format}". Available formats: ${formats.join(", ")}.`);
+	const ctx = buildPluginContext(opts.logger);
+	const res = await plugin.calldata.generate(proof, publicSignals, p, ctx);
+	normalizeResult(res, plugin, "calldata");
+	return res;
+}
+//#endregion
 //#region src/zkey_bellman_contribute.js
 async function bellmanContribute(curve, challengeFilename, responseFileName, entropy, logger) {
 	const rng = await getRandomRng(entropy);
@@ -4366,125 +4564,148 @@ async function bellmanContribute(curve, challengeFilename, responseFileName, ent
 	}
 }
 //#endregion
-//#region src/zkey_export_verificationkey.js
-var { stringifyBigInts: stringifyBigInts$3 } = ffjavascript.utils;
-async function zkeyExportVerificationKey(zkeyName, logger) {
-	if (logger) logger.info("EXPORT VERIFICATION KEY STARTED");
-	const { fd, sections } = await _iden3_binfileutils.readBinFile(zkeyName, "zkey", 2);
-	const zkey = await readHeader$1(fd, sections);
-	if (logger) logger.info("> Detected protocol: " + zkey.protocol);
-	let res;
-	if (zkey.protocol === "groth16") res = await groth16Vk(zkey, fd, sections);
-	else if (zkey.protocol === "plonk") res = await plonkVk(zkey);
-	else if (zkey.protocolId && zkey.protocolId === 10) res = await exportFFlonkVk(zkey, logger);
-	else throw new Error("zkey file protocol unrecognized");
-	await fd.close();
-	if (logger) logger.info("EXPORT VERIFICATION KEY FINISHED");
-	return res;
-}
-async function groth16Vk(zkey, fd, sections) {
-	const curve = await getCurveFromQ(zkey.q);
-	const sG1 = curve.G1.F.n8 * 2;
-	const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
-	let vKey = {
-		protocol: zkey.protocol,
-		curve: curve.name,
-		nPublic: zkey.nPublic,
-		vk_alpha_1: curve.G1.toObject(zkey.vk_alpha_1),
-		vk_beta_2: curve.G2.toObject(zkey.vk_beta_2),
-		vk_gamma_2: curve.G2.toObject(zkey.vk_gamma_2),
-		vk_delta_2: curve.G2.toObject(zkey.vk_delta_2),
-		vk_alphabeta_12: curve.Gt.toObject(alphaBeta)
-	};
-	await _iden3_binfileutils.startReadUniqueSection(fd, sections, 3);
-	vKey.IC = [];
-	for (let i = 0; i <= zkey.nPublic; i++) {
-		const buff = await fd.read(sG1);
-		const P = curve.G1.toObject(buff);
-		vKey.IC.push(P);
+//#region src/plugins/solidity/verifier.js
+var moduleDir = path.default.dirname((0, url.fileURLToPath)({}.url));
+var TEMPLATE_DIR_CANDIDATES = [
+	path.default.join(moduleDir, "..", "..", "..", "templates"),
+	path.default.join(moduleDir, "..", "templates"),
+	path.default.join(moduleDir, "templates")
+];
+async function loadDefaultTemplates() {
+	for (const dir of TEMPLATE_DIR_CANDIDATES) {
+		try {
+			await fs.default.promises.access(path.default.join(dir, "verifier_groth16.sol.ejs"));
+		} catch (e) {
+			continue;
+		}
+		const [groth16, plonk, fflonk] = await Promise.all([
+			fs.default.promises.readFile(path.default.join(dir, "verifier_groth16.sol.ejs"), "utf8"),
+			fs.default.promises.readFile(path.default.join(dir, "verifier_plonk.sol.ejs"), "utf8"),
+			fs.default.promises.readFile(path.default.join(dir, "verifier_fflonk.sol.ejs"), "utf8")
+		]);
+		return {
+			groth16,
+			plonk,
+			fflonk
+		};
 	}
-	await _iden3_binfileutils.endReadSection(fd);
-	vKey = stringifyBigInts$3(vKey);
-	return vKey;
+	/* c8 ignore next 2 -- only reachable from a broken installation */
+	throw new Error("solidity plugin: cannot locate the templates/ directory");
 }
-async function plonkVk(zkey) {
-	const curve = await getCurveFromQ(zkey.q);
-	let vKey = {
-		protocol: zkey.protocol,
-		curve: curve.name,
-		nPublic: zkey.nPublic,
-		power: zkey.power,
-		k1: curve.Fr.toObject(zkey.k1),
-		k2: curve.Fr.toObject(zkey.k2),
-		Qm: curve.G1.toObject(zkey.Qm),
-		Ql: curve.G1.toObject(zkey.Ql),
-		Qr: curve.G1.toObject(zkey.Qr),
-		Qo: curve.G1.toObject(zkey.Qo),
-		Qc: curve.G1.toObject(zkey.Qc),
-		S1: curve.G1.toObject(zkey.S1),
-		S2: curve.G1.toObject(zkey.S2),
-		S3: curve.G1.toObject(zkey.S3),
-		X_2: curve.G2.toObject(zkey.X_2),
-		w: curve.Fr.toObject(curve.Fr.w[zkey.power])
-	};
-	vKey = stringifyBigInts$3(vKey);
-	return vKey;
-}
-async function exportFFlonkVk(zkey, logger) {
-	const curve = await getCurveFromQ(zkey.q);
-	return stringifyBigInts$3({
-		protocol: zkey.protocol,
-		curve: curve.name,
-		nPublic: zkey.nPublic,
-		power: zkey.power,
-		k1: curve.Fr.toObject(zkey.k1),
-		k2: curve.Fr.toObject(zkey.k2),
-		w: curve.Fr.toObject(curve.Fr.w[zkey.power]),
-		w3: curve.Fr.toObject(zkey.w3),
-		w4: curve.Fr.toObject(zkey.w4),
-		w8: curve.Fr.toObject(zkey.w8),
-		wr: curve.Fr.toObject(zkey.wr),
-		X_2: curve.G2.toObject(zkey.X_2),
-		C0: curve.G1.toObject(zkey.C0)
-	});
-}
-//#endregion
-//#region src/fflonk_export_solidity_verifier.js
-var { unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2 } = ffjavascript.utils;
-async function fflonkExportSolidityVerifier(vk, templates, logger) {
-	if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
-	const curve = await getCurveFromName(vk.curve);
-	let w3 = fromVkey(vk.w3);
+async function augmentFflonkVk(vk, ctx) {
+	if (ctx.logger) ctx.logger.info("FFLONK EXPORT SOLIDITY VERIFIER STARTED");
+	const curve = await ctx.getCurveFromName(vk.curve);
+	const { unstringifyBigInts, stringifyBigInts } = ctx.utils;
+	const fromVkey = (str) => curve.Fr.fromObject(unstringifyBigInts(str));
+	const toVkey = (val) => stringifyBigInts(curve.Fr.toObject(val));
+	const w3 = fromVkey(vk.w3);
 	vk.w3_2 = toVkey(curve.Fr.square(w3));
-	let w4 = fromVkey(vk.w4);
+	const w4 = fromVkey(vk.w4);
 	vk.w4_2 = toVkey(curve.Fr.square(w4));
 	vk.w4_3 = toVkey(curve.Fr.mul(curve.Fr.square(w4), w4));
-	let w8 = fromVkey(vk.w8);
+	const w8 = fromVkey(vk.w8);
 	let acc = curve.Fr.one;
 	for (let i = 1; i < 8; i++) {
 		acc = curve.Fr.mul(acc, w8);
 		vk["w8_" + i] = toVkey(acc);
 	}
-	let template = templates[vk.protocol];
-	if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, vk);
-	function fromVkey(str) {
-		const val = unstringifyBigInts$6(str);
-		return curve.Fr.fromObject(val);
-	}
-	function toVkey(val) {
-		return stringifyBigInts$2(curve.Fr.toObject(val));
-	}
+	if (ctx.logger) ctx.logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 }
+async function generateSolidityVerifier(vk, params, ctx) {
+	const template = (params && params.templates || await loadDefaultTemplates())[vk.protocol];
+	if (!template) throw new Error(`solidity plugin: no template provided for protocol "${vk.protocol}"`);
+	if (vk.protocol === "fflonk") await augmentFflonkVk(vk, ctx);
+	return ctx.render(template, vk);
+}
+//#endregion
+//#region src/plonk_exportsoliditycalldata.js
+var { unstringifyBigInts: unstringifyBigInts$5 } = ffjavascript.utils;
+function p256$1(n) {
+	let nstr = n.toString(16);
+	while (nstr.length < 64) nstr = "0" + nstr;
+	nstr = `"0x${nstr}"`;
+	return nstr;
+}
+async function plonkExportSolidityCallData(_proof, _pub) {
+	const proof = unstringifyBigInts$5(_proof);
+	const pub = unstringifyBigInts$5(_pub);
+	await getCurveFromName(proof.curve);
+	let inputs = "";
+	for (let i = 0; i < pub.length; i++) {
+		if (inputs != "") inputs = inputs + ",";
+		inputs = inputs + p256$1(pub[i]);
+	}
+	return `[${p256$1(proof.A[0])}, ${p256$1(proof.A[1])},${p256$1(proof.B[0])},${p256$1(proof.B[1])},${p256$1(proof.C[0])},${p256$1(proof.C[1])},${p256$1(proof.Z[0])},${p256$1(proof.Z[1])},${p256$1(proof.T1[0])},${p256$1(proof.T1[1])},${p256$1(proof.T2[0])},${p256$1(proof.T2[1])},${p256$1(proof.T3[0])},${p256$1(proof.T3[1])},${p256$1(proof.Wxi[0])},${p256$1(proof.Wxi[1])},${p256$1(proof.Wxiw[0])},${p256$1(proof.Wxiw[1])},${p256$1(proof.eval_a)},${p256$1(proof.eval_b)},${p256$1(proof.eval_c)},${p256$1(proof.eval_s1)},${p256$1(proof.eval_s2)},${p256$1(proof.eval_zw)}][${inputs}]`;
+}
+//#endregion
+//#region src/fflonk_export_calldata.js
+var { unstringifyBigInts: unstringifyBigInts$4 } = ffjavascript.utils;
+function p256(n) {
+	let nstr = n.toString(16);
+	while (nstr.length < 64) nstr = "0" + nstr;
+	nstr = `0x${nstr}`;
+	return nstr;
+}
+async function fflonkExportCallData(_pub, _proof) {
+	const proof = unstringifyBigInts$4(_proof);
+	const pub = unstringifyBigInts$4(_pub);
+	await getCurveFromName(proof.curve);
+	let inputs = "";
+	for (let i = 0; i < pub.length; i++) {
+		if (inputs !== "") inputs = inputs + ",";
+		inputs = inputs + p256(pub[i]);
+	}
+	return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},${p256(proof.evaluations.inv)}],[${inputs}]`;
+}
+//#endregion
+//#region src/plugins/solidity/calldata.js
+async function generateSolidityCalldata(proof, publicSignals, params, ctx) {
+	if (proof.protocol === "groth16") return groth16ExportSolidityCallData(proof, publicSignals);
+	if (proof.protocol === "plonk") return plonkExportSolidityCallData(proof, publicSignals);
+	if (proof.protocol === "fflonk") return fflonkExportCallData(publicSignals, proof);
+	/* c8 ignore next 2 -- unreachable: assertSupports rejects other protocols first */
+	throw new Error(`solidity plugin: unsupported protocol "${proof.protocol}"`);
+}
+//#endregion
+//#region src/plugins/solidity/index.js
+var SUPPORTS = [
+	{
+		protocol: "groth16",
+		curve: "bn128"
+	},
+	{
+		protocol: "plonk",
+		curve: "bn128"
+	},
+	{
+		protocol: "fflonk",
+		curve: "bn128"
+	}
+];
+var plugin = {
+	name: "solidity",
+	apiVersion: 1,
+	description: "Solidity (EVM) verifier contracts and calldata, bn128",
+	calldata: {
+		supports: SUPPORTS,
+		generate: generateSolidityCalldata
+	},
+	cli: {
+		verifierUsage: "[circuit_final.zkey] [verifier.sol]",
+		calldataUsage: "[public.json] [proof.json]",
+		help: "Writes a Solidity verifier contract (Groth16Verifier / PlonkVerifier / FflonkVerifier).\nCalldata prints in the Remix/ethers argument format."
+	}
+};
+if (generateSolidityVerifier) plugin.verifier = {
+	supports: SUPPORTS,
+	defaultOutput: "verifier.sol",
+	generate: generateSolidityVerifier
+};
+var solidity_default = Object.freeze(plugin);
 //#endregion
 //#region src/zkey_export_solidityverifier.js
 async function exportSolidityVerifier(zKeyName, templates, logger) {
-	const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
-	if ("fflonk" === verificationKey.protocol) return fflonkExportSolidityVerifier(verificationKey, templates, logger);
-	let template = templates[verificationKey.protocol];
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, verificationKey);
+	return exportVerifier(zKeyName, solidity_default, { templates }, { logger });
 }
 //#endregion
 //#region src/zkey.js
@@ -4493,9 +4714,11 @@ var zkey_exports = /* @__PURE__ */ __exportAll({
 	bellmanContribute: () => bellmanContribute,
 	contribute: () => phase2contribute,
 	exportBellman: () => phase2exportMPCParams,
+	exportCalldata: () => exportCalldata,
 	exportJson: () => zkeyExportJson,
 	exportSolidityVerifier: () => exportSolidityVerifier,
 	exportVerificationKey: () => zkeyExportVerificationKey,
+	exportVerifier: () => exportVerifier,
 	importBellman: () => phase2importMPCParams,
 	newZKey: () => newZKey,
 	verifyFromInit: () => phase2verifyFromInit,
@@ -6188,20 +6411,20 @@ async function plonk16Prove(zkeyFileName, witnessFileName, logger, options) {
 }
 //#endregion
 //#region src/plonk_fullprove.js
-var { unstringifyBigInts: unstringifyBigInts$5 } = ffjavascript.utils;
+var { unstringifyBigInts: unstringifyBigInts$3 } = ffjavascript.utils;
 async function plonkFullProve(_input, wasmFile, zkeyFileName, logger, wtnsCalcOptions, proverOptions) {
-	const input = unstringifyBigInts$5(_input);
+	const input = unstringifyBigInts$3(_input);
 	const wtns = { type: "mem" };
 	await wtnsCalculate(input, wasmFile, wtns, wtnsCalcOptions);
 	return await plonk16Prove(zkeyFileName, wtns, logger, proverOptions);
 }
 //#endregion
 //#region src/plonk_verify.js
-var { unstringifyBigInts: unstringifyBigInts$4 } = ffjavascript.utils;
+var { unstringifyBigInts: unstringifyBigInts$2 } = ffjavascript.utils;
 async function plonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
-	let vk_verifier = unstringifyBigInts$4(_vk_verifier);
-	_proof = unstringifyBigInts$4(_proof);
-	let publicSignals = unstringifyBigInts$4(_publicSignals);
+	let vk_verifier = unstringifyBigInts$2(_vk_verifier);
+	_proof = unstringifyBigInts$2(_proof);
+	let publicSignals = unstringifyBigInts$2(_publicSignals);
 	const curve = await getCurveFromName(vk_verifier.curve);
 	const Fr = curve.Fr;
 	const G1 = curve.G1;
@@ -6468,26 +6691,6 @@ async function isValidPairing$1(curve, proof, challenges, vk, E, F) {
 	B1 = G1.add(B1, F);
 	B1 = G1.sub(B1, E);
 	return await curve.pairingEq(G1.neg(A1), vk.X_2, B1, curve.G2.one);
-}
-//#endregion
-//#region src/plonk_exportsoliditycalldata.js
-var { unstringifyBigInts: unstringifyBigInts$3 } = ffjavascript.utils;
-function p256$1(n) {
-	let nstr = n.toString(16);
-	while (nstr.length < 64) nstr = "0" + nstr;
-	nstr = `"0x${nstr}"`;
-	return nstr;
-}
-async function plonkExportSolidityCallData(_proof, _pub) {
-	const proof = unstringifyBigInts$3(_proof);
-	const pub = unstringifyBigInts$3(_pub);
-	await getCurveFromName(proof.curve);
-	let inputs = "";
-	for (let i = 0; i < pub.length; i++) {
-		if (inputs != "") inputs = inputs + ",";
-		inputs = inputs + p256$1(pub[i]);
-	}
-	return `[${p256$1(proof.A[0])}, ${p256$1(proof.A[1])},${p256$1(proof.B[0])},${p256$1(proof.B[1])},${p256$1(proof.C[0])},${p256$1(proof.C[1])},${p256$1(proof.Z[0])},${p256$1(proof.Z[1])},${p256$1(proof.T1[0])},${p256$1(proof.T1[1])},${p256$1(proof.T2[0])},${p256$1(proof.T2[1])},${p256$1(proof.T3[0])},${p256$1(proof.T3[1])},${p256$1(proof.Wxi[0])},${p256$1(proof.Wxi[1])},${p256$1(proof.Wxiw[0])},${p256$1(proof.Wxiw[1])},${p256$1(proof.eval_a)},${p256$1(proof.eval_b)},${p256$1(proof.eval_c)},${p256$1(proof.eval_s1)},${p256$1(proof.eval_s2)},${p256$1(proof.eval_zw)}][${inputs}]`;
 }
 //#endregion
 //#region src/plonk.js
@@ -7915,25 +8118,25 @@ async function fflonkProve(zkeyFileName, witnessFileName, logger, options) {
 }
 //#endregion
 //#region src/fflonk_full_prove.js
-var { unstringifyBigInts: unstringifyBigInts$2 } = ffjavascript.utils;
+var { unstringifyBigInts: unstringifyBigInts$1 } = ffjavascript.utils;
 async function fflonkFullProve(_input, wasmFilename, zkeyFilename, logger, wtnsCalcOptions, proverOptions) {
-	const input = unstringifyBigInts$2(_input);
+	const input = unstringifyBigInts$1(_input);
 	const wtns = { type: "mem" };
 	await wtnsCalculate(input, wasmFilename, wtns, wtnsCalcOptions);
 	return await fflonkProve(zkeyFilename, wtns, logger, proverOptions);
 }
 //#endregion
 //#region src/fflonk_verify.js
-var { unstringifyBigInts: unstringifyBigInts$1 } = ffjavascript.utils;
+var { unstringifyBigInts } = ffjavascript.utils;
 async function fflonkVerify(_vk_verifier, _publicSignals, _proof, logger) {
 	if (logger) logger.info("FFLONK VERIFIER STARTED");
-	_vk_verifier = unstringifyBigInts$1(_vk_verifier);
-	_proof = unstringifyBigInts$1(_proof);
+	_vk_verifier = unstringifyBigInts(_vk_verifier);
+	_proof = unstringifyBigInts(_proof);
 	const curve = await getCurveFromName(_vk_verifier.curve);
 	const vk = fromObjectVk(curve, _vk_verifier);
 	const proof = new Proof(curve, logger);
 	proof.fromObjectProof(_proof);
-	const publicSignals = unstringifyBigInts$1(_publicSignals);
+	const publicSignals = unstringifyBigInts(_publicSignals);
 	if (publicSignals.length !== vk.nPublic) {
 		if (logger) logger.error("Number of public signals does not match with vk");
 		return false;
@@ -8295,24 +8498,9 @@ function computeLagrangeLiS2(roots, value, xi0, xi1, curve) {
 	return Li;
 }
 //#endregion
-//#region src/fflonk_export_calldata.js
-var { unstringifyBigInts } = ffjavascript.utils;
-function p256(n) {
-	let nstr = n.toString(16);
-	while (nstr.length < 64) nstr = "0" + nstr;
-	nstr = `0x${nstr}`;
-	return nstr;
-}
-async function fflonkExportCallData(_pub, _proof) {
-	const proof = unstringifyBigInts(_proof);
-	const pub = unstringifyBigInts(_pub);
-	await getCurveFromName(proof.curve);
-	let inputs = "";
-	for (let i = 0; i < pub.length; i++) {
-		if (inputs !== "") inputs = inputs + ",";
-		inputs = inputs + p256(pub[i]);
-	}
-	return `[${p256(proof.polynomials.C1[0])}, ${p256(proof.polynomials.C1[1])},${p256(proof.polynomials.C2[0])},${p256(proof.polynomials.C2[1])},${p256(proof.polynomials.W1[0])},${p256(proof.polynomials.W1[1])},${p256(proof.polynomials.W2[0])},${p256(proof.polynomials.W2[1])},${p256(proof.evaluations.ql)},${p256(proof.evaluations.qr)},${p256(proof.evaluations.qm)},${p256(proof.evaluations.qo)},${p256(proof.evaluations.qc)},${p256(proof.evaluations.s1)},${p256(proof.evaluations.s2)},${p256(proof.evaluations.s3)},${p256(proof.evaluations.a)},${p256(proof.evaluations.b)},${p256(proof.evaluations.c)},${p256(proof.evaluations.z)},${p256(proof.evaluations.zw)},${p256(proof.evaluations.t1w)},${p256(proof.evaluations.t2w)},${p256(proof.evaluations.inv)}],[${inputs}]`;
+//#region src/fflonk_export_solidity_verifier.js
+async function fflonkExportSolidityVerifier(vk, templates, logger) {
+	return exportVerifier(vk, solidity_default, { templates }, { logger });
 }
 //#endregion
 //#region src/fflonk.js
@@ -8325,10 +8513,19 @@ var fflonk_exports = /* @__PURE__ */ __exportAll({
 	verify: () => fflonkVerify
 });
 //#endregion
+//#region src/plugins/index.js
+var plugins_exports = /* @__PURE__ */ __exportAll({ solidity: () => solidity_default });
+//#endregion
 Object.defineProperty(exports, "curves", {
 	enumerable: true,
 	get: function() {
 		return curves_exports;
+	}
+});
+Object.defineProperty(exports, "exportPlugins", {
+	enumerable: true,
+	get: function() {
+		return plugins_exports;
 	}
 });
 Object.defineProperty(exports, "fflonk", {

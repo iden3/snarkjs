@@ -2,7 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
-    { ignores: [".claude/**", "browser_tests/**", "build/**", "templates/**", "credentialAtomicQueryV3OnChain/**", "test/circuit2/**", "smart_contract_tests/**", "scripts/**"] },
+    { ignores: ["src/plugins/solidity/smart_contract_tests/**", ".claude/**", "browser_tests/**", "build/**", "templates/**", "credentialAtomicQueryV3OnChain/**", "test/circuit2/**", "smart_contract_tests/**", "scripts/**"] },
     js.configs.recommended,
     {
         languageOptions: {

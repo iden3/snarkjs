@@ -62,17 +62,22 @@ export default async function clProcessor(commands) {
         const m = calculateMatch(commands[i], cl);
         let res;
         if (m) {
-            if ((argv.h) || (argv.help)) {
+            const wantsHelp = (argv.h) || (argv.help);
+            if (wantsHelp && !cmd.deferHelp) {
                 helpCmd(cmd);
                 return;
             }
             if (areParamsValid(cmd.cmd, m)) {
-                if (cmd.options) {
-                    const options = getOptions(cmd.options);
-                    res = await cmd.action(m, options);
-                } else {
-                    res = await cmd.action(m, {});
+                const options = cmd.options ? getOptions(cmd.options) : {};
+                if (cmd.allowUnknownOptions) {
+                    // opt-in: hand every parsed --flag through (plugin
+                    // commands forward these to the plugin untouched)
+                    const passthrough = Object.assign({}, argv);
+                    delete passthrough.h; delete passthrough.help;
+                    options.pluginArgv = passthrough;
                 }
+                if (wantsHelp) options.help = true;
+                res = await cmd.action(m, options);
             } else {
                 if (m.length>0) console.log("Invalid number of parameters");
                 helpCmd(cmd);
@@ -182,7 +187,11 @@ export default async function clProcessor(commands) {
     function areParamsValid(cmd, params) {
         while ((params.length)&&(!params[params.length-1])) params.pop();
         const pl = parseLine(cmd);
-        if (params.length > pl.params.length) return false;
+        // a trailing "[name...]" / "<name...>" parameter accepts any number
+        // of surplus positionals (buildRemaining already collected them)
+        const variadic = (pl.params.length > 0)
+            && (pl.params[pl.params.length-1].indexOf("...") >= 0);
+        if ((!variadic)&&(params.length > pl.params.length)) return false;
         let minParams = pl.params.length;
         while ((minParams>0)&&(pl.params[minParams-1][0] == "[")) minParams --;
         if (params.length < minParams) return false;

@@ -39,6 +39,9 @@ import * as plonk from "./src/plonk.js";
 import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
+import * as exportPlugins from "./src/plugins/index.js";
+import { normalizeResult } from "./src/plugins/plugin_api.js";
+import { loadPlugins, getPlugin, allPlugins, formatPluginList } from "./src/cli_plugin_loader.js";
 import path from "path";
 
 import Logger from "logplease";
@@ -242,13 +245,84 @@ const commands = [
         cmd: "zkey export solidityverifier [circuit_final.zkey] [verifier.sol]",
         description: "Creates a verifier in solidity",
         alias: ["zkesv", "generateverifier -vk|verificationkey -v|verifier"],
+        options: "-verbose|v",
         action: zkeyExportSolidityVerifier
     },
     {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
         description: "Generates call parameters ready to be called.",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
+        options: "-verbose|v",
         action: zkeyExportSolidityCalldata
+    },
+    {
+        cmd: "groth16 export verifier <plugin> [circuit_final.zkey] [verifier_file] [params...]",
+        description: "Exports a groth16 verifier through an export plugin",
+        options: "-verbose|v -out -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportVerifierPlugin(params, options, "groth16")
+    },
+    {
+        cmd: "plonk export verifier <plugin> [circuit_final.zkey] [verifier_file] [params...]",
+        description: "Exports a plonk verifier through an export plugin",
+        options: "-verbose|v -out -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportVerifierPlugin(params, options, "plonk")
+    },
+    {
+        cmd: "fflonk export verifier <plugin> [circuit_final.zkey] [verifier_file] [params...]",
+        description: "Exports a fflonk verifier through an export plugin",
+        options: "-verbose|v -out -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportVerifierPlugin(params, options, "fflonk")
+    },
+    {
+        cmd: "zkey export verifier <plugin> [circuit_final.zkey] [verifier_file] [params...]",
+        description: "Exports a verifier through an export plugin (protocol read from the zkey)",
+        options: "-verbose|v -out -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportVerifierPlugin(params, options, null)
+    },
+    {
+        cmd: "groth16 export calldata <plugin> [public.json] [proof.json] [params...]",
+        description: "Generates groth16 calldata through an export plugin",
+        options: "-verbose|v -out -format -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportCalldataPlugin(params, options, "groth16")
+    },
+    {
+        cmd: "plonk export calldata <plugin> [public.json] [proof.json] [params...]",
+        description: "Generates plonk calldata through an export plugin",
+        options: "-verbose|v -out -format -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportCalldataPlugin(params, options, "plonk")
+    },
+    {
+        cmd: "fflonk export calldata <plugin> [public.json] [proof.json] [params...]",
+        description: "Generates fflonk calldata through an export plugin",
+        options: "-verbose|v -out -format -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportCalldataPlugin(params, options, "fflonk")
+    },
+    {
+        cmd: "zkey export calldata <plugin> [public.json] [proof.json] [params...]",
+        description: "Generates calldata through an export plugin (protocol read from the proof)",
+        options: "-verbose|v -out -format -list",
+        allowUnknownOptions: true,
+        deferHelp: true,
+        action: (params, options) => zkeyExportCalldataPlugin(params, options, null)
+    },
+    {
+        cmd: "plugins [action]",
+        description: "Lists the available export plugins and their capabilities",
+        action: pluginsList
     },
     {
         cmd: "groth16 setup [circuit.r1cs] [powersoftau.ptau] [circuit_0000.zkey]",
@@ -642,18 +716,117 @@ async function zkeyExportSolidityCalldata(params, options) {
     const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
     const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
 
-    let res;
-    if (proof.protocol == "groth16") {
-        res = await groth16.exportSolidityCallData(proof, pub);
-    } else if (proof.protocol == "plonk") {
-        res = await plonk.exportSolidityCallData(proof, pub);
-    } else if (proof.protocol === "fflonk") {
-        res = await fflonk.exportSolidityCallData(pub, proof);
-    } else {
-        throw new Error("Invalid Protocol");
-    }
+    const res = await zkey.exportCalldata(proof, pub, exportPlugins.solidity, {}, {logger});
     console.log(res);
 
+    return 0;
+}
+
+// ---------- export-plugin commands ----------
+
+// flags that belong to the command itself, never forwarded to plugins
+const PLUGIN_CMD_FLAGS = ["verbose", "v", "out", "format", "list", "help", "h"];
+
+function pluginParamsFrom(rest, options) {
+    const params = { _: rest };
+    if (options.format) params.format = options.format;
+    if (options.pluginArgv) {
+        for (const [k, val] of Object.entries(options.pluginArgv)) {
+            if (!PLUGIN_CMD_FLAGS.includes(k)) params[k] = val;
+        }
+    }
+    return params;
+}
+
+function printPluginHelp(plugin, kind) {
+    const usage = plugin.cli && (kind === "verifier" ? plugin.cli.verifierUsage : plugin.cli.calldataUsage);
+    console.log(`Plugin: ${plugin.name}${plugin.description ? " -- " + plugin.description : ""}`);
+    if (usage) console.log(`Usage:  snarkjs <protocol> export ${kind} ${plugin.name} ${usage}`);
+    if (plugin.cli && plugin.cli.help) console.log(plugin.cli.help);
+}
+
+function writePluginResult(rawRes, plugin, kind, outSpec) {
+    const { files } = normalizeResult(rawRes, plugin, kind);
+    const names = Object.keys(files);
+    if (names.length === 1 && names[0] === "") {
+        // single default artifact
+        if (outSpec) {
+            fs.writeFileSync(outSpec, files[""]);
+            logger.info(`${kind} written to ${outSpec}`);
+        } else {
+            console.log(files[""]);
+        }
+        return 0;
+    }
+    const dir = outSpec || ".";
+    for (const [rel, content] of Object.entries(files)) {
+        if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) {
+            throw new Error(`Plugin "${plugin.name}" produced an unsafe output path: ${rel}`);
+        }
+        const dest = path.join(dir, rel);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, content);
+        logger.info(`${kind} file written: ${dest}`);
+    }
+    return 0;
+}
+
+async function resolveCliPlugin(params, options, kind) {
+    if (options.verbose) Logger.setLogLevel("DEBUG");
+    const loaded = await loadPlugins();
+    if (options.list) {
+        console.log(formatPluginList(loaded));
+        return { done: 0 };
+    }
+    const pluginName = params[0];
+    if (!pluginName) {
+        console.log(formatPluginList(loaded));
+        return { done: options.help ? 0 : 99 };
+    }
+    const plugin = getPlugin(loaded, pluginName);
+    if (options.help) {
+        printPluginHelp(plugin, kind);
+        return { done: 0 };
+    }
+    return { plugin, loaded };
+}
+
+// <protocol> export verifier <plugin> [circuit_final.zkey] [verifier_file] [params...]
+async function zkeyExportVerifierPlugin(params, options, expectedProtocol) {
+    const r = await resolveCliPlugin(params, options, "verifier");
+    if ("done" in r) return r.done;
+    const zkeyName = params[1] || "circuit_final.zkey";
+    const vk = await zkey.exportVerificationKey(zkeyName, logger);
+    if (expectedProtocol && vk.protocol !== expectedProtocol) {
+        throw new Error(`${zkeyName} contains a ${vk.protocol} key, but the command was "${expectedProtocol} export verifier". ` +
+            `Use "${vk.protocol} export verifier" (or the protocol-agnostic "zkey export verifier").`);
+    }
+    const outName = options.out || params[2]
+        || (r.plugin.verifier && r.plugin.verifier.defaultOutput) || "verifier.out";
+    const res = await zkey.exportVerifier(vk, r.plugin, pluginParamsFrom(params.slice(3), options),
+        { logger, plugins: allPlugins(r.loaded) });
+    return writePluginResult(res, r.plugin, "verifier", outName);
+}
+
+// <protocol> export calldata <plugin> [public.json] [proof.json] [params...]
+async function zkeyExportCalldataPlugin(params, options, expectedProtocol) {
+    const r = await resolveCliPlugin(params, options, "calldata");
+    if ("done" in r) return r.done;
+    const publicName = params[1] || "public.json";
+    const proofName = params[2] || "proof.json";
+    const pub = JSON.parse(fs.readFileSync(publicName, "utf8"));
+    const proof = JSON.parse(fs.readFileSync(proofName, "utf8"));
+    if (expectedProtocol && proof.protocol !== expectedProtocol) {
+        throw new Error(`${proofName} is a ${proof.protocol} proof, but the command was "${expectedProtocol} export calldata". ` +
+            `Use "${proof.protocol} export calldata" (or the protocol-agnostic "zkey export calldata").`);
+    }
+    const res = await zkey.exportCalldata(proof, pub, r.plugin, pluginParamsFrom(params.slice(3), options),
+        { logger, plugins: allPlugins(r.loaded) });
+    return writePluginResult(res, r.plugin, "calldata", options.out || null);
+}
+
+async function pluginsList() {
+    console.log(formatPluginList(await loadPlugins()));
     return 0;
 }
 

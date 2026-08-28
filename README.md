@@ -620,6 +620,66 @@ async function calculateProof() {
 </html>
 ```
 
+## Export plugins
+
+Verifier and calldata generation is pluggable: targets beyond the built-in
+Solidity generator (other chains, languages, protocols, curves) ship as
+plugins instead of forks.
+
+### CLI
+
+```sh
+snarkjs groth16 export verifier <plugin> [circuit_final.zkey] [verifier_file] [plugin params...]
+snarkjs groth16 export calldata <plugin> [public.json] [proof.json] [plugin params...]
+# plonk / fflonk variants validate the declared protocol against the artifact;
+# `zkey export verifier|calldata <plugin>` reads the protocol from the artifact instead.
+snarkjs plugins list         # every available plugin and its (protocol, curve) capabilities
+snarkjs groth16 export verifier <plugin> --help
+```
+
+The built-in `solidity` plugin needs no configuration (the historical
+`zkey export solidityverifier` / `zkey export soliditycalldata` commands keep
+working and produce identical output). Third-party plugins are declared in a
+`snarkjs.config.mjs` in the working directory (`SNARKJS_CONFIG=<path>`
+overrides):
+
+```js
+export default {
+    plugins: [
+        "snarkjs-plugin-rust-solana",   // an npm package in YOUR project
+        "./tools/my-plugin.mjs",        // or a local module
+    ],
+};
+```
+
+Plugin-specific flags (anything the command itself does not declare) pass
+through to the plugin untouched; `--format=<name>` selects among a plugin's
+calldata formats; `--out=<path>` redirects the output (a directory for
+multi-file plugins).
+
+### Library
+
+No config files and no registry in code: import a plugin object and pass it.
+
+```js
+import * as snarkjs from "snarkjs";
+import myPlugin from "snarkjs-plugin-rust-solana";
+
+const verifier = await snarkjs.zKey.exportVerifier("circuit_final.zkey", myPlugin, {});
+const calldata = await snarkjs.zKey.exportCalldata(proof, publicSignals, myPlugin, { format: "rust-const" });
+```
+
+The built-in plugin is available as `snarkjs.exportPlugins.solidity`.
+
+### Writing a plugin
+
+See [examples/plugins/json](examples/plugins/json/README.md) -- a complete
+plugin in one screen of code, plus the interface reference: a plugin declares
+its supported `(protocol, curve)` cells, receives `(vk | proof+signals,
+params, ctx)` and returns a string or `{ files: {...} }`. `ctx` injects a
+logger, curve arithmetic, lazy EJS rendering and byte/bigint helpers, so a
+typical plugin has zero dependencies.
+
 ## Security
 
 We advise using the latest version of snarkjs as previous versions may contain bugs and security issues.
