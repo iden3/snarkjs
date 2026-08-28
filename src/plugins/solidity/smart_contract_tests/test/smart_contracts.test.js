@@ -12,13 +12,13 @@ import fs from "fs";
 describe("Smart contracts test suite", function () {
     this.timeout(1000000000);
 
-    const ptauFilename = path.join("../test", "plonk_circuit", "powersOfTau15_final.ptau");
+    const ptauFilename = path.join("../../../../test", "plonk_circuit", "powersOfTau15_final.ptau");
 
     // Load templates
     const templates = {};
-    templates.groth16 = fs.readFileSync(path.join("../templates", "verifier_groth16.sol.ejs"), "utf8");
-    templates.plonk = fs.readFileSync(path.join("../templates", "verifier_plonk.sol.ejs"), "utf8");
-    templates.fflonk = fs.readFileSync(path.join("../templates", "verifier_fflonk.sol.ejs"), "utf8");
+    templates.groth16 = fs.readFileSync(path.join("../../../../templates", "verifier_groth16.sol.ejs"), "utf8");
+    templates.plonk = fs.readFileSync(path.join("../../../../templates", "verifier_plonk.sol.ejs"), "utf8");
+    templates.fflonk = fs.readFileSync(path.join("../../../../templates", "verifier_fflonk.sol.ejs"), "utf8");
 
     let verifierContract;
     let curve;
@@ -34,52 +34,52 @@ describe("Smart contracts test suite", function () {
 
     it("Groth16 smart contract 1 input", async () => {
         expect(await groth16Verify(
-            path.join("../test", "groth16", "circuit.r1cs"),
-            path.join("../test", "groth16", "witness.wtns")
+            path.join("../../../../test", "groth16", "circuit.r1cs"),
+            path.join("../../../../test", "groth16", "witness.wtns")
         )).to.be.equal(true);
     });
 
     it("Groth16 smart contract 1 aliased input", async () => {
         expect(
             await groth16VerifyAliased(
-                path.join("../test", "groth16", "circuit.r1cs"),
-                path.join("../test", "groth16", "witness.wtns")
+                path.join("../../../../test", "groth16", "circuit.r1cs"),
+                path.join("../../../../test", "groth16", "witness.wtns")
             )
         ).to.be.equal(false);
     });
 
     it("Groth16 smart contract 3 inputs", async () => {
         expect(await groth16Verify(
-            path.join("../test", "circuit2", "circuit.r1cs"),
-            path.join("../test", "circuit2", "witness.wtns")
+            path.join("../../../../test", "circuit2", "circuit.r1cs"),
+            path.join("../../../../test", "circuit2", "witness.wtns")
         )).to.be.equal(true);
     });
 
     it("Plonk smart contract 1 input", async () => {
         expect(await plonkVerify(
-            path.join("../test", "plonk_circuit", "circuit.r1cs"),
-            path.join("../test", "plonk_circuit", "witness.wtns")
+            path.join("../../../../test", "plonk_circuit", "circuit.r1cs"),
+            path.join("../../../../test", "plonk_circuit", "witness.wtns")
         )).to.be.equal(true);
     });
 
     it("Plonk smart contract 3 inputs", async () => {
         expect(await plonkVerify(
-            path.join("../test", "circuit2", "circuit.r1cs"),
-            path.join("../test", "circuit2", "witness.wtns")
+            path.join("../../../../test", "circuit2", "circuit.r1cs"),
+            path.join("../../../../test", "circuit2", "witness.wtns")
         )).to.be.equal(true);
     });
 
     it("Fflonk smart contract 1 input", async () => {
         expect(await fflonkVerify(
-            path.join("../test", "fflonk", "circuit.r1cs"),
-            path.join("../test", "fflonk", "witness.wtns")
+            path.join("../../../../test", "fflonk", "circuit.r1cs"),
+            path.join("../../../../test", "fflonk", "witness.wtns")
         )).to.be.equal(true);
     });
 
     it("Fflonk smart contract 3 inputs", async () => {
         expect(await fflonkVerify(
-            path.join("../test", "circuit2", "circuit.r1cs"),
-            path.join("../test", "circuit2", "witness.wtns")
+            path.join("../../../../test", "circuit2", "circuit.r1cs"),
+            path.join("../../../../test", "circuit2", "witness.wtns")
         )).to.be.equal(true);
     });
 
