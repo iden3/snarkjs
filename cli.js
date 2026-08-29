@@ -19,6 +19,7 @@
 
 import fs from "fs";
 import url from "url";
+import { createRequire } from "module";
 
 import {readR1cs} from "r1csfile";
 
@@ -46,6 +47,24 @@ import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
+
+// The library releases its big buffers at their last use and marks the spots
+// with guarded globalThis.gc() checkpoints, which only run when a gc is
+// exposed. The CLI is node-only, so expose one here (unless the user already
+// ran node with --expose-gc) -- this keeps peak RSS of the streaming ceremony
+// commands (ptau/zkey contribute) at their working set instead of letting
+// collectable chunk garbage pile up. Library and browser consumers are
+// unaffected.
+if (typeof globalThis.gc !== "function") {
+    try {
+        const nodeRequire = createRequire(import.meta.url);
+        const v8 = nodeRequire("v8");
+        const vm = nodeRequire("vm");
+        v8.setFlagsFromString("--expose-gc");
+        globalThis.gc = vm.runInNewContext("gc");
+        v8.setFlagsFromString("--no-expose-gc");
+    } catch (e) { /* run without explicit gc checkpoints */ }
+}
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 

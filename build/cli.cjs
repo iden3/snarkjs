@@ -25,6 +25,7 @@ let fs = require("fs");
 fs = __toESM(fs, 1);
 let url = require("url");
 url = __toESM(url, 1);
+let module$1 = require("module");
 let r1csfile = require("r1csfile");
 let fastfile = require("fastfile");
 fastfile = __toESM(fastfile, 1);
@@ -1461,6 +1462,7 @@ async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve, group
 		buff = await G.batchApplyKey(buff, t, inc);
 		await fdNew.write(buff);
 		t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+		if (globalThis.gc && i % (MAX_CHUNK_SIZE * 4) == MAX_CHUNK_SIZE * 3) globalThis.gc();
 	}
 	await _iden3_binfileutils.endWriteSection(fdNew);
 	await _iden3_binfileutils.endReadSection(fdOld);
@@ -1482,6 +1484,7 @@ async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, g
 		if (responseHasher) responseHasher.update(buffOut);
 		await fdNew.write(buffOut);
 		t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+		if (globalThis.gc && i % (chunkSize * 16) == chunkSize * 15) globalThis.gc();
 	}
 }
 //#endregion
@@ -1732,14 +1735,16 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 			await promiseWrite;
 			if (i == 0) for (let j = 0; j < Math.min(2, NPoints); j++) res.push(G.fromRprLEM(buffOutLEM, j * sG));
 			t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+			if (globalThis.gc && i % (chunkSize * 8) == chunkSize * 7) globalThis.gc();
 		}
 		await _iden3_binfileutils.endWriteSection(fdNew);
+		if (globalThis.gc) globalThis.gc();
 		return res;
 	}
 	async function hashSection(fdTo, groupName, sectionId, nPoints, sectionName) {
 		const G = curve[groupName];
 		const sG = G.F.n8 * 2;
-		const nPointsChunk = Math.floor((1 << 24) / sG);
+		const nPointsChunk = Math.floor((1 << 22) / sG);
 		const oldPos = fdTo.pos;
 		fdTo.pos = startSections[sectionId];
 		for (let i = 0; i < nPoints; i += nPointsChunk) {
@@ -1748,6 +1753,7 @@ async function contribute(oldPtauFilename, newPTauFilename, name, entropy, logge
 			const buffLEM = await fdTo.read(n * sG);
 			const buffU = await G.batchLEMtoU(buffLEM);
 			nextChallengeHasher.update(buffU);
+			if (globalThis.gc && i % (nPointsChunk * 8) == nPointsChunk * 7) globalThis.gc();
 		}
 		fdTo.pos = oldPos;
 	}
@@ -8586,6 +8592,14 @@ async function _wtnsCheck(r1csFilename, wtnsFilename, logger, fds) {
 var { stringifyBigInts } = ffjavascript.utils;
 var logger = logplease.default.create("snarkJS", { showTimestamp: false });
 logplease.default.setLogLevel("INFO");
+if (typeof globalThis.gc !== "function") try {
+	const nodeRequire = (0, module$1.createRequire)(require("url").pathToFileURL(__filename).href);
+	const v8 = nodeRequire("v8");
+	const vm = nodeRequire("vm");
+	v8.setFlagsFromString("--expose-gc");
+	globalThis.gc = vm.runInNewContext("gc");
+	v8.setFlagsFromString("--no-expose-gc");
+} catch (e) {}
 var __dirname$1 = path.default.dirname(url.default.fileURLToPath(require("url").pathToFileURL(__filename).href));
 clProcessor([
 	{

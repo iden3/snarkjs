@@ -150,9 +150,15 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
                 for (let j=0; j<Math.min(2, NPoints); j++)
                     res.push(G.fromRprLEM(buffOutLEM, j*sG));
             t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+            // Every buffer of the past chunks is garbage by now, but v8
+            // collects them lazily and RSS grows with the section size;
+            // nudge the collector periodically to keep the peak at the
+            // streaming working set (no-op without an exposed gc)
+            if (globalThis.gc && i % (chunkSize * 8) == chunkSize * 7) {globalThis.gc();}
         }
 
         await binFileUtils.endWriteSection(fdNew);
+        if (globalThis.gc) {globalThis.gc();}
 
         return res;
     }
@@ -162,7 +168,9 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
 
         const G = curve[groupName];
         const sG = G.F.n8*2;
-        const nPointsChunk = Math.floor((1<<24)/sG);
+        // 4Mb chunks: this pass only feeds the challenge hasher, so small
+        // chunks cost nothing and keep the read/LEMtoU garbage window small
+        const nPointsChunk = Math.floor((1<<22)/sG);
 
         const oldPos = fdTo.pos;
         fdTo.pos = startSections[sectionId];
@@ -176,6 +184,8 @@ export default async function contribute(oldPtauFilename, newPTauFilename, name,
             const buffU = await G.batchLEMtoU(buffLEM);
 
             nextChallengeHasher.update(buffU);
+            // see processSection: keep lazily-collected chunk garbage bounded
+            if (globalThis.gc && i % (nPointsChunk * 8) == nPointsChunk * 7) {globalThis.gc();}
         }
 
         fdTo.pos = oldPos;

@@ -3449,7 +3449,7 @@ async function ri(e, t, n, r, i, a, o, s, c, l) {
 	for (let t = 0; t < p; t += u) {
 		l && l.debug(`Applying key: ${c}: ${t}/${p}`);
 		let r = Math.min(p - t, u), a;
-		a = await e.read(r * f), a = await d.batchApplyKey(a, m, s), await n.write(a), m = i.Fr.mul(m, i.Fr.exp(s, r));
+		a = await e.read(r * f), a = await d.batchApplyKey(a, m, s), await n.write(a), m = i.Fr.mul(m, i.Fr.exp(s, r)), globalThis.gc && t % (u * 4) == u * 3 && globalThis.gc();
 	}
 	await z(n), await V(e);
 }
@@ -3458,7 +3458,7 @@ async function ii(e, t, n, r, i, a, o, s, c, l, u) {
 	for (let i = 0; i < a; i += p) {
 		u && u.debug(`Applying key ${l}: ${i}/${a}`);
 		let o = Math.min(a - i, p), h = await e.read(o * f), g = await d.batchUtoLEM(h), _ = await d.batchApplyKey(g, m, s), v;
-		v = c == "COMPRESSED" ? await d.batchLEMtoC(_) : await d.batchLEMtoU(_), n && n.update(v), await t.write(v), m = r.Fr.mul(m, r.Fr.exp(s, o));
+		v = c == "COMPRESSED" ? await d.batchLEMtoC(_) : await d.batchLEMtoU(_), n && n.update(v), await t.write(v), m = r.Fr.mul(m, r.Fr.exp(s, o)), globalThis.gc && i % (p * 16) == p * 15 && globalThis.gc();
 	}
 }
 //#endregion
@@ -3576,17 +3576,17 @@ async function si(e, t, n, r, i) {
 			i && i.debug(`processing: ${l}: ${e}/${n}`);
 			let t = Math.min(n - e, p), r = await a.read(t * f), o = await d.batchApplyKey(r, _, c), g = h.write(o), v = await d.batchLEMtoC(o);
 			if (m.update(v), await g, e == 0) for (let e = 0; e < Math.min(2, n); e++) u.push(d.fromRprLEM(o, e * f));
-			_ = s.Fr.mul(_, s.Fr.exp(c, t));
+			_ = s.Fr.mul(_, s.Fr.exp(c, t)), globalThis.gc && e % (p * 8) == p * 7 && globalThis.gc();
 		}
-		return await z(h), u;
+		return await z(h), globalThis.gc && globalThis.gc(), u;
 	}
 	async function S(e, t, n, r, a) {
-		let o = s[t], c = o.F.n8 * 2, l = Math.floor((1 << 24) / c), u = e.pos;
+		let o = s[t], c = o.F.n8 * 2, l = Math.floor((1 << 22) / c), u = e.pos;
 		e.pos = g[n];
 		for (let t = 0; t < r; t += l) {
 			i && t && i.debug(`Hashing ${a}: ` + t);
 			let n = Math.min(r - t, l), s = await e.read(n * c), u = await o.batchLEMtoU(s);
-			b.update(u);
+			b.update(u), globalThis.gc && t % (l * 8) == l * 7 && globalThis.gc();
 		}
 		e.pos = u;
 	}
