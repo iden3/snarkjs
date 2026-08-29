@@ -31,9 +31,26 @@ import { Scalar, ChaCha, BigBuffer } from "ffjavascript";
 
 
 export default async function phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger) {
+    // fd lifecycle: every file the verifier opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger, fds);
+    } finally {
+        for (const openFd of [fds.fd, fds.fdInit, fds.fdPTau]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
+}
+
+async function _phase2verifyFromInit(initFileName, pTauFileName, zkeyFileName, logger, fds) {
 
     let sr;
     const {fd, sections} = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2);
+    fds.fd = fd;
     const zkey = await zkeyUtils.readHeader(fd, sections, false);
     if (zkey.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -115,6 +132,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
 
 
     const {fd: fdInit, sections: sectionsInit} = await binFileUtils.readBinFile(initFileName, "zkey", 2);
+    fds.fdInit = fdInit;
     const zkeyInit = await zkeyUtils.readHeader(fdInit, sectionsInit, false);
 
     if (zkeyInit.protocol != "groth16") {
@@ -300,6 +318,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         const sG = G.F.n8*2;
 
         const {fd: fdPTau, sections: sectionsPTau} = await binFileUtils.readBinFile(pTauFileName, "ptau", 1);
+        fds.fdPTau = fdPTau;
 
         let buff_r = new BigBuffer(zkey.domainSize * zkey.n8r);
 

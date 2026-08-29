@@ -24,8 +24,25 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import * as misc from "./misc.js";
 
 export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
+    // fd lifecycle: every file the import opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdZKeyOld, fds.fdMPCParams, fds.fdZKeyNew]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
+}
+
+async function _phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger, fds) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
+    fds.fdZKeyOld = fdZKeyOld;
     const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, false);
     if (zkeyHeader.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -39,6 +56,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     const newMPCParams = {};
 
     const fdMPCParams = await fastFile.readExisting(mpcparamsName);
+    fds.fdMPCParams = fdMPCParams;
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -102,6 +120,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     }
 
     const fdZKeyNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    fds.fdZKeyNew = fdZKeyNew;
     fdMPCParams.pos = 0;
 
     // Header

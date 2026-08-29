@@ -33,6 +33,22 @@ import { blake2b } from "@noble/hashes/blake2.js";
 import BigArray from "./bigarray.js";
 
 export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _newZKey(r1csName, ptauName, zkeyName, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
+}
+
+async function _newZKey(r1csName, ptauName, zkeyName, logger, fds) {
 
     const TAU_G1 = 0;
     const TAU_G2 = 1;
@@ -41,11 +57,14 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    fds.fdPTau = fdPTau;
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    fds.fdR1cs = fdR1cs;
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
+    fds.fdZKey = fdZKey;
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;

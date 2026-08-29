@@ -34,12 +34,30 @@ import BigArray from "./bigarray.js";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _plonkSetup(r1csName, ptauName, zkeyName, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
+}
+
+async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
 
     if (globalThis.gc) {globalThis.gc();}
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    fds.fdPTau = fdPTau;
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    fds.fdR1cs = fdR1cs;
 
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
@@ -62,6 +80,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     if (globalThis.gc) {globalThis.gc();}
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
+    fds.fdZKey = fdZKey;
 
 
     if (r1cs.prime != curve.r) {

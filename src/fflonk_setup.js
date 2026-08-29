@@ -57,6 +57,22 @@ import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() throws synchronously on an already-closed file fd
+            try { if (openFd) await openFd.close(); } catch (e) { /* already closed */ }
+        }
+    }
+}
+
+async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fds) {
     if (logger) logger.info("FFLONK SETUP STARTED");
 
     if (globalThis.gc) globalThis.gc();
@@ -64,6 +80,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
     const {fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
+    fds.fdPTau = fdPTau;
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -75,6 +92,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    fds.fdR1cs = fdR1cs;
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
@@ -217,6 +235,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
         const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        fds.fdZKey = fdZKey;
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
