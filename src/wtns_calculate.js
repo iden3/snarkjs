@@ -28,7 +28,7 @@ export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, 
     const input = unstringifyBigInts(_input);
 
     // For an IndexedDB-cached http wasm (browser warm start), pass a
-    // fastfile descriptor: {type: "http", url, persistentCache: true|{...}}
+    // fastfile descriptor: {type: "http", url, cache: true|{...}}
     const fdWasm = await fastFile.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();

@@ -30,7 +30,7 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         const openWtns = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
         fdWtns = openWtns.fd;
         // For an IndexedDB-cached http zkey (browser warm start), pass a
-        // fastfile descriptor: {type: "http", url, persistentCache: true|{...}}
+        // fastfile descriptor: {type: "http", url, cache: true|{...}}
         const openZKey = await binFileUtils.readBinFile(zkeyFileName, "zkey", 2, 1<<25, 1<<23);
         fdZKey = openZKey.fd;
         return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
