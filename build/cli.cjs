@@ -3932,8 +3932,6 @@ async function read(fileName) {
 //#region src/groth16_prove.js
 var { stringifyBigInts: stringifyBigInts$3 } = ffjavascript.utils;
 async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
-	let memTimer = null;
-	if (logger && options && options.memoryLogging && typeof process !== "undefined" && typeof process.memoryUsage === "function") memTimer = monitorMemoryUsage(logger, Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1e3);
 	let fdWtns, fdZKey;
 	try {
 		const openWtns = await _iden3_binfileutils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
@@ -3943,10 +3941,6 @@ async function groth16Prove$1(zkeyFileName, witnessFileName, logger, options) {
 		fdZKey = openZKey.fd;
 		return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
 	} finally {
-		if (memTimer) {
-			clearInterval(memTimer);
-			memUsage(logger);
-		}
 		if (fdZKey) await Promise.resolve(fdZKey.close()).catch(() => {});
 		if (fdWtns) await Promise.resolve(fdWtns.close()).catch(() => {});
 	}
@@ -4391,18 +4385,6 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 		p += result[i][0].byteLength;
 	}
 	return outBuff;
-}
-function memUsage(logger) {
-	/* c8 ignore start */
-	if (!logger) return;
-	/* c8 ignore stop */
-	const used = process.memoryUsage();
-	logger.info("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
-}
-function monitorMemoryUsage(logger, interval = 5e3) {
-	return setInterval(() => {
-		memUsage(logger);
-	}, interval);
 }
 //#endregion
 //#region src/wtns_calculate.js
@@ -8826,14 +8808,14 @@ clProcessor([
 			"zksnark proof",
 			"proof -pk|provingkey -wt|witness -p|proof -pub|public"
 		],
-		options: "-verbose|v -protocol -buildabc -memlog",
+		options: "-verbose|v -protocol -buildabc",
 		action: groth16Prove
 	},
 	{
 		cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
 		description: "Generates a zk Proof from input",
 		alias: ["g16f", "g16i"],
-		options: "-verbose|v -protocol -buildabc -memlog",
+		options: "-verbose|v -protocol -buildabc",
 		action: groth16FullProve
 	},
 	{
@@ -8984,7 +8966,6 @@ async function groth16Prove(params, options) {
 	if (options.verbose) logplease.default.setLogLevel("DEBUG");
 	const proveOptions = {};
 	if (options.buildabc) proveOptions.buildABC = options.buildabc;
-	if (options.memlog) proveOptions.memoryLogging = options.memlog;
 	const { proof, publicSignals } = await groth16Prove$1(zkeyName, witnessName, logger, proveOptions);
 	fs.default.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
 	fs.default.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
@@ -9000,7 +8981,6 @@ async function groth16FullProve(params, options) {
 	const input = JSON.parse(await fs.default.promises.readFile(inputName, "utf8"));
 	const proveOptions = {};
 	if (options.buildabc) proveOptions.buildABC = options.buildabc;
-	if (options.memlog) proveOptions.memoryLogging = options.memlog;
 	const { proof, publicSignals } = await groth16FullProve$1(input, wasmName, zkeyName, logger, void 0, proveOptions);
 	fs.default.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
 	fs.default.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));

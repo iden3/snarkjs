@@ -25,15 +25,6 @@ import { Scalar, utils, BigBuffer } from "ffjavascript";
 const {stringifyBigInts} = utils;
 
 export default async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
-    // Opt-in periodic memory-usage logging (heap/RSS/external/ArrayBuffers).
-    // options.memoryLogging: true (1s interval) or an interval in ms.
-    // Node-only: process.memoryUsage does not exist in browsers.
-    let memTimer = null;
-    if (logger && options && options.memoryLogging
-        && typeof process !== "undefined" && typeof process.memoryUsage === "function") {
-        const interval = Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1000;
-        memTimer = monitorMemoryUsage(logger, interval);
-    }
     let fdWtns, fdZKey;
     try {
         const openWtns = await binFileUtils.readBinFile(witnessFileName, "wtns", 2, 1<<25, 1<<23);
@@ -45,10 +36,6 @@ export default async function groth16Prove(zkeyFileName, witnessFileName, logger
         fdZKey = openZKey.fd;
         return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
     } finally {
-        if (memTimer) {
-            clearInterval(memTimer);
-            memUsage(logger);
-        }
         // Close on EVERY path -- any throw between open and the end of the
         // prove (header validation, section reads, a failing phase) used to
         // leak both fds because only the success path closed them. On the
@@ -597,27 +584,4 @@ async function joinABC(curve, zkey, a, b, c, logger) {
     }
 
     return outBuff;
-}
-
-function memUsage(logger) {
-    // coverage: defensive edge guard not reachable with valid inputs
-    /* c8 ignore start */
-    if (!logger) return;
-    /* c8 ignore stop */
-    const used = process.memoryUsage();
-    logger.info(
-        "         ",
-        "\x1b[0m Heap:\x1b[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m / \x1b[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m RSS:\x1b[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m External:\x1b[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m ArrBuffers:\x1b[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12),
-        "\x1b[0m"
-    );
-}
-
-function monitorMemoryUsage(logger, interval = 5000) {
-    return setInterval(() => {
-        memUsage(logger);
-    }, interval);
 }

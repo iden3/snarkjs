@@ -623,8 +623,6 @@ async function read(fileName) {
 //#region src/groth16_prove.js
 var { stringifyBigInts: stringifyBigInts$4 } = ffjavascript.utils;
 async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
-	let memTimer = null;
-	if (logger && options && options.memoryLogging && typeof process !== "undefined" && typeof process.memoryUsage === "function") memTimer = monitorMemoryUsage(logger, Number(options.memoryLogging) > 1 ? Number(options.memoryLogging) : 1e3);
 	let fdWtns, fdZKey;
 	try {
 		const openWtns = await _iden3_binfileutils.readBinFile(witnessFileName, "wtns", 2, 1 << 25, 1 << 23);
@@ -634,10 +632,6 @@ async function groth16Prove(zkeyFileName, witnessFileName, logger, options) {
 		fdZKey = openZKey.fd;
 		return await _groth16Prove(fdZKey, openZKey.sections, fdWtns, openWtns.sections, logger, options);
 	} finally {
-		if (memTimer) {
-			clearInterval(memTimer);
-			memUsage(logger);
-		}
 		if (fdZKey) await Promise.resolve(fdZKey.close()).catch(() => {});
 		if (fdWtns) await Promise.resolve(fdWtns.close()).catch(() => {});
 	}
@@ -1082,18 +1076,6 @@ async function joinABC(curve, zkey, a, b, c, logger) {
 		p += result[i][0].byteLength;
 	}
 	return outBuff;
-}
-function memUsage(logger) {
-	/* c8 ignore start */
-	if (!logger) return;
-	/* c8 ignore stop */
-	const used = process.memoryUsage();
-	logger.info("         ", "\x1B[0m Heap:\x1B[32m", `${Math.round(used.heapUsed / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m / \x1B[32m", `${Math.round(used.heapTotal / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m RSS:\x1B[32m", `${Math.round(used.rss / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m External:\x1B[32m", `${Math.round(used.external / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m ArrBuffers:\x1B[32m", `${Math.round(used.arrayBuffers / 1024 / 1024 * 100) / 100} MB`.padEnd(12), "\x1B[0m");
-}
-function monitorMemoryUsage(logger, interval = 5e3) {
-	return setInterval(() => {
-		memUsage(logger);
-	}, interval);
 }
 //#endregion
 //#region src/wtns_calculate.js

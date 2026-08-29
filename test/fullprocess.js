@@ -249,30 +249,6 @@ describe("Full process", function ()  {
         });
     }
 
-    it ("groth16 proof with memoryLogging emits memory lines and still verifies", async () => {
-        // memoryLogging starts a periodic memUsage timer (Node only) which
-        // must be cleared in groth16Prove's finally -- a leaked interval
-        // would keep the process (and this test run) alive forever. The
-        // finally also logs one final memUsage line, so at least one "Heap:"
-        // line must appear even if the prove finishes before the first tick.
-        const lines = [];
-        const logger = {
-            info: (...args) => lines.push(args.join(" ")),
-            debug: () => {},
-            warn: () => {},
-            error: () => {},
-        };
-
-        const res = await snarkjs.groth16.prove(zkey_final, wtns, logger, {memoryLogging: 50});
-        const ok = await snarkjs.groth16.verify(vKey, res.publicSignals, res.proof);
-        assert(ok == true);
-        assert(lines.some((l) => l.includes("Heap:")), "expected at least one memory-usage log line");
-
-        // memoryLogging: true selects the default 1s interval
-        const res2 = await snarkjs.groth16.prove(zkey_final, wtns, logger, {memoryLogging: true});
-        assert(await snarkjs.groth16.verify(vKey, res2.publicSignals, res2.proof) == true);
-    });
-
     for (const buildABC of ["wasm", "wasm1", "bogus"]) {
         it (`groth16 proof rejects a retired/invalid buildABC option (${buildABC})`, async () => {
             let threw = false;

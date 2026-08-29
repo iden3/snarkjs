@@ -280,14 +280,14 @@ const commands = [
         cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a zk Proof from witness",
         alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-        options: "-verbose|v -protocol -buildabc -memlog",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16Prove
     },
     {
         cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
         description: "Generates a zk Proof from input",
         alias: ["g16f", "g16i"],
-        options: "-verbose|v -protocol -buildabc -memlog",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16FullProve
     },
     {
@@ -511,7 +511,6 @@ async function groth16Prove(params, options) {
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
-    if (options.memlog) proveOptions.memoryLogging = options.memlog;
     const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger, proveOptions);
 
     fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
@@ -535,7 +534,6 @@ async function groth16FullProve(params, options) {
 
     const proveOptions = {};
     if (options.buildabc) proveOptions.buildABC = options.buildabc;
-    if (options.memlog) proveOptions.memoryLogging = options.memlog;
     const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName, logger, undefined, proveOptions);
 
     fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
