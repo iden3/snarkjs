@@ -268,19 +268,3 @@ export function stringifyBigIntsWithField(Fr, o) {
         return o;
     }
 }
-
-// Route an http(s) file source through fastfile's opt-in persistent block
-// cache (IndexedDB warm start in browsers; a no-op elsewhere). Accepts the
-// prover's file argument as-is: absolute http(s) URL strings and explicit
-// {type: "http"} descriptors gain the persistentCache flag, everything else
-// (local paths, mem/bigMem descriptors, open fds) passes through untouched.
-export function withPersistentCache(fileSource, persistentCache) {
-    if (!persistentCache) return fileSource;
-    if (typeof fileSource === "string" && /^https?:\/\//i.test(fileSource)) {
-        return { type: "http", url: fileSource, persistentCache };
-    }
-    if (fileSource && fileSource.type === "http" && !fileSource.persistentCache) {
-        return Object.assign({}, fileSource, { persistentCache });
-    }
-    return fileSource;
-}

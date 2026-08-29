@@ -22,16 +22,14 @@ import { WitnessCalculatorBuilder } from "circom_runtime";
 import * as wtnsUtils from "./wtns_utils.js";
 import * as binFileUtils from "@iden3/binfileutils";
 import {  utils }   from "ffjavascript";
-import { withPersistentCache } from "./misc.js";
 const { unstringifyBigInts} = utils;
 
 export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const input = unstringifyBigInts(_input);
 
-    // options.persistentCache: cache the circuit wasm in IndexedDB across
-    // sessions when it is an http(s) source (browser warm start).
-    const wasmSource = withPersistentCache(wasmFileName, options && options.persistentCache);
-    const fdWasm = await fastFile.readExisting(wasmSource);
+    // For an IndexedDB-cached http wasm (browser warm start), pass a
+    // fastfile descriptor: {type: "http", url, persistentCache: true|{...}}
+    const fdWasm = await fastFile.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
 

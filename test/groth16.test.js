@@ -94,9 +94,10 @@ describe("Groth16", function () {
         expect(res).toBe(true);
     });
 
-    // Browser-only: prove from an http(s) zkey with options.persistentCache.
-    // The first proof populates the IndexedDB block cache; the second one
-    // must touch the network only for the open probe.
+    // Browser-only: prove from an http(s) zkey passed as a fastfile
+    // descriptor with persistentCache. The first proof populates the
+    // IndexedDB block cache; the second one must touch the network only for
+    // the open probe.
     it.runIf(isBrowser)("groth16 prove from URL: persistentCache warm start", async () => {
         const realFetch = globalThis.fetch;
         const data = zkey_final.data;
@@ -124,12 +125,13 @@ describe("Groth16", function () {
                 req.onsuccess = req.onerror = req.onblocked = () => res();
             });
 
-            const r1 = await snarkjs.groth16.prove(url, wtns, null, { persistentCache: pc });
+            const zkeySrc = { type: "http", url, persistentCache: pc };
+            const r1 = await snarkjs.groth16.prove(zkeySrc, wtns, null);
             expect(await snarkjs.groth16.verify(vKey, r1.publicSignals, r1.proof)).toBe(true);
             const cold = counter.count;
             expect(cold).toBeGreaterThan(1);
 
-            const r2 = await snarkjs.groth16.prove(url, wtns, null, { persistentCache: pc });
+            const r2 = await snarkjs.groth16.prove(zkeySrc, wtns, null);
             expect(await snarkjs.groth16.verify(vKey, r2.publicSignals, r2.proof)).toBe(true);
             expect(counter.count - cold).toBe(1); // the open probe, nothing else
         } finally {
