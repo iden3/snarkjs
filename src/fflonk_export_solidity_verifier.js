@@ -18,6 +18,7 @@
 */
 
 import {getCurveFromName} from "./curves.js";
+import { render } from "./template_render.js";
 import {utils} from "ffjavascript";
 
 const {unstringifyBigInts, stringifyBigInts} = utils;
@@ -47,8 +48,7 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    const {default: ejs} = await import("ejs");
-    return ejs.render(template, vk);
+    return render(template, vk);
 
     function fromVkey(str) {
         const val = unstringifyBigInts(str);
