@@ -42,7 +42,7 @@ import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
 
-import Logger from "logplease";
+import Logger from "./src/cli_logger.js";
 import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
