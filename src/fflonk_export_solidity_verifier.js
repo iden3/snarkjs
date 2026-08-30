@@ -17,7 +17,6 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import ejs from "ejs";
 import {getCurveFromName} from "./curves.js";
 import {utils} from "ffjavascript";
 
@@ -48,6 +47,7 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
+    const {default: ejs} = await import("ejs");
     return ejs.render(template, vk);
 
     function fromVkey(str) {

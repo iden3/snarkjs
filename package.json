@@ -25,14 +25,18 @@
     "templates/"
   ],
   "scripts": {
-    "test": "mocha",
-    "testv12": "mocha test/fflonk.test.js test/fullprocess.js test/keypar_test.js test/polynomial.test.js",
-    "build": "npm run buildcjs && npm run buildcli && npm run buildiife && npm run buildiifemin && npm run buildesm",
-    "buildcjs": "rollup -c config/rollup.cjs.config.js",
-    "buildcli": "rollup -c config/rollup.cli.config.js",
-    "buildiife": "BROWSER=true rollup -c config/rollup.iife.config.js",
-    "buildiifemin": "BROWSER=true rollup -c config/rollup.iife_min.config.js",
-    "buildesm": "BROWSER=true rollup -c config/rollup.browser.esm.config"
+    "lint": "eslint .",
+    "clean": "node -e \"fs.rmSync('build',{recursive:true,force:true})\"",
+    "pretest": "npm run build:node && npm run build:browser && npm run lint",
+    "test": "vitest run",
+    "test:node": "vitest run --project node-esm",
+    "test:watch": "vitest --project node-esm",
+    "build:node": "vite build",
+    "build:cli": "vite build --mode cli",
+    "build:browser": "vite build --mode browser",
+    "build:iife": "vite build --mode browser-iife",
+    "build": "npm run clean && npm run build:node && npm run build:cli && npm run build:browser && npm run build:iife",
+    "test:browser": "vitest run --project browser-chromium"
   },
   "bin": {
     "snarkjs": "build/cli.cjs"
@@ -56,26 +60,30 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "0.0.12",
-    "@noble/hashes": "^1.7.1",
-    "bfj": "^7.0.2",
+    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#795f9c12f90e70ffcb178af0a420f5cbb28a66db",
+    "@noble/hashes": "^2.2.0",
+    "bfj": "^9.1.3",
     "circom_runtime": "0.1.28",
-    "ejs": "^3.1.6",
-    "fastfile": "0.0.20",
-    "ffjavascript": "0.3.1",
+    "ejs": "^6.0.1",
+    "fastfile": "git+https://github.com/iden3/fastfile.git#83ccfe522f3320b4a5b2bdf706ecfdb93dcd7105",
+    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#cc88563e1686646616ad0fcfafa6cb09c879dd25",
     "logplease": "^1.2.15",
-    "r1csfile": "0.0.48"
+    "r1csfile": "git+https://github.com/iden3/r1csfile.git#29af5e0b6d3bd164d4656481bcc83e2538cfda34"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^22.0.0",
-    "@rollup/plugin-json": "^4.1.0",
-    "@rollup/plugin-node-resolve": "^14.0.0",
-    "@rollup/plugin-replace": "^4.0.0",
-    "@rollup/plugin-virtual": "^2.0.3",
-    "eslint": "^8.7.0",
-    "mocha": "^10.2.0",
-    "rollup": "^2.36.2",
-    "rollup-plugin-terser": "^7.0.2",
-    "rollup-plugin-visualizer": "^5.6.0"
+    "@eslint/js": "^10.0.1",
+    "@vitest/browser": "^4.1.11",
+    "@vitest/browser-playwright": "^4.1.11",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "playwright": "^1.59.0",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "diff": "^8.0.3",
+    "postcss": "^8.5.26",
+    "brace-expansion": "^5.0.9"
   }
 }

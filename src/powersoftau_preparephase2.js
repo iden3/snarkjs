@@ -67,9 +67,7 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
         async function processSectionPower(p) {
             const nPoints = 2 ** p;
             const G = curve[Gstr];
-            const Fr = curve.Fr;
             const sGin = G.F.n8*2;
-            const sGmid = G.F.n8*3;
 
             let buff;
             buff = new BigBuffer(nPoints*sGin);
@@ -87,7 +85,7 @@ export default async function preparePhase2(oldPtauFilename, newPTauFilename, lo
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);

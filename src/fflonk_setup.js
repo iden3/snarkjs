@@ -57,6 +57,24 @@ import {CPolynomial} from "./polynomial/cpolynomial.js";
 
 
 export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
+        }
+    }
+}
+
+async function _fflonkSetup(r1csFilename, ptauFilename, zkeyFilename, logger, fds) {
     if (logger) logger.info("FFLONK SETUP STARTED");
 
     if (globalThis.gc) globalThis.gc();
@@ -64,6 +82,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Read PTau file
     if (logger) logger.info("> Reading PTau file");
     const {fd: fdPTau, sections: pTauSections} = await readBinFile(ptauFilename, "ptau", 1, 1 << 22, 1 << 24);
+    fds.fdPTau = fdPTau;
     if (!pTauSections[12]) {
         throw new Error("Powers of Tau is not well prepared. Section 12 missing.");
     }
@@ -75,6 +94,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     // Read r1cs file
     if (logger) logger.info("> Reading r1cs file");
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csFilename, "r1cs", 1, 1 << 22, 1 << 24);
+    fds.fdR1cs = fdR1cs;
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: false, loadCustomGates: true});
 
     // Potential error checks
@@ -98,13 +118,18 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         nPublic: r1cs.nOutputs + r1cs.nPubInputs
     };
 
-    const plonkConstraints = new BigArray();
+    let plonkConstraints = new BigArray();
     let plonkAdditions = new BigArray();
 
     // Process constraints inside r1cs
     if (logger) logger.info("> Processing FFlonk constraints");
     await computeFFConstraints(curve.Fr, r1cs, logger);
     if (globalThis.gc) globalThis.gc();
+
+    // Capture the counts now: the header section is written after the
+    // constraint and addition arrays have been released
+    settings.nConstraints = plonkConstraints.length;
+    settings.nAdditions = plonkAdditions.length;
 
     // As the t polynomial is n+5 we need at least a power of 4
     //TODO check!!!!
@@ -115,9 +140,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     if (pTauSections[2][0].size < (settings.domainSize * 9 + 18) * sG1) {
         throw new Error("Powers of Tau is not big enough for this circuit size. Section 2 too small.");
     }
+    // coverage: defensive guard against malformed files that binfileutils rejects earlier
+    /* c8 ignore start */
     if (pTauSections[3][0].size < sG2) {
         throw new Error("Powers of Tau is not well prepared. Section 3 too small.");
     }
+    /* c8 ignore stop */
 
     if (logger) {
         logger.info("----------------------------");
@@ -169,9 +197,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         const bR1cs = await binFileUtils.readSection(fdR1cs, sectionsR1cs, 2);
         let bR1csPos = 0;
         for (let i = 0; i < r1cs.nConstraints; i++) {
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`    processing r1cs constraints ${i}/${r1cs.nConstraints}`);
             }
+            /* c8 ignore stop */
             const [constraints, additions] = r1csProcessor.processR1csConstraint(settings, ...readConstraint());
 
             plonkConstraints.push(...constraints);
@@ -211,12 +242,14 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writeZkeyFile() {
         if (logger) logger.info("> Writing the zkey file");
         const fdZKey = await createBinFile(zkeyFilename, "zkey", 1, ZKEY_FF_NSECTIONS, 1 << 22, 1 << 24);
+        fds.fdZKey = fdZKey;
 
         if (logger) logger.info(`··· Writing Section ${HEADER_ZKEY_SECTION}. Zkey Header`);
         await writeZkeyHeader(fdZKey);
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_ADDITIONS_SECTION}. Additions`);
         await writeAdditions(fdZKey);
+        plonkAdditions = null;
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_A_MAP_SECTION}. A Map`);
@@ -253,6 +286,7 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         if (logger) logger.info(`··· Writing Sections ${ZKEY_FF_SIGMA1_SECTION},${ZKEY_FF_SIGMA2_SECTION},${ZKEY_FF_SIGMA3_SECTION}. Sigma1, Sigma2 & Sigma 3`);
         await writeSigma(fdZKey);
+        plonkConstraints = null;
         if (globalThis.gc) globalThis.gc();
 
         if (logger) logger.info(`··· Writing Section ${ZKEY_FF_LAGRANGE_SECTION}. Lagrange Polynomials`);
@@ -290,7 +324,10 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         const buffOutV = new DataView(buffOut.buffer);
 
         for (let i = 0; i < plonkAdditions.length; i++) {
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`      writing Additions: ${i}/${plonkAdditions.length}`);
+            /* c8 ignore stop */
 
             const addition = plonkAdditions[i];
 
@@ -307,9 +344,12 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
     async function writeWitnessMap(fdZKey, sectionNum, posConstraint, name) {
         await startWriteSection(fdZKey, sectionNum);
         for (let i = 0; i < plonkConstraints.length; i++) {
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if (logger && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`      writing witness ${name}: ${i}/${plonkConstraints.length}`);
             }
+            /* c8 ignore stop */
 
             await fdZKey.writeULE32(plonkConstraints[i][posConstraint]);
         }
@@ -322,12 +362,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
         for (let i = 0; i < plonkConstraints.length; i++) {
             Q.set(plonkConstraints[i][posConstraint], i * sFr);
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`      writing ${name}: ${i}/${plonkConstraints.length}`);
             }
+            /* c8 ignore stop */
         }
 
         polynomials[name] = await Polynomial.fromEvaluations(Q, curve, logger);
+        Q = null;
         evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
 
         // Write Q coefficients and evaluations
@@ -335,13 +379,17 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.write(polynomials[name].coef);
         await fdZKey.write(evaluations[name].eval);
         await endWriteSection(fdZKey);
+
+        // The evaluations are only stored in the zkey file; the
+        // polynomial itself is still needed to build C0
+        delete evaluations[name];
     }
 
     async function writeSigma(fdZKey) {
         // Compute sigma
-        const sigma = new BigBuffer(sFr * settings.domainSize * 3);
-        const lastSeen = new BigArray(settings.nVars);
-        const firstPos = new BigArray(settings.nVars);
+        let sigma = new BigBuffer(sFr * settings.domainSize * 3);
+        let lastSeen = new BigArray(settings.nVars);
+        let firstPos = new BigArray(settings.nVars);
 
         let w = Fr.one;
         for (let i = 0; i < settings.domainSize; i++) {
@@ -361,21 +409,32 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
             w = Fr.mul(w, Fr.w[settings.cirPower]);
 
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger) && (i !== 0) && (i % 500000 === 0)) {
                 logger.info(`      writing sigma phase1: ${i}/${plonkConstraints.length}`);
             }
+            /* c8 ignore stop */
         }
 
         for (let i = 0; i < settings.nVars; i++) {
             if (typeof firstPos[i] !== "undefined") {
                 sigma.set(lastSeen[i], firstPos[i] * sFr);
             } else {
+                // coverage: defensive path for a variable no constraint references
+                /* c8 ignore start */
                 // throw new Error("Variable not used");
                 console.log("Variable not used");
+                /* c8 ignore stop */
             }
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger) && (i !== 0) && (i % 500000 === 0)) logger.info(`      writing sigma phase2: ${i}/${settings.nVars}`);
+            /* c8 ignore stop */
         }
 
+        lastSeen = null;
+        firstPos = null;
         if (globalThis.gc) globalThis.gc();
 
         // Write sigma coefficients and evaluations
@@ -384,11 +443,16 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
             let name = "S" + (i + 1);
             polynomials[name] = await Polynomial.fromEvaluations(sigma.slice(settings.domainSize * sFr * i, settings.domainSize * sFr * (i + 1)), curve, logger);
+            if (2 === i) sigma = null;
             evaluations[name] = await Evaluations.fromPolynomial(polynomials[name], 4, curve, logger);
             await startWriteSection(fdZKey, sectionId);
             await fdZKey.write(polynomials[name].coef);
             await fdZKey.write(evaluations[name].eval);
             await endWriteSection(fdZKey);
+
+            // The evaluations are only stored in the zkey file; the
+            // polynomial itself is still needed to build C0
+            delete evaluations[name];
 
             if (globalThis.gc) globalThis.gc();
         }
@@ -452,11 +516,27 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         C0.addPolynomial(7, polynomials.S3);
 
         polynomials.C0 = C0.getPolynomial();
+        C0 = null;
+
+        // C0 contains a copy of every coefficient; the individual
+        // selector and sigma polynomials are no longer needed
+        delete polynomials.QL;
+        delete polynomials.QR;
+        delete polynomials.QO;
+        delete polynomials.QM;
+        delete polynomials.QC;
+        delete polynomials.S1;
+        delete polynomials.S2;
+        delete polynomials.S3;
+        if (globalThis.gc) globalThis.gc();
 
         // Check degree
+        // coverage: internal consistency check on self-computed data; unreachable via the public API
+        /* c8 ignore start */
         if (polynomials.C0.degree() >= 8 * settings.domainSize) {
             throw new Error("C0 Polynomial is not well calculated");
         }
+        /* c8 ignore stop */
 
         await startWriteSection(fdZKey, ZKEY_FF_C0_SECTION);
         await fdZKey.write(polynomials.C0.coef);
@@ -481,8 +561,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         // Total number of r1cs public vars = outputs + public inputs
         await fdZKey.writeULE32(settings.nPublic);
         await fdZKey.writeULE32(settings.domainSize);
-        await fdZKey.writeULE32(plonkAdditions.length);
-        await fdZKey.writeULE32(plonkConstraints.length);
+        await fdZKey.writeULE32(settings.nAdditions);
+        await fdZKey.writeULE32(settings.nConstraints);
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);
@@ -497,6 +577,8 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
         await fdZKey.write(bX_2);
 
         let commitC0 = await polynomials.C0.multiExponentiation(PTau, "C0");
+        delete polynomials.C0;
+        PTau = null;
         await fdZKey.write(commitC0);
 
         await endWriteSection(fdZKey);
@@ -512,18 +594,30 @@ export default async function fflonkSetup(r1csFilename, ptauFilename, zkeyFilena
 
     function computeK1K2() {
         let k1 = Fr.two;
+        // coverage: search loop never iterates for the supported curves' constants
+        /* c8 ignore start */
         while (isIncluded(k1, [], settings.cirPower)) Fr.add(k1, Fr.one);
+        /* c8 ignore stop */
         let k2 = Fr.add(k1, Fr.one);
+        // coverage: search loop never iterates for the supported curves' constants
+        /* c8 ignore start */
         while (isIncluded(k2, [k1], settings.cirPower)) Fr.add(k2, Fr.one);
+        /* c8 ignore stop */
         return [k1, k2];
 
         function isIncluded(k, kArr, pow) {
             const domainSize = 2 ** pow;
             let w = Fr.one;
             for (let i = 0; i < domainSize; i++) {
+                // coverage: search loop never iterates for the supported curves' constants
+                /* c8 ignore start */
                 if (Fr.eq(k, w)) return true;
+                /* c8 ignore stop */
                 for (let j = 0; j < kArr.length; j++) {
+                    // coverage: search loop never iterates for the supported curves' constants
+                    /* c8 ignore start */
                     if (Fr.eq(k, Fr.mul(kArr[j], w))) return true;
+                    /* c8 ignore stop */
                 }
                 w = Fr.mul(w, Fr.w[pow]);
             }

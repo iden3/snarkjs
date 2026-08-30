@@ -1,0 +1,11 @@
+# Normalize all text to LF in the repository and in every checkout,
+# regardless of the local core.autocrlf setting.
+* text=auto eol=lf
+
+# Binary test fixtures and artifacts: never subject to EOL conversion.
+*.zkey -text
+*.ptau -text
+*.wtns -text
+*.r1cs -text
+*.wasm -text
+*.png -text
