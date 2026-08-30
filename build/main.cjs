@@ -4451,6 +4451,44 @@ async function exportFFlonkVk(zkey, logger) {
 	});
 }
 //#endregion
+//#region src/template_render.js
+var ESCAPE = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	"\"": "&#34;",
+	"'": "&#39;"
+};
+function escapedOutput(v) {
+	if (v === void 0 || v === null) return "";
+	return String(v).replace(/[&<>"']/g, (c) => ESCAPE[c]);
+}
+function rawOutput(v) {
+	if (v === void 0 || v === null) return "";
+	return String(v);
+}
+function render(template, data) {
+	const tag = /<%([=-]?)([\s\S]*?)([-_]?)%>/g;
+	let src = "let __out = \"\";\nwith (__locals) {\n";
+	let last = 0;
+	let m;
+	while ((m = tag.exec(template)) !== null) {
+		src += "__out += " + JSON.stringify(template.slice(last, m.index)) + ";\n";
+		const [, type, code, trim] = m;
+		if (type === "=") src += "__out += __esc((" + code + "));\n";
+		else if (type === "-") src += "__out += __raw((" + code + "));\n";
+		else src += code + "\n";
+		last = tag.lastIndex;
+		if (trim === "-" || trim === "_") {
+			if (template[last] === "\r") last++;
+			if (template[last] === "\n") last++;
+			tag.lastIndex = last;
+		}
+	}
+	src += "__out += " + JSON.stringify(template.slice(last)) + ";\n}\nreturn __out;";
+	return new Function("__locals", "__esc", "__raw", src)(data, escapedOutput, rawOutput);
+}
+//#endregion
 //#region src/fflonk_export_solidity_verifier.js
 var { unstringifyBigInts: unstringifyBigInts$6, stringifyBigInts: stringifyBigInts$2 } = ffjavascript.utils;
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -4469,8 +4507,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 	}
 	let template = templates[vk.protocol];
 	if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, vk);
+	return render(template, vk);
 	function fromVkey(str) {
 		const val = unstringifyBigInts$6(str);
 		return curve.Fr.fromObject(val);
@@ -4485,8 +4522,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 	const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
 	if ("fflonk" === verificationKey.protocol) return fflonkExportSolidityVerifier(verificationKey, templates, logger);
 	let template = templates[verificationKey.protocol];
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, verificationKey);
+	return render(template, verificationKey);
 }
 //#endregion
 //#region src/zkey.js
