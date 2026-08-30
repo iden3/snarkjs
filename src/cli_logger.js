@@ -46,7 +46,6 @@ export function create(name /*, options (ignored: no timestamps) */) {
         if (LEVELS[level] < LEVELS[globalLevel]) return;
         const tag = `[${level}]`.padEnd(8);
         const line = `${LEVEL_COLORS[level]}${tag}${NAME_COLOR}${name}${RESET}:`;
-        // eslint-disable-next-line no-console
         (level === "ERROR" ? console.error : console.log)(line, ...args);
     }
     return {
