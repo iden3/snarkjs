@@ -1504,28 +1504,28 @@ async function newAccumulator(curve, power, fileName, logger) {
 	const nTauG1 = 2 ** power * 2 - 1;
 	for (let i = 0; i < nTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("tauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("tauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 3);
 	const nTauG2 = 2 ** power;
 	for (let i = 0; i < nTauG2; i++) {
 		await fd.write(buffG2);
-		if (logger && i % 1e5 == 0 && i) logger.log("tauG2: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("tauG2: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 4);
 	const nAlfaTauG1 = 2 ** power;
 	for (let i = 0; i < nAlfaTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("alphaTauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("alphaTauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 5);
 	const nBetaTauG1 = 2 ** power;
 	for (let i = 0; i < nBetaTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("betaTauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("betaTauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 6);

@@ -53,9 +53,6 @@ export function create(name /*, options (ignored: no timestamps) */) {
         info: (...args) => emit("INFO", args),
         warn: (...args) => emit("WARN", args),
         error: (...args) => emit("ERROR", args),
-        // logplease exposed log as an info-level alias; a few ceremony
-        // progress messages still use it
-        log: (...args) => emit("INFO", args),
     };
 }
 
