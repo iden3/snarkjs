@@ -3845,7 +3845,22 @@ function rawOutput(v) {
 	if (v === void 0 || v === null) return "";
 	return String(v);
 }
+function assertDecimalStringLeaves(value, exemptKeys = [], path = "vk") {
+	const exempt = new Set(exemptKeys);
+	(function walk(v, p) {
+		if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${p}[${i}]`));
+		else if (v !== null && typeof v === "object") {
+			for (const k of Object.keys(v)) if (!exempt.has(k)) walk(v[k], `${p}.${k}`);
+		} else if (typeof v === "string") {
+			if (!/^[0-9]+$/.test(v)) throw new Error(`${p} is not a decimal number: ${JSON.stringify(v.slice(0, 60))}`);
+		} else if (typeof v === "number") {
+			if (!Number.isFinite(v)) throw new Error(`${p} is not a finite number`);
+		} else if (v !== null && v !== void 0 && typeof v !== "boolean") throw new Error(`${p} has non-serializable type ${typeof v}`);
+	})(value, path);
+}
 function render(template, data) {
+	if (typeof template !== "string") throw new TypeError("render: template must be a string (is the template for this protocol loaded?)");
+	for (const k of Object.keys(data)) if (k.startsWith("__")) throw new Error(`render: data key ${JSON.stringify(k)} collides with the renderer's internals`);
 	const tag = /<%([=-]?)([\s\S]*?)([-_]?)%>/g;
 	let src = "let __out = \"\";\nwith (__locals) {\n";
 	let last = 0;
@@ -3863,7 +3878,9 @@ function render(template, data) {
 			tag.lastIndex = last;
 		}
 	}
-	src += "__out += " + JSON.stringify(template.slice(last)) + ";\n}\nreturn __out;";
+	const tail = template.slice(last);
+	if (tail.includes("<%")) throw new Error("render: unterminated <% tag");
+	src += "__out += " + JSON.stringify(tail) + ";\n}\nreturn __out;";
 	return new Function("__locals", "__esc", "__raw", src)(data, escapedOutput, rawOutput);
 }
 //#endregion
@@ -3885,6 +3902,7 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 	}
 	let template = templates[vk.protocol];
 	if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
+	assertDecimalStringLeaves(vk, ["protocol", "curve"]);
 	return render(template, vk);
 	function fromVkey(str) {
 		const val = unstringifyBigInts$11(str);
@@ -3900,6 +3918,7 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 	const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
 	if ("fflonk" === verificationKey.protocol) return fflonkExportSolidityVerifier(verificationKey, templates, logger);
 	let template = templates[verificationKey.protocol];
+	assertDecimalStringLeaves(verificationKey, ["protocol", "curve"]);
 	return render(template, verificationKey);
 }
 //#endregion

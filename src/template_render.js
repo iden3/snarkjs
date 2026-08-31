@@ -42,7 +42,43 @@ function rawOutput(v) {
     return String(v);
 }
 
+// Defense-in-depth for callers that build the data object from untrusted
+// input (e.g. a service exporting a verifier from an uploaded vkey JSON):
+// assert that every string leaf that could reach the rendered output is a
+// plain decimal number, so no value can smuggle source text into the
+// generated contract. Keys in exemptKeys (protocol/curve tags) are skipped.
+export function assertDecimalStringLeaves(value, exemptKeys = [], path = "vk") {
+    const exempt = new Set(exemptKeys);
+    (function walk(v, p) {
+        if (Array.isArray(v)) {
+            v.forEach((x, i) => walk(x, `${p}[${i}]`));
+        } else if (v !== null && typeof v === "object") {
+            for (const k of Object.keys(v)) {
+                if (!exempt.has(k)) walk(v[k], `${p}.${k}`);
+            }
+        } else if (typeof v === "string") {
+            if (!/^[0-9]+$/.test(v)) throw new Error(`${p} is not a decimal number: ${JSON.stringify(v.slice(0, 60))}`);
+        } else if (typeof v === "number") {
+            if (!Number.isFinite(v)) throw new Error(`${p} is not a finite number`);
+        } else if (v !== null && v !== undefined && typeof v !== "boolean") {
+            throw new Error(`${p} has non-serializable type ${typeof v}`);
+        }
+    })(value, path);
+}
+
 export function render(template, data) {
+    if (typeof template !== "string") {
+        throw new TypeError("render: template must be a string (is the template for this protocol loaded?)");
+    }
+    // The data's own property names become bindings inside the compiled
+    // template (with-scoping, as in ejs); refuse names that would shadow
+    // the renderer's internals -- a "__out" key would silently produce an
+    // empty document, a "__esc"/"__raw" key a confusing TypeError.
+    for (const k of Object.keys(data)) {
+        if (k.startsWith("__")) {
+            throw new Error(`render: data key ${JSON.stringify(k)} collides with the renderer's internals`);
+        }
+    }
     const tag = /<%([=-]?)([\s\S]*?)([-_]?)%>/g;
     let src = "let __out = \"\";\nwith (__locals) {\n";
     let last = 0;
@@ -64,7 +100,13 @@ export function render(template, data) {
             tag.lastIndex = last;
         }
     }
-    src += "__out += " + JSON.stringify(template.slice(last)) + ";\n}\nreturn __out;";
+    const tail = template.slice(last);
+    if (tail.includes("<%")) {
+        // fail closed on a truncated/malformed template instead of emitting
+        // the raw tag text into the rendered document (ejs threw here too)
+        throw new Error("render: unterminated <% tag");
+    }
+    src += "__out += " + JSON.stringify(tail) + ";\n}\nreturn __out;";
 
     const fn = new Function("__locals", "__esc", "__raw", src);
     return fn(data, escapedOutput, rawOutput);
