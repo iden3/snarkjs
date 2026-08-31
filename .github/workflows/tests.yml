@@ -25,6 +25,11 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # No job pushes: never persist the GITHUB_TOKEN into .git/config,
+          # where any later step (e.g. a compromised dev dependency running
+          # under npm test) could read it.
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -56,6 +61,11 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # No job pushes: never persist the GITHUB_TOKEN into .git/config,
+          # where any later step (e.g. a compromised dev dependency running
+          # under npm test) could read it.
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -87,6 +97,11 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # No job pushes: never persist the GITHUB_TOKEN into .git/config,
+          # where any later step (e.g. a compromised dev dependency running
+          # under npm test) could read it.
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -120,6 +135,11 @@ jobs:
     steps:
       - name: Checkout project
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # No job pushes: never persist the GITHUB_TOKEN into .git/config,
+          # where any later step (e.g. a compromised dev dependency running
+          # under npm test) could read it.
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
