@@ -1,7 +1,0 @@
-{
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "minimumReleaseAge": "7 days",
-  "rangeStrategy": "pin",
-  "description": "Cooldown: never pick up a release younger than 7 days, so registry-takeover malware (typically published and yanked within hours) never reaches this repo."
-}
