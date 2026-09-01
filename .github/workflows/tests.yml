@@ -39,6 +39,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        # npm has no timeout on the git-dependency clones; a stalled clone
+        # otherwise eats the whole 30-minute job budget (seen on a windows
+        # runner) instead of failing fast with clear attribution
+        timeout-minutes: 10
         run: npm ci --ignore-scripts
 
       - name: Verify registry signatures and provenance attestations
@@ -75,6 +79,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        # npm has no timeout on the git-dependency clones; a stalled clone
+        # otherwise eats the whole 30-minute job budget (seen on a windows
+        # runner) instead of failing fast with clear attribution
+        timeout-minutes: 10
         run: npm ci --ignore-scripts
 
       - name: Install Playwright browsers
@@ -111,6 +119,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        # npm has no timeout on the git-dependency clones; a stalled clone
+        # otherwise eats the whole 30-minute job budget (seen on a windows
+        # runner) instead of failing fast with clear attribution
+        timeout-minutes: 10
         run: npm ci --ignore-scripts
 
       - name: Install hardhat dependencies

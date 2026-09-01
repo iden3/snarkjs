@@ -33,6 +33,7 @@ jobs:
         echo "85342c7ff332d948df7c0c50ecf201e6129349aef550ce873f3c811b79fe53a3  circom-linux-amd64" | sha256sum -c -
         sudo mv ./circom-linux-amd64 /usr/bin/circom && sudo chmod +x /usr/bin/circom
     - run: npm ci --ignore-scripts
+      timeout-minutes: 10
     - run: npm link
     - name: 1. Start a new powers of tau ceremony
       run: snarkjs powersoftau new bn128 14 pot14_0000.ptau -v
