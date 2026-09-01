@@ -117,6 +117,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           check-latest: true
           cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            smart_contract_tests/package-lock.json
 
       - name: Install dependencies
         # npm has no timeout on the git-dependency clones; a stalled clone
@@ -159,6 +162,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           check-latest: true
           cache: "npm"
+          cache-dependency-path: browser_tests/package-lock.json
 
       - name: Install browser dependencies
         working-directory: browser_tests
