@@ -27,8 +27,7 @@
   "scripts": {
     "lint": "eslint .",
     "clean": "node -e \"fs.rmSync('build',{recursive:true,force:true})\"",
-    "pretest": "npm run build:node && npm run build:browser && npm run lint",
-    "test": "vitest run",
+    "test": "npm run build:node && npm run build:browser && npm run lint && vitest run",
     "test:node": "vitest run --project node-esm",
     "test:watch": "vitest --project node-esm",
     "build:node": "vite build",
@@ -60,15 +59,12 @@
     "url": "https://github.com/iden3/snarkjs.git"
   },
   "dependencies": {
-    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#795f9c12f90e70ffcb178af0a420f5cbb28a66db",
-    "@noble/hashes": "^2.2.0",
-    "bfj": "^9.1.3",
+    "@iden3/binfileutils": "git+https://github.com/iden3/binfileutils.git#34eb6c3db112a8d20aa3ee968445a026478f7040",
+    "@noble/hashes": "2.2.0",
     "circom_runtime": "0.1.28",
-    "ejs": "^6.0.1",
-    "fastfile": "git+https://github.com/iden3/fastfile.git#83ccfe522f3320b4a5b2bdf706ecfdb93dcd7105",
-    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#cc88563e1686646616ad0fcfafa6cb09c879dd25",
-    "logplease": "^1.2.15",
-    "r1csfile": "git+https://github.com/iden3/r1csfile.git#29af5e0b6d3bd164d4656481bcc83e2538cfda34"
+    "fastfile": "git+https://github.com/iden3/fastfile.git#07ea279c676de9ec7f19929ab1215d2c18da838b",
+    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#27a93c3f382845b573b66f9eb52cd3f6ff41dffb",
+    "r1csfile": "git+https://github.com/iden3/r1csfile.git#7bada7e395d70c229ff6741cc8a814fb8f89a9f6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -4,7 +4,7 @@ import zkeyExportSolidityVerifier from "../src/zkey_export_solidityverifier.js";
 import { getCurveFromName } from "../src/curves.js";
 import path from "path";
 import fs from "fs";
-import bfj from "bfj";
+import { writeJsonFile } from "../src/json_writer.js";
 import assert from "assert";
 
 import { utils } from "ffjavascript";
@@ -56,7 +56,7 @@ describe("Fflonk test suite", function () {
 
         // export verification key
         vKey = await zkeyExportVerificationKey(zkeyFilename);
-        await bfj.write(vkeyFilename, stringifyBigInts(vKey), { space: 1 });
+        await writeJsonFile(vkeyFilename, stringifyBigInts(vKey));
 
         // Verify the proof
         const isValid = await fflonk.verify(vKey, publicSignals, proof, logger);

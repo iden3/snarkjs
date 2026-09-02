@@ -7,3 +7,17 @@ updates:
     # Check the npm registry for updates every day (weekdays)
     schedule:
       interval: "daily"
+    # Supply-chain cooldown: never propose a release younger than 7 days.
+    # Registry-takeover malware is typically published and yanked within
+    # hours; the delay makes that window unreachable.
+    cooldown:
+      default-days: 7
+
+  # Keep the SHA-pinned GitHub Actions current (Dependabot updates the
+  # pinned commit and the version comment together)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7

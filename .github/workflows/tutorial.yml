@@ -1,4 +1,9 @@
 name: Check snarkjs tutorial
+
+# Least privilege: the tutorial only reads the repository.
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -14,14 +19,22 @@ jobs:
         node-version: [lts/*]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        # No step pushes: never persist the GITHUB_TOKEN into .git/config.
+        persist-credentials: false
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
       with:
         node-version: ${{ matrix.node-version }}
-    - name: Setup Circom
-      run: wget https://github.com/iden3/circom/releases/latest/download/circom-linux-amd64 && sudo mv ./circom-linux-amd64 /usr/bin/circom && sudo chmod +x /usr/bin/circom
-    - run: npm install
+        cache: "npm"
+    - name: Setup Circom (pinned release, checksum-verified)
+      run: |
+        wget -q https://github.com/iden3/circom/releases/download/v2.2.3/circom-linux-amd64
+        echo "85342c7ff332d948df7c0c50ecf201e6129349aef550ce873f3c811b79fe53a3  circom-linux-amd64" | sha256sum -c -
+        sudo mv ./circom-linux-amd64 /usr/bin/circom && sudo chmod +x /usr/bin/circom
+    - run: npm ci --ignore-scripts
+      timeout-minutes: 10
     - run: npm link
     - name: 1. Start a new powers of tau ceremony
       run: snarkjs powersoftau new bn128 14 pot14_0000.ptau -v

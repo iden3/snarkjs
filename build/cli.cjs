@@ -42,8 +42,6 @@ let _iden3_binfileutils = require("@iden3/binfileutils");
 _iden3_binfileutils = __toESM(_iden3_binfileutils, 1);
 let circom_runtime = require("circom_runtime");
 let _noble_hashes_sha3_js = require("@noble/hashes/sha3.js");
-let logplease = require("logplease");
-logplease = __toESM(logplease, 1);
 //#region src/loadsyms.js
 async function loadSymbols(symFileName) {
 	const sym = {
@@ -836,28 +834,28 @@ async function newAccumulator(curve, power, fileName, logger) {
 	const nTauG1 = 2 ** power * 2 - 1;
 	for (let i = 0; i < nTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("tauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("tauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 3);
 	const nTauG2 = 2 ** power;
 	for (let i = 0; i < nTauG2; i++) {
 		await fd.write(buffG2);
-		if (logger && i % 1e5 == 0 && i) logger.log("tauG2: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("tauG2: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 4);
 	const nAlfaTauG1 = 2 ** power;
 	for (let i = 0; i < nAlfaTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("alphaTauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("alphaTauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 5);
 	const nBetaTauG1 = 2 ** power;
 	for (let i = 0; i < nBetaTauG1; i++) {
 		await fd.write(buffG1);
-		if (logger && i % 1e5 == 0 && i) logger.log("betaTauG1: " + i);
+		if (logger && i % 1e5 == 0 && i) logger.info("betaTauG1: " + i);
 	}
 	await _iden3_binfileutils.endWriteSection(fd);
 	await _iden3_binfileutils.startWriteSection(fd, 6);
@@ -3831,6 +3829,61 @@ async function exportFFlonkVk(zkey, logger) {
 	});
 }
 //#endregion
+//#region src/template_render.js
+var ESCAPE = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	"\"": "&#34;",
+	"'": "&#39;"
+};
+function escapedOutput(v) {
+	if (v === void 0 || v === null) return "";
+	return String(v).replace(/[&<>"']/g, (c) => ESCAPE[c]);
+}
+function rawOutput(v) {
+	if (v === void 0 || v === null) return "";
+	return String(v);
+}
+function assertDecimalStringLeaves(value, exemptKeys = [], path = "vk") {
+	const exempt = new Set(exemptKeys);
+	(function walk(v, p) {
+		if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${p}[${i}]`));
+		else if (v !== null && typeof v === "object") {
+			for (const k of Object.keys(v)) if (!exempt.has(k)) walk(v[k], `${p}.${k}`);
+		} else if (typeof v === "string") {
+			if (!/^[0-9]+$/.test(v)) throw new Error(`${p} is not a decimal number: ${JSON.stringify(v.slice(0, 60))}`);
+		} else if (typeof v === "number") {
+			if (!Number.isFinite(v)) throw new Error(`${p} is not a finite number`);
+		} else if (v !== null && v !== void 0 && typeof v !== "boolean") throw new Error(`${p} has non-serializable type ${typeof v}`);
+	})(value, path);
+}
+function render(template, data) {
+	if (typeof template !== "string") throw new TypeError("render: template must be a string (is the template for this protocol loaded?)");
+	for (const k of Object.keys(data)) if (k.startsWith("__")) throw new Error(`render: data key ${JSON.stringify(k)} collides with the renderer's internals`);
+	const tag = /<%([=-]?)([\s\S]*?)([-_]?)%>/g;
+	let src = "let __out = \"\";\nwith (__locals) {\n";
+	let last = 0;
+	let m;
+	while ((m = tag.exec(template)) !== null) {
+		src += "__out += " + JSON.stringify(template.slice(last, m.index)) + ";\n";
+		const [, type, code, trim] = m;
+		if (type === "=") src += "__out += __esc((" + code + "));\n";
+		else if (type === "-") src += "__out += __raw((" + code + "));\n";
+		else src += code + "\n";
+		last = tag.lastIndex;
+		if (trim === "-" || trim === "_") {
+			if (template[last] === "\r") last++;
+			if (template[last] === "\n") last++;
+			tag.lastIndex = last;
+		}
+	}
+	const tail = template.slice(last);
+	if (tail.includes("<%")) throw new Error("render: unterminated <% tag");
+	src += "__out += " + JSON.stringify(tail) + ";\n}\nreturn __out;";
+	return new Function("__locals", "__esc", "__raw", src)(data, escapedOutput, rawOutput);
+}
+//#endregion
 //#region src/fflonk_export_solidity_verifier.js
 var { unstringifyBigInts: unstringifyBigInts$11, stringifyBigInts: stringifyBigInts$4 } = ffjavascript.utils;
 async function fflonkExportSolidityVerifier(vk, templates, logger) {
@@ -3849,8 +3902,8 @@ async function fflonkExportSolidityVerifier(vk, templates, logger) {
 	}
 	let template = templates[vk.protocol];
 	if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, vk);
+	assertDecimalStringLeaves(vk, ["protocol", "curve"]);
+	return render(template, vk);
 	function fromVkey(str) {
 		const val = unstringifyBigInts$11(str);
 		return curve.Fr.fromObject(val);
@@ -3865,8 +3918,8 @@ async function exportSolidityVerifier(zKeyName, templates, logger) {
 	const verificationKey = await zkeyExportVerificationKey(zKeyName, logger);
 	if ("fflonk" === verificationKey.protocol) return fflonkExportSolidityVerifier(verificationKey, templates, logger);
 	let template = templates[verificationKey.protocol];
-	const { default: ejs } = await import("ejs");
-	return ejs.render(template, verificationKey);
+	assertDecimalStringLeaves(verificationKey, ["protocol", "curve"]);
+	return render(template, verificationKey);
 }
 //#endregion
 //#region src/wtns_utils.js
@@ -8558,10 +8611,152 @@ async function _wtnsCheck(r1csFilename, wtnsFilename, logger, fds) {
 	}
 }
 //#endregion
+//#region src/cli_logger.js
+var LEVELS = {
+	DEBUG: 0,
+	INFO: 1,
+	WARN: 2,
+	ERROR: 3,
+	NONE: 4
+};
+var LEVEL_COLORS = {
+	DEBUG: "\x1B[34;22m",
+	INFO: "\x1B[32;22m",
+	WARN: "\x1B[33;22m",
+	ERROR: "\x1B[31;22m"
+};
+var NAME_COLOR = "\x1B[39;1m";
+var RESET = "\x1B[0m";
+var globalLevel = "INFO";
+function setLogLevel(level) {
+	const l = String(level).toUpperCase();
+	if (LEVELS[l] === void 0) throw new Error(`Unknown log level: ${level}`);
+	globalLevel = l;
+}
+function create(name) {
+	function emit(level, args) {
+		if (LEVELS[level] < LEVELS[globalLevel]) return;
+		const tag = `[${level}]`.padEnd(8);
+		const line = `${LEVEL_COLORS[level]}${tag}${NAME_COLOR}${name}${RESET}:`;
+		(level === "ERROR" ? console.error : console.log)(line, ...args);
+	}
+	return {
+		debug: (...args) => emit("DEBUG", args),
+		info: (...args) => emit("INFO", args),
+		warn: (...args) => emit("WARN", args),
+		error: (...args) => emit("ERROR", args)
+	};
+}
+var cli_logger_default = {
+	create,
+	setLogLevel
+};
+//#endregion
+//#region src/json_writer.js
+var FLUSH_THRESHOLD = 1 << 20;
+async function writeJsonFile(fileName, value, space = 1) {
+	const out = fs.default.createWriteStream(fileName);
+	const parts = [];
+	let partsBytes = 0;
+	async function flush() {
+		if (parts.length === 0) return;
+		const chunk = parts.join("");
+		parts.length = 0;
+		partsBytes = 0;
+		if (!out.write(chunk)) await new Promise((res, rej) => {
+			out.once("drain", res);
+			out.once("error", rej);
+		});
+	}
+	function push(s) {
+		parts.push(s);
+		partsBytes += s.length;
+	}
+	const indentUnit = typeof space === "number" ? " ".repeat(space) : String(space);
+	const pretty = indentUnit.length > 0;
+	const colon = pretty ? ": " : ":";
+	function normalize(v) {
+		if (v !== null && typeof v === "object" && typeof v.toJSON === "function") v = v.toJSON();
+		if (typeof v === "bigint") throw new TypeError("Do not know how to serialize a BigInt");
+		return v;
+	}
+	const rootVal = normalize(value);
+	if (rootVal === void 0 || typeof rootVal === "function" || typeof rootVal === "symbol") throw new TypeError("writeJsonFile: top-level value is not JSON-serializable");
+	const stack = [];
+	function open(v, depth) {
+		if (v !== null && typeof v === "object") {
+			if (Array.isArray(v)) {
+				stack.push({
+					arr: v,
+					i: 0,
+					depth
+				});
+				push("[");
+				return true;
+			}
+			stack.push({
+				obj: v,
+				keys: Object.keys(v),
+				i: 0,
+				first: true,
+				depth
+			});
+			push("{");
+			return true;
+		}
+		push(JSON.stringify(v) ?? "null");
+		return false;
+	}
+	open(rootVal, 0);
+	while (stack.length > 0) {
+		const f = stack[stack.length - 1];
+		const childIndent = pretty ? "\n" + indentUnit.repeat(f.depth + 1) : "";
+		if (f.arr !== void 0) {
+			if (f.i >= f.arr.length) {
+				stack.pop();
+				if (pretty && f.arr.length > 0) push("\n" + indentUnit.repeat(f.depth));
+				push("]");
+			} else {
+				if (f.i > 0) push(",");
+				push(childIndent);
+				let v = normalize(f.arr[f.i]);
+				if (v === void 0 || typeof v === "function" || typeof v === "symbol") v = null;
+				f.i++;
+				open(v, f.depth + 1);
+			}
+		} else {
+			let advanced = false;
+			while (f.i < f.keys.length) {
+				const k = f.keys[f.i];
+				const v = normalize(f.obj[k]);
+				f.i++;
+				if (v === void 0 || typeof v === "function" || typeof v === "symbol") continue;
+				if (!f.first) push(",");
+				f.first = false;
+				push(childIndent + JSON.stringify(k) + colon);
+				open(v, f.depth + 1);
+				advanced = true;
+				break;
+			}
+			if (!advanced && f.i >= f.keys.length) {
+				stack.pop();
+				if (pretty && !f.first) push("\n" + indentUnit.repeat(f.depth));
+				push("}");
+			}
+		}
+		if (partsBytes >= FLUSH_THRESHOLD) await flush();
+	}
+	await flush();
+	await new Promise((res, rej) => {
+		out.once("error", rej);
+		out.end(res);
+	});
+}
+//#endregion
 //#region cli.js
 var { stringifyBigInts } = ffjavascript.utils;
-var logger = logplease.default.create("snarkJS", { showTimestamp: false });
-logplease.default.setLogLevel("INFO");
+var logger = cli_logger_default.create("snarkJS", { showTimestamp: false });
+cli_logger_default.setLogLevel("INFO");
 if (typeof globalThis.gc !== "function") try {
 	const nodeRequire = (0, module$1.createRequire)(require("url").pathToFileURL(__filename).href);
 	const v8 = nodeRequire("v8");
@@ -8880,13 +9075,6 @@ clProcessor([
 	logger.error(err);
 	process.exit(1);
 });
-var _bfj;
-async function getBFJ() {
-	if (_bfj) return _bfj;
-	const { default: bfj } = await import("bfj");
-	_bfj = bfj;
-	return _bfj;
-}
 function changeExt(fileName, newExt) {
 	let S = fileName;
 	while (S.length > 0 && S[S.length - 1] != ".") S = S.slice(0, S.length - 1);
@@ -8895,30 +9083,29 @@ function changeExt(fileName, newExt) {
 }
 async function r1csInfo(params, options) {
 	const r1csName = params[0] || "circuit.r1cs";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await r1csInfo$1(r1csName, logger);
 	return 0;
 }
 async function r1csPrint(params, options) {
 	const r1csName = params[0] || "circuit.r1cs";
 	const symName = params[1] || changeExt(r1csName, "sym");
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await r1csPrint$1(await (0, r1csfile.readR1cs)(r1csName, true, true, false), await loadSymbols(symName), logger);
 	return 0;
 }
 async function r1csExportJSON(params, options) {
 	const r1csName = params[0] || "circuit.r1cs";
 	const jsonName = params[1] || changeExt(r1csName, "json");
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
-	const r1csObj = await r1csExportJson(r1csName, logger);
-	await (await getBFJ()).write(jsonName, r1csObj, { space: 1 });
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
+	await writeJsonFile(jsonName, await r1csExportJson(r1csName, logger));
 	return 0;
 }
 async function wtnsCalculate(params, options) {
 	const wasmName = params[0] || "circuit.wasm";
 	const inputName = params[1] || "input.json";
 	const witnessName = params[2] || "witness.wtns";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await wtnsCalculate$1(JSON.parse(await fs.default.promises.readFile(inputName, "utf8")), wasmName, witnessName, {});
 	return 0;
 }
@@ -8927,22 +9114,21 @@ async function wtnsDebug(params, options) {
 	const inputName = params[1] || "input.json";
 	const witnessName = params[2] || "witness.wtns";
 	const symName = params[3] || changeExt(wasmName, "sym");
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await wtnsDebug$1(JSON.parse(await fs.default.promises.readFile(inputName, "utf8")), wasmName, witnessName, symName, options, logger);
 	return 0;
 }
 async function wtnsExportJson(params, options) {
 	const wtnsName = params[0] || "witness.wtns";
 	const jsonName = params[1] || "witness.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
-	const w = await wtnsExportJson$1(wtnsName);
-	await (await getBFJ()).write(jsonName, stringifyBigInts(w), { space: 1 });
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
+	await writeJsonFile(jsonName, stringifyBigInts(await wtnsExportJson$1(wtnsName)));
 	return 0;
 }
 async function wtnsCheck(params, options) {
 	const r1csFilename = params[0] || "circuit.r1cs";
 	const wtnsFilename = params[1] || "witness.wtns";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await wtnsCheck$1(r1csFilename, wtnsFilename, logger)) return 0;
 	else return 1;
 }
@@ -8951,7 +9137,7 @@ async function groth16Prove(params, options) {
 	const witnessName = params[1] || "witness.wtns";
 	const proofName = params[2] || "proof.json";
 	const publicName = params[3] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const proveOptions = {};
 	if (options.buildabc) proveOptions.buildABC = options.buildabc;
 	const { proof, publicSignals } = await groth16Prove$1(zkeyName, witnessName, logger, proveOptions);
@@ -8965,7 +9151,7 @@ async function groth16FullProve(params, options) {
 	const zkeyName = params[2] || "circuit_final.zkey";
 	const proofName = params[3] || "proof.json";
 	const publicName = params[4] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const input = JSON.parse(await fs.default.promises.readFile(inputName, "utf8"));
 	const proveOptions = {};
 	if (options.buildabc) proveOptions.buildABC = options.buildabc;
@@ -8981,24 +9167,22 @@ async function groth16Verify(params, options) {
 	const verificationKey = JSON.parse(fs.default.readFileSync(verificationKeyName, "utf8"));
 	const pub = JSON.parse(fs.default.readFileSync(publicName, "utf8"));
 	const proof = JSON.parse(fs.default.readFileSync(proofName, "utf8"));
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await groth16Verify$1(verificationKey, pub, proof, logger)) return 0;
 	else return 1;
 }
 async function zkeyExportVKey(params, options) {
 	const zKeyFileName = params[0] || "circuit_final.zkey";
 	const vKeyFilename = params[1] || "circuit_vk.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
-	const vKey = await zkeyExportVerificationKey(zKeyFileName, logger);
-	await (await getBFJ()).write(vKeyFilename, stringifyBigInts(vKey), { space: 1 });
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
+	await writeJsonFile(vKeyFilename, stringifyBigInts(await zkeyExportVerificationKey(zKeyFileName, logger)));
 	return 0;
 }
 async function zkeyExportJson(params, options) {
 	const zkeyName = params[0] || "circuit_final.zkey";
 	const zkeyJsonName = params[1] || "circuit_final.zkey.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
-	const zKeyJson = await zkeyExportJson$1(zkeyName, logger);
-	await (await getBFJ()).write(zkeyJsonName, zKeyJson, { space: 1 });
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
+	await writeJsonFile(zkeyJsonName, await zkeyExportJson$1(zkeyName, logger));
 }
 async function fileExists(file) {
 	return fs.default.promises.access(file, fs.default.constants.F_OK).then(() => true).catch(() => false);
@@ -9010,7 +9194,7 @@ async function zkeyExportSolidityVerifier(params, options) {
 	else zkeyName = params[0];
 	if (params.length < 2) verifierName = "verifier.sol";
 	else verifierName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const templates = {};
 	if (await fileExists(path.default.join(__dirname$1, "templates"))) {
 		templates.groth16 = await fs.default.promises.readFile(path.default.join(__dirname$1, "templates", "verifier_groth16.sol.ejs"), "utf8");
@@ -9032,7 +9216,7 @@ async function zkeyExportSolidityCalldata(params, options) {
 	else publicName = params[0];
 	if (params.length < 2) proofName = "proof.json";
 	else proofName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const pub = JSON.parse(fs.default.readFileSync(publicName, "utf8"));
 	const proof = JSON.parse(fs.default.readFileSync(proofName, "utf8"));
 	let res;
@@ -9053,7 +9237,7 @@ async function powersOfTauNew(params, options) {
 	if (params.length < 3) ptauName = "powersOfTau" + power + "_0000.ptau";
 	else ptauName = params[2];
 	const curve = await getCurveFromName(curveName);
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await newAccumulator(curve, power, ptauName, logger);
 	return 0;
 }
@@ -9063,7 +9247,7 @@ async function powersOfTauExportChallenge(params, options) {
 	ptauName = params[0];
 	if (params.length < 2) challengeName = "challenge";
 	else challengeName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await exportChallenge(ptauName, challengeName, logger);
 	return 0;
 }
@@ -9074,7 +9258,7 @@ async function powersOfTauChallengeContribute(params, options) {
 	challengeName = params[1];
 	if (params.length < 3) responseName = changeExt(challengeName, "response");
 	else responseName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await challengeContribute(curve, challengeName, responseName, options.entropy, logger);
 	return 0;
 }
@@ -9089,14 +9273,14 @@ async function powersOfTauImport(params, options) {
 	newPtauName = params[2];
 	if (options.nopoints) importPoints = false;
 	if (options.nocheck) doCheck = false;
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await importResponse(oldPtauName, response, newPtauName, options.name, importPoints, logger)) return 0;
 	if (!doCheck) return 0;
 }
 async function powersOfTauVerify(params, options) {
 	let ptauName;
 	ptauName = params[0];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await verify(ptauName, logger) === true) return 0;
 	else return 1;
 }
@@ -9109,7 +9293,7 @@ async function powersOfTauBeacon(params, options) {
 	newPtauName = params[1];
 	beaconHashStr = params[2];
 	numIterationsExp = params[3];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await beacon$1(oldPtauName, newPtauName, options.name, beaconHashStr, numIterationsExp, logger);
 	return 0;
 }
@@ -9118,7 +9302,7 @@ async function powersOfTauContribute(params, options) {
 	let newPtauName;
 	oldPtauName = params[0];
 	newPtauName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await contribute(oldPtauName, newPtauName, options.name, options.entropy, logger);
 	return 0;
 }
@@ -9127,7 +9311,7 @@ async function powersOfTauPreparePhase2(params, options) {
 	let newPtauName;
 	oldPtauName = params[0];
 	newPtauName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await preparePhase2(oldPtauName, newPtauName, logger);
 	return 0;
 }
@@ -9136,7 +9320,7 @@ async function powersOfTauConvert(params, options) {
 	let newPtauName;
 	oldPtauName = params[0];
 	newPtauName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await convert(oldPtauName, newPtauName, logger);
 	return 0;
 }
@@ -9147,7 +9331,7 @@ async function powersOfTauTruncate(params, options) {
 	while (template.length > 0 && template[template.length - 1] != ".") template = template.slice(0, template.length - 1);
 	template = template.slice(0, template.length - 1);
 	template = template + "_";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await truncate(ptauName, template, logger);
 	return 0;
 }
@@ -9156,9 +9340,9 @@ async function powersOfTauExportJson(params, options) {
 	let jsonName;
 	ptauName = params[0];
 	jsonName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const pTauJson = await exportJson(ptauName, logger);
-	await (await getBFJ()).write(jsonName, pTauJson, { space: 1 });
+	await writeJsonFile(jsonName, pTauJson);
 }
 async function zkeyNew(params, options) {
 	let r1csName;
@@ -9170,7 +9354,7 @@ async function zkeyNew(params, options) {
 	else ptauName = params[1];
 	if (params.length < 3) zkeyName = "circuit_0000.zkey";
 	else zkeyName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await newZKey(r1csName, ptauName, zkeyName, logger);
 	return 0;
 }
@@ -9180,7 +9364,7 @@ async function zkeyExportBellman(params, options) {
 	zkeyName = params[0];
 	if (params.length < 2) mpcparamsName = "circuit.mpcparams";
 	else mpcparamsName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await phase2exportMPCParams(zkeyName, mpcparamsName, logger);
 	return 0;
 }
@@ -9191,7 +9375,7 @@ async function zkeyImportBellman(params, options) {
 	zkeyNameOld = params[0];
 	mpcParamsName = params[1];
 	zkeyNameNew = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await phase2importMPCParams(zkeyNameOld, mpcParamsName, zkeyNameNew, options.name, logger)) return 0;
 	else return 1;
 }
@@ -9205,7 +9389,7 @@ async function zkeyVerifyFromR1cs(params, options) {
 	else ptauName = params[1];
 	if (params.length < 3) zkeyName = "circuit_final.zkey";
 	else zkeyName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await phase2verifyFromR1cs(r1csName, ptauName, zkeyName, logger) === true) return 0;
 	else return 1;
 }
@@ -9219,7 +9403,7 @@ async function zkeyVerifyFromInit(params, options) {
 	else ptauName = params[1];
 	if (params.length < 3) zkeyName = "circuit_final.zkey";
 	else zkeyName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await phase2verifyFromInit(initZKeyName, ptauName, zkeyName, logger) === true) return 0;
 	else return 1;
 }
@@ -9228,7 +9412,7 @@ async function zkeyContribute(params, options) {
 	let zkeyNewName;
 	zkeyOldName = params[0];
 	zkeyNewName = params[1];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await phase2contribute(zkeyOldName, zkeyNewName, options.name, options.entropy, logger);
 	return 0;
 }
@@ -9241,7 +9425,7 @@ async function zkeyBeacon(params, options) {
 	zkeyNewName = params[1];
 	beaconHashStr = params[2];
 	numIterationsExp = params[3];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await beacon(zkeyOldName, zkeyNewName, options.name, beaconHashStr, numIterationsExp, logger);
 	return 0;
 }
@@ -9252,7 +9436,7 @@ async function zkeyBellmanContribute(params, options) {
 	challengeName = params[1];
 	if (params.length < 3) responseName = changeExt(challengeName, "response");
 	else responseName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	await bellmanContribute(curve, challengeName, responseName, options.entropy, logger);
 	return 0;
 }
@@ -9266,7 +9450,7 @@ async function plonkSetup(params, options) {
 	else ptauName = params[1];
 	if (params.length < 3) zkeyName = "circuit.zkey";
 	else zkeyName = params[2];
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	return plonkSetup$1(r1csName, ptauName, zkeyName, logger);
 }
 async function plonkProve(params, options) {
@@ -9274,11 +9458,10 @@ async function plonkProve(params, options) {
 	const witnessName = params[1] || "witness.wtns";
 	const proofName = params[2] || "proof.json";
 	const publicName = params[3] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const { proof, publicSignals } = await plonk16Prove(zkeyName, witnessName, logger);
-	const bfj = await getBFJ();
-	await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
-	await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
+	await writeJsonFile(proofName, stringifyBigInts(proof));
+	await writeJsonFile(publicName, stringifyBigInts(publicSignals));
 	return 0;
 }
 async function plonkFullProve(params, options) {
@@ -9287,11 +9470,10 @@ async function plonkFullProve(params, options) {
 	const zkeyName = params[2] || "circuit.zkey";
 	const proofName = params[3] || "proof.json";
 	const publicName = params[4] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const { proof, publicSignals } = await plonkFullProve$1(JSON.parse(await fs.default.promises.readFile(inputName, "utf8")), wasmName, zkeyName, logger);
-	const bfj = await getBFJ();
-	await bfj.write(proofName, stringifyBigInts(proof), { space: 1 });
-	await bfj.write(publicName, stringifyBigInts(publicSignals), { space: 1 });
+	await writeJsonFile(proofName, stringifyBigInts(proof));
+	await writeJsonFile(publicName, stringifyBigInts(publicSignals));
 	return 0;
 }
 async function plonkVerify(params, options) {
@@ -9301,7 +9483,7 @@ async function plonkVerify(params, options) {
 	const verificationKey = JSON.parse(fs.default.readFileSync(verificationKeyName, "utf8"));
 	const pub = JSON.parse(fs.default.readFileSync(publicName, "utf8"));
 	const proof = JSON.parse(fs.default.readFileSync(proofName, "utf8"));
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	if (await plonkVerify$1(verificationKey, pub, proof, logger)) return 0;
 	else return 1;
 }
@@ -9309,7 +9491,7 @@ async function fflonkSetup(params, options) {
 	const r1csFilename = params[0] || "circuit.r1cs";
 	const ptauFilename = params[1] || "powersoftau.ptau";
 	const zkeyFilename = params[2] || "circuit.zkey";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	return await fflonkSetup$1(r1csFilename, ptauFilename, zkeyFilename, logger);
 }
 async function fflonkProve(params, options) {
@@ -9317,12 +9499,11 @@ async function fflonkProve(params, options) {
 	const witnessFilename = params[1] || "witness.wtns";
 	const proofFilename = params[2] || "proof.json";
 	const publicInputsFilename = params[3] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const { proof, publicSignals } = await fflonkProve$1(zkeyFilename, witnessFilename, logger);
 	if (void 0 !== proofFilename && void 0 !== publicInputsFilename) {
-		const bfj = await getBFJ();
-		await bfj.write(proofFilename, stringifyBigInts(proof), { space: 1 });
-		await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), { space: 1 });
+		await writeJsonFile(proofFilename, stringifyBigInts(proof));
+		await writeJsonFile(publicInputsFilename, stringifyBigInts(publicSignals));
 	}
 	return 0;
 }
@@ -9332,18 +9513,17 @@ async function fflonkFullProve(params, options) {
 	const zkeyFilename = params[2] || "circuit.zkey";
 	const proofFilename = params[3] || "proof.json";
 	const publicInputsFilename = params[4] || "public.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	const { proof, publicSignals } = await fflonkFullProve$1(JSON.parse(await fs.default.promises.readFile(witnessInputsFilename, "utf8")), wasmFilename, zkeyFilename, logger);
-	const bfj = await getBFJ();
-	await bfj.write(proofFilename, stringifyBigInts(proof), { space: 1 });
-	await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), { space: 1 });
+	await writeJsonFile(proofFilename, stringifyBigInts(proof));
+	await writeJsonFile(publicInputsFilename, stringifyBigInts(publicSignals));
 	return 0;
 }
 async function fflonkVerify(params, options) {
 	const vkeyFilename = params[0] || "circuit.vkey";
 	const publicInputsFilename = params[1] || "public.json";
 	const proofFilename = params[2] || "proof.json";
-	if (options.verbose) logplease.default.setLogLevel("DEBUG");
+	if (options.verbose) cli_logger_default.setLogLevel("DEBUG");
 	return await fflonkVerify$1(JSON.parse(fs.default.readFileSync(vkeyFilename, "utf8")), JSON.parse(fs.default.readFileSync(publicInputsFilename, "utf8")), JSON.parse(fs.default.readFileSync(proofFilename, "utf8")), logger) ? 0 : 1;
 }
 async function fileInfo(params) {

@@ -18,6 +18,7 @@
 */
 
 import {getCurveFromName} from "./curves.js";
+import { render, assertDecimalStringLeaves } from "./template_render.js";
 import {utils} from "ffjavascript";
 
 const {unstringifyBigInts, stringifyBigInts} = utils;
@@ -47,8 +48,12 @@ export default async function fflonkExportSolidityVerifier(vk, templates, logger
 
     if (logger) logger.info("FFLONK EXPORT SOLIDITY VERIFIER FINISHED");
 
-    const {default: ejs} = await import("ejs");
-    return ejs.render(template, vk);
+    // every interpolated value must be a plain number: this entry point
+    // accepts caller-built vk objects, so a poisoned vk must not be able
+    // to smuggle source text into the generated contract
+    assertDecimalStringLeaves(vk, ["protocol", "curve"]);
+
+    return render(template, vk);
 
     function fromVkey(str) {
         const val = unstringifyBigInts(str);
