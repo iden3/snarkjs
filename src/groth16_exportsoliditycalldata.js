@@ -26,21 +26,55 @@ function p256(n) {
     return nstr;
 }
 
-export default async function groth16ExportSolidityCallData(_proof, _pub) {
-    const proof = unstringifyBigInts(_proof);
-    const pub = unstringifyBigInts(_pub);
+function p256NoZeroX(n) {
+    let nstr = n.toString(16);
+    while (nstr.length < 64) nstr = "0"+nstr;
+    return nstr;
+}
 
-    let inputs = "";
-    for (let i=0; i<pub.length; i++) {
-        if (inputs != "") inputs = inputs + ",";
-        inputs = inputs + p256(pub[i]);
+function p512NoZeroX(n) {
+    let nstr = n.toString(16);
+    while (nstr.length < 128) nstr = "0"+nstr;
+    return nstr;
+}
+
+export default async function groth16ExportSolidityCallData(_proof, _pub, _curve="bn254") {
+    if (_curve === "bn254") {
+        const proof = unstringifyBigInts(_proof);
+        const pub = unstringifyBigInts(_pub);
+
+        let inputs = "";
+        for (let i=0; i<pub.length; i++) {
+            if (inputs != "") inputs = inputs + ",";
+            inputs = inputs + p256(pub[i]);
+        }
+
+        let S;
+        S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
+            `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
+            `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
+            `[${inputs}]`;
+
+        return S;
+    } else if (_curve === "bls12381") {
+        const proof = unstringifyBigInts(_proof);
+        const pub = unstringifyBigInts(_pub);
+
+        let inputs = "";
+        for (let i=0; i<pub.length; i++) {
+            inputs = inputs + p256NoZeroX(pub[i]);
+        }
+
+        const calldata = p512NoZeroX(proof.pi_a[0]) + 
+            p512NoZeroX(proof.pi_a[1]) +
+            p512NoZeroX(proof.pi_b[0][0]) + 
+            p512NoZeroX(proof.pi_b[0][1]) +
+            p512NoZeroX(proof.pi_b[1][0]) +
+            p512NoZeroX(proof.pi_b[1][1]) +
+            p512NoZeroX(proof.pi_c[0]) +
+            p512NoZeroX(proof.pi_c[1]) +
+            inputs
+
+        return calldata;
     }
-
-    let S;
-    S=`[${p256(proof.pi_a[0])}, ${p256(proof.pi_a[1])}],` +
-        `[[${p256(proof.pi_b[0][1])}, ${p256(proof.pi_b[0][0])}],[${p256(proof.pi_b[1][1])}, ${p256(proof.pi_b[1][0])}]],` +
-        `[${p256(proof.pi_c[0])}, ${p256(proof.pi_c[1])}],` +
-        `[${inputs}]`;
-
-    return S;
 }
