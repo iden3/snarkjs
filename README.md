@@ -352,7 +352,7 @@ snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
 
 #### Fflonk
 ```sh
-snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit.zkey
+snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
 ```
 
 You can jump directly to Section 21 as PLONK and FFLONK do not require a circuit-specific trusted ceremony.
@@ -454,7 +454,7 @@ snarkjs plonk prove circuit_final.zkey witness.wtns proof.json public.json
 #### FFLONK
 
 ```sh
-snarkjs fflonk prove circuit.zkey witness.wtns proof.json public.json
+snarkjs fflonk prove circuit_final.zkey witness.wtns proof.json public.json
 ```
 
 #### Groth16
@@ -473,17 +473,17 @@ Note that it's also possible to create the proof and calculate the witness in th
 
 #### PLONK
 ```sh
-snarkjs plonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+snarkjs plonk fullprove input.json circuit_js/circuit.wasm circuit_final.zkey proof.json public.json
 ```
 
 #### FFLONK
 ```sh
-snarkjs fflonk fullprove witness.json circuit.wasm circuit_final.zkey proof.json public.json
+snarkjs fflonk fullprove input.json circuit_js/circuit.wasm circuit_final.zkey proof.json public.json
 ```
 
 #### Groth16
 ```sh
-snarkjs groth16 fullprove input.json circuit.wasm circuit_final.zkey proof.json public.json
+snarkjs groth16 fullprove input.json circuit_js/circuit.wasm circuit_final.zkey proof.json public.json
 ```
 
 ### 24. Verify the proof
