@@ -69,6 +69,11 @@ export default async function groth16Verify(_vk_verifier, _publicSignals, _proof
     const vk_alpha_1 = curve.G1.fromObject(vk_verifier.vk_alpha_1);
     const vk_beta_2 = curve.G2.fromObject(vk_verifier.vk_beta_2);
 
+    if (curve.G2.eq(vk_gamma_2, vk_delta_2)) {
+        if (logger) logger.error("SOUNDNESS ERROR: vk_gamma_2 and vk_delta_2 are equal. This verification key is insecure, the zkey likely has no phase 2 contribution. Proofs can be forged. Aborting verification.");
+        return false;
+    }
+
     const res = await curve.pairingEq(
         curve.G1.neg(pi_a) , pi_b,
         cpub , vk_gamma_2,

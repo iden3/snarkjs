@@ -56,6 +56,10 @@ async function groth16Vk(zkey, fd, sections) {
     const curve = await getCurve(zkey.q);
     const sG1 = curve.G1.F.n8 * 2;
 
+    if (curve.G2.eq(zkey.vk_gamma_2, zkey.vk_delta_2)) {
+        throw new Error("SOUNDNESS ERROR: vk_gamma_2 and vk_delta_2 are equal. This zkey is insecure, it likely has no phase 2 contribution. Proofs can be forged. Run 'snarkjs zkey contribute' before exporting.");
+    }
+
     const alphaBeta = await curve.pairing(zkey.vk_alpha_1, zkey.vk_beta_2);
 
     let vKey = {
