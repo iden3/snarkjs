@@ -23,6 +23,10 @@ import {keccak_256} from "@noble/hashes/sha3";
 const POLYNOMIAL = 0;
 const SCALAR = 1;
 
+// Fiat-Shamir transcript over Keccak-256. Subclasses may override pointSize()
+// and writePoint() to change the G1 commitment serialization (see
+// Keccak256CompressedTranscript); the scalar encoding and hashing are shared
+// so that transcript variants can never drift apart on them.
 export class Keccak256Transcript {
     constructor(curve) {
         this.G1 = curve.G1;
@@ -43,8 +47,18 @@ export class Keccak256Transcript {
         this.data.push({type: SCALAR, data: scalar});
     }
 
+    pointSize() {
+        return this.G1.F.n8 * 2;
+    }
+
+    writePoint(buffer, offset, point) {
+        this.G1.toRprUncompressed(buffer, offset, point);
+    }
+
     getChallenge() {
         if(0 === this.data.length) {
+            // Fixed string rather than this.constructor.name: the minified
+            // bundle mangles class names.
             throw new Error("Keccak256Transcript: No data to generate a transcript");
         }
 
@@ -53,13 +67,13 @@ export class Keccak256Transcript {
 
         this.data.forEach(element => POLYNOMIAL === element.type ? nPolynomials++ : nScalars++);
 
-        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.G1.F.n8 * 2);
+        let buffer = new Uint8Array(nScalars * this.Fr.n8 + nPolynomials * this.pointSize());
         let offset = 0;
 
         for (let i = 0; i < this.data.length; i++) {
             if (POLYNOMIAL === this.data[i].type) {
-                this.G1.toRprUncompressed(buffer, offset, this.data[i].data);
-                offset += this.G1.F.n8 * 2;
+                this.writePoint(buffer, offset, this.data[i].data);
+                offset += this.pointSize();
             } else {
                 this.Fr.toRprBE(buffer, offset, this.data[i].data);
                 offset += this.Fr.n8;

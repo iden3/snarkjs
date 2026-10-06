@@ -467,6 +467,12 @@ We create the proof. This command generates the files `proof.json` and `public.j
 - `proof.json` contains the actual proof.
 - `public.json` contains the values of the public inputs and output.
 
+For PLONK and FFLONK, an optional `--transcript` flag selects the Fiat-Shamir transcript used to generate the challenges:
+- `keccak256` (the default): hashes uncompressed G1 points. This is what the Solidity verifiers expect.
+- `keccak256-compressed`: hashes ZCash-compressed points instead, as required by Cardano/Plutus on-chain verifiers (see section 27). Only supported on the `bls12381` curve; any other curve is rejected.
+
+A proof generated with one transcript will not verify under the other, so the prover and the verifier must use the same flag.
+
 ### 23a. Calculate the witness and generate the proof in one step
 
 Note that it's also possible to create the proof and calculate the witness in the same command by running:
@@ -507,6 +513,8 @@ We use this command to verify the proof, passing in the `verification_key` we ex
 
 If all is well, you should see that `OK` has been outputted to your console. This signifies the proof is valid.
 
+For PLONK and FFLONK, `verify` accepts the same `--transcript` flag as `prove` (see section 23); it must match the transcript the proof was generated with.
+
 
 ### 25. Turn the verifier into a smart contract
 ```sh
@@ -521,6 +529,22 @@ snarkjs zkey export soliditycalldata public.json proof.json
 ```
 
 We use `soliditycalldata` to simulate a verification call and cut-and-paste the result directly into the verifyProof field in the deployed smart contract in the remix environment.
+
+### 27. Export the proof and verification key for Cardano
+
+Instead of an EVM chain, proofs can be verified on Cardano, whose Plutus builtins (CIP-0381) operate on BLS12-381 points in the ZCash compressed encoding. The Cardano export commands convert a verification key and a proof into JSON where every G1 point is a 48-byte and every G2 point a 96-byte compressed hex string:
+
+```sh
+snarkjs zkey export cardano-verificationkey circuit_final.zkey cardano_vk.json
+
+snarkjs groth16 export-cardano-proof proof.json cardano_proof.json
+snarkjs plonk export-cardano-proof proof.json cardano_proof.json
+snarkjs fflonk export-cardano-proof proof.json cardano_proof.json
+```
+
+For PLONK and FFLONK, generate the proof with `--transcript=keccak256-compressed` (see section 23) so that the challenges match what an on-chain verifier recomputes over compressed points; Groth16 has no transcript and needs no flag.
+
+All of this targets the `bls12381` curve only, and every command above rejects any other curve. There is deliberately no compressed form for `bn128`: its on-chain consumers take uncompressed points (the EVM precompiles of [EIP-196](https://eips.ethereum.org/EIPS/eip-196) specify 64-byte `(x, y)` encodings), so no standard compressed encoding exists to target. Default behavior on `bn128` is completely unchanged.
 
 And voila! That's all there is to it :)
 
