@@ -68,3 +68,7 @@ tmp
 
 .DS_Store
 stats.html
+
+# vitest browser-mode artifacts (failure screenshots, attachments)
+test/__screenshots__/
+.vitest-attachments/

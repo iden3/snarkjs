@@ -43,7 +43,7 @@ export default async function fflonkVerify(_vk_verifier, _publicSignals, _proof,
     const publicSignals = unstringifyBigInts(_publicSignals);
 
     if (publicSignals.length !== vk.nPublic) {
-        logger.error("Number of public signals does not match with vk");
+        if (logger) logger.error("Number of public signals does not match with vk");
         return false;
     }
 

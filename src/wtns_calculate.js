@@ -27,6 +27,8 @@ const { unstringifyBigInts} = utils;
 export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, options) {
     const input = unstringifyBigInts(_input);
 
+    // For an IndexedDB-cached http wasm (browser warm start), pass a
+    // fastfile descriptor: {type: "http", url, cache: true|{...}}
     const fdWasm = await fastFile.readExisting(wasmFileName);
     const wasm = await fdWasm.read(fdWasm.totalSize);
     await fdWasm.close();
@@ -36,15 +38,25 @@ export default async function wtnsCalculate(_input, wasmFileName, wtnsFileName, 
         const w = await wc.calculateBinWitness(input);
 
         const fdWtns = await binFileUtils.createBinFile(wtnsFileName, "wtns", 2, 2);
-
-        await wtnsUtils.writeBin(fdWtns, w, wc.prime);
-        await fdWtns.close();
+        try {
+            await wtnsUtils.writeBin(fdWtns, w, wc.prime);
+        } finally {
+            // close on failure too: a write error (or, pre-open, a witness
+            // calculation throw -- e.g. an assert in the circuit) must not
+            // leak the output fd.
+            await fdWtns.close();
+        }
     } else {
-        const fdWtns = await fastFile.createOverride(wtnsFileName);
-
+        // Calculate BEFORE opening the output file: a circuit assert/trap in
+        // calculateWTNSBin used to leak the just-created fd (and leave a
+        // zero-byte wtns file behind).
         const w = await wc.calculateWTNSBin(input);
 
-        await fdWtns.write(w);
-        await fdWtns.close();
+        const fdWtns = await fastFile.createOverride(wtnsFileName);
+        try {
+            await fdWtns.write(w);
+        } finally {
+            await fdWtns.close();
+        }
     }
 }

@@ -6,14 +6,14 @@ import { Scalar } from "ffjavascript";
 import { getG2sp } from "../src/keypair.js";
 
 describe("keypair", function() {
-    this.timeout(10000);
+
     
     let curve;
 
-    before( async () => {
+    beforeAll( async () => {
         curve = await getCurveFromName("bn128");
     });
-    after( async () => {
+    afterAll( async () => {
         await curve.terminate();
     });
 

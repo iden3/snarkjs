@@ -93,7 +93,7 @@ export async function writeHeader(fd, zkey) {
 
 export async function writeZKey(fileName, zkey) {
 
-    let curve = getCurve(zkey.q);
+    let curve = await getCurve(zkey.q);
 
     const fd = await binFileUtils.createBinFile(fileName,"zkey", 1, 9);
 

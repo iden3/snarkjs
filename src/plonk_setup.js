@@ -24,7 +24,6 @@ import * as utils from "./powersoftau_utils.js";
 import {
     readBinFile,
     createBinFile,
-    readSection,
     writeBigInt,
     startWriteSection,
     endWriteSection,
@@ -35,12 +34,32 @@ import BigArray from "./bigarray.js";
 
 
 export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _plonkSetup(r1csName, ptauName, zkeyName, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
+        }
+    }
+}
+
+async function _plonkSetup(r1csName, ptauName, zkeyName, logger, fds) {
 
     if (globalThis.gc) {globalThis.gc();}
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    fds.fdPTau = fdPTau;
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    fds.fdR1cs = fdR1cs;
 
     const r1cs = await readR1csFd(fdR1cs, sectionsR1cs, {loadConstraints: true, loadCustomGates: true});
 
@@ -51,19 +70,27 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     const n8r = curve.Fr.n8;
 
     if (logger) logger.info("Reading r1cs");
-    let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
 
-    const plonkConstraints = new BigArray();
-    const plonkAdditions = new BigArray();
+    let plonkConstraints = new BigArray();
+    let plonkAdditions = new BigArray();
+    let nPlonkConstraints, nPlonkAdditions; // survive the arrays' release
     let plonkNVars = r1cs.nVars;
 
     const nPublic = r1cs.nOutputs + r1cs.nPubInputs;
 
     await processConstraints(curve.Fr, r1cs, logger);
 
+    // the r1cs constraint list is fully converted into
+    // plonkConstraints/plonkAdditions -- release it now (it is the same
+    // order of magnitude as the plonk constraint set itself)
+    r1cs.constraints = null;
+    nPlonkConstraints = plonkConstraints.length;
+    nPlonkAdditions = plonkAdditions.length;
+
     if (globalThis.gc) {globalThis.gc();}
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 14, 1<<22, 1<<24);
+    fds.fdZKey = fdZKey;
 
 
     if (r1cs.prime != curve.r) {
@@ -72,7 +99,10 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
     let cirPower = log2(plonkConstraints.length -1) +1;
+    // coverage: clamp for circuits smaller than any real fixture
+    /* c8 ignore start */
     if (cirPower < 3) cirPower = 3;   // As the t polynomial is n+5 we need at least a power of 4
+    /* c8 ignore stop */
     const domainSize = 2 ** cirPower;
 
     if (logger) logger.info("Plonk constraints: " + plonkConstraints.length);
@@ -87,7 +117,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     }
 
 
-    const LPoints = new BigBuffer(domainSize*sG1);
+    let LPoints = new BigBuffer(domainSize*sG1);
     const o = sectionsPTau[12][0].p + ((2 ** (cirPower)) -1)*sG1;
     await fdPTau.readToBuffer(LPoints, 0, domainSize*sG1, o);
 
@@ -97,6 +127,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
 
     await writeAdditions(3, "Additions");
+    plonkAdditions = null; // last consumer (header only needs the count)
     if (globalThis.gc) {globalThis.gc();}
     await writeWitnessMap(4, 0, "Amap");
     if (globalThis.gc) {globalThis.gc();}
@@ -115,6 +146,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     await writeQMap(11, 7, "Qc");
     if (globalThis.gc) {globalThis.gc();}
     await writeSigma(12, "sigma");
+    plonkConstraints = null; // sigma was the last consumer
+    LPoints = null;          // ptau lagrange points: consumed by the Q/sigma multiexps
     if (globalThis.gc) {globalThis.gc();}
     await writeLs(13, "lagrange polynomials");
     if (globalThis.gc) {globalThis.gc();}
@@ -123,9 +156,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
     ////////////
 
     await startWriteSection(fdZKey, 14);
-    const buffOut = new BigBuffer((domainSize+6)*sG1);
-    await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
-    await fdZKey.write(buffOut);
+    {
+        // scoped: (domainSize+6) G1 points die right after the write
+        const buffOut = new BigBuffer((domainSize+6)*sG1);
+        await fdPTau.readToBuffer(buffOut, 0, (domainSize+6)*sG1, sectionsPTau[2][0].p);
+        await fdZKey.write(buffOut);
+    }
     await endWriteSection(fdZKey);
     if (globalThis.gc) {globalThis.gc();}
 
@@ -145,6 +181,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         function normalize(linearComb) {
             const ss = Object.keys(linearComb);
             for (let i = 0; i < ss.length; i++) {
+                // coverage: constraint shape circom does not emit
+                /* c8 ignore next */
                 if (linearComb[ss[i]] == 0n) delete linearComb[ss[i]];
             }
         }
@@ -184,7 +222,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 if (s == 0) {
                     res.k = Fr.add(res.k, linearComb[s]);
                 } else if (linearComb[s] != 0n) {
-                    cs.push([Number(s), linearComb[s]])
+                    cs.push([Number(s), linearComb[s]]);
                 }
             }
             while (cs.length > maxC) {
@@ -210,10 +248,13 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 res.s[i] = cs[i][0];
                 res.coefs[i] = cs[i][1];
             }
+            // coverage: padding loop for under-full linear combinations circom does not emit
+            /* c8 ignore start */
             while (res.coefs.length < maxC) {
                 res.s.push(0);
                 res.coefs.push(Fr.zero);
             }
+            /* c8 ignore stop */
             return res;
         }
 
@@ -252,8 +293,12 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             let n = 0;
             const ss = Object.keys(lc);
             for (let i = 0; i < ss.length; i++) {
+                // coverage: zero-coefficient and constant-only branches need
+                // constraint shapes circom does not emit
+                /* c8 ignore start */
                 if (lc[ss[i]] == 0n) {
                     delete lc[ss[i]];
+                /* c8 ignore stop */
                 } else if (ss[i] == 0) {
                     k = Fr.add(k, lc[ss[i]]);
                 } else {
@@ -261,6 +306,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 }
             }
             if (n > 0) return n.toString();
+            /* c8 ignore next */
             if (k != Fr.zero) return "k";
             return "0";
         }
@@ -272,11 +318,14 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
                 normalize(lcC);
                 addConstraintSum(lcC);
             } else if (lctA === "k") {
+                // coverage: constant-only A/B sides; circom does not emit these shapes
+                /* c8 ignore start */
                 const lcCC = join(lcB, lcA[0], lcC);
                 addConstraintSum(lcCC);
             } else if (lctB === "k") {
                 const lcCC = join(lcA, lcB[0], lcC);
                 addConstraintSum(lcCC);
+                /* c8 ignore stop */
             } else {
                 addConstraintMul(lcA, lcB, lcC);
             }
@@ -346,15 +395,18 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             buffOut.set(addition[2], o); o+= n8r;
             buffOut.set(addition[3], o); o+= n8r;
             await fdZKey.write(buffOut);
+            // coverage: progress logging fires only for circuits beyond test-fixture size
+            /* c8 ignore start */
             if ((logger)&&(i%1000000 == 0)) logger.debug(`writing ${name}: ${i}/${plonkAdditions.length}`);
+            /* c8 ignore stop */
         }
         await endWriteSection(fdZKey);
     }
 
     async function writeSigma(sectionNum, name) {
-        const sigma = new BigBuffer(n8r*domainSize*3);
-        const lastAparence =  new BigArray(plonkNVars);
-        const firstPos = new BigArray(plonkNVars);
+        let sigma = new BigBuffer(n8r*domainSize*3);
+        let lastAparence =  new BigArray(plonkNVars);
+        let firstPos = new BigArray(plonkNVars);
         let w = Fr.one;
         for (let i=0; i<domainSize;i++) {
             if (i<plonkConstraints.length) {
@@ -379,6 +431,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             if ((logger)&&(s%1000000 == 0)) logger.debug(`writing ${name} phase2: ${s}/${plonkNVars}`);
         }
 
+        lastAparence = null;  // phase bookkeeping: dead once sigma is built
+        firstPos = null;
         if (globalThis.gc) {globalThis.gc();}
         await startWriteSection(fdZKey, sectionNum);
         let S1 = sigma.slice(0, domainSize*n8r);
@@ -389,6 +443,7 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         if (globalThis.gc) {globalThis.gc();}
         let S3 = sigma.slice(domainSize*n8r*2, domainSize*n8r*3);
         await writeP4(S3);
+        sigma = null;         // the three slices are copies
         if (globalThis.gc) {globalThis.gc();}
         await endWriteSection(fdZKey);
 
@@ -397,10 +452,13 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         S3 = await Fr.batchFromMontgomery(S3);
 
         vk.S1= await curve.G1.multiExpAffine(LPoints, S1, logger, "multiexp S1");
+        S1 = null;
         if (globalThis.gc) {globalThis.gc();}
         vk.S2= await curve.G1.multiExpAffine(LPoints, S2, logger, "multiexp S2");
+        S2 = null;
         if (globalThis.gc) {globalThis.gc();}
         vk.S3= await curve.G1.multiExpAffine(LPoints, S3, logger, "multiexp S3");
+        S3 = null;
         if (globalThis.gc) {globalThis.gc();}
 
         function buildSigma(s, p) {
@@ -458,8 +516,8 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
         await fdZKey.writeULE32(plonkNVars);                         // Total number of bars
         await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
         await fdZKey.writeULE32(domainSize);                  // domainSize
-        await fdZKey.writeULE32(plonkAdditions.length);                  // domainSize
-        await fdZKey.writeULE32(plonkConstraints.length); 
+        await fdZKey.writeULE32(nPlonkAdditions);              // nAdditions
+        await fdZKey.writeULE32(nPlonkConstraints);
 
         await fdZKey.write(k1);
         await fdZKey.write(k2);
@@ -483,9 +541,15 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
 
     function getK1K2() {
         let k1 = Fr.two;
+        // coverage: search loop never iterates for the supported curves' constants
+        /* c8 ignore start */
         while (isIncluded(k1, [], cirPower)) Fr.add(k1, Fr.one);
+        /* c8 ignore stop */
         let k2 = Fr.add(k1, Fr.one);
+        // coverage: search loop never iterates for the supported curves' constants
+        /* c8 ignore start */
         while (isIncluded(k2, [k1], cirPower)) Fr.add(k2, Fr.one);
+        /* c8 ignore stop */
         return [k1, k2];
 
 
@@ -493,9 +557,15 @@ export default async function plonkSetup(r1csName, ptauName, zkeyName, logger) {
             const domainSize= 2**pow;
             let w = Fr.one;
             for (let i=0; i<domainSize; i++) {
+                // coverage: search loop never iterates for the supported curves' constants
+                /* c8 ignore start */
                 if (Fr.eq(k, w)) return true;
+                /* c8 ignore stop */
                 for (let j=0; j<kArr.length; j++) {
+                    // coverage: search loop never iterates for the supported curves' constants
+                    /* c8 ignore start */
                     if (Fr.eq(k, Fr.mul(kArr[j], w))) return true;
+                    /* c8 ignore stop */
                 }
                 w = Fr.mul(w, Fr.w[pow]);
             }

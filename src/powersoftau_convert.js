@@ -19,7 +19,6 @@
 
 import * as binFileUtils from "@iden3/binfileutils";
 import * as utils from "./powersoftau_utils.js";
-import * as fastFile from "fastfile";
 import {BigBuffer} from "ffjavascript";
 
 export default async function convert(oldPtauFilename, newPTauFilename, logger) {
@@ -92,7 +91,7 @@ export default async function convert(oldPtauFilename, newPTauFilename, logger) 
             buff = await G.lagrangeEvaluations(buff, "affine", "affine", logger, sectionName);
             await fdNew.write(buff);
 
-/*
+            /*
             if (p <= curve.Fr.s) {
                 buff = await G.ifft(buff, "affine", "affine", logger, sectionName);
                 await fdNew.write(buff);

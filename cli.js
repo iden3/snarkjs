@@ -17,10 +17,9 @@
     along with snarkJS. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* eslint-disable no-console */
-
 import fs from "fs";
 import url from "url";
+import { createRequire } from "module";
 
 import {readR1cs} from "r1csfile";
 
@@ -42,13 +41,30 @@ import * as fflonk from "./src/fflonk.js";
 import * as wtns from "./src/wtns.js";
 import * as curves from "./src/curves.js";
 import path from "path";
-import bfj from "bfj";
 
 import Logger from "logplease";
 import * as binFileUtils from "@iden3/binfileutils";
 
 const logger = Logger.create("snarkJS", {showTimestamp: false});
 Logger.setLogLevel("INFO");
+
+// The library releases its big buffers at their last use and marks the spots
+// with guarded globalThis.gc() checkpoints, which only run when a gc is
+// exposed. The CLI is node-only, so expose one here (unless the user already
+// ran node with --expose-gc) -- this keeps peak RSS of the streaming ceremony
+// commands (ptau/zkey contribute) at their working set instead of letting
+// collectable chunk garbage pile up. Library and browser consumers are
+// unaffected.
+if (typeof globalThis.gc !== "function") {
+    try {
+        const nodeRequire = createRequire(import.meta.url);
+        const v8 = nodeRequire("v8");
+        const vm = nodeRequire("vm");
+        v8.setFlagsFromString("--expose-gc");
+        globalThis.gc = vm.runInNewContext("gc");
+        v8.setFlagsFromString("--no-expose-gc");
+    } catch (e) { /* run without explicit gc checkpoints */ }
+}
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
@@ -264,14 +280,14 @@ const commands = [
         cmd: "groth16 prove [circuit_final.zkey] [witness.wtns] [proof.json] [public.json]",
         description: "Generates a zk Proof from witness",
         alias: ["g16p", "zpw", "zksnark proof", "proof -pk|provingkey -wt|witness -p|proof -pub|public"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16Prove
     },
     {
         cmd: "groth16 fullprove [input.json] [circuit_final.wasm] [circuit_final.zkey] [proof.json] [public.json]",
         description: "Generates a zk Proof from input",
         alias: ["g16f", "g16i"],
-        options: "-verbose|v -protocol",
+        options: "-verbose|v -protocol -buildabc",
         action: groth16FullProve
     },
     {
@@ -352,29 +368,15 @@ clProcessor(commands).then((res) => {
     process.exit(1);
 });
 
-/*
 
-TODO COMMANDS
-=============
-
-    {
-        cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
-        description: "Run a simple setup for a circuit generating the proving key.",
-        alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
-        options: "-verbose|v -protocol",
-        action: zksnarkSetup
-    },
-    {
-        cmd: "witness verify <circuit.r1cs> <witness.wtns>",
-        description: "Verify a witness against a r1cs",
-        alias: ["wv"],
-        action: witnessVerify
-    },
-    {
-        cmd: "powersOfTau export response"
-    }
-*/
-
+// BFJ(Big-Friendly JSON) is pretty heavy module, so we are doing lazy loading for faster startup
+let _bfj;
+async function getBFJ() {
+    if (_bfj) return _bfj;
+    const {default: bfj} = await import("bfj");
+    _bfj = bfj;
+    return _bfj;
+}
 
 function changeExt(fileName, newExt) {
     let S = fileName;
@@ -424,6 +426,7 @@ async function r1csExportJSON(params, options) {
 
     const r1csObj = await r1cs.exportJson(r1csName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, r1csObj, {space: 1});
 
     return 0;
@@ -473,6 +476,7 @@ async function wtnsExportJson(params, options) {
 
     const w = await wtns.exportJson(wtnsName);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, stringifyBigInts(w), {space: 1});
 
     return 0;
@@ -495,31 +499,6 @@ async function wtnsCheck(params, options) {
     }
 }
 
-
-/*
-// zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]
-async function zksnarkSetup(params, options) {
-
-    const r1csName = params[0] || "circuit.r1cs";
-    const zkeyName = params[1] || changeExt(r1csName, "zkey");
-    const verificationKeyName = params[2] || "verification_key.json";
-
-    const protocol = options.protocol || "groth16";
-
-    const cir = await readR1cs(r1csName, true);
-
-    if (!zkSnark[protocol]) throw new Error("Invalid protocol");
-    const setup = zkSnark[protocol].setup(cir, options.verbose);
-
-    await zkey.utils.write(zkeyName, setup.vk_proof);
-    await bfj.write(provingKeyName, stringifyBigInts(setup.vk_proof), { space: 1 });
-
-    await bfj.write(verificationKeyName, stringifyBigInts(setup.vk_verifier), { space: 1 });
-
-    return 0;
-}
-*/
-
 // groth16 prove [circuit.zkey] [witness.wtns] [proof.json] [public.json]
 async function groth16Prove(params, options) {
 
@@ -530,10 +509,12 @@ async function groth16Prove(params, options) {
 
     if (options.verbose) Logger.setLogLevel("DEBUG");
 
-    const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger);
+    const proveOptions = {};
+    if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    const {proof, publicSignals} = await groth16.prove(zkeyName, witnessName, logger, proveOptions);
 
-    await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
-    await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -551,10 +532,12 @@ async function groth16FullProve(params, options) {
 
     const input = JSON.parse(await fs.promises.readFile(inputName, "utf8"));
 
-    const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName, logger);
+    const proveOptions = {};
+    if (options.buildabc) proveOptions.buildABC = options.buildabc;
+    const {proof, publicSignals} = await groth16.fullProve(input, wasmName, zkeyName, logger, undefined, proveOptions);
 
-    await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
-    await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
+    fs.writeFileSync(proofName, JSON.stringify(stringifyBigInts(proof), null, 1));
+    fs.writeFileSync(publicName, JSON.stringify(stringifyBigInts(publicSignals), null, 1));
 
     return 0;
 }
@@ -590,6 +573,7 @@ async function zkeyExportVKey(params, options) {
 
     const vKey = await zkey.exportVerificationKey(zKeyFileName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(vKeyFilename, stringifyBigInts(vKey), {space: 1});
 
     return 0;
@@ -604,6 +588,7 @@ async function zkeyExportJson(params, options) {
 
     const zKeyJson = await zkey.exportJson(zkeyName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(zkeyJsonName, zKeyJson, {space: 1});
 }
 
@@ -893,6 +878,7 @@ async function powersOfTauExportJson(params, options) {
 
     const pTauJson = await powersOfTau.exportJson(ptauName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(jsonName, pTauJson, {space: 1});
 }
 
@@ -1143,6 +1129,7 @@ async function plonkProve(params, options) {
 
     const {proof, publicSignals} = await plonk.prove(zkeyName, witnessName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
 
@@ -1165,6 +1152,7 @@ async function plonkFullProve(params, options) {
 
     const {proof, publicSignals} = await plonk.fullProve(input, wasmName, zkeyName, logger);
 
+    const bfj = await getBFJ();
     await bfj.write(proofName, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicName, stringifyBigInts(publicSignals), {space: 1});
 
@@ -1217,7 +1205,8 @@ async function fflonkProve(params, options) {
     const {proof, publicSignals} = await fflonk.prove(zkeyFilename, witnessFilename, logger);
 
     if(undefined !== proofFilename && undefined !== publicInputsFilename) {
-        // Write the proof and the publig signals in each file
+        const bfj = await getBFJ();
+        // Write the proof and the public signals in each file
         await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
         await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
     }
@@ -1239,7 +1228,8 @@ async function fflonkFullProve(params, options) {
 
     const {proof, publicSignals} = await fflonk.fullProve(input, wasmFilename, zkeyFilename, logger);
 
-    // Write the proof and the publig signals in each file
+    const bfj = await getBFJ();
+    // Write the proof and the public signals in each file
     await bfj.write(proofFilename, stringifyBigInts(proof), {space: 1});
     await bfj.write(publicInputsFilename, stringifyBigInts(publicSignals), {space: 1});
 

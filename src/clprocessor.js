@@ -32,7 +32,7 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 let pkgS;
 try {
     pkgS = fs.readFileSync(path.join(__dirname, "package.json"));
-} catch (err) {
+} catch {
     pkgS = fs.readFileSync(path.join(__dirname, "..","package.json"));
 }
 

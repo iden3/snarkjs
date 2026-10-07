@@ -44,6 +44,11 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
         buff = await G.batchApplyKey(buff, t, inc);
         await fdNew.write(buff);
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+        // Every buffer of the past chunks is garbage by now, but v8 collects
+        // them lazily and RSS grows with the section size; nudge the
+        // collector periodically to keep the peak at the streaming working
+        // set (no-op without an exposed gc)
+        if (globalThis.gc && i % (MAX_CHUNK_SIZE * 4) == MAX_CHUNK_SIZE * 3) {globalThis.gc();}
     }
 
     await binFileUtils.endWriteSection(fdNew);
@@ -73,6 +78,8 @@ export async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, c
         if (responseHasher) responseHasher.update(buffOut);
         await fdNew.write(buffOut);
         t = curve.Fr.mul(t, curve.Fr.exp(inc, n));
+        // see applyKeyToSection: keep lazily-collected chunk garbage bounded
+        if (globalThis.gc && i % (chunkSize * 16) == chunkSize * 15) {globalThis.gc();}
     }
 }
 

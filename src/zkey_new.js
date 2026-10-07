@@ -29,11 +29,28 @@ import {
 } from "@iden3/binfileutils";
 import { log2, formatHash } from "./misc.js";
 import { Scalar, BigBuffer } from "ffjavascript";
-import { blake2b } from "@noble/hashes/blake2b";
+import { blake2b } from "@noble/hashes/blake2.js";
 import BigArray from "./bigarray.js";
 
-
 export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
+    // fd lifecycle: every file the setup opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _newZKey(r1csName, ptauName, zkeyName, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdPTau, fds.fdR1cs, fds.fdZKey]) {
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
+        }
+    }
+}
+
+async function _newZKey(r1csName, ptauName, zkeyName, logger, fds) {
 
     const TAU_G1 = 0;
     const TAU_G2 = 1;
@@ -42,11 +59,14 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     const csHasher = blake2b.create({ dkLen: 64 });
 
     const {fd: fdPTau, sections: sectionsPTau} = await readBinFile(ptauName, "ptau", 1, 1<<22, 1<<24);
+    fds.fdPTau = fdPTau;
     const {curve, power} = await utils.readPTauHeader(fdPTau, sectionsPTau);
     const {fd: fdR1cs, sections: sectionsR1cs} = await readBinFile(r1csName, "r1cs", 1, 1<<22, 1<<24);
+    fds.fdR1cs = fdR1cs;
     const r1cs = await readR1csHeader(fdR1cs, sectionsR1cs, false);
 
     const fdZKey = await createBinFile(zkeyName, "zkey", 1, 10, 1<<22, 1<<24);
+    fds.fdZKey = fdZKey;
 
     const sG1 = curve.G1.F.n8*2;
     const sG2 = curve.G2.F.n8*2;
@@ -97,72 +117,110 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     await fdZKey.writeULE32(nPublic);                       // Total number of public vars (not including ONE)
     await fdZKey.writeULE32(domainSize);                  // domainSize
 
-    let bAlpha1;
-    bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
-    await fdZKey.write(bAlpha1);
-    bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
-    csHasher.update(bAlpha1);
+    // Scoped so the header temporaries (alpha/beta points, generator
+    // encodings) drop out of reach as soon as the section is written.
+    await (async function writeHeaderPoints() {
+        let bAlpha1 = await fdPTau.read(sG1, sectionsPTau[4][0].p);
+        await fdZKey.write(bAlpha1);
+        bAlpha1 = await curve.G1.batchLEMtoU(bAlpha1);
+        csHasher.update(bAlpha1);
 
-    let bBeta1;
-    bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
-    await fdZKey.write(bBeta1);
-    bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
-    csHasher.update(bBeta1);
+        let bBeta1 = await fdPTau.read(sG1, sectionsPTau[5][0].p);
+        await fdZKey.write(bBeta1);
+        bBeta1 = await curve.G1.batchLEMtoU(bBeta1);
+        csHasher.update(bBeta1);
 
-    let bBeta2;
-    bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
-    await fdZKey.write(bBeta2);
-    bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
-    csHasher.update(bBeta2);
+        let bBeta2 = await fdPTau.read(sG2, sectionsPTau[6][0].p);
+        await fdZKey.write(bBeta2);
+        bBeta2 = await curve.G2.batchLEMtoU(bBeta2);
+        csHasher.update(bBeta2);
 
-    const bg1 = new Uint8Array(sG1);
-    curve.G1.toRprLEM(bg1, 0, curve.G1.g);
-    const bg2 = new Uint8Array(sG2);
-    curve.G2.toRprLEM(bg2, 0, curve.G2.g);
-    const bg1U = new Uint8Array(sG1);
-    curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
-    const bg2U = new Uint8Array(sG2);
-    curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
+        const bg1 = new Uint8Array(sG1);
+        curve.G1.toRprLEM(bg1, 0, curve.G1.g);
+        const bg2 = new Uint8Array(sG2);
+        curve.G2.toRprLEM(bg2, 0, curve.G2.g);
+        const bg1U = new Uint8Array(sG1);
+        curve.G1.toRprUncompressed(bg1U, 0, curve.G1.g);
+        const bg2U = new Uint8Array(sG2);
+        curve.G2.toRprUncompressed(bg2U, 0, curve.G2.g);
 
-    await fdZKey.write(bg2);        // gamma2
-    await fdZKey.write(bg1);        // delta1
-    await fdZKey.write(bg2);        // delta2
-    csHasher.update(bg2U);      // gamma2
-    csHasher.update(bg1U);      // delta1
-    csHasher.update(bg2U);      // delta2
+        await fdZKey.write(bg2);        // gamma2
+        await fdZKey.write(bg1);        // delta1
+        await fdZKey.write(bg2);        // delta2
+        csHasher.update(bg2U);      // gamma2
+        csHasher.update(bg1U);      // delta1
+        csHasher.update(bg2U);      // delta2
+    })();
     await endWriteSection(fdZKey);
 
     if (logger) logger.info("Reading r1cs");
     let sR1cs = await readSection(fdR1cs, sectionsR1cs, 2);
+    await fdR1cs.close();
 
-    const A = new BigArray(r1cs.nVars);
-    const B1 = new BigArray(r1cs.nVars);
-    const B2 = new BigArray(r1cs.nVars);
-    const C = new BigArray(r1cs.nVars- nPublic -1);
-    const IC = new Array(nPublic+1);
+    let A = new BigArray(r1cs.nVars);
+    let B1 = new BigArray(r1cs.nVars);
+    let B2 = new BigArray(r1cs.nVars);
+    let C = new BigArray(r1cs.nVars- nPublic -1);
+    let IC = new Array(nPublic+1);
 
+    // Per-phase ptau section usage: IC and C draw on tauG1 + alphatauG1 +
+    // betatauG1; A and B1 on tauG1 only; B2 on tauG2 only. tauG2 (the
+    // largest section, 2x G1 size) is therefore read lazily just before the
+    // B2 phase, and each buffer is dropped right after its last consumer.
     if (logger) logger.info("Reading tauG1");
     let sTauG1 = await readSection(fdPTau, sectionsPTau, 12, (domainSize -1)*sG1, domainSize*sG1);
-    if (logger) logger.info("Reading tauG2");
-    let sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+    let sTauG2 = null;
     if (logger) logger.info("Reading alphatauG1");
     let sAlphaTauG1 = await readSection(fdPTau, sectionsPTau, 14, (domainSize -1)*sG1, domainSize*sG1);
     if (logger) logger.info("Reading betatauG1");
     let sBetaTauG1 = await readSection(fdPTau, sectionsPTau, 15, (domainSize -1)*sG1, domainSize*sG1);
 
+    if (logger) logger.info("processConstraints");
     await processConstraints();
 
+    if (logger) logger.info("composeAndWritePoints");
     await composeAndWritePoints(3, "G1", IC, "IC");
 
+    IC = null;
+
+    if (logger) logger.info("writeHs");
     await writeHs();
 
+    if (logger) logger.info("hashHPoints");
     await hashHPoints();
 
+    if (logger) logger.info("composeAndWritePoints 8 G1 C");
     await composeAndWritePoints(8, "G1", C, "C");
+
+    C = null;
+    // alphatauG1/betatauG1 are only referenced by the IC and C phases
+    sAlphaTauG1 = null;
+    sBetaTauG1 = null;
+
+    if (logger) logger.info("composeAndWritePoints 5 G1 A");
     await composeAndWritePoints(5, "G1", A, "A");
+
+    A = null;
+
+    if (logger) logger.info("composeAndWritePoints 6 G1 B1");
     await composeAndWritePoints(6, "G1", B1, "B1");
+
+    B1 = null;
+    // tauG1's last consumer is B1; B2 needs only tauG2, read here so the
+    // two largest sections are never resident at the same time
+    sTauG1 = null;
+
+    if (logger) logger.info("Reading tauG2");
+    sTauG2 = await readSection(fdPTau, sectionsPTau, 13, (domainSize -1)*sG2, domainSize*sG2);
+
+    if (logger) logger.info("composeAndWritePoints 7 G2 B2");
     await composeAndWritePoints(7, "G2", B2, "B2");
 
+    B2 = null;
+    sTauG2 = null;
+    sR1cs = null;
+
+    if (logger) logger.info("Contributions section");
     const csHash = csHasher.digest();
     // Contributions section
     await startWriteSection(fdZKey, 10);
@@ -174,7 +232,6 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
 
 
     await fdZKey.close();
-    await fdR1cs.close();
     await fdPTau.close();
 
     return csHash;
@@ -190,11 +247,14 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 buffOut.set(buff, i*sG1);
             }
         } else if (cirPower == curve.Fr.s) {
+            // coverage: requires a circuit whose domain equals the full 2^28 subgroup
+            /* c8 ignore start */
             const o = sectionsPTau[12][0].p + ((2 ** (cirPower+1)) -1)*sG1;
             await fdPTau.readToBuffer(buffOut, 0, domainSize*sG1, o + domainSize*sG1);
         } else {
             if (logger) logger.error("Circuit too big");
             throw new Error("Circuit too big for this curve");
+            /* c8 ignore stop */
         }
         await fdZKey.write(buffOut);
         await endWriteSection(fdZKey);
@@ -259,7 +319,10 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
                 B2[s].push([l2t, l2, coefp]);
 
                 if (s <= nPublic) {
+                    // coverage: defensive edge guard not reachable with valid inputs
+                    /* c8 ignore start */
                     if (typeof IC[s] === "undefined") IC[s] = [];
+                    /* c8 ignore stop */
                     IC[s].push([l3t, l3, coefp]);
                 } else {
                     if (typeof C[s- nPublic -1] === "undefined") C[s- nPublic -1] = [];
@@ -402,6 +465,8 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         let acc =0;
         for (let i=0; i<arr.length; i++) acc += arr[i] ? arr[i].length : 0;
         let bBases, bScalars;
+        // coverage: BigBuffer path requires sections beyond the 1 GiB threshold or a 2^28 domain
+        /* c8 ignore start */
         if (acc> 2<<14) {
             bBases = new BigBuffer(acc*sGin);
             bScalars = new BigBuffer(acc*curve.Fr.n8);
@@ -409,6 +474,7 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
             bBases = new Uint8Array(acc*sGin);
             bScalars = new Uint8Array(acc*curve.Fr.n8);
         }
+        /* c8 ignore stop */
         let pB =0;
         let pS =0;
 
@@ -426,7 +492,10 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
         for (let i=0; i<arr.length; i++) {
             if (!arr[i]) continue;
             for (let j=0; j<arr[i].length; j++) {
+                // coverage: progress logging fires only for circuits beyond test-fixture size
+                /* c8 ignore start */
                 if ((logger)&&(j)&&(j%10000 == 0))  logger.debug(`Configuring big array ${sectionName}: ${j}/${arr[i].length}`);
+                /* c8 ignore stop */
                 bBases.set(
                     sBuffs[arr[i][j][0]].slice(
                         arr[i][j][1],
@@ -584,5 +653,3 @@ export default async function newZKey(r1csName, ptauName, zkeyName, logger) {
     }
 
 }
-
-

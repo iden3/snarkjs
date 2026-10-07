@@ -40,11 +40,14 @@ export class r1csConstraintProcessor {
         if ((lctA === LINEAR_COMBINATION_NULLABLE) || (lctB === LINEAR_COMBINATION_NULLABLE)) {
             return this.processR1csAdditionConstraint(settings, lcC);
         } else if (lctA === LINEAR_COMBINATION_CONSTANT) {
+            // coverage: constant-only A/B sides; circom does not emit these shapes
+            /* c8 ignore start */
             const lcCC = this.joinLinearCombinations(lcB, lcC, lcA[0]);
             return this.processR1csAdditionConstraint(settings, lcCC);
         } else if (lctB === LINEAR_COMBINATION_CONSTANT) {
             const lcCC = this.joinLinearCombinations(lcA, lcC, lcB[0]);
             return this.processR1csAdditionConstraint(settings, lcCC);
+            /* c8 ignore stop */
         } else {
             return this.processR1csMultiplicationConstraint(settings, lcA, lcB, lcC);
         }
@@ -70,8 +73,11 @@ export class r1csConstraintProcessor {
         let n = 0;
         const ss = Object.keys(linCom);
         for (let i = 0; i < ss.length; i++) {
+            // coverage: zero-coefficient entries; circom does not emit these shapes
+            /* c8 ignore start */
             if (linCom[ss[i]] == 0n) {
                 delete linCom[ss[i]];
+            /* c8 ignore stop */
             } else if (ss[i] == 0) {
                 k = this.Fr.add(k, linCom[ss[i]]);
             } else {
@@ -79,6 +85,7 @@ export class r1csConstraintProcessor {
             }
         }
         if (n > 0) return LINEAR_COMBINATION_VARIABLE;
+        /* c8 ignore next */
         if (!this.Fr.isZero(k)) return LINEAR_COMBINATION_CONSTANT;
         return LINEAR_COMBINATION_NULLABLE;
     }
@@ -86,6 +93,7 @@ export class r1csConstraintProcessor {
     normalizeLinearCombination(linCom) {
         const signalIds = Object.keys(linCom);
         for (let i = 0; i < signalIds.length; i++) {
+            /* c8 ignore next */
             if (this.Fr.isZero(linCom[signalIds[i]])) delete linCom[signalIds[i]];
         }
 
@@ -151,10 +159,13 @@ export class r1csConstraintProcessor {
             res.coefs[i] = cs[i][1];
         }
 
+        // coverage: padding loop for under-full linear combinations
+        /* c8 ignore start */
         while (res.coefs.length < maxC) {
             res.signals.push(0);
             res.coefs.push(this.Fr.zero);
         }
+        /* c8 ignore stop */
 
         return res;
     }

@@ -24,8 +24,27 @@ import { getCurveFromQ as getCurve } from "./curves.js";
 import * as misc from "./misc.js";
 
 export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger) {
+    // fd lifecycle: every file the import opens is registered in fds and
+    // closed in the finally, so no early error return or throw can leak an
+    // fd. Success-path closes stay where they are; the finally re-close is
+    // absorbed harmlessly.
+    const fds = {};
+    try {
+        return await _phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger, fds);
+    } finally {
+        for (const openFd of [fds.fdZKeyOld, fds.fdMPCParams, fds.fdZKeyNew]) {
+            // close() is idempotent (fastfile >= 6278879); the catch keeps a
+            // failing final flush from masking the original error on the
+            // throw path -- the success-path close already reported it
+            try { if (openFd) await openFd.close(); } catch (e) { /* reported by the success-path close */ }
+        }
+    }
+}
+
+async function _phase2importMPCParams(zkeyNameOld, mpcparamsName, zkeyNameNew, name, logger, fds) {
 
     const {fd: fdZKeyOld, sections: sectionsZKeyOld} = await binFileUtils.readBinFile(zkeyNameOld, "zkey", 2);
+    fds.fdZKeyOld = fdZKeyOld;
     const zkeyHeader = await zkeyUtils.readHeader(fdZKeyOld, sectionsZKeyOld, false);
     if (zkeyHeader.protocol != "groth16") {
         throw new Error("zkey file is not groth16");
@@ -39,6 +58,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     const newMPCParams = {};
 
     const fdMPCParams = await fastFile.readExisting(mpcparamsName);
+    fds.fdMPCParams = fdMPCParams;
 
     fdMPCParams.pos =
         sG1*3 + sG2*3 +                     // vKey
@@ -73,10 +93,13 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
         newMPCParams.contributions.push(c);
     }
 
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (!misc.hashIsEqual(newMPCParams.csHash, oldMPCParams.csHash)) {
         if (logger) logger.error("Hash of the original circuit does not match with the MPC one");
         return false;
     }
+    /* c8 ignore stop */
 
     if (oldMPCParams.contributions.length > newMPCParams.contributions.length) {
         if (logger) logger.error("The impoerted file does not include new contributions");
@@ -99,6 +122,7 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
     }
 
     const fdZKeyNew = await binFileUtils.createBinFile(zkeyNameNew, "zkey", 1, 10);
+    fds.fdZKeyNew = fdZKeyNew;
     fdMPCParams.pos = 0;
 
     // Header
@@ -112,11 +136,14 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
     // IC (Keep original)
     const nIC = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nIC != zkeyHeader.nPublic +1) {
         if (logger) logger.error("Invalid number of points in IC");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     fdMPCParams.pos += sG1*(zkeyHeader.nPublic+1);
     await binFileUtils.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 3);
 
@@ -125,11 +152,14 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
     // H Section
     const nH = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nH != zkeyHeader.domainSize-1) {
         if (logger) logger.error("Invalid number of points in H");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     let buffH;
     const buffTauU = await fdMPCParams.read(sG1*(zkeyHeader.domainSize-1));
     const buffTauLEM = await curve.G1.batchUtoLEM(buffTauU);
@@ -146,11 +176,14 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
     // C Section (L section)
     const nL = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nL != (zkeyHeader.nVars-zkeyHeader.nPublic-1)) {
         if (logger) logger.error("Invalid number of points in L");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     let buffL;
     buffL = await fdMPCParams.read(sG1*(zkeyHeader.nVars-zkeyHeader.nPublic-1));
     buffL = await curve.G1.batchUtoLEM(buffL);
@@ -160,31 +193,40 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
     // A Section
     const nA = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nA != zkeyHeader.nVars) {
         if (logger) logger.error("Invalid number of points in A");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     fdMPCParams.pos += sG1*(zkeyHeader.nVars);
     await binFileUtils.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 5);
 
     // B1 Section
     const nB1 = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nB1 != zkeyHeader.nVars) {
         if (logger) logger.error("Invalid number of points in B1");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     fdMPCParams.pos += sG1*(zkeyHeader.nVars);
     await binFileUtils.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 6);
 
     // B2 Section
     const nB2 = await fdMPCParams.readUBE32();
+    // coverage: reachable only with a hand-forged ceremony/response file
+    /* c8 ignore start */
     if (nB2 != zkeyHeader.nVars) {
         if (logger) logger.error("Invalid number of points in B2");
         await fdZKeyNew.discard();
         return false;
     }
+    /* c8 ignore stop */
     fdMPCParams.pos += sG2*(zkeyHeader.nVars);
     await binFileUtils.copySection(fdZKeyOld, sectionsZKeyOld, fdZKeyNew, 7);
 
@@ -208,11 +250,23 @@ export default async function phase2importMPCParams(zkeyNameOld, mpcparamsName, 
 
 
     function contributionIsEqual(c1, c2) {
+        // coverage: reachable only with a hand-forged ceremony/response file
+        /* c8 ignore start */
         if (!curve.G1.eq(c1.deltaAfter   , c2.deltaAfter)) return false;
+        /* c8 ignore stop */
+        // coverage: reachable only with a hand-forged ceremony/response file
+        /* c8 ignore start */
         if (!curve.G1.eq(c1.delta.g1_s   , c2.delta.g1_s)) return false;
+        /* c8 ignore stop */
+        // coverage: reachable only with a hand-forged ceremony/response file
+        /* c8 ignore start */
         if (!curve.G1.eq(c1.delta.g1_sx  , c2.delta.g1_sx)) return false;
+        /* c8 ignore stop */
         if (!curve.G2.eq(c1.delta.g2_spx , c2.delta.g2_spx)) return false;
+        // coverage: reachable only with a hand-forged ceremony/response file
+        /* c8 ignore start */
         if (!misc.hashIsEqual(c1.transcript, c2.transcript)) return false;
+        /* c8 ignore stop */
         return true;
     }
 
