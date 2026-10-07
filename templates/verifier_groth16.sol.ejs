@@ -105,6 +105,24 @@ contract Groth16Verifier {
                 mstore(add(_pPairing, 32), mod(sub(q, calldataload(add(pA, 32))), q))
 
                 // B
+                //
+                // NOTE ON G2 ORDERING.  `_pB` is expected to ALREADY be in
+                // EIP-197 order, i.e. [x_im, x_re, y_im, y_re], and is passed
+                // through unchanged here.  The verification-key constants
+                // above (betax1/betax2/...) are likewise emitted im-first.
+                //
+                // The swap therefore happens on the CALLER side, not in this
+                // contract.  `snarkjs zkey export soliditycalldata` performs
+                // it for you (see src/groth16_exportsoliditycalldata.js).  If
+                // you build calldata by hand from a proof.json, you must swap
+                // each G2 coordinate pair yourself:
+                //
+                //     B = [[pi_b[0][1], pi_b[0][0]],
+                //          [pi_b[1][1], pi_b[1][0]]]
+                //
+                // Passing proof.json's natural order straight through yields
+                // an off-curve point; the pairing precompile then fails and
+                // verifyProof returns false for an otherwise valid proof.
                 mstore(add(_pPairing, 64), calldataload(pB))
                 mstore(add(_pPairing, 96), calldataload(add(pB, 32)))
                 mstore(add(_pPairing, 128), calldataload(add(pB, 64)))
