@@ -159,7 +159,7 @@ const commands = [
     },
     {
         cmd: "wtns debug [circuit.wasm] [input.json] [witness.wtns] [circuit.sym]",
-        description: "Calculate the witness with debug info.",
+        description: "Calculate the witness with debug info",
         longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
         options: "-get|g -set|s -trigger|t",
         alias: ["wd"],
@@ -167,8 +167,7 @@ const commands = [
     },
     {
         cmd: "wtns export json [witness.wtns] [witnes.json]",
-        description: "Calculate the witness with debug info.",
-        longDescription: "Calculate the witness with debug info. \nOptions:\n-g or --g : Log signal gets\n-s or --s : Log signal sets\n-t or --trigger : Log triggers ",
+        description: "Export a witness to a JSON file",
         options: "-verbose|v",
         alias: ["wej"],
         action: wtnsExportJson
@@ -249,7 +248,7 @@ const commands = [
     },
     {
         cmd: "zkey export soliditycalldata [public.json] [proof.json]",
-        description: "Generates call parameters ready to be called.",
+        description: "Generates call parameters ready to be called",
         alias: ["zkesc", "generatecall -pub|public -p|proof"],
         action: zkeyExportSolidityCalldata
     },
@@ -359,7 +358,7 @@ TODO COMMANDS
 
     {
         cmd: "zksnark setup [circuit.r1cs] [circuit.zkey] [verification_key.json]",
-        description: "Run a simple setup for a circuit generating the proving key.",
+        description: "Run a simple setup for a circuit generating the proving key",
         alias: ["zs", "setup -r1cs|r -provingkey|pk -verificationkey|vk"],
         options: "-verbose|v -protocol",
         action: zksnarkSetup
