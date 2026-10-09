@@ -353,7 +353,7 @@ export default async function phase2verifyFromInit(initFileName, pTauFileName, z
         const sG = curve.G1.F.n8*2;
         const nPoints = buff1.byteLength / sG;
         const concurrency= curve.tm.concurrency;
-        const nPointsPerThread = Math.floor(nPoints / concurrency);
+        const nPointsPerThread = ~~(nPoints / concurrency);
         const opPromises = [];
         for (let i=0; i<concurrency; i++) {
             let n;

@@ -55,7 +55,7 @@ export async function applyKeyToSection(fdOld, sections, fdNew, idSection, curve
 export async function applyKeyToChallengeSection(fdOld, fdNew, responseHasher, curve, groupName, nPoints, first, inc, formatOut, sectionName, logger) {
     const G = curve[groupName];
     const sG = G.F.n8*2;
-    const chunkSize = Math.floor((1<<20) / sG);   // 128Mb chunks
+    const chunkSize = ~~((1<<20) / sG);   // 128Mb chunks
     let t = first;
     for (let i=0 ; i<nPoints ; i+= chunkSize) {
         if (logger) logger.debug(`Applying key ${sectionName}: ${i}/${nPoints}`);
