@@ -106,7 +106,7 @@ contract PlonkVerifier {
     
     uint16 constant lastMem = 864;
 
-    function verifyProof(bytes memory proof, uint[] memory pubSignals) public view returns (bool) {
+    function verifyProof(bytes memory proof, uint[] memory pubSignals) external view returns (bool) {
         assembly {
             /////////
             // Computes the inverse using the extended euclidean algorithm
