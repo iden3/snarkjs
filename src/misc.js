@@ -259,3 +259,10 @@ export function stringifyBigIntsWithField(Fr, o) {
         return o;
     }
 }
+
+export function isBigIntArray(o, n) {
+    if (!Array.isArray(o) || o.length !== n) {
+        return false
+    }
+    return o.every(e => typeof e === "bigint")
+}
