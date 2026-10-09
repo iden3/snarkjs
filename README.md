@@ -355,7 +355,7 @@ snarkjs plonk setup circuit.r1cs pot14_final.ptau circuit_final.zkey
 snarkjs fflonk setup circuit.r1cs pot14_final.ptau circuit.zkey
 ```
 
-You can jump directly to Section 21 as PLONK and FFLONK do not require a circuit-specific trusted ceremony.
+You can jump directly to Section 22 as PLONK and FFLONK do not require a circuit-specific trusted ceremony.
 
 #### Groth16
 ```sh
